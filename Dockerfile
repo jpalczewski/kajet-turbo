@@ -2,8 +2,10 @@ FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim
 
 WORKDIR /app
 
-# Copy project files (must include src/ for build backend)
+# Layer cache: zależności przed kodem
 COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
 COPY src/ src/
 RUN uv sync --frozen --no-dev
 
