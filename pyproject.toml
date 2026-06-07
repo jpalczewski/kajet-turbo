@@ -1,0 +1,35 @@
+[project]
+name = "kajet-turbo"
+version = "0.1.0"
+description = "RAG dla notatek markdown — dostęp z Claude mobile via MCP OAuth"
+authors = [{ name = "Jacek Palczewski", email = "jpalczewski@gmail.com" }]
+requires-python = ">=3.14"
+dependencies = [
+    "fastmcp>=3.2.0",
+]
+
+[project.scripts]
+kajet-turbo = "kajet_turbo.server:main"
+
+[build-system]
+requires = ["uv_build>=0.11.4,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.9",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"
