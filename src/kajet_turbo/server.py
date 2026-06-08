@@ -3,10 +3,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastmcp.utilities.lifespan import combine_lifespans
 
 from kajet_turbo.api import api_router
-from kajet_turbo.auth import hash_password
+from kajet_turbo.auth import _resolve_base_url, hash_password
 from kajet_turbo.dependencies import db, note_service, oauth_repo, provider, user_repo, workspace_service
 from kajet_turbo.mcp import build_mcp
 
@@ -52,6 +53,23 @@ def build_app() -> FastAPI:
     app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan))
     app.include_router(api_router)
     app.mount("/mcp", mcp_app)
+
+    # RFC 8615: expose OAuth discovery at origin root so MCP clients find it
+    # (clients look at {origin}/.well-known/... not {mcp_path}/.well-known/...)
+    _mcp_base = _resolve_base_url().rstrip("/") + "/mcp"
+
+    @app.get("/.well-known/oauth-authorization-server")
+    async def _oauth_metadata_root():
+        return JSONResponse({
+            "issuer": _mcp_base,
+            "authorization_endpoint": f"{_mcp_base}/authorize",
+            "token_endpoint": f"{_mcp_base}/token",
+            "registration_endpoint": f"{_mcp_base}/register",
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
+            "code_challenge_methods_supported": ["S256"],
+        })
 
     dist = Path(__file__).parent.parent.parent / "dist"
     if dist.exists():
