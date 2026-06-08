@@ -272,15 +272,35 @@ def _build_mcp() -> FastMCP:
     return mcp
 
 
-def main() -> None:
-    from starlette.staticfiles import StaticFiles
+class _SPAFiles:
+    """Starlette mount that serves index.html for any path without a matching file (SPA fallback)."""
 
+    def __init__(self, directory: str) -> None:
+        from starlette.staticfiles import StaticFiles
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+
+        class _SPA(StaticFiles):
+            async def get_response(self, path: str, scope):
+                try:
+                    return await super().get_response(path, scope)
+                except StarletteHTTPException as exc:
+                    if exc.status_code == 404:
+                        return await super().get_response("index.html", scope)
+                    raise
+
+        self._app = _SPA(directory=directory, html=True)
+
+    async def __call__(self, scope, receive, send) -> None:
+        await self._app(scope, receive, send)
+
+
+def main() -> None:
     mcp = _build_mcp()
     app = mcp.http_app(transport="streamable-http")
 
     dist = Path(__file__).parent.parent.parent / "dist"
     if dist.exists():
-        app.mount("/", StaticFiles(directory=str(dist), html=True))
+        app.mount("/", _SPAFiles(str(dist)))
 
     import uvicorn
     uvicorn.run(app, host=os.getenv("MCP_HOST", "0.0.0.0"), port=int(os.getenv("MCP_PORT", "8000")))
