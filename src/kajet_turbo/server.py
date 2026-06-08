@@ -176,15 +176,17 @@ def _build_mcp() -> FastMCP:
 
         if ws_param == "all":
             workspaces = _list_workspaces()
+            per_ws_limit = limit * 3  # oversample to allow global ranking
         else:
             ws_name = ws_param if ws_param != "active" else await ctx.get_state("active_workspace")
             if not ws_name:
                 return "Wywołaj activate_workspace() najpierw."
             workspaces = [ws_name]
+            per_ws_limit = limit
 
         results = []
         for ws in workspaces:
-            hits = storage.hybrid_search(query, ws, limit=limit)
+            hits = storage.hybrid_search(query, ws, limit=per_ws_limit)
             results.extend(hits)
 
         if not results:
@@ -198,13 +200,7 @@ def _build_mcp() -> FastMCP:
         storage: Storage = ctx.lifespan_context["storage"]
 
         notes = scan_notes(ws_path)
-        # FTS delete must be BEFORE notes delete — subquery needs notes.fts_rowid
-        storage._conn.execute(
-            "DELETE FROM notes_fts WHERE rowid IN (SELECT fts_rowid FROM notes WHERE workspace = ? AND fts_rowid IS NOT NULL)",
-            (ws_name,),
-        )
-        storage._conn.execute("DELETE FROM notes WHERE workspace = ?", (ws_name,))
-        storage._conn.commit()
+        storage.delete_workspace_notes(ws_name)
 
         for note in notes:
             if not note["id"]:

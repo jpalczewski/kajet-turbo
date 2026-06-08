@@ -192,16 +192,27 @@ class Storage:
         return [{**row, "tags": json.loads(row["tags"] or "[]")} for row in rows]
 
     def search_fts(self, query: str, workspace: str, limit: int = 50) -> list[dict]:
-        rows = self._conn.execute(
-            """SELECT n.id, n.workspace, n.title, n.tags, n.created_at, n.updated_at
-               FROM notes_fts
-               JOIN notes n ON n.fts_rowid = notes_fts.rowid
-               WHERE notes_fts MATCH ? AND n.workspace = ?
-               ORDER BY rank
-               LIMIT ?""",
-            (query, workspace, limit),
-        ).fetchall()
+        try:
+            rows = self._conn.execute(
+                """SELECT n.id, n.workspace, n.title, n.tags, n.created_at, n.updated_at
+                   FROM notes_fts
+                   JOIN notes n ON n.fts_rowid = notes_fts.rowid
+                   WHERE notes_fts MATCH ? AND n.workspace = ?
+                   ORDER BY rank
+                   LIMIT ?""",
+                (query, workspace, limit),
+            ).fetchall()
+        except Exception:
+            return []
         return [{**row, "tags": json.loads(row["tags"] or "[]")} for row in rows]
+
+    def delete_workspace_notes(self, workspace: str) -> None:
+        self._conn.execute(
+            "DELETE FROM notes_fts WHERE rowid IN (SELECT fts_rowid FROM notes WHERE workspace = ? AND fts_rowid IS NOT NULL)",
+            (workspace,),
+        )
+        self._conn.execute("DELETE FROM notes WHERE workspace = ?", (workspace,))
+        self._conn.commit()
 
     def insert_vec(
         self, note_id: str, note_rowid: int, workspace: str, embedding: bytes
