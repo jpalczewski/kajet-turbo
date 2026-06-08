@@ -90,3 +90,41 @@ def test_list_notes_filter_by_tag(storage):
     ids = [n["id"] for n in notes]
     assert "id1" in ids
     assert "id2" not in ids
+
+
+def test_fts_search_finds_by_title(storage):
+    storage.insert_note("id1", "ws1", "Python async programming", ["python"], _now(), _now(), "tutorial o asyncio")
+    storage.insert_note("id2", "ws1", "JavaScript basics", ["js"], _now(), _now(), "podstawy JS")
+    results = storage.search_fts("async", "ws1")
+    ids = [r["id"] for r in results]
+    assert "id1" in ids
+    assert "id2" not in ids
+
+
+def test_fts_search_finds_by_content(storage):
+    storage.insert_note("id1", "ws1", "Notatka", [], _now(), _now(), "sqlite jest świetny do embeddingów")
+    results = storage.search_fts("embedding", "ws1")
+    assert any(r["id"] == "id1" for r in results)
+
+
+def test_fts_search_respects_workspace(storage):
+    storage.insert_note("id1", "ws1", "Python notatka", [], _now(), _now(), "treść")
+    storage.insert_note("id2", "ws2", "Python inny workspace", [], _now(), _now(), "treść")
+    results = storage.search_fts("Python", "ws1")
+    ids = [r["id"] for r in results]
+    assert "id1" in ids
+    assert "id2" not in ids
+
+
+def test_fts_search_trigram_partial(storage):
+    storage.insert_note("id1", "ws1", "Programowanie", [], _now(), _now(), "nauka programowania w Pythonie")
+    # trigram tokenizer: "gram" should match "programowanie"
+    results = storage.search_fts("gram", "ws1")
+    assert any(r["id"] == "id1" for r in results)
+
+
+def test_update_note_title_only_preserves_fts_content(storage):
+    storage.insert_note("abc1234", "ws1", "Stary tytuł", [], _now(), _now(), "unikalna treść notatki")
+    storage.update_note("abc1234", title="Nowy tytuł", updated_at=_now())
+    results = storage.search_fts("unikalna", "ws1")
+    assert any(r["id"] == "abc1234" for r in results)

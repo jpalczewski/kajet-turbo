@@ -174,3 +174,15 @@ class Storage:
             (workspace, limit),
         ).fetchall()
         return [{**row, "tags": json.loads(row["tags"] or "[]")} for row in rows]
+
+    def search_fts(self, query: str, workspace: str, limit: int = 50) -> list[dict]:
+        rows = self._conn.execute(
+            """SELECT n.id, n.workspace, n.title, n.tags, n.created_at, n.updated_at
+               FROM notes_fts
+               JOIN notes n ON n.fts_rowid = notes_fts.rowid
+               WHERE notes_fts MATCH ? AND n.workspace = ?
+               ORDER BY rank
+               LIMIT ?""",
+            (query, workspace, limit),
+        ).fetchall()
+        return [{**row, "tags": json.loads(row["tags"] or "[]")} for row in rows]
