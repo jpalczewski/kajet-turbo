@@ -40,6 +40,118 @@ def _build_mcp() -> FastMCP:
         await ctx.set_state("active_workspace", name)
         return f"Workspace '{name}' aktywny."
 
+    import json
+    from datetime import datetime, timezone
+    from nanoid import generate
+    from kajet_turbo.workspace import note_filepath, write_note_file, read_note_file, scan_notes
+    from kajet_turbo.git_ops import commit_file, delete_file_commit, GitError
+
+    async def _get_workspace(ctx: Context) -> tuple[str, str]:
+        """Returns (name, path) of active workspace or raises RuntimeError."""
+        name = await ctx.get_state("active_workspace")
+        if not name:
+            raise RuntimeError("Wywołaj activate_workspace() najpierw.")
+        path = str(Path(os.getenv("WORKSPACES_DIR", "/workspaces")) / name)
+        return name, path
+
+    @mcp.tool()
+    async def save_note(
+        title: str,
+        content: str,
+        ctx: Context,
+        tags: list[str] | None = None,
+    ) -> str:
+        """Zapisuje nową notatkę. Zwraca ID."""
+        ws_name, ws_path = await _get_workspace(ctx)
+        storage: Storage = ctx.lifespan_context["storage"]
+
+        note_id = generate(size=7)
+        now = datetime.now(timezone.utc).isoformat()
+        effective_tags = tags or []
+        filepath = note_filepath(ws_path, note_id, title)
+        relative = str(Path(filepath).relative_to(ws_path))
+
+        write_note_file(filepath, note_id, title, effective_tags, now, now, content)
+        try:
+            commit_file(ws_path, relative, f"note: add {title}")
+        except GitError:
+            Path(filepath).unlink(missing_ok=True)
+            raise
+
+        storage.insert_note(note_id, ws_name, title, effective_tags, now, now, content)
+        return note_id
+
+    @mcp.tool()
+    async def get_note(note_id: str, ctx: Context) -> str:
+        """Zwraca notatkę jako JSON."""
+        _, ws_path = await _get_workspace(ctx)
+        storage: Storage = ctx.lifespan_context["storage"]
+        meta = storage.get_note(note_id)
+        if meta is None:
+            return f"Notatka {note_id} nie znaleziono."
+        notes_dir = Path(ws_path) / "notes"
+        files = list(notes_dir.glob(f"{note_id}-*.md"))
+        if not files:
+            return f"Plik notatki {note_id} nie znaleziono."
+        note_data = read_note_file(str(files[0]))
+        return json.dumps({**meta, "content": note_data["content"]}, ensure_ascii=False)
+
+    @mcp.tool()
+    async def update_note(
+        note_id: str,
+        ctx: Context,
+        title: str | None = None,
+        content: str | None = None,
+        tags: list[str] | None = None,
+    ) -> str:
+        """Aktualizuje notatkę."""
+        ws_name, ws_path = await _get_workspace(ctx)
+        storage: Storage = ctx.lifespan_context["storage"]
+        meta = storage.get_note(note_id)
+        if meta is None:
+            return f"Notatka {note_id} nie znaleziona."
+
+        now = datetime.now(timezone.utc).isoformat()
+        new_title = title or meta["title"]
+        new_tags = tags if tags is not None else meta["tags"]
+        notes_dir = Path(ws_path) / "notes"
+        files = list(notes_dir.glob(f"{note_id}-*.md"))
+        if not files:
+            return f"Plik notatki {note_id} nie znaleziony."
+
+        note_data = read_note_file(str(files[0]))
+        new_content = content or note_data["content"]
+        write_note_file(str(files[0]), note_id, new_title, new_tags, meta["created_at"], now, new_content)
+        relative = str(files[0].relative_to(ws_path))
+        commit_file(ws_path, relative, f"note: update {new_title}")
+        storage.update_note(note_id, title=new_title, content=new_content, updated_at=now)
+        return note_id
+
+    @mcp.tool()
+    async def delete_note(note_id: str, ctx: Context) -> str:
+        """Usuwa notatkę."""
+        _, ws_path = await _get_workspace(ctx)
+        storage: Storage = ctx.lifespan_context["storage"]
+        notes_dir = Path(ws_path) / "notes"
+        files = list(notes_dir.glob(f"{note_id}-*.md"))
+        if files:
+            relative = str(files[0].relative_to(ws_path))
+            delete_file_commit(ws_path, relative, f"note: delete {note_id}")
+        storage.delete_note(note_id)
+        return f"Notatka {note_id} usunięta."
+
+    @mcp.tool()
+    async def list_notes(
+        ctx: Context,
+        tags: list[str] | None = None,
+        limit: int = 20,
+    ) -> str:
+        """Zwraca listę notatek jako JSON."""
+        ws_name, _ = await _get_workspace(ctx)
+        storage: Storage = ctx.lifespan_context["storage"]
+        notes = storage.list_notes(ws_name, tags=tags or None, limit=limit)
+        return json.dumps(notes, ensure_ascii=False)
+
     return mcp
 
 
