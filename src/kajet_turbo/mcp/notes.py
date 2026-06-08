@@ -18,9 +18,9 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
     ) -> str:
         """Zapisuje nową notatkę. Sukces: {"id": "..."}. Błąd: {"error": "..."}.
         Uwaga: content powinien zawierać rzeczywiste znaki nowej linii (\\n), nie literalne \\\\n."""
-        user_id, ws_name, ws_path = await get_active_workspace(ctx)
+        owner_id, ws_name, ws_path = await get_active_workspace(ctx)
         try:
-            result = note_service.save(user_id or "", ws_name, ws_path, title, content, tags or [])
+            result = note_service.save(owner_id, ws_name, ws_path, title, content, tags or [])
         except GitError as e:
             return json.dumps({"error": str(e)})
         return json.dumps(result)
@@ -28,8 +28,8 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
     @mcp.tool()
     async def get_note(note_id: str, ctx: Context) -> str:
         """Zwraca notatkę jako JSON object. Błąd: {"error": "..."}."""
-        user_id, _, ws_path = await get_active_workspace(ctx)
-        result = note_service.get_with_content(note_id, owner_id=user_id or "", ws_path=ws_path)
+        owner_id, _, ws_path = await get_active_workspace(ctx)
+        result = note_service.get_with_content(note_id, owner_id=owner_id, ws_path=ws_path)
         if result is None:
             return json.dumps({"error": f"Notatka {note_id} nie znaleziona."})
         return json.dumps(result, ensure_ascii=False)
@@ -43,9 +43,9 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         tags: list[str] | None = None,
     ) -> str:
         """Aktualizuje notatkę. Sukces: {"id": "..."}. Błąd: {"error": "..."}."""
-        user_id, _, ws_path = await get_active_workspace(ctx)
+        owner_id, _, ws_path = await get_active_workspace(ctx)
         try:
-            result = note_service.update(note_id, owner_id=user_id or "", ws_path=ws_path,
+            result = note_service.update(note_id, owner_id=owner_id, ws_path=ws_path,
                                          title=title, content=content, tags=tags)
         except (ValueError, FileNotFoundError) as e:
             return json.dumps({"error": str(e)})
@@ -56,9 +56,9 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
     @mcp.tool()
     async def delete_note(note_id: str, ctx: Context) -> str:
         """Usuwa notatkę. Sukces: {"message": "..."}. Błąd: {"error": "..."}."""
-        user_id, _, ws_path = await get_active_workspace(ctx)
+        owner_id, _, ws_path = await get_active_workspace(ctx)
         try:
-            note_service.delete(note_id, owner_id=user_id or "", ws_path=ws_path)
+            note_service.delete(note_id, owner_id=owner_id, ws_path=ws_path)
         except ValueError as e:
             return json.dumps({"error": str(e)})
         return json.dumps({"message": f"Notatka {note_id} usunięta."})
@@ -71,8 +71,8 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
     ) -> str:
         """Zwraca listę notatek jako JSON array.
         Filtr tags używa OR — notatka pasuje jeśli ma KTÓRYKOLWIEK z podanych tagów."""
-        user_id, ws_name, _ = await get_active_workspace(ctx)
-        notes = note_service.list(ws_name, owner_id=user_id or "", tags=tags or None, limit=limit)
+        owner_id, ws_name, _ = await get_active_workspace(ctx)
+        notes = note_service.list(ws_name, owner_id=owner_id, tags=tags or None, limit=limit)
         return json.dumps(notes, ensure_ascii=False)
 
     @mcp.tool()
@@ -84,11 +84,11 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
     ) -> str:
         """Szuka notatek. workspace='active' (domyślnie) lub 'all'.
         Zwraca JSON array — pusty [] gdy brak wyników. Błąd: {"error": "..."}."""
-        user_id, active_ws, _ = await get_active_workspace(ctx)
-        owner_id = user_id or ""
+        owner_id, active_ws, _ = await get_active_workspace(ctx)
+        real_user_id: str | None = await ctx.get_state("active_user_id")
         ws_param = workspace or "active"
         if ws_param == "all":
-            workspaces = _list_workspaces(user_id=user_id)
+            workspaces = _list_workspaces(user_id=real_user_id)
         else:
             workspaces = [ws_param if ws_param != "active" else active_ws]
         results = note_service.search(query, workspaces, owner_id=owner_id, limit=limit)
@@ -98,6 +98,6 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
     async def reindex_workspace(ctx: Context) -> str:
         """Przebudowuje indeks SQLite z plików .md w aktywnym workspace.
         Sukces: {"message": "...", "count": N}."""
-        user_id, ws_name, ws_path = await get_active_workspace(ctx)
-        result = note_service.reindex(ws_name, owner_id=user_id or "", ws_path=ws_path)
+        owner_id, ws_name, ws_path = await get_active_workspace(ctx)
+        result = note_service.reindex(ws_name, owner_id=owner_id, ws_path=ws_path)
         return json.dumps(result)

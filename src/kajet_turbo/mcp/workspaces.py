@@ -3,21 +3,28 @@ import os
 from pathlib import Path
 
 from fastmcp import Context, FastMCP
+from nanoid import generate
 
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.workspace import list_workspaces as _list_workspaces
 
 
-async def get_active_workspace(ctx: Context) -> tuple[str | None, str, str]:
-    """Returns (user_id, workspace_slug, workspace_path)."""
+async def get_active_workspace(ctx: Context) -> tuple[str, str, str]:
+    """Returns (owner_id, workspace_slug, workspace_path).
+
+    owner_id is always non-empty: real user_id for OAuth sessions,
+    unique per-session anon-* ID for unauthenticated sessions.
+    Path uses the real user_id segment only for authenticated users.
+    """
     name = await ctx.get_state("active_workspace")
     if not name:
         raise RuntimeError("Wywołaj activate_workspace() najpierw.")
-    user_id: str | None = await ctx.get_state("active_user_id")
+    owner_id: str = await ctx.get_state("active_owner_id")
+    real_user_id: str | None = await ctx.get_state("active_user_id")
     base = Path(os.getenv("WORKSPACES_DIR", "/workspaces"))
-    path = str(base / user_id / name) if user_id else str(base / name)
-    return user_id, name, path
+    path = str(base / real_user_id / name) if real_user_id else str(base / name)
+    return owner_id, name, path
 
 
 def register_workspaces(
@@ -63,8 +70,11 @@ def register_workspaces(
         else:
             if name not in _list_workspaces():
                 return json.dumps({"error": f"Workspace '{name}' nie istnieje.", "available": _list_workspaces()})
+        existing_owner_id = await ctx.get_state("active_owner_id")
+        owner_id = user_id or existing_owner_id or f"anon-{generate(size=12)}"
         await ctx.set_state("active_workspace", name)
         await ctx.set_state("active_user_id", user_id)
+        await ctx.set_state("active_owner_id", owner_id)
         return json.dumps({"message": f"Workspace '{name}' aktywny."})
 
     @mcp.tool()
