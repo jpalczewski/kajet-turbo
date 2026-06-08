@@ -78,6 +78,26 @@ class Storage:
                 workspace  TEXT partition key,
                 note_id    TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS oauth_registered_clients (
+                client_id  TEXT PRIMARY KEY,
+                data       TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS oauth_access_tokens (
+                token         TEXT PRIMARY KEY,
+                client_id     TEXT NOT NULL,
+                scopes        TEXT,
+                expires_at    INTEGER,
+                refresh_token TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+                token      TEXT PRIMARY KEY,
+                client_id  TEXT NOT NULL,
+                scopes     TEXT,
+                expires_at INTEGER
+            );
         """)
         self._conn.commit()
 
@@ -294,6 +314,64 @@ class Storage:
             "SELECT COUNT(*) FROM notes_vec WHERE workspace = ?", (workspace,)
         ).fetchone()[0]
         return count > 0
+
+    def upsert_registered_client(self, client_id: str, data: str) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO oauth_registered_clients (client_id, data) VALUES (?, ?)",
+            (client_id, data),
+        )
+        self._conn.commit()
+
+    def get_all_registered_clients(self) -> list[str]:
+        rows = self._conn.execute("SELECT data FROM oauth_registered_clients").fetchall()
+        return [row["data"] for row in rows]
+
+    def upsert_access_token(
+        self,
+        token: str,
+        client_id: str,
+        scopes: list[str] | None,
+        expires_at: int | None,
+        refresh_token: str | None = None,
+    ) -> None:
+        self._conn.execute(
+            """INSERT OR REPLACE INTO oauth_access_tokens
+               (token, client_id, scopes, expires_at, refresh_token) VALUES (?, ?, ?, ?, ?)""",
+            (token, client_id, json.dumps(scopes or []), expires_at, refresh_token),
+        )
+        self._conn.commit()
+
+    def upsert_refresh_token(
+        self,
+        token: str,
+        client_id: str,
+        scopes: list[str] | None,
+        expires_at: int | None,
+    ) -> None:
+        self._conn.execute(
+            """INSERT OR REPLACE INTO oauth_refresh_tokens
+               (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)""",
+            (token, client_id, json.dumps(scopes or []), expires_at),
+        )
+        self._conn.commit()
+
+    def get_valid_access_tokens(self) -> list[dict]:
+        import time
+        rows = self._conn.execute(
+            "SELECT token, client_id, scopes, expires_at, refresh_token FROM oauth_access_tokens"
+            " WHERE expires_at IS NULL OR expires_at > ?",
+            (int(time.time()),),
+        ).fetchall()
+        return [{**row, "scopes": json.loads(row["scopes"] or "[]")} for row in rows]
+
+    def get_valid_refresh_tokens(self) -> list[dict]:
+        import time
+        rows = self._conn.execute(
+            "SELECT token, client_id, scopes, expires_at FROM oauth_refresh_tokens"
+            " WHERE expires_at IS NULL OR expires_at > ?",
+            (int(time.time()),),
+        ).fetchall()
+        return [{**row, "scopes": json.loads(row["scopes"] or "[]")} for row in rows]
 
     def save_oauth_client(
         self,

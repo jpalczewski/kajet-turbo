@@ -10,8 +10,10 @@ from fastmcp.server.auth.providers.in_memory import (
     InMemoryOAuthProvider,
 )
 from mcp.server.auth.provider import (
+    AccessToken,
     AuthorizationCode,
     AuthorizationParams,
+    RefreshToken,
     construct_redirect_uri,
 )
 from mcp.server.auth.settings import ClientRegistrationOptions
@@ -55,6 +57,72 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
         super().__init__(**kwargs)
         self._storage = storage
         self._pending: dict[str, tuple[OAuthClientInformationFull, AuthorizationParams]] = {}
+        self._restore_state()
+
+    def _restore_state(self) -> None:
+        for data in self._storage.get_all_registered_clients():
+            try:
+                client = OAuthClientInformationFull.model_validate_json(data)
+                self.clients[client.client_id] = client
+            except Exception:
+                pass
+
+        for row in self._storage.get_valid_refresh_tokens():
+            try:
+                self.refresh_tokens[row["token"]] = RefreshToken(
+                    token=row["token"],
+                    client_id=row["client_id"],
+                    scopes=row["scopes"],
+                    expires_at=row["expires_at"],
+                )
+            except Exception:
+                pass
+
+        for row in self._storage.get_valid_access_tokens():
+            try:
+                self.access_tokens[row["token"]] = AccessToken(
+                    token=row["token"],
+                    client_id=row["client_id"],
+                    scopes=row["scopes"],
+                    expires_at=row["expires_at"],
+                )
+                if row["refresh_token"]:
+                    self._access_to_refresh_map[row["token"]] = row["refresh_token"]
+                    self._refresh_to_access_map[row["refresh_token"]] = row["token"]
+            except Exception:
+                pass
+
+    async def register_client(self, client_info: OAuthClientInformationFull) -> None:
+        await super().register_client(client_info)
+        self._storage.upsert_registered_client(client_info.client_id, client_info.model_dump_json())
+
+    async def exchange_authorization_code(
+        self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode
+    ):
+        result = await super().exchange_authorization_code(client, authorization_code)
+        at = self.access_tokens.get(result.access_token)
+        rt = self.refresh_tokens.get(result.refresh_token) if result.refresh_token else None
+        if rt:
+            self._storage.upsert_refresh_token(rt.token, rt.client_id, rt.scopes, rt.expires_at)
+        if at:
+            self._storage.upsert_access_token(
+                at.token, at.client_id, at.scopes, at.expires_at,
+                result.refresh_token,
+            )
+        return result
+
+    async def exchange_refresh_token(self, client, refresh_token, scopes):
+        result = await super().exchange_refresh_token(client, refresh_token, scopes)
+        at = self.access_tokens.get(result.access_token)
+        rt = self.refresh_tokens.get(result.refresh_token) if result.refresh_token else None
+        if rt:
+            self._storage.upsert_refresh_token(rt.token, rt.client_id, rt.scopes, rt.expires_at)
+        if at:
+            self._storage.upsert_access_token(
+                at.token, at.client_id, at.scopes, at.expires_at,
+                result.refresh_token,
+            )
+        return result
 
     async def authorize(
         self, client: OAuthClientInformationFull, params: AuthorizationParams
