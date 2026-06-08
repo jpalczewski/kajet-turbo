@@ -232,9 +232,14 @@ def _build_mcp() -> FastMCP:
 
 
 def main() -> None:
+    from starlette.staticfiles import StaticFiles
+
     mcp = _build_mcp()
-    mcp.run(
-        transport="streamable-http",
-        host=os.getenv("MCP_HOST", "0.0.0.0"),
-        port=int(os.getenv("MCP_PORT", "8000")),
-    )
+    app = mcp.http_app(transport="streamable-http")
+
+    dist = Path(__file__).parent.parent.parent / "dist"
+    if dist.exists():
+        app.mount("/", StaticFiles(directory=str(dist), html=True))
+
+    import uvicorn
+    uvicorn.run(app, host=os.getenv("MCP_HOST", "0.0.0.0"), port=int(os.getenv("MCP_PORT", "8000")))
