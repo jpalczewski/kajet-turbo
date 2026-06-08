@@ -4,3 +4,10 @@ services:
     ports:
       - "8000:8000"
     env_file: .env
+    volumes:
+      - kajet_data:/data
+      - kajet_workspaces:/workspaces
+
+volumes:
+  kajet_data:
+  kajet_workspaces:

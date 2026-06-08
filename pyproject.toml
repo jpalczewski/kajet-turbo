@@ -6,6 +6,10 @@ authors = [{ name = "Jacek Palczewski", email = "jpalczewski@gmail.com" }]
 requires-python = ">=3.14"
 dependencies = [
     "fastmcp>=3.2.0",
+    "sqlite-vec>=0.1.9",
+    "python-frontmatter>=1.1.0",
+    "nanoid>=2.0.0",
+    "gitpython>=3.1.0",
 ]
 
 [project.scripts]
