@@ -180,3 +180,21 @@ def test_user_repository_create_and_get(tmp_path):
     assert user["password_hash"] == "hash123"
     assert repo.count() == 1
     db.close()
+
+
+def test_session_repository(tmp_path):
+    from kajet_turbo.db import Database
+    from kajet_turbo.repositories.users import UserRepository
+    from kajet_turbo.repositories.sessions import SessionRepository
+    db = Database(str(tmp_path / "test.db"))
+    users = UserRepository(db.engine)
+    sessions = SessionRepository(db.engine)
+    uid = users.create("x@y.com", "h")
+    token = sessions.create(uid)
+    assert len(token) == 64
+    user = sessions.get_user(token)
+    assert user is not None
+    assert user["email"] == "x@y.com"
+    sessions.delete(token)
+    assert sessions.get_user(token) is None
+    db.close()
