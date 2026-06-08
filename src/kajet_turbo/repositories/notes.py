@@ -41,19 +41,9 @@ class NoteRepository:
             session.add(note)
             session.commit()
 
-    def get(self, note_id: str) -> dict | None:
+    def get(self, note_id: str) -> Note | None:
         with Session(self._engine) as session:
-            note = session.exec(select(Note).where(Note.id == note_id)).first()
-        if note is None:
-            return None
-        return {
-            "id": note.id,
-            "workspace": note.workspace,
-            "title": note.title,
-            "tags": json.loads(note.tags or "[]"),
-            "created_at": note.created_at,
-            "updated_at": note.updated_at,
-        }
+            return session.exec(select(Note).where(Note.id == note_id)).first()
 
     def update(
         self,

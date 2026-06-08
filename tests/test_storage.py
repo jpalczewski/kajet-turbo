@@ -56,9 +56,9 @@ def _now() -> str:
 def test_insert_and_get_note(notes):
     notes.insert("abc1234", "ws1", "Moja notatka", ["python"], _now(), _now(), "treść notatki")
     note = notes.get("abc1234")
-    assert note["id"] == "abc1234"
-    assert note["title"] == "Moja notatka"
-    assert note["workspace"] == "ws1"
+    assert note.id == "abc1234"
+    assert note.title == "Moja notatka"
+    assert note.workspace == "ws1"
 
 
 def test_get_note_returns_none_for_missing(notes):
@@ -69,7 +69,7 @@ def test_update_note(notes):
     notes.insert("abc1234", "ws1", "Stary tytuł", [], _now(), _now(), "treść")
     notes.update("abc1234", title="Nowy tytuł", content="nowa treść", updated_at=_now())
     note = notes.get("abc1234")
-    assert note["title"] == "Nowy tytuł"
+    assert note.title == "Nowy tytuł"
 
 
 def test_delete_note(notes):

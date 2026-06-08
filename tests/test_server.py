@@ -262,8 +262,8 @@ def test_note_repository(tmp_path):
 
     note = repo.get("n001")
     assert note is not None
-    assert note["title"] == "Testowa notatka"
-    assert note["tags"] == ["python"]
+    assert note.title == "Testowa notatka"
+    assert json.loads(note.tags or "[]") == ["python"]
 
     notes = repo.list("ws1")
     assert len(notes) == 1
@@ -274,7 +274,7 @@ def test_note_repository(tmp_path):
 
     repo.update("n001", title="Nowy tytuł", content="Nowa treść", updated_at=now)
     updated = repo.get("n001")
-    assert updated["title"] == "Nowy tytuł"
+    assert updated.title == "Nowy tytuł"
 
     repo.delete("n001")
     assert repo.get("n001") is None

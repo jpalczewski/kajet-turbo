@@ -46,15 +46,19 @@ def register_notes(mcp: FastMCP, note_repo: NoteRepository) -> None:
     async def get_note(note_id: str, ctx: Context) -> str:
         """Zwraca notatkę jako JSON object. Błąd: {"error": "..."}."""
         _, ws_path = await get_active_workspace(ctx)
-        meta = note_repo.get(note_id)
-        if meta is None:
+        note = note_repo.get(note_id)
+        if note is None:
             return json.dumps({"error": f"Notatka {note_id} nie znaleziona."})
         notes_dir = Path(ws_path) / "notes"
         files = list(notes_dir.glob(f"{note_id}-*.md"))
         if not files:
             return json.dumps({"error": f"Plik notatki {note_id} nie znaleziony."})
         note_data = read_note_file(str(files[0]))
-        return json.dumps({**meta, "content": note_data["content"]}, ensure_ascii=False)
+        return json.dumps({
+            "id": note.id, "workspace": note.workspace, "title": note.title,
+            "tags": json.loads(note.tags or "[]"), "created_at": note.created_at,
+            "updated_at": note.updated_at, "content": note_data["content"],
+        }, ensure_ascii=False)
 
     @mcp.tool()
     async def update_note(
@@ -66,12 +70,13 @@ def register_notes(mcp: FastMCP, note_repo: NoteRepository) -> None:
     ) -> str:
         """Aktualizuje notatkę. Sukces: {"id": "..."}. Błąd: {"error": "..."}."""
         ws_name, ws_path = await get_active_workspace(ctx)
-        meta = note_repo.get(note_id)
-        if meta is None:
+        note = note_repo.get(note_id)
+        if note is None:
             return json.dumps({"error": f"Notatka {note_id} nie znaleziona."})
         now = datetime.now(UTC).isoformat()
-        new_title = title if title is not None else meta["title"]
-        new_tags = tags if tags is not None else meta["tags"]
+        new_title = title if title is not None else note.title
+        current_tags = json.loads(note.tags or "[]")
+        new_tags = tags if tags is not None else current_tags
         notes_dir = Path(ws_path) / "notes"
         files = list(notes_dir.glob(f"{note_id}-*.md"))
         if not files:
@@ -79,12 +84,12 @@ def register_notes(mcp: FastMCP, note_repo: NoteRepository) -> None:
         note_data = read_note_file(str(files[0]))
         old_content = note_data["content"]
         new_content = content if content is not None else old_content
-        write_note_file(str(files[0]), note_id, new_title, new_tags, meta["created_at"], now, new_content)
+        write_note_file(str(files[0]), note_id, new_title, new_tags, note.created_at, now, new_content)
         try:
             relative = str(files[0].relative_to(ws_path))
             commit_file(ws_path, relative, f"note: update {new_title}")
         except GitError:
-            write_note_file(str(files[0]), note_id, meta["title"], meta["tags"], meta["created_at"], meta["updated_at"], old_content)
+            write_note_file(str(files[0]), note_id, note.title, current_tags, note.created_at, note.updated_at, old_content)
             raise
         note_repo.update(note_id, title=new_title, content=new_content, tags=new_tags, updated_at=now)
         return json.dumps({"id": note_id})
