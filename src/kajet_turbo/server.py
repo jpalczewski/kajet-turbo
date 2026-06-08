@@ -2,8 +2,8 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastmcp.utilities.lifespan import combine_lifespans
 
 from kajet_turbo.api import api_router
@@ -54,12 +54,12 @@ def build_app() -> FastAPI:
     app.include_router(api_router)
     app.mount("/mcp", mcp_app)
 
-    # RFC 8615: expose OAuth discovery at origin root so MCP clients find it
-    # (clients look at {origin}/.well-known/... not {mcp_path}/.well-known/...)
+    # OAuth discovery routes — registered before SPA so the catch-all never intercepts them.
+    # Clients (Claude mobile) look for all of these at the origin root per RFC 8615 / RFC 9728.
     _mcp_base = _resolve_base_url().rstrip("/") + "/mcp"
 
     @app.get("/.well-known/oauth-authorization-server")
-    async def _oauth_metadata_root():
+    async def _oauth_as_metadata():
         return JSONResponse({
             "issuer": _mcp_base,
             "authorization_endpoint": f"{_mcp_base}/authorize",
@@ -70,6 +70,24 @@ def build_app() -> FastAPI:
             "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
             "code_challenge_methods_supported": ["S256"],
         })
+
+    @app.get("/.well-known/oauth-protected-resource")
+    @app.get("/.well-known/oauth-protected-resource/mcp")
+    @app.get("/.well-known/oauth-protected-resource/mcp/")
+    async def _oauth_resource_metadata():
+        # RFC 9728: resource server metadata; WWW-Authenticate header points here
+        return JSONResponse({
+            "resource": f"{_mcp_base}/",
+            "authorization_servers": [_mcp_base],
+            "scopes_supported": [],
+            "bearer_methods_supported": ["header"],
+        })
+
+    # POST /mcp (no trailing slash) hits the SPA catch-all and gets 405.
+    # Redirect to /mcp/ so the mcp_app mount handles it.
+    @app.api_route("/mcp", methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"])
+    async def _mcp_slash_redirect(request: Request):
+        return RedirectResponse(url="/mcp/", status_code=307)
 
     dist = Path(__file__).parent.parent.parent / "dist"
     if dist.exists():
