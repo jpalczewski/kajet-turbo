@@ -8,9 +8,9 @@ from pathlib import Path
 
 import sqlite_vec
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel import SQLModel, create_engine
 
-from kajet_turbo.models import (
+from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.metadata
     ClientAuthorization,
     Note,
     OAuthAccessToken,
@@ -276,7 +276,8 @@ class Storage:
 
     def delete_workspace_notes(self, workspace: str) -> None:
         self._conn.execute(
-            "DELETE FROM notes_fts WHERE rowid IN (SELECT fts_rowid FROM notes WHERE workspace = ? AND fts_rowid IS NOT NULL)",
+            "DELETE FROM notes_fts WHERE rowid IN "
+            "(SELECT fts_rowid FROM notes WHERE workspace = ? AND fts_rowid IS NOT NULL)",
             (workspace,),
         )
         self._conn.execute("DELETE FROM notes WHERE workspace = ?", (workspace,))
