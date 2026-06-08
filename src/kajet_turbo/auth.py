@@ -161,6 +161,6 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
 def create_auth(oauth_repo: OAuthRepository) -> KajetOAuthProvider:
     return KajetOAuthProvider(
         oauth_repo=oauth_repo,
-        base_url=_resolve_base_url(),
+        base_url=_resolve_base_url().rstrip("/") + "/mcp",
         client_registration_options=ClientRegistrationOptions(enabled=True),
     )
