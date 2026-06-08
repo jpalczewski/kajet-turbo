@@ -1,7 +1,6 @@
 import os
 import secrets
 import time
-from datetime import UTC, datetime
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
@@ -19,7 +18,7 @@ from mcp.server.auth.provider import (
 from mcp.server.auth.settings import ClientRegistrationOptions
 from mcp.shared.auth import OAuthClientInformationFull
 
-from kajet_turbo.storage import Storage
+from kajet_turbo.repositories.oauth import OAuthRepository
 
 _ph = PasswordHasher()
 
@@ -53,21 +52,21 @@ def _resolve_base_url() -> str:
 class KajetOAuthProvider(InMemoryOAuthProvider):
     """OAuth provider that shows a real login form instead of auto-approving."""
 
-    def __init__(self, storage: Storage, **kwargs):
+    def __init__(self, oauth_repo: OAuthRepository, **kwargs):
         super().__init__(**kwargs)
-        self._storage = storage
+        self._oauth_repo = oauth_repo
         self._pending: dict[str, tuple[OAuthClientInformationFull, AuthorizationParams]] = {}
         self._restore_state()
 
     def _restore_state(self) -> None:
-        for data in self._storage.get_all_registered_clients():
+        for data in self._oauth_repo.get_all_registered_clients():
             try:
                 client = OAuthClientInformationFull.model_validate_json(data)
                 self.clients[client.client_id] = client
             except Exception:
                 pass
 
-        for row in self._storage.get_valid_refresh_tokens():
+        for row in self._oauth_repo.get_valid_refresh_tokens():
             try:
                 self.refresh_tokens[row["token"]] = RefreshToken(
                     token=row["token"],
@@ -78,7 +77,7 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
             except Exception:
                 pass
 
-        for row in self._storage.get_valid_access_tokens():
+        for row in self._oauth_repo.get_valid_access_tokens():
             try:
                 self.access_tokens[row["token"]] = AccessToken(
                     token=row["token"],
@@ -94,7 +93,7 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         await super().register_client(client_info)
-        self._storage.upsert_registered_client(client_info.client_id, client_info.model_dump_json())
+        self._oauth_repo.upsert_registered_client(client_info.client_id, client_info.model_dump_json())
 
     async def exchange_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode
@@ -103,11 +102,10 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
         at = self.access_tokens.get(result.access_token)
         rt = self.refresh_tokens.get(result.refresh_token) if result.refresh_token else None
         if rt:
-            self._storage.upsert_refresh_token(rt.token, rt.client_id, rt.scopes, rt.expires_at)
+            self._oauth_repo.upsert_refresh_token(rt.token, rt.client_id, rt.scopes, rt.expires_at)
         if at:
-            self._storage.upsert_access_token(
-                at.token, at.client_id, at.scopes, at.expires_at,
-                result.refresh_token,
+            self._oauth_repo.upsert_access_token(
+                at.token, at.client_id, at.scopes, at.expires_at, result.refresh_token
             )
         return result
 
@@ -116,11 +114,10 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
         at = self.access_tokens.get(result.access_token)
         rt = self.refresh_tokens.get(result.refresh_token) if result.refresh_token else None
         if rt:
-            self._storage.upsert_refresh_token(rt.token, rt.client_id, rt.scopes, rt.expires_at)
+            self._oauth_repo.upsert_refresh_token(rt.token, rt.client_id, rt.scopes, rt.expires_at)
         if at:
-            self._storage.upsert_access_token(
-                at.token, at.client_id, at.scopes, at.expires_at,
-                result.refresh_token,
+            self._oauth_repo.upsert_access_token(
+                at.token, at.client_id, at.scopes, at.expires_at, result.refresh_token
             )
         return result
 
@@ -138,12 +135,10 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
         client, params = self._pending.pop(pending_id)
 
         if user_id:
-            self._storage.record_client_authorization(client.client_id, user_id)
+            self._oauth_repo.record_client_authorization(client.client_id, user_id)
 
-        # Generate auth code (replicates InMemoryOAuthProvider logic)
         auth_code_value = f"kajet_{secrets.token_hex(16)}"
         expires_at = time.time() + DEFAULT_AUTH_CODE_EXPIRY_SECONDS
-
         scopes_list = params.scopes if params.scopes is not None else []
         if client.scope:
             client_allowed_scopes = set(client.scope.split())
@@ -158,34 +153,14 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
             expires_at=expires_at,
             code_challenge=params.code_challenge,
         )
-
         return construct_redirect_uri(
             str(params.redirect_uri), code=auth_code_value, state=params.state
         )
 
 
-def create_auth(storage: Storage) -> KajetOAuthProvider:
+def create_auth(oauth_repo: OAuthRepository) -> KajetOAuthProvider:
     return KajetOAuthProvider(
-        storage=storage,
+        oauth_repo=oauth_repo,
         base_url=_resolve_base_url(),
         client_registration_options=ClientRegistrationOptions(enabled=True),
     )
-
-
-# Legacy helpers used by existing tests — keep working
-def save_oauth_client(
-    storage: Storage,
-    client_id: str,
-    client_secret: str,
-    redirect_uris: list[str],
-) -> None:
-    storage.save_oauth_client(
-        client_id,
-        client_secret,
-        redirect_uris,
-        datetime.now(UTC).isoformat(),
-    )
-
-
-def get_oauth_client(storage: Storage, client_id: str) -> dict | None:
-    return storage.get_oauth_client(client_id)
