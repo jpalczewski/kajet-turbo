@@ -1,6 +1,8 @@
 import os
+from datetime import datetime, timezone
 from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
 from mcp.server.auth.settings import ClientRegistrationOptions
+from kajet_turbo.storage import Storage
 
 
 def _resolve_base_url() -> str:
@@ -21,3 +23,21 @@ def create_auth() -> InMemoryOAuthProvider:
         base_url=_resolve_base_url(),
         client_registration_options=ClientRegistrationOptions(enabled=True),
     )
+
+
+def save_oauth_client(
+    storage: Storage,
+    client_id: str,
+    client_secret: str,
+    redirect_uris: list[str],
+) -> None:
+    storage.save_oauth_client(
+        client_id,
+        client_secret,
+        redirect_uris,
+        datetime.now(timezone.utc).isoformat(),
+    )
+
+
+def get_oauth_client(storage: Storage, client_id: str) -> dict | None:
+    return storage.get_oauth_client(client_id)

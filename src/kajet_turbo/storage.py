@@ -1,8 +1,9 @@
 import json
 import os
 import sqlite3
-import sqlite_vec
 from pathlib import Path
+
+import sqlite_vec
 
 
 class Storage:
@@ -158,7 +159,9 @@ class Storage:
     ) -> list[dict]:
         if tags:
             rows = self._conn.execute(
-                "SELECT id, workspace, title, tags, created_at, updated_at FROM notes WHERE workspace = ? ORDER BY updated_at DESC",
+                """SELECT id, workspace, title, tags, created_at, updated_at
+                   FROM notes WHERE workspace = ?
+                   ORDER BY updated_at DESC""",
                 (workspace,),
             ).fetchall()
             result = []
@@ -170,7 +173,9 @@ class Storage:
                         break
             return result
         rows = self._conn.execute(
-            "SELECT id, workspace, title, tags, created_at, updated_at FROM notes WHERE workspace = ? ORDER BY updated_at DESC LIMIT ?",
+            """SELECT id, workspace, title, tags, created_at, updated_at
+               FROM notes WHERE workspace = ?
+               ORDER BY updated_at DESC LIMIT ?""",
             (workspace, limit),
         ).fetchall()
         return [{**row, "tags": json.loads(row["tags"] or "[]")} for row in rows]
@@ -238,3 +243,27 @@ class Storage:
             "SELECT COUNT(*) FROM notes_vec WHERE workspace = ?", (workspace,)
         ).fetchone()[0]
         return count > 0
+
+    def save_oauth_client(
+        self,
+        client_id: str,
+        client_secret: str,
+        redirect_uris: list[str],
+        created_at: str,
+    ) -> None:
+        self._conn.execute(
+            """INSERT OR REPLACE INTO oauth_clients
+               (client_id, client_secret, redirect_uris, created_at)
+               VALUES (?, ?, ?, ?)""",
+            (client_id, client_secret, json.dumps(redirect_uris), created_at),
+        )
+        self._conn.commit()
+
+    def get_oauth_client(self, client_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT client_id, client_secret, redirect_uris FROM oauth_clients WHERE client_id = ?",
+            (client_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {**row, "redirect_uris": json.loads(row["redirect_uris"])}
