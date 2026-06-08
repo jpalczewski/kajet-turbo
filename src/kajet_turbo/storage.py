@@ -341,11 +341,10 @@ class Storage:
     def create_session(self, user_id: str) -> str:
         token = secrets.token_hex(32)
         expires_at = int(time.time()) + 30 * 24 * 3600
-        self._conn.execute(
-            "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
-            (token, user_id, expires_at),
-        )
-        self._conn.commit()
+        sess = UserSession(token=token, user_id=user_id, expires_at=expires_at)
+        with Session(self._engine) as session:
+            session.add(sess)
+            session.commit()
         return token
 
     def get_session_user(self, token: str) -> dict | None:
@@ -369,8 +368,9 @@ class Storage:
         self._conn.commit()
 
     def get_all_registered_clients(self) -> list[str]:
-        rows = self._conn.execute("SELECT data FROM oauth_registered_clients").fetchall()
-        return [row["data"] for row in rows]
+        with Session(self._engine) as session:
+            rows = session.exec(select(OAuthRegisteredClient)).all()
+        return [r.data for r in rows]
 
     def upsert_access_token(
         self,
