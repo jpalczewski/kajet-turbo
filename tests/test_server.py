@@ -243,3 +243,33 @@ def test_oauth_repository(tmp_path):
     assert client is not None
     assert client["client_secret"] == "secret"
     db.close()
+
+
+def test_note_repository(tmp_path):
+    from kajet_turbo.db import Database
+    from kajet_turbo.repositories.notes import NoteRepository
+    db = Database(str(tmp_path / "test.db"))
+    repo = NoteRepository(db.engine)
+
+    now = "2026-06-08T12:00:00+00:00"
+    repo.insert("n001", "ws1", "Testowa notatka", ["python"], now, now, "Treść testowa")
+
+    note = repo.get("n001")
+    assert note is not None
+    assert note["title"] == "Testowa notatka"
+    assert note["tags"] == ["python"]
+
+    notes = repo.list("ws1")
+    assert len(notes) == 1
+
+    fts = repo.search_fts("Testowa", "ws1")
+    assert len(fts) == 1
+    assert fts[0]["id"] == "n001"
+
+    repo.update("n001", title="Nowy tytuł", content="Nowa treść", updated_at=now)
+    updated = repo.get("n001")
+    assert updated["title"] == "Nowy tytuł"
+
+    repo.delete("n001")
+    assert repo.get("n001") is None
+    db.close()
