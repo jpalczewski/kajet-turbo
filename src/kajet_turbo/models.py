@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from sqlalchemy import Column, ForeignKey, Text
 from sqlmodel import Field, SQLModel
 
@@ -20,7 +18,7 @@ class User(SQLModel, table=True):
 
     id: str = Field(primary_key=True)
     email: str = Field(sa_column=Column(Text, unique=True, nullable=False))
-    password_hash: Optional[str] = None
+    password_hash: str | None = None
     created_at: str
 
 
@@ -40,10 +38,10 @@ class Note(SQLModel, table=True):
     id: str = Field(primary_key=True)
     workspace: str
     title: str
-    tags: Optional[str] = Field(default=None, sa_column=Column(Text))
+    tags: str | None = Field(default=None, sa_column=Column(Text))
     created_at: str
     updated_at: str
-    fts_rowid: Optional[int] = None
+    fts_rowid: int | None = None
 
 
 class OAuthRegisteredClient(SQLModel, table=True):
@@ -77,9 +75,9 @@ class OAuthAccessToken(SQLModel, table=True):
 
     token: str = Field(primary_key=True)
     client_id: str
-    scopes: Optional[str] = Field(default=None, sa_column=Column(Text))
-    expires_at: Optional[int] = None
-    refresh_token: Optional[str] = None
+    scopes: str | None = Field(default=None, sa_column=Column(Text))
+    expires_at: int | None = None
+    refresh_token: str | None = None
 
 
 class OAuthRefreshToken(SQLModel, table=True):
@@ -87,5 +85,5 @@ class OAuthRefreshToken(SQLModel, table=True):
 
     token: str = Field(primary_key=True)
     client_id: str
-    scopes: Optional[str] = Field(default=None, sa_column=Column(Text))
-    expires_at: Optional[int] = None
+    scopes: str | None = Field(default=None, sa_column=Column(Text))
+    expires_at: int | None = None
