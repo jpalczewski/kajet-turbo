@@ -49,10 +49,17 @@ def _build_mcp() -> FastMCP:
     provider = create_auth(_auth_storage)
     mcp = FastMCP("kajet-turbo", auth=provider, lifespan=app_lifespan)
 
-    def _ctx_user_id(ctx: Context) -> str | None:
-        """Return user_id for the authenticated MCP client, or None in test/dev mode."""
+    def _resolve_user(ctx: Context) -> tuple[str | None, str | None]:
+        """Returns (user_id, None) on success, or (None, error_json) on failure.
+        user_id is None only when client_id is absent (dev/test mode, no OAuth).
+        When client_id is present but has no user mapping, returns an error (fail-closed)."""
         client_id = ctx.client_id
-        return _auth_storage.get_user_id_by_client(client_id) if client_id else None
+        if client_id is None:
+            return None, None  # dev/test — no auth layer
+        user_id = _auth_storage.get_user_id_by_client(client_id)
+        if user_id is None:
+            return None, json.dumps({"error": "unauthorized"})
+        return user_id, None
 
     @mcp.tool()
     def ping() -> str:
@@ -62,7 +69,9 @@ def _build_mcp() -> FastMCP:
     @mcp.tool()
     async def list_workspaces(ctx: Context) -> str:
         """Zwraca listę workspace'ów dostępnych dla tego użytkownika. Odpowiedź: JSON array stringów."""
-        user_id = _ctx_user_id(ctx)
+        user_id, err = _resolve_user(ctx)
+        if err:
+            return err
         if user_id:
             return json.dumps(_auth_storage.list_user_workspaces(user_id))
         return json.dumps(_list_workspaces())
@@ -71,15 +80,16 @@ def _build_mcp() -> FastMCP:
     async def activate_workspace(name: str, ctx: Context) -> str:
         """Ustawia aktywny workspace dla tej sesji.
         Sukces: {"message": "..."}. Błąd: {"error": "...", "available": [...]}."""
-        user_id = _ctx_user_id(ctx)
+        user_id, err = _resolve_user(ctx)
+        if err:
+            return err
         if user_id:
             available = _auth_storage.list_user_workspaces(user_id)
             if name not in available:
                 return json.dumps({"error": f"Workspace '{name}' nie istnieje lub brak dostępu.", "available": available})
         else:
-            workspaces = _list_workspaces()
-            if name not in workspaces:
-                return json.dumps({"error": f"Workspace '{name}' nie istnieje.", "available": workspaces})
+            if name not in _list_workspaces():
+                return json.dumps({"error": f"Workspace '{name}' nie istnieje.", "available": _list_workspaces()})
         await ctx.set_state("active_workspace", name)
         return json.dumps({"message": f"Workspace '{name}' aktywny."})
 
@@ -87,7 +97,9 @@ def _build_mcp() -> FastMCP:
     async def create_workspace(name: str, ctx: Context) -> str:
         """Tworzy nowy workspace z repozytorium git.
         Sukces: {"message": "..."}. Błąd: {"error": "..."}."""
-        user_id = _ctx_user_id(ctx)
+        user_id, err = _resolve_user(ctx)
+        if err:
+            return err
         try:
             _create_workspace(name)
         except (ValueError, FileExistsError) as e:
