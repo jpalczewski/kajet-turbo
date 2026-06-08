@@ -131,11 +131,14 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
         self._pending[pending_id] = (client, params)
         return f"/login?pending={pending_id}"
 
-    async def complete_authorization(self, pending_id: str) -> str:
+    async def complete_authorization(self, pending_id: str, user_id: str | None = None) -> str:
         """Complete auth after successful login. Returns redirect URI with code."""
         if pending_id not in self._pending:
             raise ValueError("Invalid or expired authorization")
         client, params = self._pending.pop(pending_id)
+
+        if user_id:
+            self._storage.record_client_authorization(client.client_id, user_id)
 
         # Generate auth code (replicates InMemoryOAuthProvider logic)
         auth_code_value = f"kajet_{secrets.token_hex(16)}"

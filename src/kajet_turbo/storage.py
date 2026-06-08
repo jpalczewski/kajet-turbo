@@ -86,6 +86,11 @@ class Storage:
                 data       TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS client_authorizations (
+                client_id TEXT PRIMARY KEY,
+                user_id   TEXT NOT NULL REFERENCES users(id)
+            );
+
             CREATE TABLE IF NOT EXISTS sessions (
                 token      TEXT PRIMARY KEY,
                 user_id    TEXT NOT NULL REFERENCES users(id),
@@ -129,6 +134,43 @@ class Storage:
 
     def user_count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+
+    # --- workspace access ---
+
+    def record_client_authorization(self, client_id: str, user_id: str) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO client_authorizations (client_id, user_id) VALUES (?, ?)",
+            (client_id, user_id),
+        )
+        self._conn.commit()
+
+    def get_user_id_by_client(self, client_id: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT user_id FROM client_authorizations WHERE client_id = ?",
+            (client_id,),
+        ).fetchone()
+        return row["user_id"] if row else None
+
+    def grant_workspace_access(self, user_id: str, workspace: str, role: str = "owner") -> None:
+        self._conn.execute(
+            "INSERT OR IGNORE INTO workspace_access (user_id, workspace, role) VALUES (?, ?, ?)",
+            (user_id, workspace, role),
+        )
+        self._conn.commit()
+
+    def list_user_workspaces(self, user_id: str) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT workspace FROM workspace_access WHERE user_id = ? ORDER BY workspace",
+            (user_id,),
+        ).fetchall()
+        return [row["workspace"] for row in rows]
+
+    def has_workspace_access(self, user_id: str, workspace: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM workspace_access WHERE user_id = ? AND workspace = ?",
+            (user_id, workspace),
+        ).fetchone()
+        return row is not None
 
     def close(self) -> None:
         self._conn.close()
