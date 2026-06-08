@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
 import sqlite_vec
@@ -13,6 +14,12 @@ class Storage:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = self._connect()
         self._init_schema()
+        # Migrate: add password_hash if missing (for existing DBs)
+        try:
+            self._conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+            self._conn.commit()
+        except Exception:
+            pass
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -34,9 +41,10 @@ class Storage:
             );
 
             CREATE TABLE IF NOT EXISTS users (
-                id         TEXT PRIMARY KEY,
-                email      TEXT UNIQUE,
-                created_at TEXT NOT NULL
+                id            TEXT PRIMARY KEY,
+                email         TEXT UNIQUE NOT NULL,
+                password_hash TEXT,
+                created_at    TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS workspace_access (
@@ -72,6 +80,27 @@ class Storage:
             );
         """)
         self._conn.commit()
+
+    def create_user(self, email: str, password_hash: str) -> str:
+        from nanoid import generate
+        user_id = generate(size=12)
+        now = datetime.now(UTC).isoformat()
+        self._conn.execute(
+            "INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)",
+            (user_id, email, password_hash, now),
+        )
+        self._conn.commit()
+        return user_id
+
+    def get_user_by_email(self, email: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT id, email, password_hash FROM users WHERE email = ?",
+            (email,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def user_count(self) -> int:
+        return self._conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
 
     def close(self) -> None:
         self._conn.close()

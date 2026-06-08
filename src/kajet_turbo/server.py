@@ -1,28 +1,40 @@
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from fastmcp import FastMCP, Context
+from fastmcp import Context, FastMCP
 from fastmcp.server.lifespan import lifespan
 from nanoid import generate
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from kajet_turbo.auth import create_auth
-from kajet_turbo.git_ops import commit_file, delete_file_commit, GitError
+from kajet_turbo.git_ops import GitError, commit_file, delete_file_commit
 from kajet_turbo.storage import Storage
 from kajet_turbo.workspace import (
-    list_workspaces as _list_workspaces,
     create_workspace as _create_workspace,
+)
+from kajet_turbo.workspace import (
+    list_workspaces as _list_workspaces,
+)
+from kajet_turbo.workspace import (
     note_filepath,
-    write_note_file,
     read_note_file,
     scan_notes,
+    write_note_file,
 )
 
 
 @lifespan
 async def app_lifespan(server):
     storage = Storage()
+    # Seed admin user from env if no users exist
+    admin_email = os.getenv("KAJET_ADMIN_EMAIL")
+    admin_password = os.getenv("KAJET_ADMIN_PASSWORD")
+    if admin_email and admin_password and storage.user_count() == 0:
+        from kajet_turbo.auth import hash_password
+        storage.create_user(admin_email, hash_password(admin_password))
     try:
         yield {"storage": storage}
     finally:
@@ -30,7 +42,11 @@ async def app_lifespan(server):
 
 
 def _build_mcp() -> FastMCP:
-    mcp = FastMCP("kajet-turbo", auth=create_auth(), lifespan=app_lifespan)
+    from kajet_turbo.auth import verify_password
+
+    _auth_storage = Storage()  # provider's own storage connection
+    provider = create_auth(_auth_storage)
+    mcp = FastMCP("kajet-turbo", auth=provider, lifespan=app_lifespan)
 
     @mcp.tool()
     def ping() -> str:
@@ -82,7 +98,7 @@ def _build_mcp() -> FastMCP:
         storage: Storage = ctx.lifespan_context["storage"]
 
         note_id = generate(size=7)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         effective_tags = tags or []
         filepath = note_filepath(ws_path, note_id, title)
         relative = str(Path(filepath).relative_to(ws_path))
@@ -127,7 +143,7 @@ def _build_mcp() -> FastMCP:
         if meta is None:
             return json.dumps({"error": f"Notatka {note_id} nie znaleziona."})
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         new_title = title if title is not None else meta["title"]
         new_tags = tags if tags is not None else meta["tags"]
         notes_dir = Path(ws_path) / "notes"
@@ -227,6 +243,77 @@ def _build_mcp() -> FastMCP:
             )
 
         return json.dumps({"message": f"Reindeksowano {len(notes)} notatek w workspace '{ws_name}'.", "count": len(notes)})
+
+    def _login_html(pending_id: str, client_name: str, error: str = "") -> str:
+        error_html = f'<p class="error">{error}</p>' if error else ""
+        return f"""<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>kajet-turbo — logowanie</title>
+<style>
+  body{{font-family:system-ui,sans-serif;max-width:400px;margin:80px auto;padding:20px;color:#1e293b}}
+  h2{{margin-bottom:4px}}
+  .app{{color:#64748b;font-size:14px;margin-bottom:24px}}
+  .client{{background:#f1f5f9;border-radius:8px;padding:12px 16px;margin-bottom:24px;font-size:14px}}
+  label{{display:block;font-size:14px;font-weight:500;margin-bottom:4px}}
+  input{{width:100%;padding:8px 10px;margin-bottom:16px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box;font-size:15px}}
+  button{{width:100%;padding:10px;background:#0f172a;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer}}
+  button:hover{{background:#1e293b}}
+  .error{{color:#dc2626;font-size:14px;margin-bottom:16px}}
+</style>
+</head>
+<body>
+<h2>kajet-turbo</h2>
+<p class="app">Twoje notatki w Claude</p>
+<div class="client">
+  <strong>{client_name}</strong> prosi o dostęp do Twoich notatek.
+</div>
+{error_html}
+<form method="post" action="/login">
+  <input type="hidden" name="pending_id" value="{pending_id}">
+  <label>Email</label>
+  <input type="email" name="email" required autofocus>
+  <label>Hasło</label>
+  <input type="password" name="password" required>
+  <button type="submit">Zaloguj się i zezwól na dostęp</button>
+</form>
+</body>
+</html>"""
+
+    @mcp.custom_route("/login", methods=["GET", "POST"])
+    async def login(request: Request) -> Response:
+        if request.method == "GET":
+            pending_id = request.query_params.get("pending", "") or request.query_params.get("pending_id", "")
+            if not pending_id or pending_id not in provider._pending:
+                return HTMLResponse("<h1>Nieprawidłowy lub wygasły link autoryzacji.</h1>", status_code=400)
+            client, _ = provider._pending[pending_id]
+            name = getattr(client, "client_name", None) or client.client_id
+            return HTMLResponse(_login_html(pending_id, name))
+
+        # POST
+        form = await request.form()
+        email = str(form.get("email", ""))
+        password = str(form.get("password", ""))
+        pending_id = str(form.get("pending_id", ""))
+
+        if not pending_id or pending_id not in provider._pending:
+            return HTMLResponse("<h1>Wygasły link autoryzacji. Spróbuj ponownie.</h1>", status_code=400)
+
+        client, _ = provider._pending[pending_id]
+        name = getattr(client, "client_name", None) or client.client_id
+
+        user = _auth_storage.get_user_by_email(email)
+        if not user or not verify_password(user["password_hash"] or "", password):
+            return HTMLResponse(_login_html(pending_id, name, error="Nieprawidłowy email lub hasło."))
+
+        try:
+            redirect_uri = await provider.complete_authorization(pending_id)
+        except ValueError:
+            return HTMLResponse("<h1>Wygasły link autoryzacji. Spróbuj ponownie.</h1>", status_code=400)
+
+        return RedirectResponse(url=redirect_uri, status_code=302)
 
     return mcp
 
