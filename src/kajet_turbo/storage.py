@@ -8,7 +8,7 @@ from pathlib import Path
 
 import sqlite_vec
 from sqlalchemy.pool import StaticPool
-from sqlmodel import SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.metadata
     ClientAuthorization,
@@ -86,19 +86,18 @@ class Storage:
         from nanoid import generate
         user_id = generate(size=12)
         now = datetime.now(UTC).isoformat()
-        self._conn.execute(
-            "INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)",
-            (user_id, email, password_hash, now),
-        )
-        self._conn.commit()
+        user = User(id=user_id, email=email, password_hash=password_hash, created_at=now)
+        with Session(self._engine) as session:
+            session.add(user)
+            session.commit()
         return user_id
 
     def get_user_by_email(self, email: str) -> dict | None:
-        row = self._conn.execute(
-            "SELECT id, email, password_hash FROM users WHERE email = ?",
-            (email,),
-        ).fetchone()
-        return dict(row) if row else None
+        with Session(self._engine) as session:
+            user = session.exec(select(User).where(User.email == email)).first()
+        if user is None:
+            return None
+        return {"id": user.id, "email": user.email, "password_hash": user.password_hash}
 
     def user_count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -113,11 +112,11 @@ class Storage:
         self._conn.commit()
 
     def get_user_id_by_client(self, client_id: str) -> str | None:
-        row = self._conn.execute(
-            "SELECT user_id FROM client_authorizations WHERE client_id = ?",
-            (client_id,),
-        ).fetchone()
-        return row["user_id"] if row else None
+        with Session(self._engine) as session:
+            row = session.exec(
+                select(ClientAuthorization).where(ClientAuthorization.client_id == client_id)
+            ).first()
+        return row.user_id if row else None
 
     def grant_workspace_access(self, user_id: str, workspace: str, role: str = "owner") -> None:
         self._conn.execute(
@@ -127,18 +126,22 @@ class Storage:
         self._conn.commit()
 
     def list_user_workspaces(self, user_id: str) -> list[str]:
-        rows = self._conn.execute(
-            "SELECT workspace FROM workspace_access WHERE user_id = ? ORDER BY workspace",
-            (user_id,),
-        ).fetchall()
-        return [row["workspace"] for row in rows]
+        with Session(self._engine) as session:
+            rows = session.exec(
+                select(WorkspaceAccess)
+                .where(WorkspaceAccess.user_id == user_id)
+                .order_by(WorkspaceAccess.workspace)
+            ).all()
+        return [r.workspace for r in rows]
 
     def has_workspace_access(self, user_id: str, workspace: str) -> bool:
-        row = self._conn.execute(
-            "SELECT 1 FROM workspace_access WHERE user_id = ? AND workspace = ?",
-            (user_id, workspace),
-        ).fetchone()
-        return row is not None
+        with Session(self._engine) as session:
+            return session.exec(
+                select(WorkspaceAccess).where(
+                    WorkspaceAccess.user_id == user_id,
+                    WorkspaceAccess.workspace == workspace,
+                )
+            ).first() is not None
 
     def close(self) -> None:
         self._engine.dispose()
