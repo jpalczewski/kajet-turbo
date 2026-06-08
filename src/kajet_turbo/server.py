@@ -3,11 +3,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastmcp.utilities.lifespan import combine_lifespans
 
 from kajet_turbo.api import api_router
-from kajet_turbo.auth import _resolve_base_url, hash_password
+from kajet_turbo.auth import hash_password
 from kajet_turbo.dependencies import db, note_service, oauth_repo, provider, user_repo, workspace_service
 from kajet_turbo.mcp import build_mcp
 
@@ -54,37 +54,14 @@ def build_app() -> FastAPI:
     app.include_router(api_router)
     app.mount("/mcp", mcp_app)
 
-    # OAuth discovery routes — registered before SPA so the catch-all never intercepts them.
-    # Clients (Claude mobile) look for all of these at the origin root per RFC 8615 / RFC 9728.
-    _mcp_base = _resolve_base_url().rstrip("/") + "/mcp"
+    # RFC 8414 / RFC 9728: expose OAuth discovery routes at the origin root.
+    # FastMCP generates path-aware well-known URLs for the issuer path (/mcp);
+    # without this the SPA catch-all intercepts them and returns HTML.
+    # mcp_path="/" matches http_app(path="/") above.
+    for _route in provider.get_well_known_routes(mcp_path="/"):
+        app.add_route(_route.path, _route.endpoint, methods=list(_route.methods) if _route.methods else ["GET"])
 
-    @app.get("/.well-known/oauth-authorization-server")
-    async def _oauth_as_metadata():
-        return JSONResponse({
-            "issuer": _mcp_base,
-            "authorization_endpoint": f"{_mcp_base}/authorize",
-            "token_endpoint": f"{_mcp_base}/token",
-            "registration_endpoint": f"{_mcp_base}/register",
-            "response_types_supported": ["code"],
-            "grant_types_supported": ["authorization_code", "refresh_token"],
-            "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
-            "code_challenge_methods_supported": ["S256"],
-        })
-
-    @app.get("/.well-known/oauth-protected-resource")
-    @app.get("/.well-known/oauth-protected-resource/mcp")
-    @app.get("/.well-known/oauth-protected-resource/mcp/")
-    async def _oauth_resource_metadata():
-        # RFC 9728: resource server metadata; WWW-Authenticate header points here
-        return JSONResponse({
-            "resource": f"{_mcp_base}/",
-            "authorization_servers": [_mcp_base],
-            "scopes_supported": [],
-            "bearer_methods_supported": ["header"],
-        })
-
-    # POST /mcp (no trailing slash) hits the SPA catch-all and gets 405.
-    # Redirect to /mcp/ so the mcp_app mount handles it.
+    # POST /mcp (no trailing slash) misses the /mcp mount and falls to the SPA → 405.
     @app.api_route("/mcp", methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"])
     async def _mcp_slash_redirect(request: Request):
         return RedirectResponse(url="/mcp/", status_code=307)
