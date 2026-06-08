@@ -7,6 +7,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import sqlite_vec
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine, select
+
+from kajet_turbo.models import (
+    ClientAuthorization,
+    Note,
+    OAuthAccessToken,
+    OAuthClient,
+    OAuthRefreshToken,
+    OAuthRegisteredClient,
+    User,
+    UserSession,
+    WorkspaceAccess,
+)
 
 
 class Storage:
@@ -14,58 +28,33 @@ class Storage:
         self.embedding_dim = int(os.getenv("EMBEDDING_DIM", "1536"))
         self.db_path = db_path or os.getenv("DB_PATH", "/data/kajet.db")
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Build raw connection first — sets up sqlite-vec, PRAGMAs, row_factory
         self._conn = self._connect()
-        self._init_schema()
-        # Migrate: add password_hash if missing (for existing DBs)
+
+        # SQLAlchemy engine that reuses the same raw connection (no second connection)
+        self._engine = create_engine(
+            "sqlite://",
+            creator=lambda: self._conn,
+            poolclass=StaticPool,
+            connect_args={"check_same_thread": False},
+        )
+
+        # Create regular tables via SQLModel metadata
+        SQLModel.metadata.create_all(self._engine)
+
+        # Create virtual tables (FTS5, vec0) via raw SQL
+        self._init_virtual_tables()
+
+        # Migration shim: add password_hash column for existing DBs
         try:
             self._conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
             self._conn.commit()
         except Exception:
             pass
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        conn.enable_load_extension(True)
-        sqlite_vec.load(conn)
-        conn.enable_load_extension(False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
-
-    def _init_schema(self) -> None:
+    def _init_virtual_tables(self) -> None:
         self._conn.executescript(f"""
-            CREATE TABLE IF NOT EXISTS oauth_clients (
-                client_id     TEXT PRIMARY KEY,
-                client_secret TEXT NOT NULL,
-                redirect_uris TEXT NOT NULL,
-                created_at    TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS users (
-                id            TEXT PRIMARY KEY,
-                email         TEXT UNIQUE NOT NULL,
-                password_hash TEXT,
-                created_at    TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS workspace_access (
-                user_id   TEXT NOT NULL REFERENCES users(id),
-                workspace TEXT NOT NULL,
-                role      TEXT NOT NULL DEFAULT 'owner',
-                PRIMARY KEY (user_id, workspace)
-            );
-
-            CREATE TABLE IF NOT EXISTS notes (
-                id         TEXT PRIMARY KEY,
-                workspace  TEXT NOT NULL,
-                title      TEXT NOT NULL,
-                tags       TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                fts_rowid  INTEGER
-            );
-
             CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
                 note_id   UNINDEXED,
                 workspace UNINDEXED,
@@ -80,39 +69,18 @@ class Storage:
                 workspace  TEXT partition key,
                 note_id    TEXT
             );
-
-            CREATE TABLE IF NOT EXISTS oauth_registered_clients (
-                client_id  TEXT PRIMARY KEY,
-                data       TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS client_authorizations (
-                client_id TEXT PRIMARY KEY,
-                user_id   TEXT NOT NULL REFERENCES users(id)
-            );
-
-            CREATE TABLE IF NOT EXISTS sessions (
-                token      TEXT PRIMARY KEY,
-                user_id    TEXT NOT NULL REFERENCES users(id),
-                expires_at INTEGER NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS oauth_access_tokens (
-                token         TEXT PRIMARY KEY,
-                client_id     TEXT NOT NULL,
-                scopes        TEXT,
-                expires_at    INTEGER,
-                refresh_token TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
-                token      TEXT PRIMARY KEY,
-                client_id  TEXT NOT NULL,
-                scopes     TEXT,
-                expires_at INTEGER
-            );
         """)
         self._conn.commit()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
 
     def create_user(self, email: str, password_hash: str) -> str:
         from nanoid import generate
@@ -173,6 +141,7 @@ class Storage:
         return row is not None
 
     def close(self) -> None:
+        self._engine.dispose()
         self._conn.close()
 
     def insert_note(
