@@ -12,6 +12,7 @@ from kajet_turbo.git_ops import commit_file, delete_file_commit, GitError
 from kajet_turbo.storage import Storage
 from kajet_turbo.workspace import (
     list_workspaces as _list_workspaces,
+    create_workspace as _create_workspace,
     note_filepath,
     write_note_file,
     read_note_file,
@@ -50,6 +51,15 @@ def _build_mcp() -> FastMCP:
             return f"Workspace '{name}' nie istnieje. Dostępne: {available}"
         await ctx.set_state("active_workspace", name)
         return f"Workspace '{name}' aktywny."
+
+    @mcp.tool()
+    async def create_workspace(name: str, ctx: Context) -> str:
+        """Tworzy nowy workspace z repozytorium git."""
+        try:
+            _create_workspace(name)
+        except (ValueError, FileExistsError) as e:
+            return str(e)
+        return f"Workspace '{name}' utworzony."
 
     async def _get_workspace(ctx: Context) -> tuple[str, str]:
         """Returns (name, path) of active workspace or raises RuntimeError."""

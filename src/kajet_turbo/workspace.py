@@ -68,3 +68,21 @@ def scan_notes(workspace_path: str) -> list[dict]:
     if not notes_dir.exists():
         return []
     return [read_note_file(str(p)) for p in sorted(notes_dir.glob("*.md"))]
+
+
+def create_workspace(name: str, workspaces_dir: str | None = None) -> str:
+    """Creates a new workspace directory with git repo. Returns the workspace path."""
+    import subprocess
+
+    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,49}$", name):
+        raise ValueError(f"Invalid workspace name '{name}'. Use letters, digits, hyphens, underscores (max 50 chars).")
+
+    base = Path(workspaces_dir or os.getenv("WORKSPACES_DIR", "/workspaces"))
+    ws_path = base / name
+
+    if ws_path.exists():
+        raise FileExistsError(f"Workspace '{name}' already exists.")
+
+    (ws_path / "notes").mkdir(parents=True)
+    subprocess.run(["git", "init", str(ws_path)], check=True, capture_output=True)
+    return str(ws_path)

@@ -3,6 +3,7 @@ import pytest
 from pathlib import Path
 from kajet_turbo.workspace import (
     list_workspaces,
+    create_workspace,
     note_filepath,
     write_note_file,
     read_note_file,
@@ -69,3 +70,25 @@ def test_scan_notes_finds_all_files(workspace):
         write_note_file(path, f"id{i}", f"Notatka {i}", [], "2026-06-08T12:00:00+00:00", "2026-06-08T12:00:00+00:00", f"treść {i}")
     notes = scan_notes(str(workspace))
     assert len(notes) == 3
+
+
+def test_create_workspace(tmp_path):
+    ws_path = create_workspace("nowy-projekt", str(tmp_path))
+    assert (tmp_path / "nowy-projekt" / "notes").is_dir()
+    assert (tmp_path / "nowy-projekt" / ".git").is_dir()
+    assert ws_path == str(tmp_path / "nowy-projekt")
+
+
+def test_create_workspace_rejects_invalid_name(tmp_path):
+    import pytest
+    with pytest.raises(ValueError):
+        create_workspace("foo/bar", str(tmp_path))
+    with pytest.raises(ValueError):
+        create_workspace("", str(tmp_path))
+
+
+def test_create_workspace_rejects_duplicate(tmp_path):
+    import pytest
+    create_workspace("duplikat", str(tmp_path))
+    with pytest.raises(FileExistsError):
+        create_workspace("duplikat", str(tmp_path))
