@@ -644,6 +644,7 @@ dependencies = [
     { name = "python-frontmatter" },
     { name = "sqlite-vec" },
     { name = "sqlmodel" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -663,6 +664,7 @@ requires-dist = [
     { name = "python-frontmatter", specifier = ">=1.1.0" },
     { name = "sqlite-vec", specifier = ">=0.1.9" },
     { name = "sqlmodel", specifier = ">=0.0.38" },
+    { name = "uvicorn", specifier = ">=0.30.0" },
 ]
 
 [package.metadata.requires-dev]

@@ -6,6 +6,7 @@ authors = [{ name = "Jacek Palczewski", email = "jpalczewski@gmail.com" }]
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
     "fastmcp>=3.2.0",
     "sqlite-vec>=0.1.9",
     "sqlmodel>=0.0.38",
