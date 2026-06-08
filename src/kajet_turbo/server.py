@@ -29,12 +29,6 @@ from kajet_turbo.workspace import (
 @lifespan
 async def app_lifespan(server):
     storage = Storage()
-    # Seed admin user from env if no users exist
-    admin_email = os.getenv("KAJET_ADMIN_EMAIL")
-    admin_password = os.getenv("KAJET_ADMIN_PASSWORD")
-    if admin_email and admin_password and storage.user_count() == 0:
-        from kajet_turbo.auth import hash_password
-        storage.create_user(admin_email, hash_password(admin_password))
     try:
         yield {"storage": storage}
     finally:
@@ -42,9 +36,16 @@ async def app_lifespan(server):
 
 
 def _build_mcp() -> FastMCP:
-    from kajet_turbo.auth import verify_password
+    from kajet_turbo.auth import hash_password, verify_password
 
-    _auth_storage = Storage()  # provider's own storage connection
+    _auth_storage = Storage()
+
+    # Seed admin user on first run
+    admin_email = os.getenv("KAJET_ADMIN_EMAIL")
+    admin_password = os.getenv("KAJET_ADMIN_PASSWORD")
+    if admin_email and admin_password and _auth_storage.user_count() == 0:
+        _auth_storage.create_user(admin_email, hash_password(admin_password))
+
     provider = create_auth(_auth_storage)
     mcp = FastMCP("kajet-turbo", auth=provider, lifespan=app_lifespan)
 
