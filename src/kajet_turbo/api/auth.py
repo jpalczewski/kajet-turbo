@@ -29,11 +29,11 @@ async def api_login(
     pending_id = str(body.get("pending_id", ""))
 
     user = user_repo.get_by_email(email)
-    if not user or not verify_password(user["password_hash"] or "", password):
+    if not user or not verify_password(user.password_hash or "", password):
         return JSONResponse({"error": "Nieprawidłowy email lub hasło."}, status_code=401)
 
-    session_token = session_repo.create(user["id"])
-    data: dict = {"email": user["email"]}
+    session_token = session_repo.create(user.id)
+    data: dict = {"email": user.email}
 
     if pending_id:
         if pending_id not in provider._pending:

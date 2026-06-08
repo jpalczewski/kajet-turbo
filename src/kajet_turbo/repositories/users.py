@@ -20,12 +20,9 @@ class UserRepository:
             session.commit()
         return user_id
 
-    def get_by_email(self, email: str) -> dict | None:
+    def get_by_email(self, email: str) -> User | None:
         with Session(self._engine) as session:
-            user = session.exec(select(User).where(User.email == email)).first()
-        if user is None:
-            return None
-        return {"id": user.id, "email": user.email, "password_hash": user.password_hash}
+            return session.exec(select(User).where(User.email == email)).first()
 
     def count(self) -> int:
         with Session(self._engine) as session:

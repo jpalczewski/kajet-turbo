@@ -182,8 +182,8 @@ def test_user_repository_create_and_get(tmp_path):
     assert len(uid) == 12
     user = repo.get_by_email("a@b.com")
     assert user is not None
-    assert user["email"] == "a@b.com"
-    assert user["password_hash"] == "hash123"
+    assert user.email == "a@b.com"
+    assert user.password_hash == "hash123"
     assert repo.count() == 1
     db.close()
 
