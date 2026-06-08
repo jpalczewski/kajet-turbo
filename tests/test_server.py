@@ -5,18 +5,24 @@ import pytest
 from fastmcp import Client
 
 from kajet_turbo.auth import create_auth
+from kajet_turbo.db import Database
 from kajet_turbo.mcp import build_mcp
-from kajet_turbo.storage import Storage
+from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.oauth import OAuthRepository
+from kajet_turbo.repositories.workspaces import WorkspaceRepository
 
 
 @pytest.fixture
 def mcp_server(tmp_path, monkeypatch):
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
-    storage = Storage(str(tmp_path / "test.db"))
-    provider = create_auth(storage)
-    mcp = build_mcp(storage, provider)
-    yield mcp, storage
-    storage.close()
+    db = Database(str(tmp_path / "test.db"))
+    note_repo = NoteRepository(db.engine)
+    workspace_repo = WorkspaceRepository(db.engine)
+    oauth_repo = OAuthRepository(db.engine)
+    provider = create_auth(oauth_repo)
+    mcp = build_mcp(note_repo, workspace_repo, oauth_repo, provider)
+    yield mcp, db
+    db.close()
 
 
 @pytest.fixture
