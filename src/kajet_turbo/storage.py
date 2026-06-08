@@ -186,3 +186,55 @@ class Storage:
             (query, workspace, limit),
         ).fetchall()
         return [{**row, "tags": json.loads(row["tags"] or "[]")} for row in rows]
+
+    def insert_vec(
+        self, note_id: str, note_rowid: int, workspace: str, embedding: bytes
+    ) -> None:
+        self._conn.execute(
+            "INSERT INTO notes_vec (note_rowid, embedding, workspace, note_id) VALUES (?, ?, ?, ?)",
+            (note_rowid, embedding, workspace, note_id),
+        )
+        self._conn.commit()
+
+    def search_vec(
+        self, embedding: bytes, workspace: str, k: int = 20
+    ) -> list[dict]:
+        rows = self._conn.execute(
+            """SELECT n.id, n.workspace, n.title, n.tags, n.created_at, n.updated_at, v.distance
+               FROM notes_vec v
+               JOIN notes n ON n.id = v.note_id
+               WHERE v.embedding MATCH ? AND k = ? AND v.workspace = ?
+               ORDER BY v.distance""",
+            (embedding, k, workspace),
+        ).fetchall()
+        return [{**row, "tags": json.loads(row["tags"] or "[]")} for row in rows]
+
+    def hybrid_search(
+        self,
+        query: str,
+        workspace: str,
+        embedding: bytes | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        fts_results = self.search_fts(query, workspace, limit=50)
+        if embedding is None:
+            return fts_results[:limit]
+
+        vec_results = self.search_vec(embedding, workspace, k=50)
+
+        # RRF fusion
+        scores: dict[str, float] = {}
+        for rank, note in enumerate(fts_results):
+            scores[note["id"]] = scores.get(note["id"], 0) + 1 / (60 + rank)
+        for rank, note in enumerate(vec_results):
+            scores[note["id"]] = scores.get(note["id"], 0) + 1 / (60 + rank)
+
+        all_notes = {n["id"]: n for n in fts_results + vec_results}
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:limit]
+        return [all_notes[note_id] for note_id, _ in ranked if note_id in all_notes]
+
+    def has_vec_index(self, workspace: str) -> bool:
+        count = self._conn.execute(
+            "SELECT COUNT(*) FROM notes_vec WHERE workspace = ?", (workspace,)
+        ).fetchone()[0]
+        return count > 0

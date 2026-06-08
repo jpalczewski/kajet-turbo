@@ -1,3 +1,5 @@
+import struct
+
 import pytest
 from kajet_turbo.storage import Storage
 
@@ -128,3 +130,51 @@ def test_update_note_title_only_preserves_fts_content(storage):
     storage.update_note("abc1234", title="Nowy tytuł", updated_at=_now())
     results = storage.search_fts("unikalna", "ws1")
     assert any(r["id"] == "abc1234" for r in results)
+
+
+def _fake_embedding(val: float, dim: int = 4) -> bytes:
+    """Small test vector (not 1536-dimensional)."""
+    return struct.pack(f"{dim}f", *[val] * dim)
+
+
+@pytest.fixture
+def storage_small_dim(tmp_path):
+    """Storage with small EMBEDDING_DIM=4 for fast vec0 tests."""
+    import os
+    os.environ["EMBEDDING_DIM"] = "4"
+    s = Storage(str(tmp_path / "test_vec.db"))
+    yield s
+    s.close()
+    del os.environ["EMBEDDING_DIM"]
+
+
+def test_insert_vec_and_search(storage_small_dim):
+    s = storage_small_dim
+    s.insert_note("id1", "ws1", "Notatka A", [], _now(), _now(), "treść A")
+    s.insert_note("id2", "ws1", "Notatka B", [], _now(), _now(), "treść B")
+
+    row1 = s._conn.execute("SELECT rowid FROM notes WHERE id='id1'").fetchone()
+    row2 = s._conn.execute("SELECT rowid FROM notes WHERE id='id2'").fetchone()
+
+    s.insert_vec("id1", row1[0], "ws1", _fake_embedding(0.1))
+    s.insert_vec("id2", row2[0], "ws1", _fake_embedding(0.9))
+
+    results = s.search_vec(_fake_embedding(0.1), "ws1", k=2)
+    assert results[0]["id"] == "id1"  # nearest neighbor
+
+
+def test_hybrid_search_fallback_without_vec(storage):
+    storage.insert_note("id1", "ws1", "Python tutorial", [], _now(), _now(), "programowanie w Pythonie")
+    # No vectors — hybrid should fall back to FTS
+    results = storage.hybrid_search("Python", "ws1")
+    assert any(r["id"] == "id1" for r in results)
+
+
+def test_hybrid_search_with_vec(storage_small_dim):
+    s = storage_small_dim
+    s.insert_note("id1", "ws1", "Notatka wektorowa", [], _now(), _now(), "treść z wektorem")
+    row = s._conn.execute("SELECT rowid FROM notes WHERE id='id1'").fetchone()
+    s.insert_vec("id1", row[0], "ws1", _fake_embedding(0.5))
+
+    results = s.hybrid_search("wektorowa", "ws1", embedding=_fake_embedding(0.5))
+    assert any(r["id"] == "id1" for r in results)
