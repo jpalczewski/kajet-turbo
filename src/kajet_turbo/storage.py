@@ -3,11 +3,10 @@ import sqlite3
 import sqlite_vec
 from pathlib import Path
 
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
-
 
 class Storage:
     def __init__(self, db_path: str | None = None):
+        self.embedding_dim = int(os.getenv("EMBEDDING_DIM", "1536"))
         self.db_path = db_path or os.getenv("DB_PATH", "/data/kajet.db")
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = self._connect()
@@ -65,7 +64,7 @@ class Storage:
 
             CREATE VIRTUAL TABLE IF NOT EXISTS notes_vec USING vec0(
                 note_rowid INTEGER PRIMARY KEY,
-                embedding  float[{EMBEDDING_DIM}],
+                embedding  float[{self.embedding_dim}],
                 workspace  TEXT partition key,
                 note_id    TEXT
             );
