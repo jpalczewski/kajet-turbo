@@ -1,27 +1,26 @@
 import json
+import subprocess
+
+import pytest
 from fastmcp import Client
 
-
-async def test_ping_returns_pong(monkeypatch, tmp_path):
-    monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
-    from kajet_turbo.server import _build_mcp
-
-    mcp = _build_mcp()
-    async with Client(mcp) as client:
-        result = await client.call_tool("ping")
-
-    assert result.content[0].text == "pong"
-
-
-import os
-import subprocess
-import pytest
-from pathlib import Path
+from kajet_turbo.auth import create_auth
+from kajet_turbo.mcp import build_mcp
+from kajet_turbo.storage import Storage
 
 
 @pytest.fixture
-def workspaces_dir(tmp_path, monkeypatch):
+def mcp_server(tmp_path, monkeypatch):
+    monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
+    storage = Storage(str(tmp_path / "test.db"))
+    provider = create_auth(storage)
+    mcp = build_mcp(storage, provider)
+    yield mcp, storage
+    storage.close()
+
+
+@pytest.fixture
+def workspaces_dir(tmp_path, monkeypatch, mcp_server):
     ws_dir = tmp_path / "workspaces"
     ws_dir.mkdir()
     ws = ws_dir / "test-ws"
@@ -31,39 +30,39 @@ def workspaces_dir(tmp_path, monkeypatch):
     subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws), check=True, capture_output=True)
     monkeypatch.setenv("WORKSPACES_DIR", str(ws_dir))
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
-    monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
     return ws_dir
 
 
-async def test_list_workspaces(workspaces_dir):
-    from kajet_turbo.server import _build_mcp
-    mcp = _build_mcp()
+async def test_ping_returns_pong(mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        result = await client.call_tool("ping")
+    assert result.content[0].text == "pong"
+
+
+async def test_list_workspaces(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         result = await client.call_tool("list_workspaces")
     assert "test-ws" in result.content[0].text
 
 
-async def test_activate_workspace(workspaces_dir):
-    from kajet_turbo.server import _build_mcp
-    mcp = _build_mcp()
+async def test_activate_workspace(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         result = await client.call_tool("activate_workspace", {"name": "test-ws"})
     assert "test-ws" in result.content[0].text
 
 
-async def test_activate_nonexistent_workspace(workspaces_dir):
-    from kajet_turbo.server import _build_mcp
-    mcp = _build_mcp()
+async def test_activate_nonexistent_workspace(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         result = await client.call_tool("activate_workspace", {"name": "nie-istnieje"})
-    # Should NOT say workspace is active — the nonexistent workspace should be rejected
     assert "aktywny" not in result.content[0].text.lower()
 
 
-async def test_save_and_get_note(workspaces_dir):
-    from kajet_turbo.server import _build_mcp
-    mcp = _build_mcp()
+async def test_save_and_get_note(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         save_result = await client.call_tool(
@@ -76,9 +75,8 @@ async def test_save_and_get_note(workspaces_dir):
         assert "Moja notatka" in get_result.content[0].text
 
 
-async def test_save_note_creates_file(workspaces_dir):
-    from kajet_turbo.server import _build_mcp
-    mcp = _build_mcp()
+async def test_save_note_creates_file(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool("save_note", {"title": "Plikowa notatka", "content": "treść"})
@@ -88,9 +86,8 @@ async def test_save_note_creates_file(workspaces_dir):
     assert len(files) == 1
 
 
-async def test_delete_note(workspaces_dir):
-    from kajet_turbo.server import _build_mcp
-    mcp = _build_mcp()
+async def test_delete_note(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         save_result = await client.call_tool("save_note", {"title": "Do usunięcia", "content": "treść"})
@@ -100,9 +97,8 @@ async def test_delete_note(workspaces_dir):
         assert "error" in json.loads(get_result.content[0].text)
 
 
-async def test_update_note(workspaces_dir):
-    from kajet_turbo.server import _build_mcp
-    mcp = _build_mcp()
+async def test_update_note(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         save_result = await client.call_tool("save_note", {"title": "Stary tytuł", "content": "stara treść"})
@@ -113,9 +109,8 @@ async def test_update_note(workspaces_dir):
         assert "nowa treść" in get_result.content[0].text
 
 
-async def test_list_notes(workspaces_dir):
-    from kajet_turbo.server import _build_mcp
-    mcp = _build_mcp()
+async def test_list_notes(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool("save_note", {"title": "Notatka 1", "content": "treść 1", "tags": ["python"]})
@@ -125,9 +120,8 @@ async def test_list_notes(workspaces_dir):
         assert "Notatka 2" in result.content[0].text
 
 
-async def test_search_notes_fts_fallback(workspaces_dir):
-    from kajet_turbo.server import _build_mcp
-    mcp = _build_mcp()
+async def test_search_notes_fts_fallback(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool("save_note", {"title": "Python asyncio guide", "content": "Tutorial o coroutines.", "tags": []})
@@ -137,17 +131,15 @@ async def test_search_notes_fts_fallback(workspaces_dir):
         assert "JavaScript intro" not in result.content[0].text
 
 
-async def test_search_notes_all_workspaces(workspaces_dir):
+async def test_search_notes_all_workspaces(workspaces_dir, mcp_server):
     ws2 = workspaces_dir / "drugi-ws"
     ws2.mkdir()
     (ws2 / "notes").mkdir()
-    import subprocess
     subprocess.run(["git", "init", str(ws2)], check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws2), check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws2), check=True, capture_output=True)
 
-    from kajet_turbo.server import _build_mcp
-    mcp = _build_mcp()
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool("save_note", {"title": "Notatka w ws1", "content": "Python content.", "tags": []})
@@ -159,18 +151,32 @@ async def test_search_notes_all_workspaces(workspaces_dir):
         assert "ws2" in text or "Notatka w ws2" in text
 
 
-async def test_reindex_workspace(workspaces_dir):
-    from kajet_turbo.server import _build_mcp
+async def test_reindex_workspace(workspaces_dir, mcp_server):
     from kajet_turbo.workspace import note_filepath, write_note_file
 
     ws_path = workspaces_dir / "test-ws"
     path = note_filepath(str(ws_path), "zzz1111", "Reindexed note")
     write_note_file(path, "zzz1111", "Reindexed note", ["test"], "2026-06-08T12:00:00+00:00", "2026-06-08T12:00:00+00:00", "treść")
 
-    mcp = _build_mcp()
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         reindex_result = await client.call_tool("reindex_workspace")
         assert "ok" in reindex_result.content[0].text.lower() or "reindeks" in reindex_result.content[0].text.lower()
         search_result = await client.call_tool("search_notes", {"query": "Reindexed"})
         assert "Reindexed note" in search_result.content[0].text
+
+
+def test_user_repository_create_and_get(tmp_path):
+    from kajet_turbo.db import Database
+    from kajet_turbo.repositories.users import UserRepository
+    db = Database(str(tmp_path / "test.db"))
+    repo = UserRepository(db.engine)
+    uid = repo.create("a@b.com", "hash123")
+    assert len(uid) == 12
+    user = repo.get_by_email("a@b.com")
+    assert user is not None
+    assert user["email"] == "a@b.com"
+    assert user["password_hash"] == "hash123"
+    assert repo.count() == 1
+    db.close()
