@@ -59,6 +59,14 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
         self._restore_state()
 
     def _restore_state(self) -> None:
+        for row in self._oauth_repo.get_valid_pending():
+            try:
+                client = OAuthClientInformationFull.model_validate_json(row["client_json"])
+                params = AuthorizationParams.model_validate_json(row["params_json"])
+                self._pending[row["pending_id"]] = (client, params)
+            except Exception:
+                pass
+
         for data in self._oauth_repo.get_all_registered_clients():
             try:
                 client = OAuthClientInformationFull.model_validate_json(data)
@@ -126,13 +134,25 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
     ) -> str:
         pending_id = secrets.token_urlsafe(32)
         self._pending[pending_id] = (client, params)
+        self._oauth_repo.upsert_pending(
+            pending_id,
+            client.model_dump_json(),
+            params.model_dump_json(),
+            time.time() + 600,
+        )
         return f"/login?pending={pending_id}"
 
     async def complete_authorization(self, pending_id: str, user_id: str | None = None) -> str:
         """Complete auth after successful login. Returns redirect URI with code."""
         if pending_id not in self._pending:
-            raise ValueError("Invalid or expired authorization")
+            row = self._oauth_repo.get_pending(pending_id)
+            if row is None:
+                raise ValueError("Invalid or expired authorization")
+            client = OAuthClientInformationFull.model_validate_json(row[0])
+            params = AuthorizationParams.model_validate_json(row[1])
+            self._pending[pending_id] = (client, params)
         client, params = self._pending.pop(pending_id)
+        self._oauth_repo.delete_pending(pending_id)
 
         if user_id:
             self._oauth_repo.record_client_authorization(client.client_id, user_id)

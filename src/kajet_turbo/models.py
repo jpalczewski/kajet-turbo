@@ -88,3 +88,12 @@ class OAuthRefreshToken(SQLModel, table=True):
     client_id: str
     scopes: str | None = Field(default=None, sa_column=Column(Text))
     expires_at: int | None = None
+
+
+class OAuthPendingAuthorization(SQLModel, table=True):
+    __tablename__ = "oauth_pending_authorizations"
+
+    pending_id: str = Field(primary_key=True)
+    client_json: str = Field(sa_column=Column(Text, nullable=False))
+    params_json: str = Field(sa_column=Column(Text, nullable=False))
+    expires_at: float
