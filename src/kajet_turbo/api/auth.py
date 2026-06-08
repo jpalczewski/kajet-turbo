@@ -39,7 +39,7 @@ async def api_login(
         if pending_id not in provider._pending:
             return JSONResponse({"error": "Wygasły pending_id."}, status_code=400)
         try:
-            data["redirect_uri"] = await provider.complete_authorization(pending_id, user["id"])
+            data["redirect_uri"] = await provider.complete_authorization(pending_id, user.id)
         except ValueError:
             return JSONResponse({"error": "Wygasły pending_id."}, status_code=400)
 
