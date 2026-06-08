@@ -163,6 +163,64 @@ def _build_mcp() -> FastMCP:
         notes = storage.list_notes(ws_name, tags=tags or None, limit=limit)
         return json.dumps(notes, ensure_ascii=False)
 
+    @mcp.tool()
+    async def search_notes(
+        query: str,
+        ctx: Context,
+        workspace: str = "active",
+        limit: int = 10,
+    ) -> str:
+        """Szuka notatek. workspace='active' (domyślnie) lub 'all'."""
+        storage: Storage = ctx.lifespan_context["storage"]
+        ws_param = workspace or "active"
+
+        if ws_param == "all":
+            workspaces = _list_workspaces()
+        else:
+            ws_name = ws_param if ws_param != "active" else await ctx.get_state("active_workspace")
+            if not ws_name:
+                return "Wywołaj activate_workspace() najpierw."
+            workspaces = [ws_name]
+
+        results = []
+        for ws in workspaces:
+            hits = storage.hybrid_search(query, ws, limit=limit)
+            results.extend(hits)
+
+        if not results:
+            return "Brak wyników."
+        return json.dumps(results[:limit], ensure_ascii=False)
+
+    @mcp.tool()
+    async def reindex_workspace(ctx: Context) -> str:
+        """Przebudowuje indeks SQLite z plików .md w aktywnym workspace."""
+        ws_name, ws_path = await _get_workspace(ctx)
+        storage: Storage = ctx.lifespan_context["storage"]
+
+        notes = scan_notes(ws_path)
+        # FTS delete must be BEFORE notes delete — subquery needs notes.fts_rowid
+        storage._conn.execute(
+            "DELETE FROM notes_fts WHERE rowid IN (SELECT fts_rowid FROM notes WHERE workspace = ? AND fts_rowid IS NOT NULL)",
+            (ws_name,),
+        )
+        storage._conn.execute("DELETE FROM notes WHERE workspace = ?", (ws_name,))
+        storage._conn.commit()
+
+        for note in notes:
+            if not note["id"]:
+                continue
+            storage.insert_note(
+                note["id"],
+                ws_name,
+                note["title"] or "",
+                note["tags"] or [],
+                str(note["created_at"] or ""),
+                str(note["updated_at"] or ""),
+                note["content"] or "",
+            )
+
+        return f"Reindeksowano {len(notes)} notatek w workspace '{ws_name}'."
+
     return mcp
 
 
