@@ -2,139 +2,208 @@
   import { onMount } from 'svelte'
 
   const params = new URLSearchParams(window.location.search)
-  const pendingId = params.get('pending')
-  const isLogin = !!pendingId
+  const pendingId = params.get('pending') ?? ''
+  const isLoginPath = window.location.pathname === '/login'
 
-  let serverUrl = window.location.origin
-  let health = $state<'checking' | 'ok' | 'error'>('checking')
+  type Session = { email: string }
 
-  // login state
+  let session = $state<Session | null>(null)
+  let loading = $state(true)
+  let clientName = $state('Claude')
+
   let email = $state('')
   let password = $state('')
-  let loginError = $state('')
+  let error = $state('')
   let submitting = $state(false)
 
+  const serverUrl = window.location.origin
+
   onMount(async () => {
-    if (isLogin) return
-    try {
-      const r = await fetch('/mcp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', method: 'ping', id: 1 }),
-      })
-      health = r.ok || r.status === 401 ? 'ok' : 'error'
-    } catch {
-      health = 'error'
+    if (isLoginPath && !pendingId) {
+      window.location.replace('/')
+      return
     }
+
+    const [sessionRes, pendingRes] = await Promise.all([
+      fetch('/api/session', { credentials: 'include' }).catch(() => null),
+      pendingId
+        ? fetch(`/api/pending?id=${pendingId}`).catch(() => null)
+        : Promise.resolve(null),
+    ])
+
+    if (sessionRes?.ok) session = await sessionRes.json()
+    if (pendingRes?.ok) {
+      const d = await pendingRes.json()
+      clientName = d.client_name ?? 'Claude'
+    }
+
+    loading = false
   })
 
   async function handleLogin(e: SubmitEvent) {
     e.preventDefault()
     submitting = true
-    loginError = ''
+    error = ''
     try {
       const res = await fetch('/api/login', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, pending_id: pendingId }),
       })
       const data = await res.json()
-      if (!res.ok) {
-        loginError = data.error ?? 'Błąd logowania.'
-      } else {
-        window.location.href = data.redirect_uri
-      }
+      if (!res.ok) { error = data.error ?? 'Błąd logowania.'; return }
+      session = { email: data.email }
+      if (data.redirect_uri) window.location.href = data.redirect_uri
+      else window.location.replace('/')
     } catch {
-      loginError = 'Błąd sieci. Spróbuj ponownie.'
+      error = 'Błąd sieci. Spróbuj ponownie.'
     } finally {
       submitting = false
     }
   }
+
+  async function handleConsent() {
+    submitting = true
+    error = ''
+    try {
+      const res = await fetch('/api/consent', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pending_id: pendingId }),
+      })
+      const data = await res.json()
+      if (!res.ok) { error = data.error ?? 'Błąd.'; return }
+      window.location.href = data.redirect_uri
+    } catch {
+      error = 'Błąd sieci.'
+    } finally {
+      submitting = false
+    }
+  }
+
+  async function handleLogout() {
+    await fetch('/api/session', { method: 'DELETE', credentials: 'include' })
+    session = null
+    email = ''
+    password = ''
+  }
 </script>
 
-{#if isLogin}
-  <main class="login-page">
+{#if loading}
+  <div class="center"><span class="spinner"></span></div>
+{:else if isLoginPath && pendingId && session}
+  <!-- Consent screen: already logged in -->
+  <main class="narrow">
     <h1>kajet-turbo</h1>
-    <p class="tagline">Zaloguj się, aby zezwolić na dostęp do notatek.</p>
-
-    {#if loginError}
-      <p class="error">{loginError}</p>
-    {/if}
-
+    <div class="card">
+      <p class="label">Aplikacja prosi o dostęp do Twoich notatek:</p>
+      <p class="client-name">{clientName}</p>
+    </div>
+    <p class="hint">Zalogowany jako <strong>{session.email}</strong></p>
+    {#if error}<p class="error">{error}</p>{/if}
+    <button onclick={handleConsent} disabled={submitting} class="primary">
+      {submitting ? 'Autoryzowanie…' : 'Zezwól na dostęp'}
+    </button>
+    <button onclick={handleLogout} class="ghost">Wyloguj się</button>
+  </main>
+{:else if isLoginPath && pendingId}
+  <!-- Login + consent: not logged in -->
+  <main class="narrow">
+    <h1>kajet-turbo</h1>
+    <div class="card">
+      <p class="label">Aplikacja prosi o dostęp do Twoich notatek:</p>
+      <p class="client-name">{clientName}</p>
+    </div>
+    <p class="hint">Zaloguj się, aby zezwolić na dostęp.</p>
+    {#if error}<p class="error">{error}</p>{/if}
     <form onsubmit={handleLogin}>
-      <label>
-        Email
-        <input type="email" bind:value={email} required autofocus autocomplete="email" />
-      </label>
-      <label>
-        Hasło
-        <input type="password" bind:value={password} required autocomplete="current-password" />
-      </label>
-      <button type="submit" disabled={submitting}>
+      <label>Email<input type="email" bind:value={email} required autocomplete="email" /></label>
+      <label>Hasło<input type="password" bind:value={password} required autocomplete="current-password" /></label>
+      <button type="submit" disabled={submitting} class="primary">
         {submitting ? 'Logowanie…' : 'Zaloguj się i zezwól na dostęp'}
       </button>
     </form>
   </main>
 {:else}
+  <!-- Landing page -->
   <main>
-    <h1>kajet-turbo</h1>
+    <header>
+      <h1>kajet-turbo</h1>
+      {#if session}
+        <div class="session-bar">
+          <span>{session.email}</span>
+          <button onclick={handleLogout} class="ghost small">Wyloguj</button>
+        </div>
+      {/if}
+    </header>
+
     <p class="tagline">Twoje notatki markdown, dostępne w Claude.</p>
 
-    <section class="connect">
+    <section>
       <h2>Połącz z Claude</h2>
       <p>Dodaj serwer MCP w Claude Desktop lub Claude Mobile:</p>
       <code>{serverUrl}/mcp</code>
       <p class="hint">Claude zainicjuje logowanie przy pierwszym połączeniu.</p>
     </section>
 
-    <section class="status">
-      <span class="dot" class:ok={health === 'ok'} class:error={health === 'error'}></span>
-      {#if health === 'ok'}Serwer działa{:else if health === 'error'}Serwer niedostępny{:else}Sprawdzam…{/if}
-    </section>
+    {#if !session}
+      <section>
+        <h2>Zaloguj się</h2>
+        {#if error}<p class="error">{error}</p>{/if}
+        <form onsubmit={handleLogin} class="inline-form">
+          <label>Email<input type="email" bind:value={email} required autocomplete="email" /></label>
+          <label>Hasło<input type="password" bind:value={password} required autocomplete="current-password" /></label>
+          <button type="submit" disabled={submitting} class="primary">
+            {submitting ? 'Logowanie…' : 'Zaloguj się'}
+          </button>
+        </form>
+      </section>
+    {/if}
   </main>
 {/if}
 
 <style>
   :global(body) { margin: 0; font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; }
+  :global(*) { box-sizing: border-box; }
 
-  main { max-width: 600px; margin: 0 auto; padding: 80px 24px; }
-  h1 { font-size: 2.5rem; margin: 0 0 8px; }
-  .tagline { color: #94a3b8; margin: 0 0 48px; font-size: 1.1rem; }
+  .center { display: flex; justify-content: center; align-items: center; height: 100vh; }
+  .spinner { width: 24px; height: 24px; border: 3px solid #334155; border-top-color: #60a5fa; border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* landing */
-  h2 { font-size: 1.1rem; color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }
+  main { max-width: 640px; margin: 0 auto; padding: 64px 24px; }
+  main.narrow { max-width: 400px; }
+
+  header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 8px; flex-wrap: wrap; }
+  h1 { font-size: 2rem; margin: 0; }
+  h2 { font-size: 0.8rem; color: #64748b; text-transform: uppercase; letter-spacing: .08em; margin: 0 0 10px; }
+
+  .tagline { color: #94a3b8; margin: 0 0 48px; font-size: 1.05rem; }
   section { margin-bottom: 40px; }
-  code { display: block; background: #1e293b; padding: 12px 16px; border-radius: 8px; font-size: 0.95rem; margin: 12px 0; word-break: break-all; }
-  .hint { color: #64748b; font-size: 0.875rem; }
-  .status { display: flex; align-items: center; gap: 8px; font-size: 0.875rem; color: #64748b; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: #334155; }
-  .dot.ok { background: #22c55e; }
-  .dot.error { background: #ef4444; }
 
-  /* login form */
-  .login-page { max-width: 400px; }
-  form { display: flex; flex-direction: column; gap: 16px; }
-  label { display: flex; flex-direction: column; gap: 6px; font-size: 0.875rem; color: #94a3b8; }
-  input {
-    padding: 10px 12px;
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 6px;
-    color: #f8fafc;
-    font-size: 1rem;
-  }
+  code { display: block; background: #1e293b; padding: 12px 16px; border-radius: 8px; font-size: 0.9rem; margin: 10px 0; word-break: break-all; }
+  .hint { color: #64748b; font-size: 0.875rem; margin: 6px 0 0; }
+
+  .card { background: #1e293b; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; }
+  .label { color: #94a3b8; font-size: 0.875rem; margin: 0 0 6px; }
+  .client-name { font-size: 1.1rem; font-weight: 600; margin: 0; }
+
+  .session-bar { display: flex; align-items: center; gap: 10px; margin-left: auto; font-size: 0.875rem; color: #94a3b8; }
+
+  form { display: flex; flex-direction: column; gap: 14px; }
+  form.inline-form { max-width: 360px; }
+  label { display: flex; flex-direction: column; gap: 5px; font-size: 0.875rem; color: #94a3b8; }
+  input { padding: 9px 12px; background: #1e293b; border: 1px solid #334155; border-radius: 6px; color: #f8fafc; font-size: 0.95rem; }
   input:focus { outline: none; border-color: #60a5fa; }
-  button {
-    padding: 11px;
-    background: #2563eb;
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    font-size: 1rem;
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-  button:hover:not(:disabled) { background: #1d4ed8; }
-  button:disabled { opacity: 0.6; cursor: not-allowed; }
-  .error { color: #f87171; font-size: 0.875rem; margin: 0 0 8px; }
+
+  button.primary { padding: 10px 16px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 0.95rem; cursor: pointer; transition: background .15s; }
+  button.primary:hover:not(:disabled) { background: #1d4ed8; }
+  button.primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  button.ghost { padding: 8px 14px; background: transparent; color: #64748b; border: 1px solid #334155; border-radius: 6px; font-size: 0.875rem; cursor: pointer; transition: border-color .15s, color .15s; }
+  button.ghost:hover { border-color: #64748b; color: #94a3b8; }
+  button.ghost.small { padding: 5px 10px; font-size: 0.8rem; }
+
+  .error { color: #f87171; font-size: 0.875rem; margin: 0; }
 </style>

@@ -245,6 +245,13 @@ def _build_mcp() -> FastMCP:
 
         return json.dumps({"message": f"Reindeksowano {len(notes)} notatek w workspace '{ws_name}'.", "count": len(notes)})
 
+    _SESSION_COOKIE = "kajet_session"
+    _SESSION_MAX_AGE = 30 * 24 * 3600
+
+    def _session_user(request: Request) -> dict | None:
+        token = request.cookies.get(_SESSION_COOKIE, "")
+        return _auth_storage.get_session_user(token) if token else None
+
     @mcp.custom_route("/api/login", methods=["POST"])
     async def api_login(request: Request) -> Response:
         try:
@@ -256,19 +263,67 @@ def _build_mcp() -> FastMCP:
         password = str(body.get("password", ""))
         pending_id = str(body.get("pending_id", ""))
 
-        if not pending_id or pending_id not in provider._pending:
-            return JSONResponse({"error": "Wygasły lub nieprawidłowy pending_id."}, status_code=400)
-
         user = _auth_storage.get_user_by_email(email)
         if not user or not verify_password(user["password_hash"] or "", password):
             return JSONResponse({"error": "Nieprawidłowy email lub hasło."}, status_code=401)
 
+        session_token = _auth_storage.create_session(user["id"])
+        data: dict = {"email": user["email"]}
+
+        if pending_id:
+            if pending_id not in provider._pending:
+                return JSONResponse({"error": "Wygasły pending_id."}, status_code=400)
+            try:
+                data["redirect_uri"] = await provider.complete_authorization(pending_id)
+            except ValueError:
+                return JSONResponse({"error": "Wygasły pending_id."}, status_code=400)
+
+        resp = JSONResponse(data)
+        resp.set_cookie(_SESSION_COOKIE, session_token, max_age=_SESSION_MAX_AGE,
+                        httponly=True, samesite="lax")
+        return resp
+
+    @mcp.custom_route("/api/session", methods=["GET", "DELETE"])
+    async def api_session(request: Request) -> Response:
+        if request.method == "DELETE":
+            token = request.cookies.get(_SESSION_COOKIE, "")
+            if token:
+                _auth_storage.delete_session(token)
+            resp = JSONResponse({"ok": True})
+            resp.delete_cookie(_SESSION_COOKIE)
+            return resp
+
+        user = _session_user(request)
+        if not user:
+            return JSONResponse({"error": "Not logged in"}, status_code=401)
+        return JSONResponse({"email": user["email"]})
+
+    @mcp.custom_route("/api/consent", methods=["POST"])
+    async def api_consent(request: Request) -> Response:
+        user = _session_user(request)
+        if not user:
+            return JSONResponse({"error": "Not logged in"}, status_code=401)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+        pending_id = str(body.get("pending_id", ""))
+        if not pending_id or pending_id not in provider._pending:
+            return JSONResponse({"error": "Wygasły pending_id."}, status_code=400)
         try:
             redirect_uri = await provider.complete_authorization(pending_id)
         except ValueError:
             return JSONResponse({"error": "Wygasły pending_id."}, status_code=400)
-
         return JSONResponse({"redirect_uri": redirect_uri})
+
+    @mcp.custom_route("/api/pending", methods=["GET"])
+    async def api_pending_info(request: Request) -> Response:
+        pending_id = request.query_params.get("id", "")
+        if not pending_id or pending_id not in provider._pending:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        client, _ = provider._pending[pending_id]
+        name = getattr(client, "client_name", None) or client.client_id
+        return JSONResponse({"client_name": name})
 
     return mcp
 

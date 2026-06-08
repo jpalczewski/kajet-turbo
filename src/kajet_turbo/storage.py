@@ -1,6 +1,8 @@
 import json
 import os
+import secrets
 import sqlite3
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -82,6 +84,12 @@ class Storage:
             CREATE TABLE IF NOT EXISTS oauth_registered_clients (
                 client_id  TEXT PRIMARY KEY,
                 data       TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS sessions (
+                token      TEXT PRIMARY KEY,
+                user_id    TEXT NOT NULL REFERENCES users(id),
+                expires_at INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS oauth_access_tokens (
@@ -314,6 +322,29 @@ class Storage:
             "SELECT COUNT(*) FROM notes_vec WHERE workspace = ?", (workspace,)
         ).fetchone()[0]
         return count > 0
+
+    def create_session(self, user_id: str) -> str:
+        token = secrets.token_hex(32)
+        expires_at = int(time.time()) + 30 * 24 * 3600
+        self._conn.execute(
+            "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
+            (token, user_id, expires_at),
+        )
+        self._conn.commit()
+        return token
+
+    def get_session_user(self, token: str) -> dict | None:
+        row = self._conn.execute(
+            """SELECT u.id, u.email FROM sessions s
+               JOIN users u ON u.id = s.user_id
+               WHERE s.token = ? AND s.expires_at > ?""",
+            (token, int(time.time())),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def delete_session(self, token: str) -> None:
+        self._conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        self._conn.commit()
 
     def upsert_registered_client(self, client_id: str, data: str) -> None:
         self._conn.execute(
