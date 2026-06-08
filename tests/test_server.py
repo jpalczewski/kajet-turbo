@@ -213,3 +213,33 @@ def test_workspace_repository(tmp_path):
     assert not workspaces.has_access(uid, "ws-beta")
     assert workspaces.list_user_workspaces(uid) == ["ws-alpha"]
     db.close()
+
+
+def test_oauth_repository(tmp_path):
+    from kajet_turbo.db import Database
+    from kajet_turbo.repositories.users import UserRepository
+    from kajet_turbo.repositories.oauth import OAuthRepository
+    db = Database(str(tmp_path / "test.db"))
+    users = UserRepository(db.engine)
+    oauth = OAuthRepository(db.engine)
+    uid = users.create("o@p.com", "h")
+
+    oauth.upsert_registered_client("cl1", '{"client_id":"cl1"}')
+    assert oauth.get_all_registered_clients() == ['{"client_id":"cl1"}']
+
+    oauth.record_client_authorization("cl1", uid)
+    assert oauth.get_user_id_by_client("cl1") == uid
+
+    oauth.upsert_access_token("tok1", "cl1", ["read"], None)
+    tokens = oauth.get_valid_access_tokens()
+    assert any(t["token"] == "tok1" for t in tokens)
+
+    oauth.upsert_refresh_token("ref1", "cl1", ["read"], None)
+    rtokens = oauth.get_valid_refresh_tokens()
+    assert any(t["token"] == "ref1" for t in rtokens)
+
+    oauth.save_oauth_client("cl2", "secret", ["https://cb.local"], "2026-01-01T00:00:00")
+    client = oauth.get_oauth_client("cl2")
+    assert client is not None
+    assert client["client_secret"] == "secret"
+    db.close()
