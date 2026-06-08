@@ -7,7 +7,7 @@ from fastmcp import Context, FastMCP
 from fastmcp.server.lifespan import lifespan
 from nanoid import generate
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, RedirectResponse, Response
+from starlette.responses import JSONResponse, Response
 
 from kajet_turbo.auth import create_auth
 from kajet_turbo.git_ops import GitError, commit_file, delete_file_commit
@@ -244,76 +244,30 @@ def _build_mcp() -> FastMCP:
 
         return json.dumps({"message": f"Reindeksowano {len(notes)} notatek w workspace '{ws_name}'.", "count": len(notes)})
 
-    def _login_html(pending_id: str, client_name: str, error: str = "") -> str:
-        error_html = f'<p class="error">{error}</p>' if error else ""
-        return f"""<!DOCTYPE html>
-<html lang="pl">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>kajet-turbo — logowanie</title>
-<style>
-  body{{font-family:system-ui,sans-serif;max-width:400px;margin:80px auto;padding:20px;color:#1e293b}}
-  h2{{margin-bottom:4px}}
-  .app{{color:#64748b;font-size:14px;margin-bottom:24px}}
-  .client{{background:#f1f5f9;border-radius:8px;padding:12px 16px;margin-bottom:24px;font-size:14px}}
-  label{{display:block;font-size:14px;font-weight:500;margin-bottom:4px}}
-  input{{width:100%;padding:8px 10px;margin-bottom:16px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box;font-size:15px}}
-  button{{width:100%;padding:10px;background:#0f172a;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer}}
-  button:hover{{background:#1e293b}}
-  .error{{color:#dc2626;font-size:14px;margin-bottom:16px}}
-</style>
-</head>
-<body>
-<h2>kajet-turbo</h2>
-<p class="app">Twoje notatki w Claude</p>
-<div class="client">
-  <strong>{client_name}</strong> prosi o dostęp do Twoich notatek.
-</div>
-{error_html}
-<form method="post" action="/login">
-  <input type="hidden" name="pending_id" value="{pending_id}">
-  <label>Email</label>
-  <input type="email" name="email" required autofocus>
-  <label>Hasło</label>
-  <input type="password" name="password" required>
-  <button type="submit">Zaloguj się i zezwól na dostęp</button>
-</form>
-</body>
-</html>"""
+    @mcp.custom_route("/api/login", methods=["POST"])
+    async def api_login(request: Request) -> Response:
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
-    @mcp.custom_route("/login", methods=["GET", "POST"])
-    async def login(request: Request) -> Response:
-        if request.method == "GET":
-            pending_id = request.query_params.get("pending", "") or request.query_params.get("pending_id", "")
-            if not pending_id or pending_id not in provider._pending:
-                return HTMLResponse("<h1>Nieprawidłowy lub wygasły link autoryzacji.</h1>", status_code=400)
-            client, _ = provider._pending[pending_id]
-            name = getattr(client, "client_name", None) or client.client_id
-            return HTMLResponse(_login_html(pending_id, name))
-
-        # POST
-        form = await request.form()
-        email = str(form.get("email", ""))
-        password = str(form.get("password", ""))
-        pending_id = str(form.get("pending_id", ""))
+        email = str(body.get("email", ""))
+        password = str(body.get("password", ""))
+        pending_id = str(body.get("pending_id", ""))
 
         if not pending_id or pending_id not in provider._pending:
-            return HTMLResponse("<h1>Wygasły link autoryzacji. Spróbuj ponownie.</h1>", status_code=400)
-
-        client, _ = provider._pending[pending_id]
-        name = getattr(client, "client_name", None) or client.client_id
+            return JSONResponse({"error": "Wygasły lub nieprawidłowy pending_id."}, status_code=400)
 
         user = _auth_storage.get_user_by_email(email)
         if not user or not verify_password(user["password_hash"] or "", password):
-            return HTMLResponse(_login_html(pending_id, name, error="Nieprawidłowy email lub hasło."))
+            return JSONResponse({"error": "Nieprawidłowy email lub hasło."}, status_code=401)
 
         try:
             redirect_uri = await provider.complete_authorization(pending_id)
         except ValueError:
-            return HTMLResponse("<h1>Wygasły link autoryzacji. Spróbuj ponownie.</h1>", status_code=400)
+            return JSONResponse({"error": "Wygasły pending_id."}, status_code=400)
 
-        return RedirectResponse(url=redirect_uri, status_code=302)
+        return JSONResponse({"redirect_uri": redirect_uri})
 
     return mcp
 
