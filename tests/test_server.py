@@ -1,3 +1,4 @@
+import json
 from fastmcp import Client
 
 
@@ -68,7 +69,7 @@ async def test_save_and_get_note(workspaces_dir):
         save_result = await client.call_tool(
             "save_note", {"title": "Moja notatka", "content": "# Treść\n\nTekst.", "tags": ["python"]}
         )
-        note_id = save_result.content[0].text.strip()
+        note_id = json.loads(save_result.content[0].text)["id"]
         assert len(note_id) > 0
 
         get_result = await client.call_tool("get_note", {"note_id": note_id})
@@ -93,10 +94,10 @@ async def test_delete_note(workspaces_dir):
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         save_result = await client.call_tool("save_note", {"title": "Do usunięcia", "content": "treść"})
-        note_id = save_result.content[0].text.strip()
+        note_id = json.loads(save_result.content[0].text)["id"]
         await client.call_tool("delete_note", {"note_id": note_id})
         get_result = await client.call_tool("get_note", {"note_id": note_id})
-        assert "nie znaleziono" in get_result.content[0].text.lower()
+        assert "error" in json.loads(get_result.content[0].text)
 
 
 async def test_update_note(workspaces_dir):
@@ -105,7 +106,7 @@ async def test_update_note(workspaces_dir):
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         save_result = await client.call_tool("save_note", {"title": "Stary tytuł", "content": "stara treść"})
-        note_id = save_result.content[0].text.strip()
+        note_id = json.loads(save_result.content[0].text)["id"]
         await client.call_tool("update_note", {"note_id": note_id, "title": "Nowy tytuł", "content": "nowa treść"})
         get_result = await client.call_tool("get_note", {"note_id": note_id})
         assert "Nowy tytuł" in get_result.content[0].text
