@@ -198,3 +198,18 @@ def test_session_repository(tmp_path):
     sessions.delete(token)
     assert sessions.get_user(token) is None
     db.close()
+
+
+def test_workspace_repository(tmp_path):
+    from kajet_turbo.db import Database
+    from kajet_turbo.repositories.users import UserRepository
+    from kajet_turbo.repositories.workspaces import WorkspaceRepository
+    db = Database(str(tmp_path / "test.db"))
+    users = UserRepository(db.engine)
+    workspaces = WorkspaceRepository(db.engine)
+    uid = users.create("u@v.com", "h")
+    workspaces.grant_access(uid, "ws-alpha")
+    assert workspaces.has_access(uid, "ws-alpha")
+    assert not workspaces.has_access(uid, "ws-beta")
+    assert workspaces.list_user_workspaces(uid) == ["ws-alpha"]
+    db.close()
