@@ -1,11 +1,22 @@
+import json
 import os
-from fastmcp import FastMCP, Context
-from fastmcp.server.lifespan import lifespan
+from datetime import datetime, timezone
 from pathlib import Path
 
+from fastmcp import FastMCP, Context
+from fastmcp.server.lifespan import lifespan
+from nanoid import generate
+
 from kajet_turbo.auth import create_auth
+from kajet_turbo.git_ops import commit_file, delete_file_commit, GitError
 from kajet_turbo.storage import Storage
-from kajet_turbo.workspace import list_workspaces as _list_workspaces
+from kajet_turbo.workspace import (
+    list_workspaces as _list_workspaces,
+    note_filepath,
+    write_note_file,
+    read_note_file,
+    scan_notes,
+)
 
 
 @lifespan
@@ -39,12 +50,6 @@ def _build_mcp() -> FastMCP:
             return f"Workspace '{name}' nie istnieje. Dostępne: {available}"
         await ctx.set_state("active_workspace", name)
         return f"Workspace '{name}' aktywny."
-
-    import json
-    from datetime import datetime, timezone
-    from nanoid import generate
-    from kajet_turbo.workspace import note_filepath, write_note_file, read_note_file, scan_notes
-    from kajet_turbo.git_ops import commit_file, delete_file_commit, GitError
 
     async def _get_workspace(ctx: Context) -> tuple[str, str]:
         """Returns (name, path) of active workspace or raises RuntimeError."""
@@ -112,7 +117,7 @@ def _build_mcp() -> FastMCP:
             return f"Notatka {note_id} nie znaleziona."
 
         now = datetime.now(timezone.utc).isoformat()
-        new_title = title or meta["title"]
+        new_title = title if title is not None else meta["title"]
         new_tags = tags if tags is not None else meta["tags"]
         notes_dir = Path(ws_path) / "notes"
         files = list(notes_dir.glob(f"{note_id}-*.md"))
@@ -120,11 +125,17 @@ def _build_mcp() -> FastMCP:
             return f"Plik notatki {note_id} nie znaleziony."
 
         note_data = read_note_file(str(files[0]))
-        new_content = content or note_data["content"]
+        old_content = note_data["content"]
+        new_content = content if content is not None else old_content
         write_note_file(str(files[0]), note_id, new_title, new_tags, meta["created_at"], now, new_content)
-        relative = str(files[0].relative_to(ws_path))
-        commit_file(ws_path, relative, f"note: update {new_title}")
-        storage.update_note(note_id, title=new_title, content=new_content, updated_at=now)
+        try:
+            relative = str(files[0].relative_to(ws_path))
+            commit_file(ws_path, relative, f"note: update {new_title}")
+        except GitError:
+            # Restore original file content on git failure
+            write_note_file(str(files[0]), note_id, meta["title"], meta["tags"], meta["created_at"], meta["updated_at"], old_content)
+            raise
+        storage.update_note(note_id, title=new_title, content=new_content, tags=new_tags, updated_at=now)
         return note_id
 
     @mcp.tool()

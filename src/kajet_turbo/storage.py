@@ -112,34 +112,45 @@ class Storage:
         note_id: str,
         title: str | None = None,
         content: str | None = None,
+        tags: list[str] | None = None,
         updated_at: str = "",
     ) -> None:
         row = self._conn.execute(
-            "SELECT title, workspace, fts_rowid FROM notes WHERE id = ?", (note_id,)
+            "SELECT title, tags, workspace, fts_rowid FROM notes WHERE id = ?", (note_id,)
         ).fetchone()
         if row is None:
             raise ValueError(f"Note {note_id} not found")
 
         new_title = title if title is not None else row["title"]
+        new_tags = tags if tags is not None else json.loads(row["tags"] or "[]")
         fts_rowid = row["fts_rowid"]
         workspace = row["workspace"]
 
-        # Read current FTS content before replacing
-        old_fts = self._conn.execute(
-            "SELECT content FROM notes_fts WHERE rowid = ?", (fts_rowid,)
-        ).fetchone()
-        old_content = old_fts["content"] if old_fts else ""
-        new_content = content if content is not None else old_content
-
-        self._conn.execute("DELETE FROM notes_fts WHERE rowid = ?", (fts_rowid,))
-        cur = self._conn.execute(
-            "INSERT INTO notes_fts (note_id, workspace, title, content) VALUES (?, ?, ?, ?)",
-            (note_id, workspace, new_title, new_content),
-        )
+        # Update the notes row (title, tags, updated_at)
         self._conn.execute(
-            "UPDATE notes SET title = ?, fts_rowid = ?, updated_at = ? WHERE id = ?",
-            (new_title, cur.lastrowid, updated_at, note_id),
+            "UPDATE notes SET title = ?, tags = ?, updated_at = ? WHERE id = ?",
+            (new_title, json.dumps(new_tags), updated_at, note_id),
         )
+
+        # Rebuild FTS entry if title or content changed
+        if title is not None or content is not None:
+            # Read current FTS content before replacing
+            old_fts = self._conn.execute(
+                "SELECT content FROM notes_fts WHERE rowid = ?", (fts_rowid,)
+            ).fetchone()
+            old_content = old_fts["content"] if old_fts else ""
+            new_content = content if content is not None else old_content
+
+            self._conn.execute("DELETE FROM notes_fts WHERE rowid = ?", (fts_rowid,))
+            cur = self._conn.execute(
+                "INSERT INTO notes_fts (note_id, workspace, title, content) VALUES (?, ?, ?, ?)",
+                (note_id, workspace, new_title, new_content),
+            )
+            self._conn.execute(
+                "UPDATE notes SET fts_rowid = ? WHERE id = ?",
+                (cur.lastrowid, note_id),
+            )
+
         self._conn.commit()
 
     def delete_note(self, note_id: str) -> None:

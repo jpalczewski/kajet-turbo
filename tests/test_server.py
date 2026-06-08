@@ -96,7 +96,20 @@ async def test_delete_note(workspaces_dir):
         note_id = save_result.content[0].text.strip()
         await client.call_tool("delete_note", {"note_id": note_id})
         get_result = await client.call_tool("get_note", {"note_id": note_id})
-        assert "nie znaleziono" in get_result.content[0].text.lower() or note_id not in get_result.content[0].text
+        assert "nie znaleziono" in get_result.content[0].text.lower()
+
+
+async def test_update_note(workspaces_dir):
+    from kajet_turbo.server import _build_mcp
+    mcp = _build_mcp()
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        save_result = await client.call_tool("save_note", {"title": "Stary tytuł", "content": "stara treść"})
+        note_id = save_result.content[0].text.strip()
+        await client.call_tool("update_note", {"note_id": note_id, "title": "Nowy tytuł", "content": "nowa treść"})
+        get_result = await client.call_tool("get_note", {"note_id": note_id})
+        assert "Nowy tytuł" in get_result.content[0].text
+        assert "nowa treść" in get_result.content[0].text
 
 
 async def test_list_notes(workspaces_dir):
