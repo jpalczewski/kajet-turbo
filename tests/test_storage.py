@@ -1,6 +1,8 @@
 import struct
+from datetime import UTC, datetime
 
 import pytest
+
 from kajet_turbo.storage import Storage
 
 
@@ -42,15 +44,14 @@ def test_wal_mode_enabled(storage):
     assert mode == "wal"
 
 
-from datetime import datetime, timezone
-
-
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def test_insert_and_get_note(storage):
-    storage.insert_note("abc1234", "ws1", "Moja notatka", ["python"], _now(), _now(), "treść notatki")
+    storage.insert_note(
+        "abc1234", "ws1", "Moja notatka", ["python"], _now(), _now(), "treść notatki"
+    )
     note = storage.get_note("abc1234")
     assert note["id"] == "abc1234"
     assert note["title"] == "Moja notatka"
@@ -95,8 +96,18 @@ def test_list_notes_filter_by_tag(storage):
 
 
 def test_fts_search_finds_by_title(storage):
-    storage.insert_note("id1", "ws1", "Python async programming", ["python"], _now(), _now(), "tutorial o asyncio")
-    storage.insert_note("id2", "ws1", "JavaScript basics", ["js"], _now(), _now(), "podstawy JS")
+    storage.insert_note(
+        "id1",
+        "ws1",
+        "Python async programming",
+        ["python"],
+        _now(),
+        _now(),
+        "tutorial o asyncio",
+    )
+    storage.insert_note(
+        "id2", "ws1", "JavaScript basics", ["js"], _now(), _now(), "podstawy JS"
+    )
     results = storage.search_fts("async", "ws1")
     ids = [r["id"] for r in results]
     assert "id1" in ids
@@ -104,7 +115,9 @@ def test_fts_search_finds_by_title(storage):
 
 
 def test_fts_search_finds_by_content(storage):
-    storage.insert_note("id1", "ws1", "Notatka", [], _now(), _now(), "sqlite jest świetny do embeddingów")
+    storage.insert_note(
+        "id1", "ws1", "Notatka", [], _now(), _now(), "sqlite jest świetny do embeddingów"
+    )
     results = storage.search_fts("embedding", "ws1")
     assert any(r["id"] == "id1" for r in results)
 
@@ -119,14 +132,18 @@ def test_fts_search_respects_workspace(storage):
 
 
 def test_fts_search_trigram_partial(storage):
-    storage.insert_note("id1", "ws1", "Programowanie", [], _now(), _now(), "nauka programowania w Pythonie")
+    storage.insert_note(
+        "id1", "ws1", "Programowanie", [], _now(), _now(), "nauka programowania w Pythonie"
+    )
     # trigram tokenizer: "gram" should match "programowanie"
     results = storage.search_fts("gram", "ws1")
     assert any(r["id"] == "id1" for r in results)
 
 
 def test_update_note_title_only_preserves_fts_content(storage):
-    storage.insert_note("abc1234", "ws1", "Stary tytuł", [], _now(), _now(), "unikalna treść notatki")
+    storage.insert_note(
+        "abc1234", "ws1", "Stary tytuł", [], _now(), _now(), "unikalna treść notatki"
+    )
     storage.update_note("abc1234", title="Nowy tytuł", updated_at=_now())
     results = storage.search_fts("unikalna", "ws1")
     assert any(r["id"] == "abc1234" for r in results)
@@ -164,7 +181,9 @@ def test_insert_vec_and_search(storage_small_dim):
 
 
 def test_hybrid_search_fallback_without_vec(storage):
-    storage.insert_note("id1", "ws1", "Python tutorial", [], _now(), _now(), "programowanie w Pythonie")
+    storage.insert_note(
+        "id1", "ws1", "Python tutorial", [], _now(), _now(), "programowanie w Pythonie"
+    )
     # No vectors — hybrid should fall back to FTS
     results = storage.hybrid_search("Python", "ws1")
     assert any(r["id"] == "id1" for r in results)
