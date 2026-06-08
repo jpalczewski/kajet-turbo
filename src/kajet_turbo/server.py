@@ -7,7 +7,7 @@ from fastmcp.utilities.lifespan import combine_lifespans
 
 from kajet_turbo.api import api_router
 from kajet_turbo.auth import hash_password
-from kajet_turbo.dependencies import db, note_repo, oauth_repo, provider, user_repo, workspace_repo
+from kajet_turbo.dependencies import db, note_service, oauth_repo, provider, user_repo, workspace_service
 from kajet_turbo.mcp import build_mcp
 
 
@@ -46,7 +46,7 @@ class _SPAFiles:
 
 
 def build_app() -> FastAPI:
-    mcp = build_mcp(note_repo, workspace_repo, oauth_repo, provider)
+    mcp = build_mcp(note_service, workspace_service, oauth_repo, provider)
     mcp_app = mcp.http_app(path="/")
 
     app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan))

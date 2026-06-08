@@ -10,6 +10,8 @@ from kajet_turbo.mcp import build_mcp
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.workspaces import WorkspaceService
 
 
 @pytest.fixture
@@ -20,7 +22,9 @@ def mcp_server(tmp_path, monkeypatch):
     workspace_repo = WorkspaceRepository(db.engine)
     oauth_repo = OAuthRepository(db.engine)
     provider = create_auth(oauth_repo)
-    mcp = build_mcp(note_repo, workspace_repo, oauth_repo, provider)
+    note_service = NoteService(note_repo)
+    workspace_service = WorkspaceService(workspace_repo)
+    mcp = build_mcp(note_service, workspace_service, oauth_repo, provider)
     yield mcp, db
     db.close()
 
@@ -258,17 +262,18 @@ def test_note_repository(tmp_path):
     repo = NoteRepository(db.engine)
 
     now = "2026-06-08T12:00:00+00:00"
-    repo.insert("n001", "ws1", "Testowa notatka", ["python"], now, now, "Treść testowa")
+    repo.insert("n001", "ws1", "user-1", "Testowa notatka", ["python"], now, now, "Treść testowa")
 
     note = repo.get("n001")
     assert note is not None
     assert note.title == "Testowa notatka"
+    assert note.owner_id == "user-1"
     assert json.loads(note.tags or "[]") == ["python"]
 
-    notes = repo.list("ws1")
+    notes = repo.list("ws1", owner_id="user-1")
     assert len(notes) == 1
 
-    fts = repo.search_fts("Testowa", "ws1")
+    fts = repo.search_fts("Testowa", "ws1", owner_id="user-1")
     assert len(fts) == 1
     assert fts[0]["id"] == "n001"
 

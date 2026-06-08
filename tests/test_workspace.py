@@ -35,6 +35,14 @@ def test_list_workspaces(workspace, workspaces_dir):
     assert "drugi-projekt" in names
 
 
+def test_list_workspaces_with_user_id(tmp_path):
+    user_dir = tmp_path / "u1"
+    (user_dir / "ws-a").mkdir(parents=True)
+    (user_dir / "ws-b").mkdir()
+    names = list_workspaces(str(tmp_path), user_id="u1")
+    assert names == ["ws-a", "ws-b"] or set(names) == {"ws-a", "ws-b"}
+
+
 def test_title_to_slug():
     assert title_to_slug("Python async programming!") == "python-async-programming"
     assert title_to_slug("Żółta łódź") == "ta-d"  # non-ascii stripped
@@ -77,6 +85,13 @@ def test_create_workspace(tmp_path):
     assert (tmp_path / "nowy-projekt" / "notes").is_dir()
     assert (tmp_path / "nowy-projekt" / ".git").is_dir()
     assert ws_path == str(tmp_path / "nowy-projekt")
+
+
+def test_create_workspace_with_user_id(tmp_path):
+    ws_path = create_workspace("moj-ws", str(tmp_path), user_id="u42")
+    assert (tmp_path / "u42" / "moj-ws" / "notes").is_dir()
+    assert (tmp_path / "u42" / "moj-ws" / ".git").is_dir()
+    assert ws_path == str(tmp_path / "u42" / "moj-ws")
 
 
 def test_create_workspace_rejects_invalid_name(tmp_path):

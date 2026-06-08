@@ -7,8 +7,10 @@ import frontmatter
 WORKSPACES_DIR = os.getenv("WORKSPACES_DIR", "/workspaces")
 
 
-def list_workspaces(workspaces_dir: str | None = None) -> list[str]:
+def list_workspaces(workspaces_dir: str | None = None, user_id: str | None = None) -> list[str]:
     base = Path(workspaces_dir or os.getenv("WORKSPACES_DIR", "/workspaces"))
+    if user_id:
+        base = base / user_id
     if not base.exists():
         return []
     return [p.name for p in base.iterdir() if p.is_dir()]
@@ -70,7 +72,7 @@ def scan_notes(workspace_path: str) -> list[dict]:
     return [read_note_file(str(p)) for p in sorted(notes_dir.glob("*.md"))]
 
 
-def create_workspace(name: str, workspaces_dir: str | None = None) -> str:
+def create_workspace(name: str, workspaces_dir: str | None = None, user_id: str | None = None) -> str:
     """Creates a new workspace directory with git repo. Returns the workspace path."""
     import subprocess
 
@@ -78,6 +80,8 @@ def create_workspace(name: str, workspaces_dir: str | None = None) -> str:
         raise ValueError(f"Invalid workspace name '{name}'. Use letters, digits, hyphens, underscores (max 50 chars).")
 
     base = Path(workspaces_dir or os.getenv("WORKSPACES_DIR", "/workspaces"))
+    if user_id:
+        base = base / user_id
     ws_path = base / name
 
     if ws_path.exists():

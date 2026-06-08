@@ -66,11 +66,15 @@ class Database:
                 )
             """))
             session.commit()
-        try:
-            self._conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
-            self._conn.commit()
-        except Exception:
-            pass
+        for migration in [
+            "ALTER TABLE users ADD COLUMN password_hash TEXT",
+            "ALTER TABLE notes ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''",
+        ]:
+            try:
+                self._conn.execute(migration)
+                self._conn.commit()
+            except Exception:
+                pass
 
     def close(self) -> None:
         self.engine.dispose()

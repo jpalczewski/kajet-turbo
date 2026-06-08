@@ -1,0 +1,112 @@
+import subprocess
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from kajet_turbo.db import Database
+from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.services.notes import NoteService
+
+
+@pytest.fixture
+def workspace(tmp_path):
+    ws = tmp_path / "ws"
+    (ws / "notes").mkdir(parents=True)
+    subprocess.run(["git", "init", str(ws)], check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws), check=True, capture_output=True)
+    return ws
+
+
+@pytest.fixture
+def service(tmp_path):
+    db = Database(str(tmp_path / "test.db"))
+    repo = NoteRepository(db.engine)
+    yield NoteService(repo)
+    db.close()
+
+
+def test_save_creates_file_and_db_record(service, workspace):
+    result = service.save("u1", "ws", str(workspace), "Testowa notatka", "treść", ["python"])
+    assert "id" in result
+    note_id = result["id"]
+    files = list((workspace / "notes").glob(f"{note_id}-*.md"))
+    assert len(files) == 1
+    note = service._repo.get(note_id, owner_id="u1")
+    assert note is not None
+    assert note.title == "Testowa notatka"
+    assert note.owner_id == "u1"
+
+
+def test_save_git_error_rolls_back_file(service, workspace):
+    from kajet_turbo.git_ops import GitError
+    with patch("kajet_turbo.services.notes.commit_file", side_effect=GitError("fail")):
+        with pytest.raises(GitError):
+            service.save("u1", "ws", str(workspace), "Git fail note", "treść", [])
+    assert list((workspace / "notes").glob("*.md")) == []
+
+
+def test_get_with_content_returns_none_for_wrong_owner(service, workspace):
+    result = service.save("u1", "ws", str(workspace), "Notatka", "treść", [])
+    note_id = result["id"]
+    assert service.get_with_content(note_id, owner_id="u2", ws_path=str(workspace)) is None
+
+
+def test_get_with_content_returns_content(service, workspace):
+    result = service.save("u1", "ws", str(workspace), "Notatka", "moja treść", [])
+    note_id = result["id"]
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note is not None
+    assert note["content"] == "moja treść"
+    assert note["title"] == "Notatka"
+
+
+def test_update_git_error_reverts_file(service, workspace):
+    from kajet_turbo.git_ops import GitError
+    result = service.save("u1", "ws", str(workspace), "Oryginał", "stara treść", [])
+    note_id = result["id"]
+    with patch("kajet_turbo.services.notes.commit_file", side_effect=GitError("fail")):
+        with pytest.raises(GitError):
+            service.update(note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść")
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note["content"] == "stara treść"
+
+
+def test_delete_raises_for_wrong_owner(service, workspace):
+    result = service.save("u1", "ws", str(workspace), "Notatka", "treść", [])
+    note_id = result["id"]
+    with pytest.raises(ValueError):
+        service.delete(note_id, owner_id="u2", ws_path=str(workspace))
+
+
+def test_list_scoped_by_owner(service, workspace):
+    service.save("u1", "ws", str(workspace), "Notatka u1", "treść", [])
+    service.save("u2", "ws", str(workspace), "Notatka u2", "treść", [])
+    result_u1 = service.list("ws", owner_id="u1")
+    result_u2 = service.list("ws", owner_id="u2")
+    assert len(result_u1) == 1 and result_u1[0]["title"] == "Notatka u1"
+    assert len(result_u2) == 1 and result_u2[0]["title"] == "Notatka u2"
+
+
+def test_search_across_workspaces(service, workspace):
+    ws2 = workspace.parent / "ws2"
+    (ws2 / "notes").mkdir(parents=True)
+    subprocess.run(["git", "init", str(ws2)], check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws2), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws2), check=True, capture_output=True)
+    service.save("u1", "ws", str(workspace), "Python w ws1", "asyncio", [])
+    service.save("u1", "ws2", str(ws2), "Python w ws2", "asyncio", [])
+    results = service.search("Python", ["ws", "ws2"], owner_id="u1", limit=10)
+    titles = [r["title"] for r in results]
+    assert "Python w ws1" in titles
+    assert "Python w ws2" in titles
+
+
+def test_reindex_rebuilds_fts(service, workspace):
+    from kajet_turbo.workspace import note_filepath, write_note_file
+    path = note_filepath(str(workspace), "ext001", "Zewnętrzna notatka")
+    write_note_file(path, "ext001", "Zewnętrzna notatka", [], "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", "treść zewnętrzna")
+    result = service.reindex("ws", owner_id="u1", ws_path=str(workspace))
+    assert result["count"] == 1
+    found = service._repo.search_fts("Zewnętrzna", "ws", owner_id="u1")
+    assert any(n["id"] == "ext001" for n in found)

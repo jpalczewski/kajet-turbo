@@ -7,6 +7,8 @@ from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.sessions import SessionRepository
 from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.workspaces import WorkspaceService
 
 db = Database()
 note_repo = NoteRepository(db.engine)
@@ -16,9 +18,20 @@ workspace_repo = WorkspaceRepository(db.engine)
 oauth_repo = OAuthRepository(db.engine)
 provider: KajetOAuthProvider = create_auth(oauth_repo)
 
+note_service = NoteService(note_repo)
+workspace_service = WorkspaceService(workspace_repo)
+
 
 def get_note_repo() -> NoteRepository:
     return note_repo
+
+
+def get_note_service() -> NoteService:
+    return note_service
+
+
+def get_workspace_service() -> WorkspaceService:
+    return workspace_service
 
 
 def get_user_repo() -> UserRepository:

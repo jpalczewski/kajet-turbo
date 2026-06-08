@@ -5,24 +5,24 @@ from pathlib import Path
 from fastmcp import Context, FastMCP
 
 from kajet_turbo.repositories.oauth import OAuthRepository
-from kajet_turbo.repositories.workspaces import WorkspaceRepository
-from kajet_turbo.workspace import (
-    create_workspace as _create_workspace,
-    list_workspaces as _list_workspaces,
-)
+from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.workspace import list_workspaces as _list_workspaces
 
 
-async def get_active_workspace(ctx: Context) -> tuple[str, str]:
+async def get_active_workspace(ctx: Context) -> tuple[str | None, str, str]:
+    """Returns (user_id, workspace_slug, workspace_path)."""
     name = await ctx.get_state("active_workspace")
     if not name:
         raise RuntimeError("Wywołaj activate_workspace() najpierw.")
-    path = str(Path(os.getenv("WORKSPACES_DIR", "/workspaces")) / name)
-    return name, path
+    user_id: str | None = await ctx.get_state("active_user_id")
+    base = Path(os.getenv("WORKSPACES_DIR", "/workspaces"))
+    path = str(base / user_id / name) if user_id else str(base / name)
+    return user_id, name, path
 
 
 def register_workspaces(
     mcp: FastMCP,
-    workspace_repo: WorkspaceRepository,
+    workspace_service: WorkspaceService,
     oauth_repo: OAuthRepository,
 ) -> None:
     def _resolve_user(ctx: Context) -> tuple[str | None, str | None]:
@@ -46,7 +46,7 @@ def register_workspaces(
         if err:
             return err
         if user_id:
-            return json.dumps(workspace_repo.list_user_workspaces(user_id))
+            return json.dumps(workspace_service.list_for_user(user_id))
         return json.dumps(_list_workspaces())
 
     @mcp.tool()
@@ -57,13 +57,14 @@ def register_workspaces(
         if err:
             return err
         if user_id:
-            available = workspace_repo.list_user_workspaces(user_id)
-            if name not in available:
+            if not workspace_service.has_access(user_id, name):
+                available = workspace_service.list_for_user(user_id)
                 return json.dumps({"error": f"Workspace '{name}' nie istnieje lub brak dostępu.", "available": available})
         else:
             if name not in _list_workspaces():
                 return json.dumps({"error": f"Workspace '{name}' nie istnieje.", "available": _list_workspaces()})
         await ctx.set_state("active_workspace", name)
+        await ctx.set_state("active_user_id", user_id)
         return json.dumps({"message": f"Workspace '{name}' aktywny."})
 
     @mcp.tool()
@@ -74,9 +75,7 @@ def register_workspaces(
         if err:
             return err
         try:
-            _create_workspace(name)
+            workspace_service.create(name, user_id)
         except (ValueError, FileExistsError) as e:
             return json.dumps({"error": str(e)})
-        if user_id:
-            workspace_repo.grant_access(user_id, name)
         return json.dumps({"message": f"Workspace '{name}' utworzony."})

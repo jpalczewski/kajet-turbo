@@ -37,6 +37,7 @@ class Note(SQLModel, table=True):
 
     id: str = Field(primary_key=True)
     workspace: str
+    owner_id: str = Field(default="")
     title: str
     tags: str | None = Field(default=None, sa_column=Column(Text))
     created_at: str
