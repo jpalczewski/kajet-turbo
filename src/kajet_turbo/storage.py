@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import sqlite_vec
@@ -73,3 +74,104 @@ class Storage:
 
     def close(self) -> None:
         self._conn.close()
+
+    def insert_note(
+        self,
+        note_id: str,
+        workspace: str,
+        title: str,
+        tags: list[str],
+        created_at: str,
+        updated_at: str,
+        content: str,
+    ) -> None:
+        cur = self._conn.execute(
+            "INSERT INTO notes_fts (note_id, workspace, title, content) VALUES (?, ?, ?, ?)",
+            (note_id, workspace, title, content),
+        )
+        fts_rowid = cur.lastrowid
+        self._conn.execute(
+            """INSERT INTO notes (id, workspace, title, tags, created_at, updated_at, fts_rowid)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (note_id, workspace, title, json.dumps(tags), created_at, updated_at, fts_rowid),
+        )
+        self._conn.commit()
+
+    def get_note(self, note_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT id, workspace, title, tags, created_at, updated_at FROM notes WHERE id = ?",
+            (note_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {**row, "tags": json.loads(row["tags"] or "[]")}
+
+    def update_note(
+        self,
+        note_id: str,
+        title: str | None = None,
+        content: str | None = None,
+        updated_at: str = "",
+    ) -> None:
+        row = self._conn.execute(
+            "SELECT title, fts_rowid FROM notes WHERE id = ?", (note_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Note {note_id} not found")
+
+        new_title = title or row["title"]
+        fts_rowid = row["fts_rowid"]
+
+        if title is not None:
+            self._conn.execute(
+                "UPDATE notes SET title = ?, updated_at = ? WHERE id = ?",
+                (new_title, updated_at, note_id),
+            )
+        if content is not None or title is not None:
+            self._conn.execute("DELETE FROM notes_fts WHERE rowid = ?", (fts_rowid,))
+            workspace = self._conn.execute(
+                "SELECT workspace FROM notes WHERE id = ?", (note_id,)
+            ).fetchone()["workspace"]
+            cur = self._conn.execute(
+                "INSERT INTO notes_fts (note_id, workspace, title, content) VALUES (?, ?, ?, ?)",
+                (note_id, workspace, new_title, content or ""),
+            )
+            self._conn.execute(
+                "UPDATE notes SET fts_rowid = ?, updated_at = ? WHERE id = ?",
+                (cur.lastrowid, updated_at, note_id),
+            )
+        self._conn.commit()
+
+    def delete_note(self, note_id: str) -> None:
+        row = self._conn.execute(
+            "SELECT fts_rowid FROM notes WHERE id = ?", (note_id,)
+        ).fetchone()
+        if row and row["fts_rowid"]:
+            self._conn.execute("DELETE FROM notes_fts WHERE rowid = ?", (row["fts_rowid"],))
+        self._conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+        self._conn.commit()
+
+    def list_notes(
+        self,
+        workspace: str,
+        tags: list[str] | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        if tags:
+            rows = self._conn.execute(
+                "SELECT id, workspace, title, tags, created_at, updated_at FROM notes WHERE workspace = ? ORDER BY updated_at DESC LIMIT ?",
+                (workspace, limit * 3),
+            ).fetchall()
+            result = []
+            for row in rows:
+                note_tags = json.loads(row["tags"] or "[]")
+                if any(t in note_tags for t in tags):
+                    result.append({**row, "tags": note_tags})
+                    if len(result) >= limit:
+                        break
+            return result
+        rows = self._conn.execute(
+            "SELECT id, workspace, title, tags, created_at, updated_at FROM notes WHERE workspace = ? ORDER BY updated_at DESC LIMIT ?",
+            (workspace, limit),
+        ).fetchall()
+        return [{**row, "tags": json.loads(row["tags"] or "[]")} for row in rows]
