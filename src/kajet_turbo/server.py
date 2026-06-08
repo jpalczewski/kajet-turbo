@@ -58,3 +58,10 @@ def build_app() -> FastAPI:
         app.mount("/", _SPAFiles(str(dist)))
 
     return app
+
+
+def main() -> None:
+    import uvicorn
+    host = os.getenv("MCP_HOST", "0.0.0.0")
+    port = int(os.getenv("MCP_PORT", "8000"))
+    uvicorn.run(build_app(), host=host, port=port)
