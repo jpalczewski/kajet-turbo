@@ -1,9 +1,9 @@
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI
 from fastmcp.utilities.lifespan import combine_lifespans
 
 from kajet_turbo.api import api_router
@@ -46,7 +46,25 @@ class _SPAFiles:
         await self._app(scope, receive, send)
 
 
-def build_app() -> FastAPI:
+class _MCPPathFix:
+    """Rewrite /mcp (no trailing slash) to /mcp/ at ASGI level to avoid 307 redirect.
+
+    Starlette's Mount at /mcp only matches /mcp/... paths (not /mcp exactly).
+    Without this fix the client receives a 307 redirect and some HTTP clients
+    strip the Authorization header on redirect, causing 401 on the next request.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self._app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope.get("type") == "http" and scope.get("path") == "/mcp":
+            scope = dict(scope)
+            scope["path"] = "/mcp/"
+        await self._app(scope, receive, send)
+
+
+def build_app() -> Any:
     mcp = build_mcp(note_service, workspace_service, oauth_repo, provider)
     mcp_app = mcp.http_app(path="/")
 
@@ -57,20 +75,14 @@ def build_app() -> FastAPI:
     # RFC 8414 / RFC 9728: expose OAuth discovery routes at the origin root.
     # FastMCP generates path-aware well-known URLs for the issuer path (/mcp);
     # without this the SPA catch-all intercepts them and returns HTML.
-    # mcp_path="/" matches http_app(path="/") above.
     for _route in provider.get_well_known_routes(mcp_path="/"):
         app.add_route(_route.path, _route.endpoint, methods=list(_route.methods) if _route.methods else ["GET"])
-
-    # POST /mcp (no trailing slash) misses the /mcp mount and falls to the SPA → 405.
-    @app.api_route("/mcp", methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"])
-    async def _mcp_slash_redirect(request: Request):
-        return RedirectResponse(url="/mcp/", status_code=307)
 
     dist = Path(__file__).parent.parent.parent / "dist"
     if dist.exists():
         app.mount("/", _SPAFiles(str(dist)))
 
-    return app
+    return _MCPPathFix(app)
 
 
 def main() -> None:
