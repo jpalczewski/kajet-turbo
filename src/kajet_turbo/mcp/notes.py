@@ -6,10 +6,11 @@ from kajet_turbo.git_ops import GitError
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.workspaces import get_active_workspace
 from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.workspace import list_workspaces as _list_workspaces
 
 
-def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
+def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: WorkspaceService) -> None:
     @mcp.tool()
     @logged_tool
     async def save_note(
@@ -21,7 +22,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         """Zapisuje nową notatkę. Sukces: {"note_id": "..."}. Błąd: {"error": "..."}.
         Uwaga: content powinien zawierać rzeczywiste znaki nowej linii (\\n), nie literalne \\\\n."""
         try:
-            owner_id, ws_name, ws_path = await get_active_workspace(ctx)
+            owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         try:
@@ -35,7 +36,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
     async def get_note(note_id: str, ctx: Context) -> str:
         """Zwraca notatkę jako JSON object. Błąd: {"error": "..."}."""
         try:
-            owner_id, _, ws_path = await get_active_workspace(ctx)
+            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         result = note_service.get_with_content(note_id, owner_id=owner_id, ws_path=ws_path)
@@ -54,7 +55,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
     ) -> str:
         """Aktualizuje notatkę. Sukces: {"note_id": "..."}. Błąd: {"error": "..."}."""
         try:
-            owner_id, _, ws_path = await get_active_workspace(ctx)
+            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         try:
@@ -71,7 +72,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
     async def delete_note(note_id: str, ctx: Context) -> str:
         """Usuwa notatkę. Sukces: {"message": "..."}. Błąd: {"error": "..."}."""
         try:
-            owner_id, _, ws_path = await get_active_workspace(ctx)
+            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         try:
@@ -90,7 +91,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         """Zwraca listę notatek jako JSON array.
         Filtr tags używa OR — notatka pasuje jeśli ma KTÓRYKOLWIEK z podanych tagów."""
         try:
-            owner_id, ws_name, _ = await get_active_workspace(ctx)
+            owner_id, ws_name, _ = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         notes = note_service.list(ws_name, owner_id=owner_id, tags=tags or None, limit=limit)
@@ -107,7 +108,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         """Szuka notatek. workspace='active' (domyślnie) lub 'all'.
         Zwraca JSON array — pusty [] gdy brak wyników. Błąd: {"error": "..."}."""
         try:
-            owner_id, active_ws, _ = await get_active_workspace(ctx)
+            owner_id, active_ws, _ = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         real_user_id: str | None = await ctx.get_state("active_user_id")
@@ -125,7 +126,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         """Przebudowuje indeks SQLite z plików .md w aktywnym workspace.
         Sukces: {"message": "...", "count": N}."""
         try:
-            owner_id, ws_name, ws_path = await get_active_workspace(ctx)
+            owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         result = note_service.reindex(ws_name, owner_id=owner_id, ws_path=ws_path)

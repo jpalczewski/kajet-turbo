@@ -16,5 +16,5 @@ def build_mcp(
 ) -> FastMCP:
     mcp = FastMCP("kajet-turbo", auth=provider)
     register_workspaces(mcp, workspace_service, oauth_repo)
-    register_notes(mcp, note_service)
+    register_notes(mcp, note_service, workspace_service)
     return mcp

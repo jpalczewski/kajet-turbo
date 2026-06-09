@@ -1,6 +1,3 @@
-import os
-from pathlib import Path
-
 import bleach
 import mistune
 from fastapi import APIRouter, Depends, Request
@@ -100,7 +97,7 @@ async def api_get_note_html(
         return JSONResponse({"error": "Not logged in"}, status_code=401)
     if not ws_service.has_access(user["id"], name):
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
-    ws_path = str(Path(os.getenv("WORKSPACES_DIR", "/workspaces")) / user["id"] / name)
+    ws_path = ws_service.workspace_path(user["id"], name)
     note = note_service.get_with_content(note_id, owner_id=user["id"], ws_path=ws_path)
     if note is None:
         return JSONResponse({"error": "Notatka nie istnieje."}, status_code=404)
@@ -127,7 +124,7 @@ async def api_get_note_markdown(
         return JSONResponse({"error": "Not logged in"}, status_code=401)
     if not ws_service.has_access(user["id"], name):
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
-    ws_path = str(Path(os.getenv("WORKSPACES_DIR", "/workspaces")) / user["id"] / name)
+    ws_path = ws_service.workspace_path(user["id"], name)
     note = note_service.get_with_content(note_id, owner_id=user["id"], ws_path=ws_path)
     if note is None:
         return JSONResponse({"error": "Notatka nie istnieje."}, status_code=404)

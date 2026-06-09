@@ -7,6 +7,14 @@ import frontmatter
 WORKSPACES_DIR = os.getenv("WORKSPACES_DIR", "/workspaces")
 
 
+def workspace_path(name: str, workspaces_dir: str | None = None, user_id: str | None = None) -> str:
+    """Returns the filesystem path for a workspace directory."""
+    base = Path(workspaces_dir or os.getenv("WORKSPACES_DIR", "/workspaces"))
+    if user_id:
+        base = base / user_id
+    return str(base / name)
+
+
 def list_workspaces(workspaces_dir: str | None = None, user_id: str | None = None) -> list[str]:
     base = Path(workspaces_dir or os.getenv("WORKSPACES_DIR", "/workspaces"))
     if user_id:
@@ -79,10 +87,7 @@ def create_workspace(name: str, workspaces_dir: str | None = None, user_id: str 
     if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,49}$", name):
         raise ValueError(f"Invalid workspace name '{name}'. Use letters, digits, hyphens, underscores (max 50 chars).")
 
-    base = Path(workspaces_dir or os.getenv("WORKSPACES_DIR", "/workspaces"))
-    if user_id:
-        base = base / user_id
-    ws_path = base / name
+    ws_path = Path(workspace_path(name, workspaces_dir=workspaces_dir, user_id=user_id))
 
     if ws_path.exists():
         raise FileExistsError(f"Workspace '{name}' already exists.")

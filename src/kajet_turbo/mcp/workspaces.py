@@ -1,6 +1,4 @@
 import json
-import os
-from pathlib import Path
 
 from fastmcp import Context, FastMCP
 from nanoid import generate
@@ -11,20 +9,14 @@ from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.workspace import list_workspaces as _list_workspaces
 
 
-async def get_active_workspace(ctx: Context) -> tuple[str, str, str]:
-    """Returns (owner_id, workspace_slug, workspace_path).
-
-    owner_id is always non-empty: real user_id for OAuth sessions,
-    unique per-session anon-* ID for unauthenticated sessions.
-    Path uses the real user_id segment only for authenticated users.
-    """
+async def get_active_workspace(ctx: Context, workspace_service: WorkspaceService) -> tuple[str, str, str]:
+    """Returns (owner_id, workspace_slug, workspace_path)."""
     name = await ctx.get_state("active_workspace")
     if not name:
         raise RuntimeError("Wywołaj activate_workspace() najpierw.")
     owner_id: str = await ctx.get_state("active_owner_id")
     real_user_id: str | None = await ctx.get_state("active_user_id")
-    base = Path(os.getenv("WORKSPACES_DIR", "/workspaces"))
-    path = str(base / real_user_id / name) if real_user_id else str(base / name)
+    path = workspace_service.workspace_path(real_user_id, name)
     return owner_id, name, path
 
 
