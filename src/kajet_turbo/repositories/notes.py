@@ -20,6 +20,7 @@ class NoteRepository:
         created_at: str,
         updated_at: str,
         content: str,
+        folder: str = "",
     ) -> None:
         with Session(self._engine) as session:
             result = session.execute(
@@ -35,6 +36,7 @@ class NoteRepository:
                 workspace=workspace,
                 owner_id=owner_id,
                 title=title,
+                folder=folder,
                 tags=json.dumps(tags),
                 created_at=created_at,
                 updated_at=updated_at,
@@ -42,6 +44,17 @@ class NoteRepository:
             )
             session.add(note)
             session.commit()
+
+    def check_unique(self, workspace: str, owner_id: str, folder: str, title: str) -> bool:
+        """Returns True if no note with this (workspace, owner_id, folder, title) exists."""
+        with Session(self._engine) as session:
+            q = select(Note).where(
+                Note.workspace == workspace,
+                Note.owner_id == owner_id,
+                Note.folder == folder,
+                Note.title == title,
+            )
+            return session.exec(q).first() is None
 
     def get(self, note_id: str, owner_id: str | None = None) -> Note | None:
         with Session(self._engine) as session:
@@ -58,6 +71,7 @@ class NoteRepository:
         content: str | None = None,
         tags: list[str] | None = None,
         updated_at: str = "",
+        folder: str | None = None,
     ) -> None:
         with Session(self._engine) as session:
             q = select(Note).where(Note.id == note_id)
@@ -75,6 +89,8 @@ class NoteRepository:
             note.title = new_title
             note.tags = json.dumps(new_tags)
             note.updated_at = updated_at
+            if folder is not None:
+                note.folder = folder
 
             if title is not None or content is not None:
                 old_fts = session.execute(
@@ -125,13 +141,13 @@ class NoteRepository:
         owner_id: str,
         tags: list[str] | None = None,
         limit: int = 20,
+        folder: str | None = None,
     ) -> list[dict]:
         with Session(self._engine) as session:
-            rows = session.exec(
-                select(Note)
-                .where(Note.workspace == workspace, Note.owner_id == owner_id)
-                .order_by(Note.updated_at.desc())
-            ).all()
+            q = select(Note).where(Note.workspace == workspace, Note.owner_id == owner_id)
+            if folder is not None:
+                q = q.where(Note.folder == folder)
+            rows = session.exec(q.order_by(Note.updated_at.desc())).all()
 
         result = []
         for note in rows:
@@ -143,6 +159,7 @@ class NoteRepository:
                 "workspace": note.workspace,
                 "owner_id": note.owner_id,
                 "title": note.title,
+                "folder": note.folder,
                 "tags": note_tags,
                 "created_at": note.created_at,
                 "updated_at": note.updated_at,
