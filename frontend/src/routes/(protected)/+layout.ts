@@ -1,7 +1,6 @@
 import { redirect } from '@sveltejs/kit'
-import type { LayoutLoad } from './$types'
 
-export const load: LayoutLoad = async ({ parent }) => {
+export const load = async ({ parent }: { parent: () => Promise<{ session: { email: string } | null }> }) => {
   const { session } = await parent()
   if (!session) redirect(307, '/login')
 }
