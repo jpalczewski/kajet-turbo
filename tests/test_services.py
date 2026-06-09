@@ -11,7 +11,7 @@ from kajet_turbo.services.notes import NoteService
 @pytest.fixture
 def workspace(tmp_path):
     ws = tmp_path / "ws"
-    (ws / "notes").mkdir(parents=True)
+    ws.mkdir(parents=True)
     subprocess.run(["git", "init", str(ws)], check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws), check=True, capture_output=True)
@@ -30,8 +30,7 @@ def test_save_creates_file_and_db_record(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Testowa notatka", "treść", ["python"])
     assert "note_id" in result
     note_id = result["note_id"]
-    files = list((workspace / "notes").glob(f"{note_id}-*.md"))
-    assert len(files) == 1
+    assert (workspace / "Testowa notatka.md").exists()
     note = service._repo.get(note_id, owner_id="u1")
     assert note is not None
     assert note.title == "Testowa notatka"
@@ -43,7 +42,8 @@ def test_save_git_error_rolls_back_file(service, workspace):
     with patch("kajet_turbo.services.notes.commit_file", side_effect=GitError("fail")):
         with pytest.raises(GitError):
             service.save("u1", "ws", str(workspace), "Git fail note", "treść", [])
-    assert list((workspace / "notes").glob("*.md")) == []
+    md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
+    assert md_files == []
 
 
 def test_get_with_content_returns_none_for_wrong_owner(service, workspace):
@@ -90,7 +90,7 @@ def test_list_scoped_by_owner(service, workspace):
 
 def test_search_across_workspaces(service, workspace):
     ws2 = workspace.parent / "ws2"
-    (ws2 / "notes").mkdir(parents=True)
+    ws2.mkdir(parents=True)
     subprocess.run(["git", "init", str(ws2)], check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws2), check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws2), check=True, capture_output=True)
@@ -104,7 +104,7 @@ def test_search_across_workspaces(service, workspace):
 
 def test_reindex_rebuilds_fts(service, workspace):
     from kajet_turbo.workspace import note_filepath, write_note_file
-    path = note_filepath(str(workspace), "ext001", "Zewnętrzna notatka")
+    path = note_filepath(str(workspace), "", "Zewnętrzna notatka")
     write_note_file(path, "ext001", "Zewnętrzna notatka", [], "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", "treść zewnętrzna")
     result = service.reindex("ws", owner_id="u1", ws_path=str(workspace))
     assert result["count"] == 1

@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -24,7 +25,7 @@ def _create_user(engine, user_id: str = "u1") -> None:
 @pytest.fixture
 def workspace(tmp_path):
     ws = tmp_path / "workspaces" / "u1" / "test-ws"
-    (ws / "notes").mkdir(parents=True)
+    ws.mkdir(parents=True)
     subprocess.run(["git", "init", str(ws)], check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws), check=True, capture_output=True)
@@ -184,3 +185,76 @@ def test_html_strips_javascript_urls(auth_client):
     assert resp.status_code == 200
     html = resp.json()["content_html"]
     assert "javascript:" not in html
+
+
+def test_save_note_creates_file_in_folder(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "Moja notatka", "content", [], folder="Projekty/Klient A")
+    expected = Path(ws_path) / "Projekty" / "Klient A" / "Moja notatka.md"
+    assert expected.exists()
+
+
+def test_save_note_root_no_notes_subdir(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "Root notatka", "content", [])
+    expected = Path(ws_path) / "Root notatka.md"
+    assert expected.exists()
+    assert not (Path(ws_path) / "notes").exists()
+
+
+def test_save_note_duplicate_title_same_folder_raises(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "Dup", "content", [], folder="F")
+    with pytest.raises(ValueError, match="już istnieje"):
+        note_svc.save("u1", "test-ws", ws_path, "Dup", "content2", [], folder="F")
+
+
+def test_update_note_title_renames_file(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Stary tytuł", "content", [])["note_id"]
+    old_path = Path(ws_path) / "Stary tytuł.md"
+    assert old_path.exists()
+
+    note_svc.update(note_id, owner_id="u1", ws_path=ws_path, title="Nowy tytuł")
+    assert not old_path.exists()
+    assert (Path(ws_path) / "Nowy tytuł.md").exists()
+
+
+def test_update_note_folder_moves_file(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Przenoszona", "content", [])["note_id"]
+
+    note_svc.update(note_id, owner_id="u1", ws_path=ws_path, folder="Archiwum")
+    assert not (Path(ws_path) / "Przenoszona.md").exists()
+    assert (Path(ws_path) / "Archiwum" / "Przenoszona.md").exists()
+
+
+def test_get_with_content_uses_db_path(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Notatka get", "treść", [], folder="Docs")["note_id"]
+    result = note_svc.get_with_content(note_id, owner_id="u1", ws_path=ws_path)
+    assert result is not None
+    assert result["folder"] == "Docs"
+    assert result["content"] == "treść"
+
+
+def test_delete_uses_db_path(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Do usunięcia", "content", [], folder="Trash")["note_id"]
+    filepath = Path(ws_path) / "Trash" / "Do usunięcia.md"
+    assert filepath.exists()
+
+    note_svc.delete(note_id, owner_id="u1", ws_path=ws_path)
+    assert not filepath.exists()
+
+
+def test_reindex_finds_notes_in_subfolders(auth_client):
+    client, note_svc, ws_path = auth_client
+    from kajet_turbo.workspace import note_filepath, write_note_file
+    p1 = note_filepath(ws_path, "", "Root note")
+    write_note_file(p1, "rid1", "Root note", [], "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", "r")
+    p2 = note_filepath(ws_path, "Sub", "Sub note")
+    write_note_file(p2, "sid1", "Sub note", [], "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", "s")
+
+    result = note_svc.reindex("test-ws", owner_id="u1", ws_path=ws_path)
+    assert result["count"] == 2

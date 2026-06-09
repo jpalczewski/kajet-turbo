@@ -35,7 +35,6 @@ def workspaces_dir(tmp_path, monkeypatch, mcp_server):
     ws_dir.mkdir()
     ws = ws_dir / "test-ws"
     ws.mkdir()
-    (ws / "notes").mkdir()
     subprocess.run(["git", "init", str(ws)], check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws), check=True, capture_output=True)
@@ -91,8 +90,8 @@ async def test_save_note_creates_file(workspaces_dir, mcp_server):
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool("save_note", {"title": "Plikowa notatka", "content": "treść"})
 
-    ws_path = workspaces_dir / "test-ws" / "notes"
-    files = list(ws_path.glob("*.md"))
+    ws_path = workspaces_dir / "test-ws"
+    files = [p for p in ws_path.rglob("*.md") if ".git" not in str(p)]
     assert len(files) == 1
 
 
@@ -144,7 +143,6 @@ async def test_search_notes_fts_fallback(workspaces_dir, mcp_server):
 async def test_search_notes_all_workspaces(workspaces_dir, mcp_server):
     ws2 = workspaces_dir / "drugi-ws"
     ws2.mkdir()
-    (ws2 / "notes").mkdir()
     subprocess.run(["git", "init", str(ws2)], check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws2), check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws2), check=True, capture_output=True)
@@ -165,7 +163,7 @@ async def test_reindex_workspace(workspaces_dir, mcp_server):
     from kajet_turbo.workspace import note_filepath, write_note_file
 
     ws_path = workspaces_dir / "test-ws"
-    path = note_filepath(str(ws_path), "zzz1111", "Reindexed note")
+    path = note_filepath(str(ws_path), "", "Reindexed note")
     write_note_file(path, "zzz1111", "Reindexed note", ["test"], "2026-06-08T12:00:00+00:00", "2026-06-08T12:00:00+00:00", "treść")
 
     mcp, _ = mcp_server
