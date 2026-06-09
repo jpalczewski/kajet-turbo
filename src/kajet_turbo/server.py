@@ -9,6 +9,7 @@ from fastmcp.utilities.lifespan import combine_lifespans
 from kajet_turbo.api import api_router
 from kajet_turbo.auth import hash_password
 from kajet_turbo.dependencies import db, note_service, oauth_repo, provider, user_repo, workspace_service
+from kajet_turbo.log import LoggingMiddleware, setup_logging
 from kajet_turbo.mcp import build_mcp
 
 
@@ -65,10 +66,12 @@ class _MCPPathFix:
 
 
 def build_app() -> Any:
+    setup_logging()
     mcp = build_mcp(note_service, workspace_service, oauth_repo, provider)
     mcp_app = mcp.http_app(path="/")
 
     app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan))
+    app.add_middleware(LoggingMiddleware)
     app.include_router(api_router)
     app.mount("/mcp", mcp_app)
 
