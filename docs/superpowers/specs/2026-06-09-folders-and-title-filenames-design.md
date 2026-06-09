@@ -48,6 +48,14 @@ Semantyka `folder`:
 - Separator: `/` (normalizowany na backendzie niezależnie od OS)
 - Nie zaczyna się ani nie kończy na `/`
 
+### Walidacja `folder`
+
+Backend normalizuje i waliduje `folder` przed użyciem:
+- Trim leading/trailing `/` i spacji
+- Złap `..` w dowolnym segmencie → odrzuć jako 400 (path traversal)
+- Każdy segment przechodzi przez `title_to_windows_filename` (usunięcie znaków zabronionych)
+- Segmenty puste po normalizacji są pomijane
+
 ### Migracja Alembic
 
 Nowa kolumna: `ALTER TABLE notes ADD COLUMN folder TEXT NOT NULL DEFAULT ""`
@@ -84,7 +92,7 @@ def note_filepath(ws_path: str, folder: str, title: str) -> str:
 
 ## Unikalność
 
-Serwis blokuje tworzenie notatki gdy już istnieje notatka z tym samym `(workspace, owner_id, folder, title)` — zwraca 409. Sufiksy `-2`, `-3` tylko jako ostateczny fallback (implementacja opcjonalna, w praktyce serwis wymusza unikalność przed zapisem).
+Serwis blokuje tworzenie notatki gdy już istnieje notatka z tym samym `(workspace, owner_id, folder, title)` — zwraca 409. Unikalność sprawdzana po `title` (przed sanityzacją), nie po nazwie pliku — `"CON"` i `"_CON"` to dwa różne tytuły, ale i tak dadzą różne nazwy pliku (jeden zostanie `_CON.md`, drugi `_CON.md`... kolizja niemożliwa w praktyce bo tytuły są różne). Brak sufiksów `-2`, `-3` — duplikat to błąd użytkownika.
 
 ## API
 
@@ -169,7 +177,7 @@ Dodaj `folder: str = Field(default="")` do `Note`.
   - Ścieżka pliku pochodzi z DB (`folder` + `title`), nie z glob po ID
 - `get_with_content()` — ścieżka z DB zamiast `glob(f"{note_id}-*.md")`
 - `delete()` — ścieżka z DB
-- `reindex()` — skanuje `**/*.md`, czyta frontmatter każdego pliku
+- `reindex()` — skanuje `**/*.md`, czyta frontmatter każdego pliku; pliki bez pola `id` w frontmatter są ignorowane (np. README.md)
 
 ### `api/workspaces.py`
 
