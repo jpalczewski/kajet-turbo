@@ -119,3 +119,100 @@ def test_verify_password_none_hash():
     from kajet_turbo.auth import verify_password
 
     assert verify_password("", "anything") is False
+
+
+def test_delete_expired_tokens_leaves_valid_and_null_expiry(tmp_path):
+    import time
+    from kajet_turbo.db import Database
+    from kajet_turbo.repositories.oauth import OAuthRepository
+
+    db = Database(str(tmp_path / "test.db"))
+    repo = OAuthRepository(db.engine)
+    now = int(time.time())
+
+    repo.upsert_access_token("at_expired", "c1", [], now - 10)
+    repo.upsert_access_token("at_valid", "c1", [], now + 3600)
+    repo.upsert_refresh_token("rt_expired", "c1", [], now - 10)
+    repo.upsert_refresh_token("rt_null", "c1", [], None)
+
+    repo.delete_expired_tokens()
+
+    valid_ats = {r["token"] for r in repo.get_valid_access_tokens()}
+    valid_rts = {r["token"] for r in repo.get_valid_refresh_tokens()}
+    assert "at_expired" not in valid_ats
+    assert "at_valid" in valid_ats
+    assert "rt_expired" not in valid_rts
+    assert "rt_null" in valid_rts
+    db.close()
+
+
+def test_delete_individual_tokens(tmp_path):
+    import time
+    from kajet_turbo.db import Database
+    from kajet_turbo.repositories.oauth import OAuthRepository
+
+    db = Database(str(tmp_path / "test.db"))
+    repo = OAuthRepository(db.engine)
+    now = int(time.time())
+
+    repo.upsert_access_token("at1", "c1", [], now + 3600)
+    repo.upsert_refresh_token("rt1", "c1", [], None)
+    repo.delete_access_token("at1")
+    repo.delete_refresh_token("rt1")
+
+    assert repo.get_valid_access_tokens() == []
+    assert repo.get_valid_refresh_tokens() == []
+    db.close()
+
+
+def test_exchange_refresh_token_deletes_old_tokens_from_db(monkeypatch, tmp_path):
+    import asyncio
+    import time
+    from mcp.server.auth.provider import RefreshToken
+    from mcp.server.auth.settings import ClientRegistrationOptions
+    from mcp.shared.auth import OAuthClientInformationFull
+    from kajet_turbo.auth import KajetOAuthProvider
+    from kajet_turbo.db import Database
+    from kajet_turbo.repositories.oauth import OAuthRepository
+
+    monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
+    db = Database(str(tmp_path / "test.db"))
+    repo = OAuthRepository(db.engine)
+
+    now = int(time.time())
+    old_rt = "old_refresh_token_xyz"
+    old_at = "old_access_token_xyz"
+    repo.upsert_refresh_token(old_rt, "client1", ["read"], None)
+    repo.upsert_access_token(old_at, "client1", ["read"], now + 3600, old_rt)
+
+    provider = KajetOAuthProvider(
+        oauth_repo=repo,
+        base_url="http://localhost:8000/mcp",
+        client_registration_options=ClientRegistrationOptions(enabled=True),
+    )
+    assert old_rt in provider.refresh_tokens
+    assert old_at in provider.access_tokens
+
+    client = OAuthClientInformationFull(
+        client_id="client1",
+        redirect_uris=["http://localhost/callback"],
+    )
+    provider.clients["client1"] = client
+    old_refresh_obj = provider.refresh_tokens[old_rt]
+
+    asyncio.run(provider.exchange_refresh_token(client, old_refresh_obj, ["read"]))
+
+    valid_ats = {r["token"] for r in repo.get_valid_access_tokens()}
+    valid_rts = {r["token"] for r in repo.get_valid_refresh_tokens()}
+    assert old_at not in valid_ats, "stary AT musi być usunięty z DB po rotacji"
+    assert old_rt not in valid_rts, "stary RT musi być usunięty z DB po rotacji"
+
+    # Drugi provider symuluje restart — stare tokeny nie mogą wrócić do pamięci
+    provider2 = KajetOAuthProvider(
+        oauth_repo=repo,
+        base_url="http://localhost:8000/mcp",
+        client_registration_options=ClientRegistrationOptions(enabled=True),
+    )
+    assert old_at not in provider2.access_tokens
+    assert old_rt not in provider2.refresh_tokens
+    db.close()

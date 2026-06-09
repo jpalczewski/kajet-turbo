@@ -184,6 +184,41 @@ class OAuthRepository:
             )
             session.commit()
 
+    def delete_access_token(self, token: str) -> None:
+        with Session(self._engine) as session:
+            session.execute(
+                text("DELETE FROM oauth_access_tokens WHERE token = :token"),
+                {"token": token},
+            )
+            session.commit()
+
+    def delete_refresh_token(self, token: str) -> None:
+        with Session(self._engine) as session:
+            session.execute(
+                text("DELETE FROM oauth_refresh_tokens WHERE token = :token"),
+                {"token": token},
+            )
+            session.commit()
+
+    def delete_expired_tokens(self) -> None:
+        now = int(time.time())
+        with Session(self._engine) as session:
+            session.execute(
+                text(
+                    "DELETE FROM oauth_access_tokens"
+                    " WHERE expires_at IS NOT NULL AND expires_at <= :now"
+                ),
+                {"now": now},
+            )
+            session.execute(
+                text(
+                    "DELETE FROM oauth_refresh_tokens"
+                    " WHERE expires_at IS NOT NULL AND expires_at <= :now"
+                ),
+                {"now": now},
+            )
+            session.commit()
+
     def get_valid_pending(self) -> list[dict]:
         with Session(self._engine) as session:
             rows = session.execute(

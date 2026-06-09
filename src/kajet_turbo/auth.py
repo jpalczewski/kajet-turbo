@@ -18,6 +18,7 @@ from mcp.server.auth.provider import (
 from mcp.server.auth.settings import ClientRegistrationOptions
 from mcp.shared.auth import OAuthClientInformationFull
 
+from kajet_turbo.log import logger
 from kajet_turbo.repositories.oauth import OAuthRepository
 
 _ph = PasswordHasher()
@@ -59,20 +60,28 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
         self._restore_state()
 
     def _restore_state(self) -> None:
+        try:
+            self._oauth_repo.delete_expired_tokens()
+        except Exception:
+            logger.exception("oauth_restore: failed to delete expired tokens")
+
         for row in self._oauth_repo.get_valid_pending():
             try:
                 client = OAuthClientInformationFull.model_validate_json(row["client_json"])
                 params = AuthorizationParams.model_validate_json(row["params_json"])
                 self._pending[row["pending_id"]] = (client, params)
             except Exception:
-                pass
+                logger.exception(
+                    "oauth_restore: failed to restore pending authorization",
+                    pending_id=row.get("pending_id", "")[:8],
+                )
 
         for data in self._oauth_repo.get_all_registered_clients():
             try:
                 client = OAuthClientInformationFull.model_validate_json(data)
                 self.clients[client.client_id] = client
             except Exception:
-                pass
+                logger.exception("oauth_restore: failed to restore registered client")
 
         for row in self._oauth_repo.get_valid_refresh_tokens():
             try:
@@ -83,7 +92,11 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
                     expires_at=row["expires_at"],
                 )
             except Exception:
-                pass
+                logger.exception(
+                    "oauth_restore: failed to restore refresh token",
+                    client_id=row.get("client_id", ""),
+                    token_prefix=row.get("token", "")[:8],
+                )
 
         for row in self._oauth_repo.get_valid_access_tokens():
             try:
@@ -97,7 +110,11 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
                     self._access_to_refresh_map[row["token"]] = row["refresh_token"]
                     self._refresh_to_access_map[row["refresh_token"]] = row["token"]
             except Exception:
-                pass
+                logger.exception(
+                    "oauth_restore: failed to restore access token",
+                    client_id=row.get("client_id", ""),
+                    token_prefix=row.get("token", "")[:8],
+                )
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         await super().register_client(client_info)
@@ -118,7 +135,13 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
         return result
 
     async def exchange_refresh_token(self, client, refresh_token, scopes):
+        # Capture old token values BEFORE super() calls _revoke_internal(),
+        # which removes them from the in-memory maps.
+        old_refresh = refresh_token.token
+        old_access = self._refresh_to_access_map.get(old_refresh)
+
         result = await super().exchange_refresh_token(client, refresh_token, scopes)
+
         at = self.access_tokens.get(result.access_token)
         rt = self.refresh_tokens.get(result.refresh_token) if result.refresh_token else None
         if rt:
@@ -127,6 +150,11 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
             self._oauth_repo.upsert_access_token(
                 at.token, at.client_id, at.scopes, at.expires_at, result.refresh_token
             )
+
+        self._oauth_repo.delete_refresh_token(old_refresh)
+        if old_access:
+            self._oauth_repo.delete_access_token(old_access)
+
         return result
 
     async def authorize(
