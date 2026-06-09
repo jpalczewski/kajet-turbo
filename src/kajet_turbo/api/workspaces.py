@@ -1,3 +1,7 @@
+import os
+from pathlib import Path
+
+import mistune
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
@@ -55,3 +59,57 @@ async def api_list_notes(
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
     notes = note_service.list(name, owner_id=user["id"])
     return JSONResponse({"notes": notes})
+
+
+@router.get("/api/workspaces/{name}/notes/{note_id}/html")
+async def api_get_note_html(
+    name: str,
+    note_id: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    ws_path = str(Path(os.getenv("WORKSPACES_DIR", "/workspaces")) / name)
+    note = note_service.get_with_content(note_id, owner_id=user["id"], ws_path=ws_path)
+    if note is None:
+        return JSONResponse({"error": "Notatka nie istnieje."}, status_code=404)
+    return JSONResponse({
+        "note_id": note["note_id"],
+        "title": note["title"],
+        "tags": note["tags"],
+        "created_at": note["created_at"],
+        "updated_at": note["updated_at"],
+        "content_html": mistune.html(note["content"]),
+    })
+
+
+@router.get("/api/workspaces/{name}/notes/{note_id}/markdown")
+async def api_get_note_markdown(
+    name: str,
+    note_id: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    ws_path = str(Path(os.getenv("WORKSPACES_DIR", "/workspaces")) / name)
+    note = note_service.get_with_content(note_id, owner_id=user["id"], ws_path=ws_path)
+    if note is None:
+        return JSONResponse({"error": "Notatka nie istnieje."}, status_code=404)
+    return JSONResponse({
+        "note_id": note["note_id"],
+        "title": note["title"],
+        "tags": note["tags"],
+        "created_at": note["created_at"],
+        "updated_at": note["updated_at"],
+        "content": note["content"],
+    })
