@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state'
-  import type { NoteItem } from '$lib/types'
+  import type { NoteItem } from '$lib/api'
 
   const slug = $derived(page.params.slug)
   const notes: NoteItem[] = $derived(page.data.notes ?? [])

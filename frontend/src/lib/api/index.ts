@@ -18,8 +18,47 @@ export interface HTTPValidationError {
   detail?: ValidationError[];
 }
 
+export interface NoteHtmlResponse {
+  note_id: string;
+  title: string;
+  folder: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+  content_html: string;
+}
+
+export interface NoteItem {
+  note_id: string;
+  workspace: string;
+  owner_id: string;
+  title: string;
+  folder: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteMarkdownResponse {
+  note_id: string;
+  title: string;
+  folder: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+  content: string;
+}
+
+export interface NotesListResponse {
+  notes: NoteItem[];
+}
+
 export type ApiPendingInfoApiPendingGetParams = {
 id: string;
+};
+
+export type ApiListNotesApiWorkspacesNameNotesGetParams = {
+folder?: string | null;
 };
 
 export type apiLoginApiLoginPostResponse200 = {
@@ -338,7 +377,7 @@ export const apiCreateWorkspaceApiWorkspacesPost = async ( options?: RequestInit
 
 
 export type apiListNotesApiWorkspacesNameNotesGetResponse200 = {
-  data: unknown
+  data: NotesListResponse
   status: 200
 }
 
@@ -356,20 +395,29 @@ export type apiListNotesApiWorkspacesNameNotesGetResponseError = (apiListNotesAp
 
 export type apiListNotesApiWorkspacesNameNotesGetResponse = (apiListNotesApiWorkspacesNameNotesGetResponseSuccess | apiListNotesApiWorkspacesNameNotesGetResponseError)
 
-export const getApiListNotesApiWorkspacesNameNotesGetUrl = (name: string,) => {
+export const getApiListNotesApiWorkspacesNameNotesGetUrl = (name: string,
+    params?: ApiListNotesApiWorkspacesNameNotesGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/workspaces/${name}/notes`
+  return stringifiedParams.length > 0 ? `/api/workspaces/${name}/notes?${stringifiedParams}` : `/api/workspaces/${name}/notes`
 }
 
 /**
  * @summary Api List Notes
  */
-export const apiListNotesApiWorkspacesNameNotesGet = async (name: string, options?: RequestInit): Promise<apiListNotesApiWorkspacesNameNotesGetResponse> => {
+export const apiListNotesApiWorkspacesNameNotesGet = async (name: string,
+    params?: ApiListNotesApiWorkspacesNameNotesGetParams, options?: RequestInit): Promise<apiListNotesApiWorkspacesNameNotesGetResponse> => {
 
-  const res = await fetch(getApiListNotesApiWorkspacesNameNotesGetUrl(name),
+  const res = await fetch(getApiListNotesApiWorkspacesNameNotesGetUrl(name,params),
   {
     ...options,
     method: 'GET'
@@ -388,7 +436,7 @@ export const apiListNotesApiWorkspacesNameNotesGet = async (name: string, option
 
 
 export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse200 = {
-  data: unknown
+  data: NoteHtmlResponse
   status: 200
 }
 
@@ -440,7 +488,7 @@ export const apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet = async (name: st
 
 
 export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse200 = {
-  data: unknown
+  data: NoteMarkdownResponse
   status: 200
 }
 

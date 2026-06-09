@@ -28,6 +28,7 @@ def _render_html(content: str) -> str:
         strip=True,
     )
 
+from kajet_turbo.api.schemas import NoteHtmlResponse, NoteMarkdownResponse, NotesListResponse
 from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -68,7 +69,7 @@ async def api_create_workspace(
     return JSONResponse({"name": name}, status_code=201)
 
 
-@router.get("/api/workspaces/{name}/notes")
+@router.get("/api/workspaces/{name}/notes", response_model=NotesListResponse)
 async def api_list_notes(
     name: str,
     request: Request,
@@ -85,7 +86,7 @@ async def api_list_notes(
     return JSONResponse({"notes": notes})
 
 
-@router.get("/api/workspaces/{name}/notes/{note_id}/html")
+@router.get("/api/workspaces/{name}/notes/{note_id}/html", response_model=NoteHtmlResponse)
 async def api_get_note_html(
     name: str,
     note_id: str,
@@ -113,7 +114,7 @@ async def api_get_note_html(
     })
 
 
-@router.get("/api/workspaces/{name}/notes/{note_id}/markdown")
+@router.get("/api/workspaces/{name}/notes/{note_id}/markdown", response_model=NoteMarkdownResponse)
 async def api_get_note_markdown(
     name: str,
     note_id: str,
