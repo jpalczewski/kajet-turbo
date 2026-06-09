@@ -25,6 +25,15 @@ async def _app_lifespan(app: FastAPI):
         db.close()
 
 
+@asynccontextmanager
+async def _logging_lifespan(app: FastAPI):
+    # FastMCP adds its own loguru sink during its lifespan startup.
+    # Calling setup_logging() here (after FastMCP's lifespan) removes it
+    # and ensures our JSONL sink is the only one active.
+    setup_logging()
+    yield
+
+
 class _SPAFiles:
     """Starlette mount that serves index.html for any path without a matching file (SPA fallback)."""
 
@@ -69,7 +78,7 @@ def build_app() -> Any:
     mcp = build_mcp(note_service, workspace_service, oauth_repo, provider)
     mcp_app = mcp.http_app(path="/")
 
-    app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan))
+    app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan, _logging_lifespan))
     app.add_middleware(LoggingMiddleware)
     app.include_router(api_router)
     app.mount("/mcp", mcp_app)
@@ -84,7 +93,6 @@ def build_app() -> Any:
     if dist.exists():
         app.mount("/", _SPAFiles(str(dist)))
 
-    setup_logging()
     return _MCPPathFix(app)
 
 
