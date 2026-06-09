@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from kajet_turbo.dependencies import get_provider, get_session_user
@@ -30,12 +30,11 @@ async def api_consent(
 
 @router.get("/api/pending")
 async def api_pending_info(
-    request: Request,
+    id: str = Query(...),
     provider=Depends(get_provider),
 ) -> Response:
-    pending_id = request.query_params.get("id", "")
-    if not pending_id or pending_id not in provider._pending:
+    if id not in provider._pending:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    client, _ = provider._pending[pending_id]
+    client, _ = provider._pending[id]
     name = getattr(client, "client_name", None) or client.client_id
     return JSONResponse({"client_name": name})

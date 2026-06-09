@@ -47,20 +47,25 @@ async def api_login(
     return resp
 
 
-@router.api_route("/api/session", methods=["GET", "DELETE"])
-async def api_session(
+@router.get("/api/session")
+async def api_session_get(
     request: Request,
     session_repo: SessionRepository = Depends(get_session_repo),
 ) -> Response:
-    if request.method == "DELETE":
-        token = request.cookies.get(_SESSION_COOKIE, "")
-        if token:
-            session_repo.delete(token)
-        resp = JSONResponse({"ok": True})
-        resp.delete_cookie(_SESSION_COOKIE)
-        return resp
-
     user = get_session_user(request)
     if not user:
         return JSONResponse({"error": "Not logged in"}, status_code=401)
     return JSONResponse({"email": user["email"]})
+
+
+@router.delete("/api/session")
+async def api_session_delete(
+    request: Request,
+    session_repo: SessionRepository = Depends(get_session_repo),
+) -> Response:
+    token = request.cookies.get(_SESSION_COOKIE, "")
+    if token:
+        session_repo.delete(token)
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(_SESSION_COOKIE)
+    return resp

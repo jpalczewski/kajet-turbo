@@ -18,6 +18,10 @@ export interface HTTPValidationError {
   detail?: ValidationError[];
 }
 
+export type ApiPendingInfoApiPendingGetParams = {
+id: string;
+};
+
 export type apiLoginApiLoginPostResponse200 = {
   data: unknown
   status: 200
@@ -61,19 +65,19 @@ export const apiLoginApiLoginPost = async ( options?: RequestInit): Promise<apiL
 
 
 
-export type apiSessionApiSessionDeleteResponse200 = {
+export type apiSessionGetApiSessionGetResponse200 = {
   data: unknown
   status: 200
 }
 
-export type apiSessionApiSessionDeleteResponseSuccess = (apiSessionApiSessionDeleteResponse200) & {
+export type apiSessionGetApiSessionGetResponseSuccess = (apiSessionGetApiSessionGetResponse200) & {
   headers: Headers;
 };
 ;
 
-export type apiSessionApiSessionDeleteResponse = (apiSessionApiSessionDeleteResponseSuccess)
+export type apiSessionGetApiSessionGetResponse = (apiSessionGetApiSessionGetResponseSuccess)
 
-export const getApiSessionApiSessionDeleteUrl = () => {
+export const getApiSessionGetApiSessionGetUrl = () => {
 
 
 
@@ -82,11 +86,11 @@ export const getApiSessionApiSessionDeleteUrl = () => {
 }
 
 /**
- * @summary Api Session
+ * @summary Api Session Get
  */
-export const apiSessionApiSessionDelete = async ( options?: RequestInit): Promise<apiSessionApiSessionDeleteResponse> => {
+export const apiSessionGetApiSessionGet = async ( options?: RequestInit): Promise<apiSessionGetApiSessionGetResponse> => {
 
-  const res = await fetch(getApiSessionApiSessionDeleteUrl(),
+  const res = await fetch(getApiSessionGetApiSessionGetUrl(),
   {
     ...options,
     method: 'GET'
@@ -98,25 +102,25 @@ export const apiSessionApiSessionDelete = async ( options?: RequestInit): Promis
 
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
 
-  const data: apiSessionApiSessionDeleteResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiSessionApiSessionDeleteResponse
+  const data: apiSessionGetApiSessionGetResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as apiSessionGetApiSessionGetResponse
 }
 
 
 
-export type apiSessionApiSessionDeleteResponse200 = {
+export type apiSessionDeleteApiSessionDeleteResponse200 = {
   data: unknown
   status: 200
 }
 
-export type apiSessionApiSessionDeleteResponseSuccess = (apiSessionApiSessionDeleteResponse200) & {
+export type apiSessionDeleteApiSessionDeleteResponseSuccess = (apiSessionDeleteApiSessionDeleteResponse200) & {
   headers: Headers;
 };
 ;
 
-export type apiSessionApiSessionDeleteResponse = (apiSessionApiSessionDeleteResponseSuccess)
+export type apiSessionDeleteApiSessionDeleteResponse = (apiSessionDeleteApiSessionDeleteResponseSuccess)
 
-export const getApiSessionApiSessionDeleteUrl = () => {
+export const getApiSessionDeleteApiSessionDeleteUrl = () => {
 
 
 
@@ -125,11 +129,11 @@ export const getApiSessionApiSessionDeleteUrl = () => {
 }
 
 /**
- * @summary Api Session
+ * @summary Api Session Delete
  */
-export const apiSessionApiSessionDelete = async ( options?: RequestInit): Promise<apiSessionApiSessionDeleteResponse> => {
+export const apiSessionDeleteApiSessionDelete = async ( options?: RequestInit): Promise<apiSessionDeleteApiSessionDeleteResponse> => {
 
-  const res = await fetch(getApiSessionApiSessionDeleteUrl(),
+  const res = await fetch(getApiSessionDeleteApiSessionDeleteUrl(),
   {
     ...options,
     method: 'DELETE'
@@ -141,8 +145,8 @@ export const apiSessionApiSessionDelete = async ( options?: RequestInit): Promis
 
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
 
-  const data: apiSessionApiSessionDeleteResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiSessionApiSessionDeleteResponse
+  const data: apiSessionDeleteApiSessionDeleteResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as apiSessionDeleteApiSessionDeleteResponse
 }
 
 
@@ -195,27 +199,41 @@ export type apiPendingInfoApiPendingGetResponse200 = {
   status: 200
 }
 
+export type apiPendingInfoApiPendingGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
 export type apiPendingInfoApiPendingGetResponseSuccess = (apiPendingInfoApiPendingGetResponse200) & {
   headers: Headers;
 };
-;
+export type apiPendingInfoApiPendingGetResponseError = (apiPendingInfoApiPendingGetResponse422) & {
+  headers: Headers;
+};
 
-export type apiPendingInfoApiPendingGetResponse = (apiPendingInfoApiPendingGetResponseSuccess)
+export type apiPendingInfoApiPendingGetResponse = (apiPendingInfoApiPendingGetResponseSuccess | apiPendingInfoApiPendingGetResponseError)
 
-export const getApiPendingInfoApiPendingGetUrl = () => {
+export const getApiPendingInfoApiPendingGetUrl = (params: ApiPendingInfoApiPendingGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/pending`
+  return stringifiedParams.length > 0 ? `/api/pending?${stringifiedParams}` : `/api/pending`
 }
 
 /**
  * @summary Api Pending Info
  */
-export const apiPendingInfoApiPendingGet = async ( options?: RequestInit): Promise<apiPendingInfoApiPendingGetResponse> => {
+export const apiPendingInfoApiPendingGet = async (params: ApiPendingInfoApiPendingGetParams, options?: RequestInit): Promise<apiPendingInfoApiPendingGetResponse> => {
 
-  const res = await fetch(getApiPendingInfoApiPendingGetUrl(),
+  const res = await fetch(getApiPendingInfoApiPendingGetUrl(params),
   {
     ...options,
     method: 'GET'

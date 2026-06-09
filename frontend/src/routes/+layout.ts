@@ -1,8 +1,9 @@
+import { apiSessionGetApiSessionGet } from '$lib/api'
 import type { LayoutLoad } from './$types'
 
 export const ssr = false
 
-export const load: LayoutLoad = async ({ fetch }) => {
-  const res = await fetch('/api/session', { credentials: 'include' }).catch(() => null)
-  return { session: res?.ok ? ((await res.json()) as { email: string }) : null }
+export const load: LayoutLoad = async () => {
+  const result = await apiSessionGetApiSessionGet({ credentials: 'include' }).catch(() => null)
+  return { session: result?.status === 200 ? (result.data as { email: string }) : null }
 }

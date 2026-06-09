@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state'
   import { invalidateAll } from '$app/navigation'
+  import { apiCreateWorkspaceApiWorkspacesPost } from '$lib/api'
 
   let workspaces = $derived(page.data.workspaces ?? [])
   let name = $state('')
@@ -14,18 +15,16 @@
     creating = true
     error = ''
     try {
-      const res = await fetch('/api/workspaces', {
-        method: 'POST',
+      const result = await apiCreateWorkspaceApiWorkspacesPost({
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed }),
       })
-      if (res.ok) {
+      if (result.status === 200) {
         name = ''
         await invalidateAll()
       } else {
-        const data = await res.json()
-        error = data.error ?? 'Błąd tworzenia workspace.'
+        error = (result.data as any)?.error ?? 'Błąd tworzenia workspace.'
       }
     } catch {
       error = 'Błąd sieci. Spróbuj ponownie.'

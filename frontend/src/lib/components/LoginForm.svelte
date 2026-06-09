@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { apiLoginApiLoginPost } from '$lib/api'
+
   let { pendingId = '', submitLabel = 'Zaloguj się', onSuccess }: {
     pendingId?: string
     submitLabel?: string
@@ -15,15 +17,13 @@
     submitting = true
     error = ''
     try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
+      const result = await apiLoginApiLoginPost({
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, pending_id: pendingId }),
       })
-      const data = await res.json()
-      if (!res.ok) { error = data.error ?? 'Błąd logowania.'; return }
-      onSuccess(data)
+      if (result.status !== 200) { error = (result.data as any)?.error ?? 'Błąd logowania.'; return }
+      onSuccess(result.data as { email: string; redirect_uri?: string })
     } catch {
       error = 'Błąd sieci. Spróbuj ponownie.'
     } finally {

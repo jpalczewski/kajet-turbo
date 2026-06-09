@@ -1,13 +1,14 @@
 import { redirect } from '@sveltejs/kit'
+import { apiPendingInfoApiPendingGet } from '$lib/api'
 import type { PageLoad } from './$types'
 
-export const load: PageLoad = async ({ url, fetch }) => {
+export const load: PageLoad = async ({ url }) => {
   const pendingId = url.searchParams.get('pending') ?? ''
 
   if (!pendingId) redirect(307, '/')
 
-  const res = await fetch(`/api/pending?id=${pendingId}`).catch(() => null)
-  const clientName = res?.ok ? ((await res.json()).client_name ?? 'Claude') : 'Claude'
+  const result = await apiPendingInfoApiPendingGet({ id: pendingId }).catch(() => null)
+  const clientName = result?.status === 200 ? ((result.data as any).client_name ?? 'Claude') : 'Claude'
 
   return { pendingId, clientName }
 }

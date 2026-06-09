@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state'
   import { goto, invalidateAll } from '$app/navigation'
+  import { apiSessionDeleteApiSessionDelete } from '$lib/api'
   import WorkspacePicker from './WorkspacePicker.svelte'
   import UserMenu from './UserMenu.svelte'
 
@@ -11,7 +12,7 @@
   )
 
   async function handleLogout() {
-    await fetch('/api/session', { method: 'DELETE', credentials: 'include' })
+    await apiSessionDeleteApiSessionDelete({ credentials: 'include' })
     await invalidateAll()
     await goto('/')
   }

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { apiConsentApiConsentPost } from '$lib/api'
+
   let { pendingId, email, onLogout }: {
     pendingId: string
     email: string
@@ -12,15 +14,13 @@
     submitting = true
     error = ''
     try {
-      const res = await fetch('/api/consent', {
-        method: 'POST',
+      const result = await apiConsentApiConsentPost({
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pending_id: pendingId }),
       })
-      const data = await res.json()
-      if (!res.ok) { error = data.error ?? 'Błąd.'; return }
-      window.location.href = data.redirect_uri
+      if (result.status !== 200) { error = (result.data as any)?.error ?? 'Błąd.'; return }
+      window.location.href = (result.data as any).redirect_uri
     } catch {
       error = 'Błąd sieci.'
     } finally {

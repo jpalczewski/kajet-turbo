@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state'
   import { invalidateAll } from '$app/navigation'
+  import { apiSessionDeleteApiSessionDelete } from '$lib/api'
   import LoginForm from '$lib/components/LoginForm.svelte'
   import ConsentCard from '$lib/components/ConsentCard.svelte'
 
@@ -12,7 +13,7 @@
   }
 
   async function handleLogout() {
-    await fetch('/api/session', { method: 'DELETE', credentials: 'include' })
+    await apiSessionDeleteApiSessionDelete({ credentials: 'include' })
     await invalidateAll()
   }
 </script>
