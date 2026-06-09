@@ -29,6 +29,9 @@
   <a href="/workspace/{slug}/notes" class="back-link">← Wróć do listy</a>
 
   <header class="note-header">
+    {#if note.folder}
+      <p class="note-header__path">{note.folder}/</p>
+    {/if}
     <h1 class="note-header__title">{note.title}</h1>
     {#if note.tags.length > 0}
       <div class="note-header__tags">
@@ -107,6 +110,14 @@
     margin-bottom: v.$space-xl;
     padding-bottom: v.$space-lg;
     border-bottom: 1px solid v.$border;
+
+    &__path {
+      font-size: 0.75rem;
+      font-family: v.$font-mono;
+      color: v.$text-muted;
+      margin: 0 0 v.$space-xs 0;
+      letter-spacing: 0.03em;
+    }
 
     &__title {
       font-size: 1.75rem;
