@@ -91,14 +91,16 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
         ctx: Context,
         tags: list[str] | None = None,
         limit: int = 20,
+        folder: str | None = None,
     ) -> str:
-        """Zwraca listę notatek jako JSON array.
+        """Zwraca listę notatek jako JSON array. Każda notatka zawiera pole 'folder'.
+        folder: opcjonalny filtr — tylko notatki z tego folderu (np. 'Projekty/Klient A').
         Filtr tags używa OR — notatka pasuje jeśli ma KTÓRYKOLWIEK z podanych tagów."""
         try:
             owner_id, ws_name, _ = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
-        notes = note_service.list(ws_name, owner_id=owner_id, tags=tags or None, limit=limit)
+        notes = note_service.list(ws_name, owner_id=owner_id, tags=tags or None, limit=limit, folder=folder)
         return json.dumps(notes, ensure_ascii=False)
 
     @mcp.tool()

@@ -16,6 +16,12 @@
     <a href="/workspaces" class="breadcrumb__link">Workspaces</a>
     <span class="breadcrumb__sep">/</span>
     <a href="/workspace/{slug}/notes" class="breadcrumb__link">{slug}</a>
+    {#if note.folder}
+      {#each note.folder.split('/') as segment}
+        <span class="breadcrumb__sep">/</span>
+        <span class="breadcrumb__folder">{segment}</span>
+      {/each}
+    {/if}
     <span class="breadcrumb__sep">/</span>
     <span class="breadcrumb__current">{note.title}</span>
   </nav>
@@ -67,6 +73,12 @@
     }
 
     &__sep { color: v.$text-muted; }
+
+    &__folder {
+      color: v.$text-muted;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
 
     &__current {
       color: v.$text-muted;

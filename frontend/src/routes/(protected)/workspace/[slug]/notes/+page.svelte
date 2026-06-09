@@ -26,6 +26,9 @@
         <li class="note-card">
           <a href="/workspace/{slug}/note/{note.note_id}" class="note-card__link">
             <div class="note-card__main">
+              {#if note.folder}
+                <span class="note-card__folder">{note.folder}/</span>
+              {/if}
               <span class="note-card__title">{note.title}</span>
               {#if note.tags.length > 0}
                 <div class="note-card__tags">
@@ -114,8 +117,18 @@
     &__main {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 2px;
       min-width: 0;
+    }
+
+    &__folder {
+      font-size: 0.7rem;
+      font-family: v.$font-mono;
+      color: v.$text-muted;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     &__title {
