@@ -1,0 +1,13 @@
+<script lang="ts">
+  import { page } from '$app/state'
+</script>
+
+<main class="page">
+  <h1>Notes — {page.params.slug}</h1>
+  <p class="hint">Lista notatek workspace'u — do implementacji.</p>
+</main>
+
+<style lang="scss">
+  @use '$lib/styles/variables' as v;
+  .page { max-width: 800px; margin: 0 auto; padding: v.$space-2xl v.$space-lg; }
+</style>
