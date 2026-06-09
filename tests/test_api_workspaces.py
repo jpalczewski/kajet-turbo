@@ -258,3 +258,40 @@ def test_reindex_finds_notes_in_subfolders(auth_client):
 
     result = note_svc.reindex("test-ws", owner_id="u1", ws_path=ws_path)
     assert result["count"] == 2
+
+
+def test_list_notes_returns_folder(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "Lista notatka", "content", [], folder="Projekty")
+    resp = client.get("/api/workspaces/test-ws/notes")
+    assert resp.status_code == 200
+    notes = resp.json()["notes"]
+    assert len(notes) == 1
+    assert notes[0]["folder"] == "Projekty"
+
+
+def test_list_notes_folder_filter(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "W folderze", "content", [], folder="A")
+    note_svc.save("u1", "test-ws", ws_path, "W rootu", "content", [])
+    resp = client.get("/api/workspaces/test-ws/notes?folder=A")
+    assert resp.status_code == 200
+    notes = resp.json()["notes"]
+    assert len(notes) == 1
+    assert notes[0]["title"] == "W folderze"
+
+
+def test_html_returns_folder(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "HTML folder", "treść", [], folder="Docs")["note_id"]
+    resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/html")
+    assert resp.status_code == 200
+    assert resp.json()["folder"] == "Docs"
+
+
+def test_markdown_returns_folder(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "MD folder", "treść", [], folder="Arch")["note_id"]
+    resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/markdown")
+    assert resp.status_code == 200
+    assert resp.json()["folder"] == "Arch"

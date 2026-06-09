@@ -74,13 +74,14 @@ async def api_list_notes(
     request: Request,
     ws_service: WorkspaceService = Depends(get_workspace_service),
     note_service: NoteService = Depends(get_note_service),
+    folder: str | None = None,
 ) -> JSONResponse:
     user = get_session_user(request)
     if not user:
         return JSONResponse({"error": "Not logged in"}, status_code=401)
     if not ws_service.has_access(user["id"], name):
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
-    notes = note_service.list(name, owner_id=user["id"])
+    notes = note_service.list(name, owner_id=user["id"], folder=folder)
     return JSONResponse({"notes": notes})
 
 
@@ -104,6 +105,7 @@ async def api_get_note_html(
     return JSONResponse({
         "note_id": note["note_id"],
         "title": note["title"],
+        "folder": note["folder"],
         "tags": note["tags"],
         "created_at": note["created_at"],
         "updated_at": note["updated_at"],
@@ -131,6 +133,7 @@ async def api_get_note_markdown(
     return JSONResponse({
         "note_id": note["note_id"],
         "title": note["title"],
+        "folder": note["folder"],
         "tags": note["tags"],
         "created_at": note["created_at"],
         "updated_at": note["updated_at"],
