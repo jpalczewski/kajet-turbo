@@ -22,7 +22,7 @@
 
   {#if page.data.session}
     <div class="navbar__center">
-      <WorkspacePicker {slug} />
+      <WorkspacePicker {slug} workspaces={page.data.workspaces ?? []} />
       {#if slug}
         <a
           href="/workspace/{slug}/notes"
