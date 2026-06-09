@@ -23,7 +23,7 @@ def _create_user(engine, user_id: str = "u1") -> None:
 
 @pytest.fixture
 def workspace(tmp_path):
-    ws = tmp_path / "workspaces" / "test-ws"
+    ws = tmp_path / "workspaces" / "u1" / "test-ws"
     (ws / "notes").mkdir(parents=True)
     subprocess.run(["git", "init", str(ws)], check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True)
@@ -33,7 +33,7 @@ def workspace(tmp_path):
 
 @pytest.fixture
 def auth_client(tmp_path, workspace, monkeypatch):
-    monkeypatch.setenv("WORKSPACES_DIR", str(workspace.parent))
+    monkeypatch.setenv("WORKSPACES_DIR", str(workspace.parent.parent))
     db = Database(str(tmp_path / "test.db"))
     note_repo = NoteRepository(db.engine)
     ws_repo = WorkspaceRepository(db.engine)
@@ -55,7 +55,7 @@ def auth_client(tmp_path, workspace, monkeypatch):
 
 @pytest.fixture
 def no_access_client(tmp_path, workspace, monkeypatch):
-    monkeypatch.setenv("WORKSPACES_DIR", str(workspace.parent))
+    monkeypatch.setenv("WORKSPACES_DIR", str(workspace.parent.parent))
     db = Database(str(tmp_path / "test.db"))
     note_repo = NoteRepository(db.engine)
     ws_repo = WorkspaceRepository(db.engine)
@@ -75,7 +75,7 @@ def no_access_client(tmp_path, workspace, monkeypatch):
 
 @pytest.fixture
 def anon_client(tmp_path, workspace, monkeypatch):
-    monkeypatch.setenv("WORKSPACES_DIR", str(workspace.parent))
+    monkeypatch.setenv("WORKSPACES_DIR", str(workspace.parent.parent))
     db = Database(str(tmp_path / "test.db"))
     note_repo = NoteRepository(db.engine)
     ws_repo = WorkspaceRepository(db.engine)
