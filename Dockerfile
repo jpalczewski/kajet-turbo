@@ -20,6 +20,11 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src/ src/
 RUN uv sync --frozen --no-dev
 
+COPY alembic.ini .
+COPY alembic/ alembic/
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
+
 COPY --from=frontend /app/dist ./dist
 
 ENV MCP_HOST=0.0.0.0
@@ -27,4 +32,4 @@ ENV MCP_PORT=8000
 
 EXPOSE 8000
 
-CMD ["uv", "run", "kajet-turbo"]
+CMD ["/app/entrypoint.sh"]

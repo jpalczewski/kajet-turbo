@@ -1,5 +1,5 @@
 <script lang="ts">
-  let { slug }: { slug?: string } = $props()
+  let { slug, workspaces = [] }: { slug?: string; workspaces: string[] } = $props()
   let open = $state(false)
 </script>
 
@@ -15,6 +15,19 @@
     </button>
     {#if open}
       <div class="workspace-picker__dropdown">
+        {#each workspaces as ws}
+          <a
+            href="/workspace/{ws}/notes"
+            onclick={() => (open = false)}
+            class="workspace-picker__item"
+            class:workspace-picker__item--active={ws === slug}
+          >
+            {ws}
+          </a>
+        {/each}
+        {#if workspaces.length > 0}
+          <div class="workspace-picker__divider"></div>
+        {/if}
         <a href="/workspaces" onclick={() => (open = false)} class="workspace-picker__manage">
           Zarządzaj workspaceami
         </a>
@@ -88,10 +101,36 @@
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(240, 184, 0, 0.05);
   }
 
-  .workspace-picker__manage {
+  .workspace-picker__item {
     display: block;
     padding: v.$space-sm v.$space-md;
     color: v.$text-secondary;
+    font-size: 0.75rem;
+    font-family: v.$font-mono;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    text-decoration: none;
+    border-radius: v.$radius-sm;
+    transition: background 0.1s, color 0.1s;
+
+    &:hover { background: rgba(240, 184, 0, 0.06); color: v.$accent; }
+
+    &--active {
+      color: v.$accent;
+      background: rgba(240, 184, 0, 0.08);
+    }
+  }
+
+  .workspace-picker__divider {
+    height: 1px;
+    background: v.$border;
+    margin: v.$space-xs v.$space-sm;
+  }
+
+  .workspace-picker__manage {
+    display: block;
+    padding: v.$space-sm v.$space-md;
+    color: v.$text-muted;
     font-size: 0.75rem;
     font-family: v.$font-mono;
     text-transform: uppercase;
