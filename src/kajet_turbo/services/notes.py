@@ -36,14 +36,14 @@ class NoteService:
             raise
         self._repo.insert(note_id, ws_name, user_id, title, tags, now, now, content)
         logger.info("note_saved", note_id=note_id, ws=ws_name)
-        return {"id": note_id}
+        return {"note_id": note_id}
 
     def get(self, note_id: str, owner_id: str) -> dict | None:
         note = self._repo.get(note_id, owner_id=owner_id)
         if note is None:
             return None
         return {
-            "id": note.id,
+            "note_id": note.id,
             "workspace": note.workspace,
             "owner_id": note.owner_id,
             "title": note.title,
@@ -62,7 +62,7 @@ class NoteService:
             return None
         note_data = read_note_file(str(files[0]))
         return {
-            "id": note.id,
+            "note_id": note.id,
             "workspace": note.workspace,
             "owner_id": note.owner_id,
             "title": note.title,
@@ -104,7 +104,7 @@ class NoteService:
             raise
         self._repo.update(note_id, owner_id=owner_id, title=new_title, content=new_content, tags=new_tags, updated_at=now)
         logger.info("note_updated", note_id=note_id)
-        return {"id": note_id}
+        return {"note_id": note_id}
 
     def delete(self, note_id: str, owner_id: str, ws_path: str) -> None:
         note = self._repo.get(note_id, owner_id=owner_id)

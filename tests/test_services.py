@@ -28,8 +28,8 @@ def service(tmp_path):
 
 def test_save_creates_file_and_db_record(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Testowa notatka", "treść", ["python"])
-    assert "id" in result
-    note_id = result["id"]
+    assert "note_id" in result
+    note_id = result["note_id"]
     files = list((workspace / "notes").glob(f"{note_id}-*.md"))
     assert len(files) == 1
     note = service._repo.get(note_id, owner_id="u1")
@@ -48,13 +48,13 @@ def test_save_git_error_rolls_back_file(service, workspace):
 
 def test_get_with_content_returns_none_for_wrong_owner(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Notatka", "treść", [])
-    note_id = result["id"]
+    note_id = result["note_id"]
     assert service.get_with_content(note_id, owner_id="u2", ws_path=str(workspace)) is None
 
 
 def test_get_with_content_returns_content(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Notatka", "moja treść", [])
-    note_id = result["id"]
+    note_id = result["note_id"]
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note is not None
     assert note["content"] == "moja treść"
@@ -64,7 +64,7 @@ def test_get_with_content_returns_content(service, workspace):
 def test_update_git_error_reverts_file(service, workspace):
     from kajet_turbo.git_ops import GitError
     result = service.save("u1", "ws", str(workspace), "Oryginał", "stara treść", [])
-    note_id = result["id"]
+    note_id = result["note_id"]
     with patch("kajet_turbo.services.notes.commit_file", side_effect=GitError("fail")):
         with pytest.raises(GitError):
             service.update(note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść")
@@ -74,7 +74,7 @@ def test_update_git_error_reverts_file(service, workspace):
 
 def test_delete_raises_for_wrong_owner(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Notatka", "treść", [])
-    note_id = result["id"]
+    note_id = result["note_id"]
     with pytest.raises(ValueError):
         service.delete(note_id, owner_id="u2", ws_path=str(workspace))
 
@@ -109,4 +109,4 @@ def test_reindex_rebuilds_fts(service, workspace):
     result = service.reindex("ws", owner_id="u1", ws_path=str(workspace))
     assert result["count"] == 1
     found = service._repo.search_fts("Zewnętrzna", "ws", owner_id="u1")
-    assert any(n["id"] == "ext001" for n in found)
+    assert any(n["note_id"] == "ext001" for n in found)

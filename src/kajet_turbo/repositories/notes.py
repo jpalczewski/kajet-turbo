@@ -139,7 +139,7 @@ class NoteRepository:
             if tags and not any(t in note_tags for t in tags):
                 continue
             result.append({
-                "id": note.id,
+                "note_id": note.id,
                 "workspace": note.workspace,
                 "owner_id": note.owner_id,
                 "title": note.title,
@@ -156,7 +156,7 @@ class NoteRepository:
             with Session(self._engine) as session:
                 rows = session.execute(
                     text(
-                        "SELECT n.id, n.workspace, n.owner_id, n.title, n.tags, n.created_at, n.updated_at"
+                        "SELECT n.id AS note_id, n.workspace, n.owner_id, n.title, n.tags, n.created_at, n.updated_at"
                         " FROM notes_fts"
                         " JOIN notes n ON n.fts_rowid = notes_fts.rowid"
                         " WHERE notes_fts MATCH :query"
@@ -205,7 +205,7 @@ class NoteRepository:
         with Session(self._engine) as session:
             rows = session.execute(
                 text(
-                    "SELECT n.id, n.workspace, n.owner_id, n.title, n.tags, n.created_at, n.updated_at, v.distance"
+                    "SELECT n.id AS note_id, n.workspace, n.owner_id, n.title, n.tags, n.created_at, n.updated_at, v.distance"
                     " FROM notes_vec v"
                     " JOIN notes n ON n.id = v.note_id"
                     " WHERE v.embedding MATCH :embedding AND k = :k AND v.workspace = :workspace"
@@ -231,11 +231,11 @@ class NoteRepository:
         vec_results = self.search_vec(embedding, workspace, owner_id, k=50)
         scores: dict[str, float] = {}
         for rank, note in enumerate(fts_results):
-            scores[note["id"]] = scores.get(note["id"], 0) + 1 / (60 + rank)
+            scores[note["note_id"]] = scores.get(note["note_id"], 0) + 1 / (60 + rank)
         for rank, note in enumerate(vec_results):
-            scores[note["id"]] = scores.get(note["id"], 0) + 1 / (60 + rank)
+            scores[note["note_id"]] = scores.get(note["note_id"], 0) + 1 / (60 + rank)
 
-        all_notes = {n["id"]: n for n in fts_results + vec_results}
+        all_notes = {n["note_id"]: n for n in fts_results + vec_results}
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:limit]
         return [all_notes[note_id] for note_id, _ in ranked if note_id in all_notes]
 

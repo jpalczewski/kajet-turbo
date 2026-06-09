@@ -18,7 +18,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         ctx: Context,
         tags: list[str] | None = None,
     ) -> str:
-        """Zapisuje nową notatkę. Sukces: {"id": "..."}. Błąd: {"error": "..."}.
+        """Zapisuje nową notatkę. Sukces: {"note_id": "..."}. Błąd: {"error": "..."}.
         Uwaga: content powinien zawierać rzeczywiste znaki nowej linii (\\n), nie literalne \\\\n."""
         try:
             owner_id, ws_name, ws_path = await get_active_workspace(ctx)
@@ -52,7 +52,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         content: str | None = None,
         tags: list[str] | None = None,
     ) -> str:
-        """Aktualizuje notatkę. Sukces: {"id": "..."}. Błąd: {"error": "..."}."""
+        """Aktualizuje notatkę. Sukces: {"note_id": "..."}. Błąd: {"error": "..."}."""
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx)
         except RuntimeError as e:
