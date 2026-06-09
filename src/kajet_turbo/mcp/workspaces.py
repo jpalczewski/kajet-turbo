@@ -6,7 +6,6 @@ from nanoid import generate
 from kajet_turbo.log import logged_tool, logger
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.services.workspaces import WorkspaceService
-from kajet_turbo.workspace import list_workspaces as _list_workspaces
 
 
 async def get_active_workspace(ctx: Context, workspace_service: WorkspaceService) -> tuple[str, str, str]:
@@ -46,9 +45,7 @@ def register_workspaces(
         user_id, err = _resolve_user(ctx)
         if err:
             return err
-        if user_id:
-            return json.dumps(workspace_service.list_for_user(user_id))
-        return json.dumps(_list_workspaces())
+        return json.dumps(workspace_service.list_accessible(user_id))
 
     @mcp.tool()
     @logged_tool
@@ -58,13 +55,10 @@ def register_workspaces(
         user_id, err = _resolve_user(ctx)
         if err:
             return err
-        if user_id:
-            if not workspace_service.has_access(user_id, name):
-                available = workspace_service.list_for_user(user_id)
-                return json.dumps({"error": f"Workspace '{name}' nie istnieje lub brak dostępu.", "available": available})
-        else:
-            if name not in _list_workspaces():
-                return json.dumps({"error": f"Workspace '{name}' nie istnieje.", "available": _list_workspaces()})
+        available = workspace_service.list_accessible(user_id)
+        if name not in available:
+            msg = "Workspace '{name}' nie istnieje lub brak dostępu." if user_id else "Workspace '{name}' nie istnieje."
+            return json.dumps({"error": msg.format(name=name), "available": available})
         existing_owner_id = await ctx.get_state("active_owner_id")
         owner_id = user_id or existing_owner_id or f"anon-{generate(size=12)}"
         await ctx.set_state("active_workspace", name)

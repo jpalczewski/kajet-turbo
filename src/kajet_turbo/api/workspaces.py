@@ -43,7 +43,7 @@ async def api_list_workspaces(
     user = get_session_user(request)
     if not user:
         return JSONResponse({"error": "Not logged in"}, status_code=401)
-    return JSONResponse({"workspaces": ws_service.list_for_user(user["id"])})
+    return JSONResponse({"workspaces": ws_service.list_accessible(user["id"])})
 
 
 @router.post("/api/workspaces")

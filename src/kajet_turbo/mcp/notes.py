@@ -7,7 +7,6 @@ from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.workspaces import get_active_workspace
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
-from kajet_turbo.workspace import list_workspaces as _list_workspaces
 
 
 def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: WorkspaceService) -> None:
@@ -114,7 +113,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
         real_user_id: str | None = await ctx.get_state("active_user_id")
         ws_param = workspace or "active"
         if ws_param == "all":
-            workspaces = _list_workspaces(user_id=real_user_id)
+            workspaces = workspace_service.list_accessible(real_user_id)
         else:
             workspaces = [ws_param if ws_param != "active" else active_ws]
         results = note_service.search(query, workspaces, owner_id=owner_id, limit=limit)
