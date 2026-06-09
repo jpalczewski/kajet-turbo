@@ -66,7 +66,6 @@ class _MCPPathFix:
 
 
 def build_app() -> Any:
-    setup_logging()
     mcp = build_mcp(note_service, workspace_service, oauth_repo, provider)
     mcp_app = mcp.http_app(path="/")
 
@@ -85,6 +84,7 @@ def build_app() -> Any:
     if dist.exists():
         app.mount("/", _SPAFiles(str(dist)))
 
+    setup_logging()
     return _MCPPathFix(app)
 
 
