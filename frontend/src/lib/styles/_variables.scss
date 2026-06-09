@@ -1,13 +1,19 @@
-$bg-deep:        #0f172a;
-$bg-surface:     #1e293b;
-$text-primary:   #f8fafc;
-$text-secondary: #94a3b8;
-$text-muted:     #64748b;
-$border:         #334155;
-$accent:         #2563eb;
-$accent-hover:   #1d4ed8;
-$accent-light:   #60a5fa;
-$error:          #f87171;
+$bg-deep:        #080808;
+$bg-surface:     #111111;
+$bg-raised:      #1a1a1a;
+$text-primary:   #f0e8c8;
+$text-secondary: #9a8e6e;
+$text-muted:     #504838;
+$border:         #252018;
+$border-accent:  #c89b14;
+$accent:         #f0b800;
+$accent-hover:   #ffd000;
+$accent-dark:    #9a7800;
+$accent-light:   #ffe566;
+$error:          #ff4d4d;
+
+$gradient-accent: linear-gradient(135deg, #ffd000 0%, #f0b800 40%, #c87800 100%);
+$gradient-warm:   linear-gradient(180deg, #1a1200 0%, #080808 100%);
 
 $space-xs:  4px;
 $space-sm:  8px;
@@ -16,10 +22,10 @@ $space-lg:  24px;
 $space-xl:  40px;
 $space-2xl: 64px;
 
-$radius-sm: 4px;
-$radius-md: 6px;
-$radius-lg: 8px;
-$radius-xl: 10px;
+$radius-sm: 2px;
+$radius-md: 3px;
+$radius-lg: 4px;
+$radius-xl: 5px;
 
 $font-sans: system-ui, sans-serif;
-$font-mono: ui-monospace, Consolas, monospace;
+$font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace;

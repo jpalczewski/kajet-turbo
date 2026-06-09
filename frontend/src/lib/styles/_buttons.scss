@@ -2,17 +2,24 @@
 
 .btn-primary {
   padding: 10px 16px;
-  background: v.$accent;
-  color: #fff;
+  background: v.$gradient-accent;
+  color: #0a0800;
   border: none;
   border-radius: v.$radius-md;
   font-size: 0.95rem;
+  font-weight: 700;
+  font-family: v.$font-mono;
+  letter-spacing: 0.03em;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: filter 0.15s, box-shadow 0.15s;
   width: 100%;
+  text-transform: uppercase;
 
-  &:hover:not(:disabled) { background: v.$accent-hover; }
-  &:disabled { opacity: 0.55; cursor: not-allowed; }
+  &:hover:not(:disabled) {
+    filter: brightness(1.15);
+    box-shadow: 0 0 12px rgba(240, 184, 0, 0.35);
+  }
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 .btn-ghost {
@@ -22,10 +29,13 @@
   border: 1px solid v.$border;
   border-radius: v.$radius-md;
   font-size: 0.875rem;
+  font-family: v.$font-mono;
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s;
   width: 100%;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 
-  &:hover { border-color: v.$text-muted; color: v.$text-secondary; }
+  &:hover { border-color: v.$accent-dark; color: v.$text-secondary; }
   &--small { padding: 5px 10px; font-size: 0.8rem; width: auto; }
 }

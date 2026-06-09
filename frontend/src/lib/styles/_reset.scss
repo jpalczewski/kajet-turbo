@@ -6,6 +6,8 @@ body {
   margin: 0;
   font-family: v.$font-sans;
   background: v.$bg-deep;
+  background-image: v.$gradient-warm;
+  background-attachment: fixed;
   color: v.$text-primary;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

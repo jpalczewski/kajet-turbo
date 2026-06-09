@@ -12,7 +12,8 @@
 </script>
 
 <main>
-  <p class="tagline">Twoje notatki markdown, dostępne w Claude.</p>
+  <h1 class="hero-title">kajet-turbo</h1>
+  <p class="tagline">// twoje notatki markdown, dostępne w Claude.</p>
 
   <section>
     <h2>Połącz z Claude</h2>
@@ -33,10 +34,31 @@
   @use '$lib/styles/variables' as v;
 
   main {
-    max-width: 640px;
+    max-width: 540px;
     margin: 0 auto;
     padding: v.$space-2xl v.$space-lg;
   }
 
-  section { margin-bottom: v.$space-xl; }
+  .hero-title {
+    font-size: 2.4rem;
+    font-family: v.$font-mono;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: v.$gradient-accent;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: v.$space-sm;
+  }
+
+  section {
+    margin-bottom: v.$space-xl;
+    padding-top: v.$space-lg;
+    border-top: 1px solid v.$border;
+
+    &:first-of-type { border-top: none; }
+  }
+
+  p { color: v.$text-secondary; line-height: 1.6; }
 </style>

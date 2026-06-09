@@ -35,12 +35,16 @@
 
     &--empty {
       color: v.$text-muted;
-      font-size: 0.875rem;
+      font-size: 0.75rem;
+      font-family: v.$font-mono;
       text-decoration: none;
-      padding: 5px 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 4px 10px;
       border: 1px solid v.$border;
       border-radius: v.$radius-md;
-      &:hover { color: v.$text-secondary; border-color: v.$text-muted; }
+      transition: border-color 0.15s, color 0.15s;
+      &:hover { color: v.$accent; border-color: v.$accent-dark; }
     }
   }
 
@@ -48,40 +52,53 @@
     display: flex;
     align-items: center;
     gap: v.$space-xs;
-    padding: 5px 10px;
-    background: v.$bg-surface;
+    padding: 4px 10px;
+    background: transparent;
     border: 1px solid v.$border;
     border-radius: v.$radius-md;
-    color: v.$text-primary;
-    font-size: 0.875rem;
+    color: v.$accent;
+    font-size: 0.75rem;
+    font-family: v.$font-mono;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     cursor: pointer;
-    &:hover { border-color: v.$accent-light; }
+    transition: border-color 0.15s, box-shadow 0.15s;
+    &:hover {
+      border-color: v.$accent-dark;
+      box-shadow: 0 0 6px rgba(240, 184, 0, 0.12);
+    }
   }
 
   .workspace-picker__arrow {
+    color: v.$accent-dark;
     transition: transform 0.15s;
     &.open { transform: rotate(180deg); }
   }
 
   .workspace-picker__dropdown {
     position: absolute;
-    top: calc(100% + 4px);
+    top: calc(100% + 6px);
     left: 0;
-    min-width: 180px;
+    min-width: 200px;
     background: v.$bg-surface;
-    border: 1px solid v.$border;
+    border: 1px solid v.$border-accent;
     border-radius: v.$radius-lg;
     padding: v.$space-xs;
     z-index: 100;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(240, 184, 0, 0.05);
   }
 
   .workspace-picker__manage {
     display: block;
     padding: v.$space-sm v.$space-md;
     color: v.$text-secondary;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
+    font-family: v.$font-mono;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     text-decoration: none;
     border-radius: v.$radius-sm;
-    &:hover { background: v.$bg-deep; color: v.$text-primary; }
+    transition: background 0.1s, color 0.1s;
+    &:hover { background: rgba(240, 184, 0, 0.06); color: v.$accent; }
   }
 </style>

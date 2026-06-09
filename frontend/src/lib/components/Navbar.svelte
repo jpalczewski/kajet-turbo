@@ -44,17 +44,29 @@
     display: flex;
     align-items: center;
     gap: v.$space-md;
-    padding: v.$space-md v.$space-lg;
+    padding: 0 v.$space-lg;
+    height: 48px;
     border-bottom: 1px solid v.$border;
-    background: v.$bg-deep;
+    background: rgba(8, 8, 8, 0.95);
+    backdrop-filter: blur(4px);
+    position: sticky;
+    top: 0;
+    z-index: 50;
   }
 
   .navbar__logo {
-    font-size: 1rem;
+    font-size: 0.9rem;
     font-weight: 700;
-    color: v.$text-primary;
+    font-family: v.$font-mono;
     text-decoration: none;
-    &:hover { color: v.$accent-light; }
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: v.$gradient-accent;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    transition: filter 0.15s;
+    &:hover { filter: brightness(1.2); }
   }
 
   .navbar__center {
@@ -66,13 +78,20 @@
   }
 
   .navbar__link {
-    color: v.$text-secondary;
-    font-size: 0.875rem;
+    color: v.$text-muted;
+    font-size: 0.8rem;
+    font-family: v.$font-mono;
     text-decoration: none;
-    padding: 5px 10px;
+    padding: 4px 10px;
     border-radius: v.$radius-md;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     transition: color 0.15s;
-    &:hover { color: v.$text-primary; }
-    &--active { color: v.$text-primary; background: v.$bg-surface; }
+    &:hover { color: v.$text-secondary; }
+    &--active {
+      color: v.$accent;
+      background: rgba(240, 184, 0, 0.08);
+      border: 1px solid rgba(240, 184, 0, 0.15);
+    }
   }
 </style>

@@ -6,8 +6,11 @@ label {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 0.875rem;
-  color: v.$text-secondary;
+  font-size: 0.8rem;
+  color: v.$accent-dark;
+  font-family: v.$font-mono;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 input {
@@ -17,6 +20,12 @@ input {
   border-radius: v.$radius-md;
   color: v.$text-primary;
   font-size: 0.95rem;
+  font-family: v.$font-mono;
+  transition: border-color 0.15s, box-shadow 0.15s;
 
-  &:focus { outline: none; border-color: v.$accent-light; }
+  &:focus {
+    outline: none;
+    border-color: v.$accent;
+    box-shadow: 0 0 0 2px rgba(240, 184, 0, 0.12);
+  }
 }
