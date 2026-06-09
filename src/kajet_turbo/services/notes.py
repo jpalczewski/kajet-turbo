@@ -1,10 +1,12 @@
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 from nanoid import generate
 
 from kajet_turbo.git_ops import GitError, commit_file, delete_file_commit
+from kajet_turbo.log import logger
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.workspace import note_filepath, read_note_file, scan_notes, write_note_file
 
@@ -33,14 +35,13 @@ class NoteService:
             Path(filepath).unlink(missing_ok=True)
             raise
         self._repo.insert(note_id, ws_name, user_id, title, tags, now, now, content)
+        logger.info("note_saved", note_id=note_id, ws=ws_name)
         return {"id": note_id}
 
     def get(self, note_id: str, owner_id: str) -> dict | None:
         note = self._repo.get(note_id, owner_id=owner_id)
         if note is None:
             return None
-        # ws_path needed to find file — derive from note.workspace and env
-        # caller must pass ws_path; accept it as optional to keep signature clean
         return {
             "id": note.id,
             "workspace": note.workspace,
@@ -102,6 +103,7 @@ class NoteService:
             write_note_file(str(files[0]), note_id, note.title, current_tags, note.created_at, note.updated_at, old_content)
             raise
         self._repo.update(note_id, owner_id=owner_id, title=new_title, content=new_content, tags=new_tags, updated_at=now)
+        logger.info("note_updated", note_id=note_id)
         return {"id": note_id}
 
     def delete(self, note_id: str, owner_id: str, ws_path: str) -> None:
@@ -114,6 +116,7 @@ class NoteService:
             relative = str(files[0].relative_to(ws_path))
             delete_file_commit(ws_path, relative, f"note: delete {note_id}")
         self._repo.delete(note_id, owner_id=owner_id)
+        logger.info("note_deleted", note_id=note_id)
 
     def list(
         self,
@@ -136,9 +139,12 @@ class NoteService:
         for ws in workspaces:
             hits = self._repo.hybrid_search(query, ws, owner_id, limit=per_ws_limit)
             results.extend(hits)
-        return results[:limit]
+        results = results[:limit]
+        logger.info("search_performed", query_len=len(query), results=len(results), ws_count=len(workspaces))
+        return results
 
     def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
+        start = time.monotonic()
         notes = scan_notes(ws_path)
         self._repo.delete_workspace_notes(ws_name, owner_id=owner_id)
         for note in notes:
@@ -154,4 +160,6 @@ class NoteService:
                 str(note["updated_at"] or ""),
                 note["content"] or "",
             )
+        logger.info("reindex_complete", ws=ws_name, count=len(notes),
+                    duration_ms=round((time.monotonic() - start) * 1000))
         return {"message": f"Reindeksowano {len(notes)} notatek w workspace '{ws_name}'.", "count": len(notes)}
