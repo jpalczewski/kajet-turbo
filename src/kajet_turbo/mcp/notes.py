@@ -3,6 +3,7 @@ import json
 from fastmcp import Context, FastMCP
 
 from kajet_turbo.git_ops import GitError
+from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.workspaces import get_active_workspace
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.workspace import list_workspaces as _list_workspaces
@@ -10,6 +11,7 @@ from kajet_turbo.workspace import list_workspaces as _list_workspaces
 
 def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
     @mcp.tool()
+    @logged_tool
     async def save_note(
         title: str,
         content: str,
@@ -29,6 +31,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         return json.dumps(result)
 
     @mcp.tool()
+    @logged_tool
     async def get_note(note_id: str, ctx: Context) -> str:
         """Zwraca notatkę jako JSON object. Błąd: {"error": "..."}."""
         try:
@@ -41,6 +44,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         return json.dumps(result, ensure_ascii=False)
 
     @mcp.tool()
+    @logged_tool
     async def update_note(
         note_id: str,
         ctx: Context,
@@ -63,6 +67,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         return json.dumps(result)
 
     @mcp.tool()
+    @logged_tool
     async def delete_note(note_id: str, ctx: Context) -> str:
         """Usuwa notatkę. Sukces: {"message": "..."}. Błąd: {"error": "..."}."""
         try:
@@ -76,6 +81,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         return json.dumps({"message": f"Notatka {note_id} usunięta."})
 
     @mcp.tool()
+    @logged_tool
     async def list_notes(
         ctx: Context,
         tags: list[str] | None = None,
@@ -91,6 +97,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         return json.dumps(notes, ensure_ascii=False)
 
     @mcp.tool()
+    @logged_tool
     async def search_notes(
         query: str,
         ctx: Context,
@@ -113,6 +120,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService) -> None:
         return json.dumps(results, ensure_ascii=False)
 
     @mcp.tool()
+    @logged_tool
     async def reindex_workspace(ctx: Context) -> str:
         """Przebudowuje indeks SQLite z plików .md w aktywnym workspace.
         Sukces: {"message": "...", "count": N}."""

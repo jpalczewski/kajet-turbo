@@ -5,6 +5,7 @@ from pathlib import Path
 from fastmcp import Context, FastMCP
 from nanoid import generate
 
+from kajet_turbo.log import logged_tool, logger
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.workspace import list_workspaces as _list_workspaces
@@ -47,6 +48,7 @@ def register_workspaces(
         return "pong"
 
     @mcp.tool()
+    @logged_tool
     async def list_workspaces(ctx: Context) -> str:
         """Zwraca listę workspace'ów dostępnych dla tego użytkownika. Odpowiedź: JSON array stringów."""
         user_id, err = _resolve_user(ctx)
@@ -57,6 +59,7 @@ def register_workspaces(
         return json.dumps(_list_workspaces())
 
     @mcp.tool()
+    @logged_tool
     async def activate_workspace(name: str, ctx: Context) -> str:
         """Ustawia aktywny workspace dla tej sesji.
         Sukces: {"message": "..."}. Błąd: {"error": "...", "available": [...]}."""
@@ -75,9 +78,11 @@ def register_workspaces(
         await ctx.set_state("active_workspace", name)
         await ctx.set_state("active_user_id", user_id)
         await ctx.set_state("active_owner_id", owner_id)
+        logger.info("workspace_switched", ws=name)
         return json.dumps({"message": f"Workspace '{name}' aktywny."})
 
     @mcp.tool()
+    @logged_tool
     async def create_workspace(name: str, ctx: Context) -> str:
         """Tworzy nowy workspace z repozytorium git.
         Sukces: {"message": "..."}. Błąd: {"error": "..."}."""
