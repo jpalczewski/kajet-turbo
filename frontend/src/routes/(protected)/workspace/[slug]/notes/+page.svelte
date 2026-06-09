@@ -26,9 +26,7 @@
         <li class="note-card">
           <a href="/workspace/{slug}/note/{note.note_id}" class="note-card__link">
             <div class="note-card__main">
-              {#if note.folder}
-                <span class="note-card__folder">{note.folder}/</span>
-              {/if}
+              <span class="note-card__folder">{slug}/{note.folder ? note.folder + '/' : ''}</span>
               <span class="note-card__title">{note.title}</span>
               {#if note.tags.length > 0}
                 <div class="note-card__tags">

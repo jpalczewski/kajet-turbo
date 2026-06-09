@@ -29,9 +29,7 @@
   <a href="/workspace/{slug}/notes" class="back-link">← Wróć do listy</a>
 
   <header class="note-header">
-    {#if note.folder}
-      <p class="note-header__path">{note.folder}/</p>
-    {/if}
+    <p class="note-header__path">{slug}/{note.folder ? note.folder + '/' : ''}</p>
     <h1 class="note-header__title">{note.title}</h1>
     {#if note.tags.length > 0}
       <div class="note-header__tags">
