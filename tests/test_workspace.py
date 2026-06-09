@@ -7,7 +7,8 @@ from kajet_turbo.workspace import (
     note_filepath,
     write_note_file,
     read_note_file,
-    title_to_slug,
+    title_to_windows_filename,
+    normalize_folder,
     scan_notes,
 )
 
@@ -21,7 +22,6 @@ def workspaces_dir(tmp_path):
 def workspace(workspaces_dir):
     ws = workspaces_dir / "moj-projekt"
     ws.mkdir(parents=True)
-    (ws / "notes").mkdir()
     subprocess.run(["git", "init", str(ws)], check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws), check=True, capture_output=True)
@@ -40,22 +40,109 @@ def test_list_workspaces_with_user_id(tmp_path):
     (user_dir / "ws-a").mkdir(parents=True)
     (user_dir / "ws-b").mkdir()
     names = list_workspaces(str(tmp_path), user_id="u1")
-    assert names == ["ws-a", "ws-b"] or set(names) == {"ws-a", "ws-b"}
+    assert set(names) == {"ws-a", "ws-b"}
 
 
-def test_title_to_slug():
-    assert title_to_slug("Python async programming!") == "python-async-programming"
-    assert title_to_slug("Żółta łódź") == "ta-d"  # non-ascii stripped
+# --- title_to_windows_filename ---
+
+def test_title_to_windows_filename_strips_colon():
+    assert title_to_windows_filename("Spotkanie: kickoff") == "Spotkanie kickoff"
 
 
-def test_note_filepath(workspace):
-    path = note_filepath(str(workspace), "abc1234", "My Note")
-    assert path.endswith("abc1234-my-note.md")
-    assert "notes" in path
+def test_title_to_windows_filename_strips_all_forbidden():
+    assert title_to_windows_filename('a"b*c?d<e>f|g') == "a b c d e f g"
 
+
+def test_title_to_windows_filename_normalizes_multiple_spaces():
+    assert title_to_windows_filename("a:::b") == "a b"
+
+
+def test_title_to_windows_filename_keeps_unicode():
+    assert title_to_windows_filename("Żółta łódź") == "Żółta łódź"
+
+
+def test_title_to_windows_filename_reserved_con():
+    assert title_to_windows_filename("CON") == "_CON"
+
+
+def test_title_to_windows_filename_reserved_case_insensitive():
+    assert title_to_windows_filename("nul") == "_nul"
+
+
+def test_title_to_windows_filename_reserved_com1():
+    assert title_to_windows_filename("COM1") == "_COM1"
+
+
+def test_title_to_windows_filename_empty_returns_untitled():
+    assert title_to_windows_filename("") == "untitled"
+
+
+def test_title_to_windows_filename_all_forbidden_returns_untitled():
+    assert title_to_windows_filename(":::") == "untitled"
+
+
+def test_title_to_windows_filename_strips_trailing_dot():
+    assert title_to_windows_filename("file.") == "file"
+
+
+def test_title_to_windows_filename_truncates_to_200():
+    assert len(title_to_windows_filename("a" * 300)) == 200
+
+
+# --- normalize_folder ---
+
+def test_normalize_folder_empty():
+    assert normalize_folder("") == ""
+
+
+def test_normalize_folder_basic():
+    assert normalize_folder("Projekty/Klient A") == "Projekty/Klient A"
+
+
+def test_normalize_folder_strips_leading_trailing_slash():
+    assert normalize_folder("/foo/bar/") == "foo/bar"
+
+
+def test_normalize_folder_strips_spaces():
+    assert normalize_folder("  foo/bar  ") == "foo/bar"
+
+
+def test_normalize_folder_rejects_dotdot():
+    with pytest.raises(ValueError):
+        normalize_folder("../etc")
+
+
+def test_normalize_folder_rejects_dotdot_nested():
+    with pytest.raises(ValueError):
+        normalize_folder("foo/../bar")
+
+
+def test_normalize_folder_sanitizes_forbidden_chars_in_segment():
+    result = normalize_folder("Proj:ekt/Klient")
+    assert result == "Proj ekt/Klient"
+
+
+# --- note_filepath ---
+
+def test_note_filepath_root():
+    path = note_filepath("/ws", "", "My Note")
+    assert path == str(Path("/ws/My Note.md"))
+
+
+def test_note_filepath_with_folder():
+    path = note_filepath("/ws", "Projekty/Klient A", "Spotkanie")
+    assert path == str(Path("/ws/Projekty/Klient A/Spotkanie.md"))
+
+
+def test_note_filepath_sanitizes_title():
+    path = note_filepath("/ws", "", "Spotkanie: kickoff")
+    assert path == str(Path("/ws/Spotkanie kickoff.md"))
+
+
+# --- write/read ---
 
 def test_write_and_read_note_file(workspace):
-    path = note_filepath(str(workspace), "abc1234", "Test Note")
+    path = note_filepath(str(workspace), "", "Test Note")
     write_note_file(
         path,
         note_id="abc1234",
@@ -72,30 +159,43 @@ def test_write_and_read_note_file(workspace):
     assert "Treść notatki" in result["content"]
 
 
-def test_scan_notes_finds_all_files(workspace):
-    for i in range(3):
-        path = note_filepath(str(workspace), f"id{i}", f"Notatka {i}")
+def test_scan_notes_finds_all_including_subfolders(workspace):
+    for i in range(2):
+        path = note_filepath(str(workspace), "", f"Notatka {i}")
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         write_note_file(path, f"id{i}", f"Notatka {i}", [], "2026-06-08T12:00:00+00:00", "2026-06-08T12:00:00+00:00", f"treść {i}")
+    path_sub = note_filepath(str(workspace), "Projekty", "Sub-notatka")
+    Path(path_sub).parent.mkdir(parents=True, exist_ok=True)
+    write_note_file(path_sub, "idsub", "Sub-notatka", [], "2026-06-08T12:00:00+00:00", "2026-06-08T12:00:00+00:00", "sub")
     notes = scan_notes(str(workspace))
-    assert len(notes) == 3
+    ids = [n["id"] for n in notes if n["id"]]
+    assert set(ids) == {"id0", "id1", "idsub"}
+
+
+def test_scan_notes_ignores_non_note_md(workspace):
+    (workspace / "README.md").write_text("# Readme\n\nNo frontmatter here.")
+    path = note_filepath(str(workspace), "", "Real Note")
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    write_note_file(path, "r1", "Real Note", [], "2026-06-08T12:00:00+00:00", "2026-06-08T12:00:00+00:00", "content")
+    notes = scan_notes(str(workspace))
+    ids = [n["id"] for n in notes if n["id"]]
+    assert ids == ["r1"]
 
 
 def test_create_workspace(tmp_path):
     ws_path = create_workspace("nowy-projekt", str(tmp_path))
-    assert (tmp_path / "nowy-projekt" / "notes").is_dir()
+    assert (tmp_path / "nowy-projekt").is_dir()
     assert (tmp_path / "nowy-projekt" / ".git").is_dir()
     assert ws_path == str(tmp_path / "nowy-projekt")
 
 
 def test_create_workspace_with_user_id(tmp_path):
     ws_path = create_workspace("moj-ws", str(tmp_path), user_id="u42")
-    assert (tmp_path / "u42" / "moj-ws" / "notes").is_dir()
     assert (tmp_path / "u42" / "moj-ws" / ".git").is_dir()
     assert ws_path == str(tmp_path / "u42" / "moj-ws")
 
 
 def test_create_workspace_rejects_invalid_name(tmp_path):
-    import pytest
     with pytest.raises(ValueError):
         create_workspace("foo/bar", str(tmp_path))
     with pytest.raises(ValueError):
@@ -103,7 +203,6 @@ def test_create_workspace_rejects_invalid_name(tmp_path):
 
 
 def test_create_workspace_rejects_duplicate(tmp_path):
-    import pytest
     create_workspace("duplikat", str(tmp_path))
     with pytest.raises(FileExistsError):
         create_workspace("duplikat", str(tmp_path))
