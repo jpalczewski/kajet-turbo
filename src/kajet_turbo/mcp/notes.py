@@ -17,16 +17,19 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
         content: str,
         ctx: Context,
         tags: list[str] | None = None,
+        folder: str = "",
     ) -> str:
-        """Zapisuje nową notatkę. Sukces: {"note_id": "..."}. Błąd: {"error": "..."}.
+        """Zapisuje nową notatkę w podanym folderze (domyślnie root).
+        folder: opcjonalna ścieżka np. 'Projekty/Klient A'.
+        Sukces: {"note_id": "..."}. Błąd: {"error": "..."}.
         Uwaga: content powinien zawierać rzeczywiste znaki nowej linii (\\n), nie literalne \\\\n."""
         try:
             owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         try:
-            result = note_service.save(owner_id, ws_name, ws_path, title, content, tags or [])
-        except GitError as e:
+            result = note_service.save(owner_id, ws_name, ws_path, title, content, tags or [], folder=folder)
+        except (GitError, ValueError) as e:
             return json.dumps({"error": str(e)})
         return json.dumps(result)
 
@@ -51,15 +54,17 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
         title: str | None = None,
         content: str | None = None,
         tags: list[str] | None = None,
+        folder: str | None = None,
     ) -> str:
-        """Aktualizuje notatkę. Sukces: {"note_id": "..."}. Błąd: {"error": "..."}."""
+        """Aktualizuje notatkę. folder opcjonalny — jeśli podany, przenosi notatkę do nowego folderu.
+        Sukces: {"note_id": "..."}. Błąd: {"error": "..."}."""
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         try:
             result = note_service.update(note_id, owner_id=owner_id, ws_path=ws_path,
-                                         title=title, content=content, tags=tags)
+                                         title=title, content=content, tags=tags, folder=folder)
         except (ValueError, FileNotFoundError) as e:
             return json.dumps({"error": str(e)})
         except GitError as e:
