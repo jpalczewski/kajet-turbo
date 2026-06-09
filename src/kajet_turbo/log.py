@@ -44,13 +44,13 @@ class _InterceptHandler(logging.Handler):
 
 
 def setup_logging() -> None:
-    level = os.getenv("LOG_LEVEL", "DEBUG").upper()
+    level = os.getenv("LOG_LEVEL", "INFO").upper()
     logger.remove()
     logger.add(_json_sink, level=level)
     logging.basicConfig(handlers=[_InterceptHandler()], level=0, force=True)
-    # silence high-volume libs that don't add value at any level
-    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)  # replaced by LoggingMiddleware
+    sql_level = logging.DEBUG if os.getenv("LOG_SQL") else logging.WARNING
+    logging.getLogger("sqlalchemy.engine").setLevel(sql_level)
 
 
 def logged_tool(fn):
