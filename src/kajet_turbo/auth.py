@@ -60,6 +60,7 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
         self._restore_state()
 
     def _restore_state(self) -> None:
+        logger.info("oauth_provider_init", base_url=str(self.base_url))
         try:
             self._oauth_repo.delete_expired_tokens()
         except Exception:
@@ -115,6 +116,29 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
                     client_id=row.get("client_id", ""),
                     token_prefix=row.get("token", "")[:8],
                 )
+
+    async def load_access_token(self, token: str) -> "AccessToken | None":
+        token_obj = self.access_tokens.get(token)
+        if token_obj is None:
+            logger.warning("oauth_token_rejected", token_prefix=token[:8], reason="not_in_memory")
+            return None
+        if token_obj.expires_at is not None and token_obj.expires_at < time.time():
+            expired_s = int(time.time() - token_obj.expires_at)
+            logger.warning(
+                "oauth_token_rejected",
+                token_prefix=token[:8],
+                reason="expired",
+                expired_s=expired_s,
+                client_id=token_obj.client_id,
+            )
+            # Don't call _revoke_internal — it would also wipe the paired refresh token,
+            # preventing the client from refreshing. Remove only the AT entries.
+            del self.access_tokens[token]
+            rt = self._access_to_refresh_map.pop(token, None)
+            if rt:
+                self._refresh_to_access_map.pop(rt, None)
+            return None
+        return token_obj
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         await super().register_client(client_info)

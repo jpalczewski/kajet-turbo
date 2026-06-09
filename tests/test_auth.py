@@ -165,6 +165,46 @@ def test_delete_individual_tokens(tmp_path):
     db.close()
 
 
+def test_expired_access_token_preserves_refresh_token(monkeypatch, tmp_path):
+    """AT expiry must NOT wipe the paired RT — client needs RT to refresh."""
+    import asyncio
+    import time
+    from mcp.server.auth.provider import AccessToken, RefreshToken
+    from mcp.server.auth.settings import ClientRegistrationOptions
+    from kajet_turbo.auth import KajetOAuthProvider
+    from kajet_turbo.db import Database
+    from kajet_turbo.repositories.oauth import OAuthRepository
+
+    monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
+    db = Database(str(tmp_path / "test.db"))
+    repo = OAuthRepository(db.engine)
+    now = int(time.time())
+
+    provider = KajetOAuthProvider(
+        oauth_repo=repo,
+        base_url="http://localhost:8000/mcp",
+        client_registration_options=ClientRegistrationOptions(enabled=True),
+    )
+
+    # Inject expired AT + valid RT directly into memory (simulates in-session expiry)
+    rt_val = "rt_valid_xyz"
+    at_val = "at_expired_xyz"
+    provider.refresh_tokens[rt_val] = RefreshToken(
+        token=rt_val, client_id="client1", scopes=["read"], expires_at=None
+    )
+    provider.access_tokens[at_val] = AccessToken(
+        token=at_val, client_id="client1", scopes=["read"], expires_at=now - 10
+    )
+    provider._access_to_refresh_map[at_val] = rt_val
+    provider._refresh_to_access_map[rt_val] = at_val
+
+    result = asyncio.run(provider.verify_token(at_val))
+    assert result is None
+
+    assert rt_val in provider.refresh_tokens, "RT must survive AT expiry so client can refresh"
+    db.close()
+
+
 def test_exchange_refresh_token_deletes_old_tokens_from_db(monkeypatch, tmp_path):
     import asyncio
     import time
