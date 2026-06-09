@@ -1,0 +1,16 @@
+@use 'variables' as v;
+
+h1, h2, h3 { margin: 0; font-weight: 600; color: v.$text-primary; }
+
+h1 { font-size: 2rem; }
+h2 {
+  font-size: 0.8rem;
+  color: v.$text-muted;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+
+.tagline { color: v.$text-secondary; font-size: 1.05rem; margin: 0 0 48px; }
+.hint    { color: v.$text-muted; font-size: 0.875rem; margin: 6px 0 0; }
+.label   { color: v.$text-secondary; font-size: 0.875rem; margin: 0 0 6px; }

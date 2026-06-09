@@ -1,0 +1,42 @@
+@use 'variables' as v;
+
+.center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid v.$border;
+  border-top-color: v.$accent-light;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.error { color: v.$error; font-size: 0.875rem; margin: 0; }
+
+.card {
+  background: v.$bg-surface;
+  border-radius: v.$radius-xl;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.client-name { font-size: 1.1rem; font-weight: 600; margin: 0; }
+
+.code-block {
+  display: block;
+  background: v.$bg-surface;
+  padding: 12px 16px;
+  border-radius: v.$radius-lg;
+  font-family: v.$font-mono;
+  font-size: 0.9rem;
+  margin: 10px 0;
+  word-break: break-all;
+  color: v.$text-primary;
+}

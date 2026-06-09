@@ -1,0 +1,14 @@
+@use 'variables' as v;
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: v.$font-sans;
+  background: v.$bg-deep;
+  color: v.$text-primary;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+p { margin: 0; }

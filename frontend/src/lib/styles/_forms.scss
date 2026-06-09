@@ -1,0 +1,22 @@
+@use 'variables' as v;
+
+form { display: flex; flex-direction: column; gap: 14px; }
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.875rem;
+  color: v.$text-secondary;
+}
+
+input {
+  padding: 9px 12px;
+  background: v.$bg-surface;
+  border: 1px solid v.$border;
+  border-radius: v.$radius-md;
+  color: v.$text-primary;
+  font-size: 0.95rem;
+
+  &:focus { outline: none; border-color: v.$accent-light; }
+}

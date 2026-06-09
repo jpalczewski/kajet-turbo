@@ -1,0 +1,31 @@
+@use 'variables' as v;
+
+.btn-primary {
+  padding: 10px 16px;
+  background: v.$accent;
+  color: #fff;
+  border: none;
+  border-radius: v.$radius-md;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  width: 100%;
+
+  &:hover:not(:disabled) { background: v.$accent-hover; }
+  &:disabled { opacity: 0.55; cursor: not-allowed; }
+}
+
+.btn-ghost {
+  padding: 8px 14px;
+  background: transparent;
+  color: v.$text-muted;
+  border: 1px solid v.$border;
+  border-radius: v.$radius-md;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  width: 100%;
+
+  &:hover { border-color: v.$text-muted; color: v.$text-secondary; }
+  &--small { padding: 5px 10px; font-size: 0.8rem; width: auto; }
+}
