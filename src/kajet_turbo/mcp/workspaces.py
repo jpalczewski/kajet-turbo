@@ -1,6 +1,7 @@
 import json
 
 from fastmcp import Context, FastMCP
+from fastmcp.server.dependencies import get_access_token
 from nanoid import generate
 
 from kajet_turbo.log import logged_tool, logger
@@ -24,11 +25,11 @@ def register_workspaces(
     workspace_service: WorkspaceService,
     oauth_repo: OAuthRepository,
 ) -> None:
-    def _resolve_user(ctx: Context) -> tuple[str | None, str | None]:
-        client_id = ctx.client_id
-        if client_id is None:
+    def _resolve_user() -> tuple[str | None, str | None]:
+        token = get_access_token()
+        if token is None:
             return None, None
-        user_id = oauth_repo.get_user_id_by_client(client_id)
+        user_id = oauth_repo.get_user_id_by_client(token.client_id)
         if user_id is None:
             return None, json.dumps({"error": "unauthorized"})
         return user_id, None
@@ -42,7 +43,7 @@ def register_workspaces(
     @logged_tool
     async def list_workspaces(ctx: Context) -> str:
         """Zwraca listę workspace'ów dostępnych dla tego użytkownika. Odpowiedź: JSON array stringów."""
-        user_id, err = _resolve_user(ctx)
+        user_id, err = _resolve_user()
         if err:
             return err
         return json.dumps(workspace_service.list_accessible(user_id))
@@ -52,7 +53,7 @@ def register_workspaces(
     async def activate_workspace(name: str, ctx: Context) -> str:
         """Ustawia aktywny workspace dla tej sesji.
         Sukces: {"message": "..."}. Błąd: {"error": "...", "available": [...]}."""
-        user_id, err = _resolve_user(ctx)
+        user_id, err = _resolve_user()
         if err:
             return err
         available = workspace_service.list_accessible(user_id)
@@ -72,7 +73,7 @@ def register_workspaces(
     async def create_workspace(name: str, ctx: Context) -> str:
         """Tworzy nowy workspace z repozytorium git.
         Sukces: {"message": "..."}. Błąd: {"error": "..."}."""
-        user_id, err = _resolve_user(ctx)
+        user_id, err = _resolve_user()
         if err:
             return err
         try:
