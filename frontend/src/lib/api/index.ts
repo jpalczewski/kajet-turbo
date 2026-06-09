@@ -384,3 +384,107 @@ export const apiListNotesApiWorkspacesNameNotesGet = async (name: string, option
   const data: apiListNotesApiWorkspacesNameNotesGetResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as apiListNotesApiWorkspacesNameNotesGetResponse
 }
+
+
+
+export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponseSuccess = (apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse200) & {
+  headers: Headers;
+};
+export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponseError = (apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse = (apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponseSuccess | apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponseError)
+
+export const getApiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetUrl = (name: string,
+    noteId: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}/html`
+}
+
+/**
+ * @summary Api Get Note Html
+ */
+export const apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet = async (name: string,
+    noteId: string, options?: RequestInit): Promise<apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse> => {
+
+  const res = await fetch(getApiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetUrl(name,noteId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse
+}
+
+
+
+export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponseSuccess = (apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse200) & {
+  headers: Headers;
+};
+export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponseError = (apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse = (apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponseSuccess | apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponseError)
+
+export const getApiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetUrl = (name: string,
+    noteId: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}/markdown`
+}
+
+/**
+ * @summary Api Get Note Markdown
+ */
+export const apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGet = async (name: string,
+    noteId: string, options?: RequestInit): Promise<apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse> => {
+
+  const res = await fetch(getApiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetUrl(name,noteId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse
+}
