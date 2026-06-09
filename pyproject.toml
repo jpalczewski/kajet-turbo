@@ -17,6 +17,7 @@ dependencies = [
     "loguru>=0.7.3",
     "alembic>=1.13.0",
     "mistune>=3.2.1",
+    "bleach>=6.4.0",
 ]
 
 [project.scripts]

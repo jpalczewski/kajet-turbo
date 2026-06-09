@@ -1,9 +1,35 @@
 import os
 from pathlib import Path
 
+import bleach
 import mistune
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+
+_ALLOWED_TAGS = [
+    *bleach.sanitizer.ALLOWED_TAGS,
+    "p", "h1", "h2", "h3", "h4", "h5", "h6",
+    "pre", "code", "blockquote",
+    "ul", "ol", "li", "hr",
+    "table", "thead", "tbody", "tr", "th", "td",
+    "img",
+]
+_ALLOWED_ATTRS = {
+    **bleach.sanitizer.ALLOWED_ATTRIBUTES,
+    "a": ["href", "title"],
+    "img": ["src", "alt", "title"],
+}
+_ALLOWED_PROTOCOLS = ["http", "https", "mailto"]
+
+
+def _render_html(content: str) -> str:
+    return bleach.clean(
+        mistune.html(content),
+        tags=_ALLOWED_TAGS,
+        attributes=_ALLOWED_ATTRS,
+        protocols=_ALLOWED_PROTOCOLS,
+        strip=True,
+    )
 
 from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
 from kajet_turbo.services.notes import NoteService
@@ -84,7 +110,7 @@ async def api_get_note_html(
         "tags": note["tags"],
         "created_at": note["created_at"],
         "updated_at": note["updated_at"],
-        "content_html": mistune.html(note["content"]),
+        "content_html": _render_html(note["content"]),
     })
 
 

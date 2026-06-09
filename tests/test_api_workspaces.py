@@ -154,3 +154,33 @@ def test_markdown_returns_404_when_note_missing(auth_client):
     client, _, _ = auth_client
     resp = client.get("/api/workspaces/test-ws/notes/nonexistent/markdown")
     assert resp.status_code == 404
+
+
+def test_html_strips_script_tags(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save(
+        "u1", "test-ws", ws_path, "XSS test",
+        '<script>alert(1)</script>\n\n## Bezpieczny nagłówek', []
+    )["note_id"]
+
+    resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/html")
+
+    assert resp.status_code == 200
+    html = resp.json()["content_html"]
+    assert "<script>" not in html
+    assert "</script>" not in html
+    assert "Bezpieczny" in html
+
+
+def test_html_strips_javascript_urls(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save(
+        "u1", "test-ws", ws_path, "JS URL test",
+        '[kliknij](javascript:alert(1))', []
+    )["note_id"]
+
+    resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/html")
+
+    assert resp.status_code == 200
+    html = resp.json()["content_html"]
+    assert "javascript:" not in html
