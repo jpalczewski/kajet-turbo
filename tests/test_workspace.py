@@ -206,3 +206,17 @@ def test_create_workspace_rejects_duplicate(tmp_path):
     create_workspace("duplikat", str(tmp_path))
     with pytest.raises(FileExistsError):
         create_workspace("duplikat", str(tmp_path))
+
+
+def test_rename_file_commit(workspace):
+    from kajet_turbo.git_ops import commit_file, rename_file_commit
+
+    initial = workspace / "hello.md"
+    initial.write_text("content")
+    commit_file(str(workspace), "hello.md", "add hello")
+
+    rename_file_commit(str(workspace), "hello.md", "world.md", "rename hello to world")
+
+    assert not initial.exists()
+    assert (workspace / "world.md").exists()
+    assert (workspace / "world.md").read_text() == "content"

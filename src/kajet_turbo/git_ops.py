@@ -22,3 +22,12 @@ def delete_file_commit(workspace_path: str, relative_path: str, message: str) ->
         repo.index.commit(message)
     except (InvalidGitRepositoryError, GitCommandError) as e:
         raise GitError(str(e)) from e
+
+
+def rename_file_commit(workspace_path: str, old_rel: str, new_rel: str, message: str) -> None:
+    try:
+        repo = Repo(workspace_path)
+        repo.index.move([old_rel, new_rel])
+        repo.index.commit(message)
+    except (InvalidGitRepositoryError, GitCommandError, FileNotFoundError) as e:
+        raise GitError(str(e)) from e
