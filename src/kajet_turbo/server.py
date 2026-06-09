@@ -27,9 +27,10 @@ async def _app_lifespan(app: FastAPI):
 
 @asynccontextmanager
 async def _logging_lifespan(app: FastAPI):
-    # FastMCP adds its own loguru sink during its lifespan startup.
-    # Calling setup_logging() here (after FastMCP's lifespan) removes it
-    # and ensures our JSONL sink is the only one active.
+    # Must run AFTER mcp_app.lifespan: FastMCP's configure_logging() sets
+    # propagate=False on the "fastmcp" stdlib logger and attaches a RichHandler.
+    # setup_logging() replaces that handler with our _InterceptHandler so
+    # FastMCP's internal messages flow through loguru and out as JSONL.
     setup_logging()
     yield
 

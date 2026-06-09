@@ -51,6 +51,12 @@ def setup_logging() -> None:
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)  # replaced by LoggingMiddleware
     sql_level = logging.DEBUG if os.getenv("LOG_SQL") else logging.WARNING
     logging.getLogger("sqlalchemy.engine").setLevel(sql_level)
+    # FastMCP uses stdlib logging with propagate=False and its own RichHandler.
+    # Replace it with our InterceptHandler so FastMCP logs flow through loguru → JSONL.
+    fastmcp_log = logging.getLogger("fastmcp")
+    fastmcp_log.handlers.clear()
+    fastmcp_log.addHandler(_InterceptHandler())
+    fastmcp_log.propagate = False
 
 
 def logged_tool(fn):
