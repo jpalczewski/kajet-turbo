@@ -3,9 +3,11 @@ import sqlite3
 from pathlib import Path
 
 import sqlite_vec
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, create_engine
 
 from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.metadata
     ClientAuthorization,
@@ -34,6 +36,7 @@ class Database:
             poolclass=StaticPool,
             connect_args={"check_same_thread": False},
         )
+        self._run_migrations()
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
@@ -46,8 +49,15 @@ class Database:
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
+    def _run_migrations(self) -> None:
+        alembic_ini = Path("alembic.ini")
+        if not alembic_ini.exists():
+            alembic_ini = Path(__file__).parents[2] / "alembic.ini"
+        cfg = Config(str(alembic_ini))
+        cfg.set_main_option("sqlalchemy.url", f"sqlite:///{self.db_path}")
+        command.upgrade(cfg, "head")
+
     def _init_schema(self) -> None:
-        SQLModel.metadata.create_all(self.engine)
         with Session(self.engine) as session:
             session.execute(text(f"""
                 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -67,15 +77,6 @@ class Database:
                 )
             """))
             session.commit()
-        for migration in [
-            "ALTER TABLE users ADD COLUMN password_hash TEXT",
-            "ALTER TABLE notes ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''",
-        ]:
-            try:
-                self._conn.execute(migration)
-                self._conn.commit()
-            except Exception:
-                pass
 
     def close(self) -> None:
         self.engine.dispose()
