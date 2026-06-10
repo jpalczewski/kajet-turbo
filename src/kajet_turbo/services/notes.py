@@ -3,6 +3,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+import frontmatter
 from nanoid import generate
 
 from kajet_turbo.repositories.git import GitError, GitRepository
@@ -192,3 +193,35 @@ class NoteService:
         logger.info("reindex_complete", ws=ws_name, count=count,
                     duration_ms=round((time.monotonic() - start) * 1000))
         return {"message": f"Reindeksowano {count} notatek w workspace '{ws_name}'.", "count": count}
+
+    def get_history(self, note_id: str, owner_id: str, ws_path: str, limit: int = 50) -> list[dict]:
+        note = self._repo.get(note_id, owner_id=owner_id)
+        if note is None:
+            raise ValueError(f"Notatka {note_id} nie znaleziona.")
+        filepath = note_filepath(ws_path, note.folder, note.title)
+        relative = str(Path(filepath).relative_to(ws_path))
+        return GitRepository(ws_path).file_history(relative, limit=limit)
+
+    def get_version(self, note_id: str, sha: str, owner_id: str, ws_path: str) -> dict:
+        note = self._repo.get(note_id, owner_id=owner_id)
+        if note is None:
+            raise ValueError(f"Notatka {note_id} nie znaleziona.")
+        filepath = note_filepath(ws_path, note.folder, note.title)
+        relative = str(Path(filepath).relative_to(ws_path))
+        raw = GitRepository(ws_path).file_content_at_commit(relative, sha)
+        parsed = frontmatter.loads(raw)
+        return {
+            "note_id": note_id,
+            "workspace": note.workspace,
+            "owner_id": note.owner_id,
+            "title": str(parsed.get("title", note.title)),
+            "folder": note.folder,
+            "tags": list(parsed.get("tags", [])),
+            "created_at": str(parsed.get("created_at", note.created_at)),
+            "updated_at": str(parsed.get("updated_at", note.updated_at)),
+            "content": parsed.content,
+        }
+
+    def restore_version(self, note_id: str, sha: str, owner_id: str, ws_path: str) -> dict:
+        version = self.get_version(note_id, sha, owner_id, ws_path)
+        return self.update(note_id, owner_id=owner_id, ws_path=ws_path, content=version["content"])
