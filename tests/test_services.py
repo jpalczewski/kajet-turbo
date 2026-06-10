@@ -1,9 +1,9 @@
-import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from kajet_turbo.db import Database
+from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes import NoteService
 
@@ -12,9 +12,7 @@ from kajet_turbo.services.notes import NoteService
 def workspace(tmp_path):
     ws = tmp_path / "ws"
     ws.mkdir(parents=True)
-    subprocess.run(["git", "init", str(ws)], check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws), check=True, capture_output=True)
+    GitRepository.init(str(ws))
     return ws
 
 
@@ -38,8 +36,8 @@ def test_save_creates_file_and_db_record(service, workspace):
 
 
 def test_save_git_error_rolls_back_file(service, workspace):
-    from kajet_turbo.git_ops import GitError
-    with patch("kajet_turbo.services.notes.commit_file", side_effect=GitError("fail")):
+    from kajet_turbo.repositories.git import GitError
+    with patch("kajet_turbo.repositories.git.GitRepository.commit_file", side_effect=GitError("fail")):
         with pytest.raises(GitError):
             service.save("u1", "ws", str(workspace), "Git fail note", "treść", [])
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
@@ -62,10 +60,10 @@ def test_get_with_content_returns_content(service, workspace):
 
 
 def test_update_git_error_reverts_file(service, workspace):
-    from kajet_turbo.git_ops import GitError
+    from kajet_turbo.repositories.git import GitError
     result = service.save("u1", "ws", str(workspace), "Oryginał", "stara treść", [])
     note_id = result["note_id"]
-    with patch("kajet_turbo.services.notes.commit_file", side_effect=GitError("fail")):
+    with patch("kajet_turbo.repositories.git.GitRepository.commit_file", side_effect=GitError("fail")):
         with pytest.raises(GitError):
             service.update(note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść")
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
@@ -91,9 +89,7 @@ def test_list_scoped_by_owner(service, workspace):
 def test_search_across_workspaces(service, workspace):
     ws2 = workspace.parent / "ws2"
     ws2.mkdir(parents=True)
-    subprocess.run(["git", "init", str(ws2)], check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws2), check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws2), check=True, capture_output=True)
+    GitRepository.init(str(ws2))
     service.save("u1", "ws", str(workspace), "Python w ws1", "asyncio", [])
     service.save("u1", "ws2", str(ws2), "Python w ws2", "asyncio", [])
     results = service.search("Python", ["ws", "ws2"], owner_id="u1", limit=10)

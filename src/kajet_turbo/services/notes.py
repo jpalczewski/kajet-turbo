@@ -5,7 +5,7 @@ from pathlib import Path
 
 from nanoid import generate
 
-from kajet_turbo.git_ops import GitError, commit_file, delete_file_commit, rename_file_commit
+from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.log import logger
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.workspace import normalize_folder, note_filepath, read_note_file, scan_notes, write_note_file
@@ -34,7 +34,7 @@ class NoteService:
         relative = str(Path(filepath).relative_to(ws_path))
         write_note_file(filepath, note_id, title, tags, now, now, content)
         try:
-            commit_file(ws_path, relative, f"note: add {title}")
+            GitRepository(ws_path).commit_file(relative, f"note: add {title}")
         except GitError:
             Path(filepath).unlink(missing_ok=True)
             raise
@@ -107,15 +107,16 @@ class NoteService:
         old_content = note_data["content"]
         new_content = content if content is not None else old_content
 
+        repo = GitRepository(ws_path)
         try:
             if old_path != new_path:
                 Path(new_path).parent.mkdir(parents=True, exist_ok=True)
-                rename_file_commit(ws_path, old_rel, new_rel, f"note: rename to {new_title}")
+                repo.rename_file(old_rel, new_rel, f"note: rename to {new_title}")
                 write_note_file(new_path, note_id, new_title, new_tags, note.created_at, now, new_content)
-                commit_file(ws_path, new_rel, f"note: update {new_title}")
+                repo.commit_file(new_rel, f"note: update {new_title}")
             else:
                 write_note_file(old_path, note_id, new_title, new_tags, note.created_at, now, new_content)
-                commit_file(ws_path, old_rel, f"note: update {new_title}")
+                repo.commit_file(old_rel, f"note: update {new_title}")
         except GitError:
             write_note_file(
                 new_path if old_path != new_path else old_path,
@@ -137,7 +138,7 @@ class NoteService:
         filepath = note_filepath(ws_path, note.folder, note.title)
         if Path(filepath).exists():
             relative = str(Path(filepath).relative_to(ws_path))
-            delete_file_commit(ws_path, relative, f"note: delete {note_id}")
+            GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
         self._repo.delete(note_id, owner_id=owner_id)
         logger.info("note_deleted", note_id=note_id)
 
