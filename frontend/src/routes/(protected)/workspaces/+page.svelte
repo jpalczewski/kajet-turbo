@@ -2,11 +2,19 @@
   import { page } from '$app/state'
   import { invalidateAll } from '$app/navigation'
   import { apiCreateWorkspaceApiWorkspacesPost } from '$lib/api'
+  import type { WorkspaceInfo } from '$lib/api'
 
-  let workspaces = $derived(page.data.workspaces ?? [])
+  let workspaces = $derived((page.data.workspaces ?? []) as unknown as WorkspaceInfo[])
   let name = $state('')
   let error = $state('')
   let creating = $state(false)
+
+  function formatDate(ts: number | null): string {
+    if (!ts) return ''
+    return new Date(ts * 1000).toLocaleDateString('pl-PL', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+    })
+  }
 
   async function create(e: SubmitEvent) {
     e.preventDefault()
@@ -63,8 +71,15 @@
     <ul class="ws-list">
       {#each workspaces as ws}
         <li class="ws-card">
-          <a href="/workspace/{ws}/notes" class="ws-card__link">
-            <span class="ws-card__name">{ws}</span>
+          <a href="/workspace/{ws.name}/notes" class="ws-card__link">
+            <span class="ws-card__name">{ws.name}</span>
+            <span class="ws-card__meta">
+              <span class="ws-card__count">{ws.file_count} {ws.file_count === 1 ? 'notatka' : ws.file_count < 5 ? 'notatki' : 'notatek'}</span>
+              {#if ws.last_commit_at}
+                <span class="ws-card__sep">·</span>
+                <span class="ws-card__date">{formatDate(ws.last_commit_at)}</span>
+              {/if}
+            </span>
             <span class="ws-card__arrow">→</span>
           </a>
         </li>
@@ -189,6 +204,28 @@
       font-family: v.$font-mono;
       text-transform: uppercase;
       letter-spacing: 0.04em;
+    }
+
+    &__meta {
+      display: flex;
+      align-items: center;
+      gap: v.$space-xs;
+      margin-left: v.$space-md;
+      flex: 1;
+    }
+
+    &__count,
+    &__date {
+      font-size: 0.72rem;
+      font-family: v.$font-mono;
+      color: v.$text-muted;
+      letter-spacing: 0.03em;
+    }
+
+    &__sep {
+      font-size: 0.72rem;
+      color: v.$text-muted;
+      opacity: 0.5;
     }
 
     &__arrow {

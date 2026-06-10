@@ -73,6 +73,16 @@ class GitRepository:
         except Exception as e:
             raise GitError(str(e)) from e
 
+    def last_commit_time(self) -> int | None:
+        try:
+            repo = Repo(self._workspace_path)
+            walker = repo.get_walker(max_entries=1)
+            for entry in walker:
+                return entry.commit.author_time
+            return None
+        except Exception:
+            return None
+
     def file_history(self, relative_path: str, limit: int = 50) -> list[dict]:
         try:
             repo = Repo(self._workspace_path)
