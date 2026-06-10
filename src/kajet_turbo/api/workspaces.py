@@ -1,5 +1,6 @@
 import bleach
 import mistune
+import re
 from pathlib import Path
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -20,6 +21,8 @@ _ALLOWED_ATTRS = {
 }
 _ALLOWED_PROTOCOLS = ["http", "https", "mailto"]
 
+_FOLDER_PATH_RE = re.compile(r'^[a-zA-Z0-9._-][a-zA-Z0-9._\-/]*$')
+
 
 def _render_html(content: str) -> str:
     return bleach.clean(
@@ -31,6 +34,7 @@ def _render_html(content: str) -> str:
     )
 
 from kajet_turbo.api.schemas import (
+    CreateFolderRequest, CreateFolderResponse,
     CreateWorkspaceResponse, LsEntry, LsResponse,
     NoteHistoryResponse, NoteHtmlResponse, NoteMarkdownResponse,
     NotesListResponse, RestoreVersionResponse, WorkspacesListResponse,
@@ -133,12 +137,14 @@ def api_ls(
         return JSONResponse({"error": "Folder not found"}, status_code=404)
 
     if recursive:
-        all_folders = note_service.list_folders(name, user["id"])
         expanded: set[str] = set()
-        for folder in all_folders:
-            parts = folder.split("/")
-            for i in range(1, len(parts) + 1):
-                expanded.add("/".join(parts[:i]))
+        for dirpath in ws_root.rglob("*"):
+            if not dirpath.is_dir():
+                continue
+            rel_parts = dirpath.relative_to(ws_root).parts
+            if any(p.startswith(".") for p in rel_parts):
+                continue
+            expanded.add("/".join(rel_parts))
         return JSONResponse({"folders": sorted(expanded), "entries": []})
 
     subdirs = sorted(
@@ -160,6 +166,52 @@ def api_ls(
             "updated_at": note["updated_at"],
         })
     return JSONResponse({"folders": subdirs, "entries": entries})
+
+
+@router.post("/api/workspaces/{name}/folders", response_model=CreateFolderResponse)
+@logged_route
+async def api_create_folder(
+    name: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+) -> JSONResponse:
+    from kajet_turbo.repositories.git import GitRepository, GitError
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    path = str(body.get("path", "")).strip().strip("/")
+    if not path:
+        return JSONResponse({"error": "Ścieżka jest wymagana."}, status_code=422)
+    segments = path.split("/")
+    if any(not s or s in (".", "..") for s in segments):
+        return JSONResponse({"error": "Niedozwolona ścieżka."}, status_code=422)
+    if not _FOLDER_PATH_RE.match(path):
+        return JSONResponse({"error": "Niedozwolone znaki w ścieżce."}, status_code=422)
+    ws_path = ws_service.workspace_path(user["id"], name)
+    ws_root = Path(ws_path).resolve()
+    target = (ws_root / path).resolve()
+    try:
+        target.relative_to(ws_root)
+    except ValueError:
+        return JSONResponse({"error": "Niedozwolona ścieżka."}, status_code=422)
+    gitkeep = target / ".gitkeep"
+    gitkeep.parent.mkdir(parents=True, exist_ok=True)
+    if not gitkeep.exists():
+        gitkeep.touch()
+        relative = str(gitkeep.relative_to(ws_root))
+        try:
+            GitRepository(ws_path).commit_file(relative, f"folder: add {path}")
+        except GitError as e:
+            gitkeep.unlink(missing_ok=True)
+            return JSONResponse({"error": str(e)}, status_code=500)
+    logger.info("folder_created", ws=name, path=path)
+    return JSONResponse({"path": path})
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/html", response_model=NoteHtmlResponse)

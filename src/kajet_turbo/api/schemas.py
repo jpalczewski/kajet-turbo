@@ -96,3 +96,11 @@ class PendingInfoResponse(BaseModel):
 
 class RestoreVersionResponse(BaseModel):
     note_id: str
+
+
+class CreateFolderRequest(BaseModel):
+    path: str
+
+
+class CreateFolderResponse(BaseModel):
+    path: str

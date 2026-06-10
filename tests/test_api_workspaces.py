@@ -430,3 +430,71 @@ def test_ls_returns_401_when_not_logged_in(anon_client):
 def test_ls_returns_403_when_no_access(no_access_client):
     resp = no_access_client.get("/api/workspaces/test-ws/ls")
     assert resp.status_code == 403
+
+
+def test_create_folder_simple(auth_client):
+    client, _, ws_path = auth_client
+    resp = client.post("/api/workspaces/test-ws/folders", json={"path": "docs"})
+    assert resp.status_code == 200
+    assert resp.json() == {"path": "docs"}
+    assert (Path(ws_path) / "docs" / ".gitkeep").exists()
+
+
+def test_create_folder_nested(auth_client):
+    client, _, ws_path = auth_client
+    resp = client.post("/api/workspaces/test-ws/folders", json={"path": "a/b/c"})
+    assert resp.status_code == 200
+    assert (Path(ws_path) / "a" / "b" / "c" / ".gitkeep").exists()
+
+
+def test_create_folder_idempotent(auth_client):
+    client, _, ws_path = auth_client
+    client.post("/api/workspaces/test-ws/folders", json={"path": "docs"})
+    resp = client.post("/api/workspaces/test-ws/folders", json={"path": "docs"})
+    assert resp.status_code == 200
+    assert resp.json() == {"path": "docs"}
+
+
+def test_create_folder_path_traversal(auth_client):
+    client, _, _ = auth_client
+    resp = client.post("/api/workspaces/test-ws/folders", json={"path": "../evil"})
+    assert resp.status_code == 422
+
+
+def test_create_folder_empty_segment(auth_client):
+    client, _, _ = auth_client
+    resp = client.post("/api/workspaces/test-ws/folders", json={"path": "a//b"})
+    assert resp.status_code == 422
+
+
+def test_create_folder_invalid_chars(auth_client):
+    client, _, _ = auth_client
+    resp = client.post("/api/workspaces/test-ws/folders", json={"path": "my folder?"})
+    assert resp.status_code == 422
+
+
+def test_create_folder_dot_segment(auth_client):
+    client, _, _ = auth_client
+    resp = client.post("/api/workspaces/test-ws/folders", json={"path": "."})
+    assert resp.status_code == 422
+
+
+def test_create_folder_returns_401_when_anon(anon_client):
+    resp = anon_client.post("/api/workspaces/test-ws/folders", json={"path": "docs"})
+    assert resp.status_code == 401
+
+
+def test_create_folder_returns_403_when_no_access(no_access_client):
+    resp = no_access_client.post("/api/workspaces/test-ws/folders", json={"path": "docs"})
+    assert resp.status_code == 403
+
+
+def test_ls_recursive_includes_empty_folder(auth_client):
+    client, _, ws_path = auth_client
+    gitkeep = Path(ws_path) / "empty-dir" / ".gitkeep"
+    gitkeep.parent.mkdir(parents=True)
+    gitkeep.touch()
+
+    resp = client.get("/api/workspaces/test-ws/ls?recursive=true")
+    assert resp.status_code == 200
+    assert "empty-dir" in resp.json()["folders"]
