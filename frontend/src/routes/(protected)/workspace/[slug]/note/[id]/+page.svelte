@@ -38,7 +38,10 @@
         {/each}
       </div>
     {/if}
-    <p class="note-header__date">Zaktualizowano: {formatDate(note.updated_at)}</p>
+    <p class="note-header__date">
+      Zaktualizowano: {formatDate(note.updated_at)} ·
+      <a href="/workspace/{slug}/note/{note.note_id}/history" class="note-header__history-link">Historia</a>
+    </p>
   </header>
 
   <div class="prose">
@@ -144,6 +147,17 @@
       font-family: v.$font-mono;
       color: v.$text-muted;
       margin: 0;
+    }
+
+    &__history-link {
+      color: v.$accent-dark;
+      text-decoration: none;
+      font-size: 0.75rem;
+      font-family: v.$font-mono;
+      letter-spacing: 0.04em;
+      transition: color 0.15s;
+
+      &:hover { color: v.$accent; }
     }
   }
 
