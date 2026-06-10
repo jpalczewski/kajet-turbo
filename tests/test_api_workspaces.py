@@ -350,3 +350,15 @@ def test_restore_note_version_reverts_content(auth_client):
     assert resp.status_code == 200
     current = note_svc.get_with_content(note_id, owner_id="u1", ws_path=ws_path)
     assert current["content"] == "oryginał"
+
+
+def test_list_folders_returns_distinct_folders(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "N1", "c", [], folder="docs")
+    note_svc.save("u1", "test-ws", ws_path, "N2", "c", [], folder="docs/guide")
+    note_svc.save("u1", "test-ws", ws_path, "N3", "c", [], folder="notes")
+    note_svc.save("u1", "test-ws", ws_path, "N4", "c", [])  # root — no folder
+
+    folders = note_svc.list_folders("test-ws", "u1")
+
+    assert sorted(folders) == ["docs", "docs/guide", "notes"]

@@ -168,6 +168,17 @@ class NoteRepository:
                 break
         return result
 
+    def list_folders(self, workspace: str, owner_id: str) -> list[str]:
+        with Session(self._engine) as session:
+            rows = session.execute(
+                text(
+                    "SELECT DISTINCT folder FROM notes"
+                    " WHERE workspace = :workspace AND owner_id = :owner_id AND folder != ''"
+                ),
+                {"workspace": workspace, "owner_id": owner_id},
+            ).fetchall()
+        return [row[0] for row in rows]
+
     def search_fts(self, query: str, workspace: str, owner_id: str, limit: int = 50) -> list[dict]:
         try:
             with Session(self._engine) as session:

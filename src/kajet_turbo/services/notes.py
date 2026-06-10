@@ -153,6 +153,9 @@ class NoteService:
     ) -> list[dict]:
         return self._repo.list(ws_name, owner_id=owner_id, tags=tags, limit=limit, folder=folder)
 
+    def list_folders(self, ws_name: str, owner_id: str) -> list[str]:
+        return self._repo.list_folders(ws_name, owner_id)
+
     def search(
         self,
         query: str,
