@@ -9,6 +9,10 @@ export interface ConsentResponse {
   redirect_uri: string;
 }
 
+export interface CreateFolderResponse {
+  path: string;
+}
+
 export interface CreateWorkspaceResponse {
   name: string;
 }
@@ -492,6 +496,49 @@ export const apiLsApiWorkspacesNameLsGet = async (name: string,
   {
     ...options,
     method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiCreateFolderApiWorkspacesNameFoldersPostResponse200 = {
+  data: CreateFolderResponse
+  status: 200
+}
+
+export type apiCreateFolderApiWorkspacesNameFoldersPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiCreateFolderApiWorkspacesNameFoldersPostResponseSuccess = (apiCreateFolderApiWorkspacesNameFoldersPostResponse200) & {
+  headers: Headers;
+};
+export type apiCreateFolderApiWorkspacesNameFoldersPostResponseError = (apiCreateFolderApiWorkspacesNameFoldersPostResponse422) & {
+  headers: Headers;
+};
+
+export type apiCreateFolderApiWorkspacesNameFoldersPostResponse = (apiCreateFolderApiWorkspacesNameFoldersPostResponseSuccess | apiCreateFolderApiWorkspacesNameFoldersPostResponseError)
+
+export const getApiCreateFolderApiWorkspacesNameFoldersPostUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/folders`
+}
+
+/**
+ * @summary Api Create Folder
+ */
+export const apiCreateFolderApiWorkspacesNameFoldersPost = async (name: string, options?: RequestInit): Promise<apiCreateFolderApiWorkspacesNameFoldersPostResponse> => {
+
+  return customFetch<apiCreateFolderApiWorkspacesNameFoldersPostResponse>(getApiCreateFolderApiWorkspacesNameFoldersPostUrl(name),
+  {
+    ...options,
+    method: 'POST'
 
 
   }
