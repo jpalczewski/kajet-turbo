@@ -28,7 +28,7 @@ def _render_html(content: str) -> str:
         strip=True,
     )
 
-from kajet_turbo.api.schemas import NoteHistoryResponse, NoteHtmlResponse, NoteMarkdownResponse, NotesListResponse
+from kajet_turbo.api.schemas import NoteHistoryResponse, NoteHtmlResponse, NoteMarkdownResponse, NotesListResponse, WorkspacesListResponse
 from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -36,15 +36,15 @@ from kajet_turbo.services.workspaces import WorkspaceService
 router = APIRouter()
 
 
-@router.get("/api/workspaces")
-async def api_list_workspaces(
+@router.get("/api/workspaces", response_model=WorkspacesListResponse)
+def api_list_workspaces(
     request: Request,
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:
     user = get_session_user(request)
     if not user:
         return JSONResponse({"error": "Not logged in"}, status_code=401)
-    return JSONResponse({"workspaces": ws_service.list_accessible(user["id"])})
+    return JSONResponse({"workspaces": ws_service.list_with_details(user["id"])})
 
 
 @router.post("/api/workspaces")
@@ -70,7 +70,7 @@ async def api_create_workspace(
 
 
 @router.get("/api/workspaces/{name}/notes", response_model=NotesListResponse)
-async def api_list_notes(
+def api_list_notes(
     name: str,
     request: Request,
     ws_service: WorkspaceService = Depends(get_workspace_service),
@@ -87,7 +87,7 @@ async def api_list_notes(
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/html", response_model=NoteHtmlResponse)
-async def api_get_note_html(
+def api_get_note_html(
     name: str,
     note_id: str,
     request: Request,
@@ -115,7 +115,7 @@ async def api_get_note_html(
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/markdown", response_model=NoteMarkdownResponse)
-async def api_get_note_markdown(
+def api_get_note_markdown(
     name: str,
     note_id: str,
     request: Request,
@@ -143,7 +143,7 @@ async def api_get_note_markdown(
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/history", response_model=NoteHistoryResponse)
-async def api_note_history(
+def api_note_history(
     name: str,
     note_id: str,
     request: Request,
@@ -164,7 +164,7 @@ async def api_note_history(
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/history/{sha}", response_model=NoteHtmlResponse)
-async def api_note_version(
+def api_note_version(
     name: str,
     note_id: str,
     sha: str,
