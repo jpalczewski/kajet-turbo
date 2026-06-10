@@ -3,6 +3,7 @@ import mistune
 from pathlib import Path
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from kajet_turbo.log import logger
 
 _ALLOWED_TAGS = [
     *bleach.sanitizer.ALLOWED_TAGS,
@@ -169,6 +170,7 @@ def api_get_note_html(
     if not user:
         return JSONResponse({"error": "Not logged in"}, status_code=401)
     if not ws_service.has_access(user["id"], name):
+        logger.warning("note_html_access_denied", user_id=user["id"], email=user.get("email"), workspace=name, note_id=note_id)
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
     ws_path = ws_service.workspace_path(user["id"], name)
     note = note_service.get_with_content(note_id, owner_id=user["id"], ws_path=ws_path)
