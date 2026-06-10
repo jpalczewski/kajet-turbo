@@ -1,7 +1,7 @@
 import json
 
 from sqlalchemy import Engine, text
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from kajet_turbo.models import Note
 
@@ -274,3 +274,21 @@ class NoteRepository:
                 {"workspace": workspace},
             ).scalar()
         return (count or 0) > 0
+
+    def workspace_stats(self, owner_id: str, workspaces: list[str]) -> dict[str, dict]:
+        if not workspaces:
+            return {}
+        with Session(self._engine) as session:
+            rows = session.exec(
+                select(
+                    Note.workspace,
+                    func.count().label("file_count"),
+                    func.max(Note.updated_at).label("last_updated"),
+                )
+                .where(Note.owner_id == owner_id, Note.workspace.in_(workspaces))
+                .group_by(Note.workspace)
+            )
+            return {
+                workspace: {"file_count": file_count, "last_updated": last_updated}
+                for workspace, file_count, last_updated in rows
+            }

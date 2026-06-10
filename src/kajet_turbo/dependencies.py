@@ -19,7 +19,7 @@ oauth_repo = OAuthRepository(db.engine)
 provider: KajetOAuthProvider = create_auth(oauth_repo)
 
 note_service = NoteService(note_repo)
-workspace_service = WorkspaceService(workspace_repo)
+workspace_service = WorkspaceService(workspace_repo, note_repo)
 
 
 def get_note_repo() -> NoteRepository:

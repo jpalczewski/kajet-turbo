@@ -39,7 +39,7 @@ def auth_client(tmp_path, workspace, monkeypatch):
     note_repo = NoteRepository(db.engine)
     ws_repo = WorkspaceRepository(db.engine)
     note_svc = NoteService(note_repo)
-    ws_svc = WorkspaceService(ws_repo)
+    ws_svc = WorkspaceService(ws_repo, note_repo)
     _create_user(db.engine)
     ws_repo.grant_access("u1", "test-ws")
 
@@ -61,7 +61,7 @@ def no_access_client(tmp_path, workspace, monkeypatch):
     note_repo = NoteRepository(db.engine)
     ws_repo = WorkspaceRepository(db.engine)
     note_svc = NoteService(note_repo)
-    ws_svc = WorkspaceService(ws_repo)
+    ws_svc = WorkspaceService(ws_repo, note_repo)
 
     app = FastAPI()
     app.include_router(router)
@@ -81,7 +81,7 @@ def anon_client(tmp_path, workspace, monkeypatch):
     note_repo = NoteRepository(db.engine)
     ws_repo = WorkspaceRepository(db.engine)
     note_svc = NoteService(note_repo)
-    ws_svc = WorkspaceService(ws_repo)
+    ws_svc = WorkspaceService(ws_repo, note_repo)
 
     app = FastAPI()
     app.include_router(router)

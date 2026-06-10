@@ -1,6 +1,6 @@
-from pathlib import Path
+from datetime import UTC, datetime
 
-from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.workspace import create_workspace as _create_workspace
 from kajet_turbo.workspace import list_workspaces as _list_workspaces
@@ -8,8 +8,9 @@ from kajet_turbo.workspace import workspace_path as _workspace_path
 
 
 class WorkspaceService:
-    def __init__(self, workspace_repo: WorkspaceRepository) -> None:
+    def __init__(self, workspace_repo: WorkspaceRepository, note_repo: NoteRepository) -> None:
         self._repo = workspace_repo
+        self._note_repo = note_repo
 
     def create(self, name: str, user_id: str | None) -> None:
         _create_workspace(name, user_id=user_id)
@@ -26,17 +27,18 @@ class WorkspaceService:
 
     def list_with_details(self, user_id: str | None) -> list[dict]:
         names = self.list_accessible(user_id)
+        if not names or not user_id:
+            return [{"name": n, "file_count": 0, "last_commit_at": None} for n in names]
+        stats = self._note_repo.workspace_stats(user_id, names)
         result = []
         for name in names:
-            ws_path = _workspace_path(name, user_id=user_id)
-            file_count = sum(
-                1 for p in Path(ws_path).rglob("*.md") if ".git" not in p.parts
-            )
-            try:
-                last_commit_at = GitRepository(ws_path).last_commit_time()
-            except Exception:
+            s = stats.get(name, {})
+            last_updated = s.get("last_updated")
+            if last_updated:
+                last_commit_at = int(datetime.fromisoformat(last_updated).replace(tzinfo=UTC).timestamp())
+            else:
                 last_commit_at = None
-            result.append({"name": name, "file_count": file_count, "last_commit_at": last_commit_at})
+            result.append({"name": name, "file_count": s.get("file_count", 0), "last_commit_at": last_commit_at})
         return result
 
     def has_access(self, user_id: str, name: str) -> bool:
