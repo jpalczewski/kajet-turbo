@@ -137,3 +137,51 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
             return json.dumps({"error": str(e)})
         result = note_service.reindex(ws_name, owner_id=owner_id, ws_path=ws_path)
         return json.dumps(result)
+
+    @mcp.tool()
+    @logged_tool
+    async def get_note_history(note_id: str, ctx: Context, limit: int = 50) -> str:
+        """Zwraca historię wersji notatki jako JSON array.
+        Każdy wpis: {"sha": "...", "message": "...", "timestamp": 1234567890}.
+        Błąd: {"error": "..."}."""
+        try:
+            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        try:
+            entries = note_service.get_history(note_id, owner_id=owner_id, ws_path=ws_path, limit=limit)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(entries)
+
+    @mcp.tool()
+    @logged_tool
+    async def get_note_at_version(note_id: str, sha: str, ctx: Context) -> str:
+        """Zwraca treść notatki z konkretnego commita git.
+        sha: pełny lub skrócony hash commita z get_note_history.
+        Sukces: {note_id, title, content, tags, ...}. Błąd: {"error": "..."}."""
+        try:
+            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        try:
+            version = note_service.get_version(note_id, sha, owner_id=owner_id, ws_path=ws_path)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(version, ensure_ascii=False)
+
+    @mcp.tool()
+    @logged_tool
+    async def restore_note_version(note_id: str, sha: str, ctx: Context) -> str:
+        """Przywraca notatkę do wersji z podanego commita.
+        sha: pełny lub skrócony hash z get_note_history.
+        Sukces: {"note_id": "..."}. Błąd: {"error": "..."}."""
+        try:
+            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        try:
+            result = note_service.restore_version(note_id, sha, owner_id=owner_id, ws_path=ws_path)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(result)
