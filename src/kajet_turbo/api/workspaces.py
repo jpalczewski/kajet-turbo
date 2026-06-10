@@ -1,5 +1,6 @@
 import bleach
 import mistune
+from pathlib import Path
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
@@ -32,6 +33,7 @@ from kajet_turbo.api.schemas import NoteHistoryResponse, NoteHtmlResponse, NoteM
 from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.workspace import note_filepath
 
 router = APIRouter()
 
@@ -82,8 +84,17 @@ def api_list_notes(
         return JSONResponse({"error": "Not logged in"}, status_code=401)
     if not ws_service.has_access(user["id"], name):
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    ws_path = ws_service.workspace_path(user["id"], name)
     notes = note_service.list(name, owner_id=user["id"], folder=folder)
-    return JSONResponse({"notes": notes})
+    enriched = []
+    for note in notes:
+        filepath = note_filepath(ws_path, note["folder"], note["title"])
+        try:
+            size_bytes = Path(filepath).stat().st_size
+        except OSError:
+            size_bytes = 0
+        enriched.append({**note, "size_bytes": size_bytes})
+    return JSONResponse({"notes": enriched})
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/html", response_model=NoteHtmlResponse)

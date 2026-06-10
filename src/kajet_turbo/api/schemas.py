@@ -10,6 +10,7 @@ class NoteItem(BaseModel):
     tags: list[str]
     created_at: str
     updated_at: str
+    size_bytes: int
 
 
 class NotesListResponse(BaseModel):
@@ -34,6 +35,16 @@ class NoteMarkdownResponse(BaseModel):
     created_at: str
     updated_at: str
     content: str
+
+
+class WorkspaceInfo(BaseModel):
+    name: str
+    file_count: int
+    last_commit_at: int | None
+
+
+class WorkspacesListResponse(BaseModel):
+    workspaces: list[WorkspaceInfo]
 
 
 class NoteHistoryEntry(BaseModel):

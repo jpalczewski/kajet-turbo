@@ -362,3 +362,14 @@ def test_list_folders_returns_distinct_folders(auth_client):
     folders = note_svc.list_folders("test-ws", "u1")
 
     assert sorted(folders) == ["docs", "docs/guide", "notes"]
+
+
+def test_list_notes_includes_size_bytes(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "Sized Note", "hello world", [])
+    resp = client.get("/api/workspaces/test-ws/notes")
+    assert resp.status_code == 200
+    note = resp.json()["notes"][0]
+    assert "size_bytes" in note
+    assert isinstance(note["size_bytes"], int)
+    assert note["size_bytes"] > 0
