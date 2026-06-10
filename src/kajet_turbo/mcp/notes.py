@@ -2,7 +2,7 @@ import json
 
 from fastmcp import Context, FastMCP
 
-from kajet_turbo.git_ops import GitError
+from kajet_turbo.repositories.git import GitError
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.workspaces import get_active_workspace
 from kajet_turbo.services.notes import NoteService
