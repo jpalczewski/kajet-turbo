@@ -18,6 +18,16 @@ export interface HTTPValidationError {
   detail?: ValidationError[];
 }
 
+export interface NoteHistoryEntry {
+  sha: string;
+  message: string;
+  timestamp: number;
+}
+
+export interface NoteHistoryResponse {
+  entries: NoteHistoryEntry[];
+}
+
 export interface NoteHtmlResponse {
   note_id: string;
   title: string;
@@ -535,4 +545,164 @@ export const apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGet = async (
 
   const data: apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse
+}
+
+
+
+export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse200 = {
+  data: NoteHistoryResponse
+  status: 200
+}
+
+export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponseSuccess = (apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse200) & {
+  headers: Headers;
+};
+export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponseError = (apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse = (apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponseSuccess | apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponseError)
+
+export const getApiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetUrl = (name: string,
+    noteId: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}/history`
+}
+
+/**
+ * @summary Api Note History
+ */
+export const apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGet = async (name: string,
+    noteId: string, options?: RequestInit): Promise<apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse> => {
+
+  const res = await fetch(getApiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetUrl(name,noteId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse
+}
+
+
+
+export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse200 = {
+  data: NoteHtmlResponse
+  status: 200
+}
+
+export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponseSuccess = (apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse200) & {
+  headers: Headers;
+};
+export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponseError = (apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse = (apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponseSuccess | apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponseError)
+
+export const getApiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetUrl = (name: string,
+    noteId: string,
+    sha: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}/history/${sha}`
+}
+
+/**
+ * @summary Api Note Version
+ */
+export const apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGet = async (name: string,
+    noteId: string,
+    sha: string, options?: RequestInit): Promise<apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse> => {
+
+  const res = await fetch(getApiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetUrl(name,noteId,sha),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse
+}
+
+
+
+export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponseSuccess = (apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse200) & {
+  headers: Headers;
+};
+export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponseError = (apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse422) & {
+  headers: Headers;
+};
+
+export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse = (apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponseSuccess | apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponseError)
+
+export const getApiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostUrl = (name: string,
+    noteId: string,
+    sha: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}/history/${sha}/restore`
+}
+
+/**
+ * @summary Api Restore Note Version
+ */
+export const apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePost = async (name: string,
+    noteId: string,
+    sha: string, options?: RequestInit): Promise<apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse> => {
+
+  const res = await fetch(getApiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostUrl(name,noteId,sha),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse
 }
