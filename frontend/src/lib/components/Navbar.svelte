@@ -23,7 +23,7 @@
 
   {#if page.data.session}
     <div class="navbar__center">
-      <WorkspacePicker {slug} workspaces={page.data.workspaces ?? []} />
+      <WorkspacePicker {slug} workspaces={(page.data.workspaces ?? []).map((w: any) => w.name)} />
       {#if slug}
         <a
           href="/workspace/{slug}/notes"

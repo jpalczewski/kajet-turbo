@@ -3,7 +3,7 @@ import mistune
 from pathlib import Path
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from kajet_turbo.log import logger
+from kajet_turbo.log import logger, logged_route
 
 _ALLOWED_TAGS = [
     *bleach.sanitizer.ALLOWED_TAGS,
@@ -44,6 +44,7 @@ router = APIRouter()
 
 
 @router.get("/api/workspaces", response_model=WorkspacesListResponse)
+@logged_route
 def api_list_workspaces(
     request: Request,
     ws_service: WorkspaceService = Depends(get_workspace_service),
@@ -55,6 +56,7 @@ def api_list_workspaces(
 
 
 @router.post("/api/workspaces")
+@logged_route
 async def api_create_workspace(
     request: Request,
     ws_service: WorkspaceService = Depends(get_workspace_service),
@@ -77,6 +79,7 @@ async def api_create_workspace(
 
 
 @router.get("/api/workspaces/{name}/notes", response_model=NotesListResponse)
+@logged_route
 def api_list_notes(
     name: str,
     request: Request,
@@ -103,6 +106,7 @@ def api_list_notes(
 
 
 @router.get("/api/workspaces/{name}/ls", response_model=LsResponse)
+@logged_route
 def api_ls(
     name: str,
     request: Request,
@@ -159,6 +163,7 @@ def api_ls(
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/html", response_model=NoteHtmlResponse)
+@logged_route
 def api_get_note_html(
     name: str,
     note_id: str,
@@ -188,6 +193,7 @@ def api_get_note_html(
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/markdown", response_model=NoteMarkdownResponse)
+@logged_route
 def api_get_note_markdown(
     name: str,
     note_id: str,
@@ -216,6 +222,7 @@ def api_get_note_markdown(
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/history", response_model=NoteHistoryResponse)
+@logged_route
 def api_note_history(
     name: str,
     note_id: str,
@@ -237,6 +244,7 @@ def api_note_history(
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/history/{sha}", response_model=NoteHtmlResponse)
+@logged_route
 def api_note_version(
     name: str,
     note_id: str,
@@ -268,6 +276,7 @@ def api_note_version(
 
 
 @router.post("/api/workspaces/{name}/notes/{note_id}/history/{sha}/restore")
+@logged_route
 async def api_restore_note_version(
     name: str,
     note_id: str,

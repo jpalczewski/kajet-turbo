@@ -60,6 +60,37 @@ def setup_logging() -> None:
     fastmcp_log.propagate = False
 
 
+def _is_framework_param(param: inspect.Parameter) -> bool:
+    if hasattr(param.default, "dependency"):  # FastAPI Depends(...)
+        return True
+    ann = param.annotation
+    return hasattr(ann, "__name__") and ann.__name__ == "Request"
+
+
+def logged_route(fn):
+    _skip = frozenset(
+        name for name, param in inspect.signature(fn).parameters.items()
+        if _is_framework_param(param)
+    )
+
+    if inspect.iscoroutinefunction(fn):
+        @wraps(fn)
+        async def async_wrapper(*args, **kwargs):
+            params = {k: v for k, v in kwargs.items() if k not in _skip}
+            result = await fn(*args, **kwargs)
+            logger.debug(fn.__name__, **params)
+            return result
+        return async_wrapper
+    else:
+        @wraps(fn)
+        def sync_wrapper(*args, **kwargs):
+            params = {k: v for k, v in kwargs.items() if k not in _skip}
+            result = fn(*args, **kwargs)
+            logger.debug(fn.__name__, **params)
+            return result
+        return sync_wrapper
+
+
 def logged_tool(fn):
     @wraps(fn)
     async def wrapper(*args, **kwargs):
