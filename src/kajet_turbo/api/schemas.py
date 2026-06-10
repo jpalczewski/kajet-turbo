@@ -47,6 +47,18 @@ class WorkspacesListResponse(BaseModel):
     workspaces: list[WorkspaceInfo]
 
 
+class LsEntry(BaseModel):
+    note_id: str
+    title: str
+    size_bytes: int
+    updated_at: str
+
+
+class LsResponse(BaseModel):
+    folders: list[str]
+    entries: list[LsEntry]
+
+
 class NoteHistoryEntry(BaseModel):
     sha: str
     message: str

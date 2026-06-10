@@ -373,3 +373,60 @@ def test_list_notes_includes_size_bytes(auth_client):
     assert "size_bytes" in note
     assert isinstance(note["size_bytes"], int)
     assert note["size_bytes"] > 0
+
+
+def test_ls_root_returns_folders_and_entries(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "Root Note", "c", [])
+    note_svc.save("u1", "test-ws", ws_path, "Deep Note", "c", [], folder="docs")
+
+    resp = client.get("/api/workspaces/test-ws/ls")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "docs" in data["folders"]
+    assert len(data["entries"]) == 1
+    assert data["entries"][0]["title"] == "Root Note"
+    assert "size_bytes" in data["entries"][0]
+    assert "note_id" in data["entries"][0]
+
+
+def test_ls_subfolder_returns_notes_in_folder(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "Doc", "c", [], folder="docs")
+    note_svc.save("u1", "test-ws", ws_path, "Root", "c", [])
+
+    resp = client.get("/api/workspaces/test-ws/ls?path=docs")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["entries"]) == 1
+    assert data["entries"][0]["title"] == "Doc"
+
+
+def test_ls_nonexistent_path_returns_404(auth_client):
+    client, note_svc, ws_path = auth_client
+    resp = client.get("/api/workspaces/test-ws/ls?path=nonexistent")
+    assert resp.status_code == 404
+
+
+def test_ls_recursive_returns_all_expanded_folders(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "N1", "c", [], folder="docs/guide")
+    note_svc.save("u1", "test-ws", ws_path, "N2", "c", [], folder="notes")
+
+    resp = client.get("/api/workspaces/test-ws/ls?recursive=true")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "docs" in data["folders"]
+    assert "docs/guide" in data["folders"]
+    assert "notes" in data["folders"]
+    assert data["entries"] == []
+
+
+def test_ls_returns_401_when_not_logged_in(anon_client):
+    resp = anon_client.get("/api/workspaces/test-ws/ls")
+    assert resp.status_code == 401
+
+
+def test_ls_returns_403_when_no_access(no_access_client):
+    resp = no_access_client.get("/api/workspaces/test-ws/ls")
+    assert resp.status_code == 403

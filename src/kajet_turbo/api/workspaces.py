@@ -29,7 +29,11 @@ def _render_html(content: str) -> str:
         strip=True,
     )
 
-from kajet_turbo.api.schemas import NoteHistoryResponse, NoteHtmlResponse, NoteMarkdownResponse, NotesListResponse, WorkspacesListResponse
+from kajet_turbo.api.schemas import (
+    LsEntry, LsResponse,
+    NoteHistoryResponse, NoteHtmlResponse, NoteMarkdownResponse,
+    NotesListResponse, WorkspacesListResponse,
+)
 from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -95,6 +99,57 @@ def api_list_notes(
             size_bytes = 0
         enriched.append({**note, "size_bytes": size_bytes})
     return JSONResponse({"notes": enriched})
+
+
+@router.get("/api/workspaces/{name}/ls", response_model=LsResponse)
+def api_ls(
+    name: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+    path: str = "",
+    recursive: bool = False,
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+
+    ws_path = ws_service.workspace_path(user["id"], name)
+    folder_abs = Path(ws_path, *path.split("/")) if path else Path(ws_path)
+
+    if path and not folder_abs.is_dir():
+        return JSONResponse({"error": "Folder not found"}, status_code=404)
+
+    if recursive:
+        all_folders = note_service.list_folders(name, user["id"])
+        expanded: set[str] = set()
+        for folder in all_folders:
+            parts = folder.split("/")
+            for i in range(1, len(parts) + 1):
+                expanded.add("/".join(parts[:i]))
+        return JSONResponse({"folders": sorted(expanded), "entries": []})
+
+    subdirs = sorted(
+        d.name for d in folder_abs.iterdir()
+        if d.is_dir() and not d.name.startswith(".")
+    )
+    notes = note_service.list(name, owner_id=user["id"], folder=path, limit=1000)
+    entries = []
+    for note in notes:
+        filepath = note_filepath(ws_path, note["folder"], note["title"])
+        try:
+            size_bytes = Path(filepath).stat().st_size
+        except OSError:
+            size_bytes = 0
+        entries.append({
+            "note_id": note["note_id"],
+            "title": note["title"],
+            "size_bytes": size_bytes,
+            "updated_at": note["updated_at"],
+        })
+    return JSONResponse({"folders": subdirs, "entries": entries})
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/html", response_model=NoteHtmlResponse)
