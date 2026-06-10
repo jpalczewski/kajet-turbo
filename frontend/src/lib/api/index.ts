@@ -18,6 +18,18 @@ export interface HTTPValidationError {
   detail?: ValidationError[];
 }
 
+export interface LsEntry {
+  note_id: string;
+  title: string;
+  size_bytes: number;
+  updated_at: string;
+}
+
+export interface LsResponse {
+  folders: string[];
+  entries: LsEntry[];
+}
+
 export interface NoteHistoryEntry {
   sha: string;
   message: string;
@@ -47,6 +59,7 @@ export interface NoteItem {
   tags: string[];
   created_at: string;
   updated_at: string;
+  size_bytes: number;
 }
 
 export interface NoteMarkdownResponse {
@@ -63,12 +76,27 @@ export interface NotesListResponse {
   notes: NoteItem[];
 }
 
+export interface WorkspaceInfo {
+  name: string;
+  file_count: number;
+  last_commit_at: number | null;
+}
+
+export interface WorkspacesListResponse {
+  workspaces: WorkspaceInfo[];
+}
+
 export type ApiPendingInfoApiPendingGetParams = {
 id: string;
 };
 
 export type ApiListNotesApiWorkspacesNameNotesGetParams = {
 folder?: string | null;
+};
+
+export type ApiLsApiWorkspacesNameLsGetParams = {
+path?: string;
+recursive?: boolean;
 };
 
 export type apiLoginApiLoginPostResponse200 = {
@@ -301,7 +329,7 @@ export const apiPendingInfoApiPendingGet = async (params: ApiPendingInfoApiPendi
 
 
 export type apiListWorkspacesApiWorkspacesGetResponse200 = {
-  data: unknown
+  data: WorkspacesListResponse
   status: 200
 }
 
@@ -441,6 +469,65 @@ export const apiListNotesApiWorkspacesNameNotesGet = async (name: string,
 
   const data: apiListNotesApiWorkspacesNameNotesGetResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as apiListNotesApiWorkspacesNameNotesGetResponse
+}
+
+
+
+export type apiLsApiWorkspacesNameLsGetResponse200 = {
+  data: LsResponse
+  status: 200
+}
+
+export type apiLsApiWorkspacesNameLsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiLsApiWorkspacesNameLsGetResponseSuccess = (apiLsApiWorkspacesNameLsGetResponse200) & {
+  headers: Headers;
+};
+export type apiLsApiWorkspacesNameLsGetResponseError = (apiLsApiWorkspacesNameLsGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiLsApiWorkspacesNameLsGetResponse = (apiLsApiWorkspacesNameLsGetResponseSuccess | apiLsApiWorkspacesNameLsGetResponseError)
+
+export const getApiLsApiWorkspacesNameLsGetUrl = (name: string,
+    params?: ApiLsApiWorkspacesNameLsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/workspaces/${name}/ls?${stringifiedParams}` : `/api/workspaces/${name}/ls`
+}
+
+/**
+ * @summary Api Ls
+ */
+export const apiLsApiWorkspacesNameLsGet = async (name: string,
+    params?: ApiLsApiWorkspacesNameLsGetParams, options?: RequestInit): Promise<apiLsApiWorkspacesNameLsGetResponse> => {
+
+  const res = await fetch(getApiLsApiWorkspacesNameLsGetUrl(name,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: apiLsApiWorkspacesNameLsGetResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as apiLsApiWorkspacesNameLsGetResponse
 }
 
 
