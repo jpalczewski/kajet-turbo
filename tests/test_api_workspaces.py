@@ -295,3 +295,58 @@ def test_markdown_returns_folder(auth_client):
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/markdown")
     assert resp.status_code == 200
     assert resp.json()["folder"] == "Arch"
+
+
+def test_note_history_returns_commits(auth_client):
+    client, note_svc, ws_path = auth_client
+    result = note_svc.save("u1", "test-ws", ws_path, "Historia Test", "v1", [])
+    note_id = result["note_id"]
+    note_svc.update(note_id, owner_id="u1", ws_path=ws_path, content="v2")
+
+    resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/history")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "entries" in data
+    assert len(data["entries"]) == 2
+    entry = data["entries"][0]
+    assert "sha" in entry and "message" in entry and "timestamp" in entry
+
+
+def test_note_history_returns_401_when_not_logged_in(anon_client):
+    resp = anon_client.get("/api/workspaces/test-ws/notes/xyz/history")
+    assert resp.status_code == 401
+
+
+def test_note_history_returns_403_when_no_access(no_access_client):
+    resp = no_access_client.get("/api/workspaces/test-ws/notes/xyz/history")
+    assert resp.status_code == 403
+
+
+def test_note_version_returns_historical_content(auth_client):
+    client, note_svc, ws_path = auth_client
+    result = note_svc.save("u1", "test-ws", ws_path, "Wersja Test", "stara treść", [])
+    note_id = result["note_id"]
+    sha_v1 = note_svc.get_history(note_id, owner_id="u1", ws_path=ws_path)[0]["sha"]
+    note_svc.update(note_id, owner_id="u1", ws_path=ws_path, content="nowa treść")
+
+    resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/history/{sha_v1}")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "content_html" in data
+    assert "stara treść" in data["content_html"]
+
+
+def test_restore_note_version_reverts_content(auth_client):
+    client, note_svc, ws_path = auth_client
+    result = note_svc.save("u1", "test-ws", ws_path, "Restore Test", "oryginał", [])
+    note_id = result["note_id"]
+    sha_v1 = note_svc.get_history(note_id, owner_id="u1", ws_path=ws_path)[0]["sha"]
+    note_svc.update(note_id, owner_id="u1", ws_path=ws_path, content="nowa wersja")
+
+    resp = client.post(f"/api/workspaces/test-ws/notes/{note_id}/history/{sha_v1}/restore")
+
+    assert resp.status_code == 200
+    current = note_svc.get_with_content(note_id, owner_id="u1", ws_path=ws_path)
+    assert current["content"] == "oryginał"

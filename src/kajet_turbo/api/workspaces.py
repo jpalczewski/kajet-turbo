@@ -28,7 +28,7 @@ def _render_html(content: str) -> str:
         strip=True,
     )
 
-from kajet_turbo.api.schemas import NoteHtmlResponse, NoteMarkdownResponse, NotesListResponse
+from kajet_turbo.api.schemas import NoteHistoryResponse, NoteHtmlResponse, NoteMarkdownResponse, NotesListResponse
 from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -140,3 +140,77 @@ async def api_get_note_markdown(
         "updated_at": note["updated_at"],
         "content": note["content"],
     })
+
+
+@router.get("/api/workspaces/{name}/notes/{note_id}/history", response_model=NoteHistoryResponse)
+async def api_note_history(
+    name: str,
+    note_id: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    ws_path = ws_service.workspace_path(user["id"], name)
+    try:
+        entries = note_service.get_history(note_id, owner_id=user["id"], ws_path=ws_path)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+    return JSONResponse({"entries": entries})
+
+
+@router.get("/api/workspaces/{name}/notes/{note_id}/history/{sha}", response_model=NoteHtmlResponse)
+async def api_note_version(
+    name: str,
+    note_id: str,
+    sha: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    from kajet_turbo.repositories.git import GitError
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    ws_path = ws_service.workspace_path(user["id"], name)
+    try:
+        version = note_service.get_version(note_id, sha, owner_id=user["id"], ws_path=ws_path)
+    except (ValueError, GitError) as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+    return JSONResponse({
+        "note_id": version["note_id"],
+        "title": version["title"],
+        "folder": version["folder"],
+        "tags": version["tags"],
+        "created_at": version["created_at"],
+        "updated_at": version["updated_at"],
+        "content_html": _render_html(version["content"]),
+    })
+
+
+@router.post("/api/workspaces/{name}/notes/{note_id}/history/{sha}/restore")
+async def api_restore_note_version(
+    name: str,
+    note_id: str,
+    sha: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    ws_path = ws_service.workspace_path(user["id"], name)
+    try:
+        result = note_service.restore_version(note_id, sha, owner_id=user["id"], ws_path=ws_path)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+    return JSONResponse(result)

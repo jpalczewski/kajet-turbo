@@ -34,3 +34,13 @@ class NoteMarkdownResponse(BaseModel):
     created_at: str
     updated_at: str
     content: str
+
+
+class NoteHistoryEntry(BaseModel):
+    sha: str
+    message: str
+    timestamp: int
+
+
+class NoteHistoryResponse(BaseModel):
+    entries: list[NoteHistoryEntry]
