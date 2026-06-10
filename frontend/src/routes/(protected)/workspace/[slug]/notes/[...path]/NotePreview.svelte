@@ -11,11 +11,18 @@
   {#if note}
     <div class="preview__header">
       <span class="preview__path">{note.folder ? note.folder + '/' : ''}{note.title}</span>
-      <a
-        href="/workspace/{slug}/note/{note.note_id}"
-        class="preview__open-link"
-        title="Otwórz pełny widok"
-      >↗</a>
+      <div class="preview__actions">
+        <a
+          href="/workspace/{slug}/note/{note.note_id}/history"
+          class="preview__action-link"
+          title="Historia"
+        >Historia</a>
+        <a
+          href="/workspace/{slug}/note/{note.note_id}"
+          class="preview__action-link preview__action-link--primary"
+          title="Otwórz pełny widok"
+        >↗</a>
+      </div>
     </div>
     <div class="preview__body prose">
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
@@ -44,6 +51,7 @@
       padding: 8px 16px;
       border-bottom: 1px solid v.$border;
       flex-shrink: 0;
+      gap: v.$space-sm;
     }
 
     &__path {
@@ -53,16 +61,29 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      flex: 1;
     }
 
-    &__open-link {
-      font-family: v.$font-mono;
-      font-size: 0.8rem;
-      color: v.$accent-dark;
-      text-decoration: none;
+    &__actions {
+      display: flex;
+      align-items: center;
+      gap: v.$space-sm;
       flex-shrink: 0;
-      margin-left: v.$space-sm;
-      &:hover { color: v.$accent; }
+    }
+
+    &__action-link {
+      font-family: v.$font-mono;
+      font-size: 0.72rem;
+      color: v.$text-muted;
+      text-decoration: none;
+      white-space: nowrap;
+      &:hover { color: v.$text-primary; }
+
+      &--primary {
+        color: v.$accent-dark;
+        font-size: 0.8rem;
+        &:hover { color: v.$accent; }
+      }
     }
 
     &__body {
