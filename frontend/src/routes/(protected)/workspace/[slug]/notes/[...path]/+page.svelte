@@ -1,10 +1,26 @@
 <script lang="ts">
+  import { invalidateAll, goto } from '$app/navigation'
   import FolderTree from './FolderTree.svelte'
   import NotesList from './NotesList.svelte'
   import NotePreview from './NotePreview.svelte'
 
   let { data } = $props()
   let slug = data.slug
+
+  async function handleCreateFolder(path: string): Promise<void> {
+    const resp = await fetch(`/api/workspaces/${slug}/folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ path }),
+    })
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}))
+      throw new Error(body.error ?? 'Nie udało się utworzyć folderu')
+    }
+    await invalidateAll()
+    goto(`/workspace/${slug}/notes/${path}`)
+  }
 </script>
 
 <div class="explorer">
@@ -13,6 +29,7 @@
       folders={data.tree.folders}
       currentFolder={data.folderPath}
       {slug}
+      onCreateFolder={handleCreateFolder}
     />
   </aside>
 
