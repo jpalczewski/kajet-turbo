@@ -2,6 +2,7 @@ from pathlib import Path
 
 from dulwich import porcelain
 from dulwich.errors import NotGitRepository
+from dulwich.object_store import tree_lookup_path
 from dulwich.repo import Repo
 
 COMMITTER = b"Kajet <bot@kajet.app>"
@@ -69,5 +70,31 @@ class GitRepository:
             )
         except GitError:
             raise
+        except Exception as e:
+            raise GitError(str(e)) from e
+
+    def file_history(self, relative_path: str, limit: int = 50) -> list[dict]:
+        try:
+            repo = Repo(self._workspace_path)
+            walker = repo.get_walker(paths=[relative_path.encode()], max_entries=limit)
+            return [
+                {
+                    "sha": entry.commit.id.decode("ascii"),
+                    "message": entry.commit.message.decode("utf-8", errors="replace").strip(),
+                    "timestamp": entry.commit.author_time,
+                }
+                for entry in walker
+            ]
+        except KeyError:
+            return []
+        except Exception as e:
+            raise GitError(str(e)) from e
+
+    def file_content_at_commit(self, relative_path: str, sha: str) -> str:
+        try:
+            repo = Repo(self._workspace_path)
+            commit = repo[sha.encode("ascii")]
+            _, blob_sha = tree_lookup_path(repo.get_object, commit.tree, relative_path.encode())
+            return repo[blob_sha].data.decode("utf-8")
         except Exception as e:
             raise GitError(str(e)) from e

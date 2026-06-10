@@ -80,3 +80,52 @@ def test_rename_file_creates_parent_dirs(git_ws, tmp_path):
     git_ws.rename_file("note.md", "Projekty/Klient A/note.md", "note: move")
 
     assert (tmp_path / "Projekty" / "Klient A" / "note.md").exists()
+
+
+def test_file_history_returns_commits_for_file(git_ws, tmp_path):
+    (tmp_path / "note.md").write_text("# v1")
+    git_ws.commit_file("note.md", "note: add note")
+    (tmp_path / "note.md").write_text("# v2")
+    git_ws.commit_file("note.md", "note: update note")
+
+    history = git_ws.file_history("note.md")
+
+    assert len(history) == 2
+    assert history[0]["message"] == "note: update note"
+    assert history[1]["message"] == "note: add note"
+    assert all("sha" in h and "timestamp" in h for h in history)
+
+
+def test_file_history_respects_limit(git_ws, tmp_path):
+    for i in range(3):
+        (tmp_path / "note.md").write_text(f"# v{i}")
+        git_ws.commit_file("note.md", f"note: v{i}")
+
+    history = git_ws.file_history("note.md", limit=2)
+
+    assert len(history) == 2
+
+
+def test_file_history_returns_empty_for_no_commits(git_ws):
+    history = git_ws.file_history("nie-ma-takiego.md")
+    assert history == []
+
+
+def test_file_content_at_commit_returns_historical_content(git_ws, tmp_path):
+    (tmp_path / "note.md").write_text("# v1 content")
+    git_ws.commit_file("note.md", "note: add note")
+    sha_v1 = git_ws.file_history("note.md")[0]["sha"]
+    (tmp_path / "note.md").write_text("# v2 content")
+    git_ws.commit_file("note.md", "note: update note")
+
+    content = git_ws.file_content_at_commit("note.md", sha_v1)
+
+    assert "# v1 content" in content
+
+
+def test_file_content_at_commit_raises_on_invalid_sha(git_ws, tmp_path):
+    (tmp_path / "note.md").write_text("content")
+    git_ws.commit_file("note.md", "note: add")
+
+    with pytest.raises(GitError):
+        git_ws.file_content_at_commit("note.md", "0" * 40)
