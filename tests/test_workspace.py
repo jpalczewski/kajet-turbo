@@ -1,6 +1,6 @@
-import subprocess
 import pytest
 from pathlib import Path
+from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.workspace import (
     list_workspaces,
     create_workspace,
@@ -22,9 +22,7 @@ def workspaces_dir(tmp_path):
 def workspace(workspaces_dir):
     ws = workspaces_dir / "moj-projekt"
     ws.mkdir(parents=True)
-    subprocess.run(["git", "init", str(ws)], check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws), check=True, capture_output=True)
+    GitRepository.init(str(ws))
     return ws
 
 
@@ -209,13 +207,13 @@ def test_create_workspace_rejects_duplicate(tmp_path):
 
 
 def test_rename_file_commit(workspace):
-    from kajet_turbo.git_ops import commit_file, rename_file_commit
+    repo = GitRepository(str(workspace))
 
     initial = workspace / "hello.md"
     initial.write_text("content")
-    commit_file(str(workspace), "hello.md", "add hello")
+    repo.commit_file("hello.md", "add hello")
 
-    rename_file_commit(str(workspace), "hello.md", "world.md", "rename hello to world")
+    repo.rename_file("hello.md", "world.md", "rename hello to world")
 
     assert not initial.exists()
     assert (workspace / "world.md").exists()

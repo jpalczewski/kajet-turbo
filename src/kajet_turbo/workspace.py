@@ -4,6 +4,8 @@ from pathlib import Path
 
 import frontmatter
 
+from kajet_turbo.repositories.git import GitRepository
+
 WORKSPACES_DIR = os.getenv("WORKSPACES_DIR", "/workspaces")
 
 _WINDOWS_FORBIDDEN = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
@@ -106,8 +108,6 @@ def scan_notes(workspace_path: str) -> list[dict]:
 
 def create_workspace(name: str, workspaces_dir: str | None = None, user_id: str | None = None) -> str:
     """Creates a new workspace directory with git repo. Returns the workspace path."""
-    import subprocess
-
     if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,49}$", name):
         raise ValueError(f"Invalid workspace name '{name}'. Use letters, digits, hyphens, underscores (max 50 chars).")
 
@@ -116,6 +116,6 @@ def create_workspace(name: str, workspaces_dir: str | None = None, user_id: str 
     if ws_path.exists():
         raise FileExistsError(f"Workspace '{name}' already exists.")
 
-    ws_path.mkdir(parents=True)
-    subprocess.run(["git", "init", str(ws_path)], check=True, capture_output=True)
+    ws_path.parent.mkdir(parents=True, exist_ok=True)
+    GitRepository.init(str(ws_path))
     return str(ws_path)
