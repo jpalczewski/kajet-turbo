@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 
+from kajet_turbo.api.schemas import ConsentResponse, PendingInfoResponse
 from kajet_turbo.dependencies import get_provider, get_session_user
 
 router = APIRouter()
 
 
-@router.post("/api/consent")
+@router.post("/api/consent", response_model=ConsentResponse)
 async def api_consent(
     request: Request,
     provider=Depends(get_provider),
@@ -28,7 +29,7 @@ async def api_consent(
     return JSONResponse({"redirect_uri": redirect_uri})
 
 
-@router.get("/api/pending")
+@router.get("/api/pending", response_model=PendingInfoResponse)
 async def api_pending_info(
     id: str = Query(...),
     provider=Depends(get_provider),

@@ -6,6 +6,12 @@ export default defineConfig({
     output: {
       target: './src/lib/api/index.ts',
       client: 'fetch',
+      override: {
+        mutator: {
+          path: './src/lib/api/fetcher.ts',
+          name: 'customFetch',
+        },
+      },
     },
   },
 });

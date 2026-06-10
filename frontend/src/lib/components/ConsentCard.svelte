@@ -15,12 +15,10 @@
     error = ''
     try {
       const result = await apiConsentApiConsentPost({
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pending_id: pendingId }),
       })
-      if (result.status !== 200) { error = (result.data as any)?.error ?? 'Błąd.'; return }
-      window.location.href = (result.data as any).redirect_uri
+      window.location.href = result.data.redirect_uri
     } catch {
       error = 'Błąd sieci.'
     } finally {

@@ -67,3 +67,32 @@ class NoteHistoryEntry(BaseModel):
 
 class NoteHistoryResponse(BaseModel):
     entries: list[NoteHistoryEntry]
+
+
+class SessionResponse(BaseModel):
+    email: str
+
+
+class LoginResponse(BaseModel):
+    email: str
+    redirect_uri: str | None = None
+
+
+class OkResponse(BaseModel):
+    ok: bool
+
+
+class CreateWorkspaceResponse(BaseModel):
+    name: str
+
+
+class ConsentResponse(BaseModel):
+    redirect_uri: str
+
+
+class PendingInfoResponse(BaseModel):
+    client_name: str
+
+
+class RestoreVersionResponse(BaseModel):
+    note_id: str

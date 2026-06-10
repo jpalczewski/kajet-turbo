@@ -6,7 +6,7 @@ import type { LayoutLoad } from './$types'
 export const load: LayoutLoad = async ({ parent }) => {
   const { session } = await parent()
   if (!session) redirect(307, '/login')
-  const result = await apiListWorkspacesApiWorkspacesGet({ credentials: 'include' }).catch(() => null)
-  const workspaces: WorkspaceInfo[] = result?.status === 200 ? ((result.data as any).workspaces as WorkspaceInfo[]) : []
+  const result = await apiListWorkspacesApiWorkspacesGet().catch(() => null)
+  const workspaces: WorkspaceInfo[] = result?.data.workspaces ?? []
   return { workspaces }
 }

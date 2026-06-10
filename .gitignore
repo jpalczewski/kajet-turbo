@@ -6,3 +6,4 @@ dist/
 docs/superpowers/
 .superpowers/
 openapi.json
+docker-compose.override.yml

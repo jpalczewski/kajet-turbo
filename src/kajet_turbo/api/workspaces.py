@@ -31,9 +31,9 @@ def _render_html(content: str) -> str:
     )
 
 from kajet_turbo.api.schemas import (
-    LsEntry, LsResponse,
+    CreateWorkspaceResponse, LsEntry, LsResponse,
     NoteHistoryResponse, NoteHtmlResponse, NoteMarkdownResponse,
-    NotesListResponse, WorkspacesListResponse,
+    NotesListResponse, RestoreVersionResponse, WorkspacesListResponse,
 )
 from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
 from kajet_turbo.services.notes import NoteService
@@ -55,7 +55,7 @@ def api_list_workspaces(
     return JSONResponse({"workspaces": ws_service.list_with_details(user["id"])})
 
 
-@router.post("/api/workspaces")
+@router.post("/api/workspaces", status_code=201, response_model=CreateWorkspaceResponse)
 @logged_route
 async def api_create_workspace(
     request: Request,
@@ -275,7 +275,7 @@ def api_note_version(
     })
 
 
-@router.post("/api/workspaces/{name}/notes/{note_id}/history/{sha}/restore")
+@router.post("/api/workspaces/{name}/notes/{note_id}/history/{sha}/restore", response_model=RestoreVersionResponse)
 @logged_route
 async def api_restore_note_version(
     name: str,

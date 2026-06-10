@@ -7,7 +7,7 @@
 
   let { data } = $props()
 
-  async function handleLoginSuccess(result: { email: string; redirect_uri?: string }) {
+  async function handleLoginSuccess(result: { email: string; redirect_uri?: string | null }) {
     await invalidateAll()
     if (result.redirect_uri) window.location.href = result.redirect_uri
   }

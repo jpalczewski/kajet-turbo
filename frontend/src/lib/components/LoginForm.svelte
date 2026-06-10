@@ -4,7 +4,7 @@
   let { pendingId = '', submitLabel = 'Zaloguj się', onSuccess }: {
     pendingId?: string
     submitLabel?: string
-    onSuccess: (data: { email: string; redirect_uri?: string }) => void
+    onSuccess: (data: { email: string; redirect_uri?: string | null }) => void
   } = $props()
 
   let email = $state('')
@@ -18,12 +18,10 @@
     error = ''
     try {
       const result = await apiLoginApiLoginPost({
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, pending_id: pendingId }),
       })
-      if (result.status !== 200) { error = (result.data as any)?.error ?? 'Błąd logowania.'; return }
-      onSuccess(result.data as { email: string; redirect_uri?: string })
+      onSuccess(result.data)
     } catch {
       error = 'Błąd sieci. Spróbuj ponownie.'
     } finally {

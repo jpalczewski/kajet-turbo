@@ -5,7 +5,7 @@
 
   const serverUrl = typeof window !== 'undefined' ? window.location.origin : ''
 
-  async function handleLoginSuccess(_result: { email: string; redirect_uri?: string }) {
+  async function handleLoginSuccess(_result: { email: string; redirect_uri?: string | null }) {
     await invalidateAll()
     await goto('/workspaces')
   }

@@ -8,7 +8,7 @@ export const load: PageLoad = async ({ url }) => {
   if (!pendingId) redirect(307, '/')
 
   const result = await apiPendingInfoApiPendingGet({ id: pendingId }).catch(() => null)
-  const clientName = result?.status === 200 ? ((result.data as any).client_name ?? 'Claude') : 'Claude'
+  const clientName = result?.status === 200 ? result.data.client_name : 'Claude'
 
   return { pendingId, clientName }
 }

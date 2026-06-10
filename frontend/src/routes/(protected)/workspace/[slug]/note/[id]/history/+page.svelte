@@ -23,9 +23,7 @@
       slug, noteId, sha, { credentials: 'include' }
     ).catch(() => null)
     loading = false
-    if (result?.status === 200) {
-      selectedVersion = result.data as any
-    }
+    selectedVersion = result?.data ?? null
   }
 
   async function restore() {

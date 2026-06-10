@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
+from kajet_turbo.api.schemas import LoginResponse, OkResponse, SessionResponse
 from kajet_turbo.auth import verify_password
 from kajet_turbo.dependencies import get_provider, get_session_repo, get_session_user, get_user_repo
 from kajet_turbo.repositories.sessions import SessionRepository
@@ -12,7 +13,7 @@ _SESSION_COOKIE = "kajet_session"
 _SESSION_MAX_AGE = 30 * 24 * 3600
 
 
-@router.post("/api/login")
+@router.post("/api/login", response_model=LoginResponse)
 async def api_login(
     request: Request,
     user_repo: UserRepository = Depends(get_user_repo),
@@ -47,7 +48,7 @@ async def api_login(
     return resp
 
 
-@router.get("/api/session")
+@router.get("/api/session", response_model=SessionResponse)
 async def api_session_get(
     request: Request,
     session_repo: SessionRepository = Depends(get_session_repo),
@@ -58,7 +59,7 @@ async def api_session_get(
     return JSONResponse({"email": user["email"]})
 
 
-@router.delete("/api/session")
+@router.delete("/api/session", response_model=OkResponse)
 async def api_session_delete(
     request: Request,
     session_repo: SessionRepository = Depends(get_session_repo),

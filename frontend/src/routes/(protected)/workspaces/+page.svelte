@@ -23,17 +23,12 @@
     creating = true
     error = ''
     try {
-      const result = await apiCreateWorkspaceApiWorkspacesPost({
-        credentials: 'include',
+      await apiCreateWorkspaceApiWorkspacesPost({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed }),
       })
-      if (result.status === 200) {
-        name = ''
-        await invalidateAll()
-      } else {
-        error = (result.data as any)?.error ?? 'Błąd tworzenia workspace.'
-      }
+      name = ''
+      await invalidateAll()
     } catch {
       error = 'Błąd sieci. Spróbuj ponownie.'
     } finally {

@@ -4,6 +4,15 @@
  * Kajet Turbo API
  * OpenAPI spec version: 0.1.0
  */
+import { customFetch } from './fetcher';
+export interface ConsentResponse {
+  redirect_uri: string;
+}
+
+export interface CreateWorkspaceResponse {
+  name: string;
+}
+
 export type ValidationErrorCtx = { [key: string]: unknown };
 
 export interface ValidationError {
@@ -16,6 +25,11 @@ export interface ValidationError {
 
 export interface HTTPValidationError {
   detail?: ValidationError[];
+}
+
+export interface LoginResponse {
+  email: string;
+  redirect_uri?: string | null;
 }
 
 export interface LsEntry {
@@ -76,6 +90,22 @@ export interface NotesListResponse {
   notes: NoteItem[];
 }
 
+export interface OkResponse {
+  ok: boolean;
+}
+
+export interface PendingInfoResponse {
+  client_name: string;
+}
+
+export interface RestoreVersionResponse {
+  note_id: string;
+}
+
+export interface SessionResponse {
+  email: string;
+}
+
 export interface WorkspaceInfo {
   name: string;
   file_count: number;
@@ -100,7 +130,7 @@ recursive?: boolean;
 };
 
 export type apiLoginApiLoginPostResponse200 = {
-  data: unknown
+  data: LoginResponse
   status: 200
 }
 
@@ -124,26 +154,19 @@ export const getApiLoginApiLoginPostUrl = () => {
  */
 export const apiLoginApiLoginPost = async ( options?: RequestInit): Promise<apiLoginApiLoginPostResponse> => {
 
-  const res = await fetch(getApiLoginApiLoginPostUrl(),
+  return customFetch<apiLoginApiLoginPostResponse>(getApiLoginApiLoginPostUrl(),
   {
     ...options,
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiLoginApiLoginPostResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiLoginApiLoginPostResponse
-}
+);}
 
 
 
 export type apiSessionGetApiSessionGetResponse200 = {
-  data: unknown
+  data: SessionResponse
   status: 200
 }
 
@@ -167,26 +190,19 @@ export const getApiSessionGetApiSessionGetUrl = () => {
  */
 export const apiSessionGetApiSessionGet = async ( options?: RequestInit): Promise<apiSessionGetApiSessionGetResponse> => {
 
-  const res = await fetch(getApiSessionGetApiSessionGetUrl(),
+  return customFetch<apiSessionGetApiSessionGetResponse>(getApiSessionGetApiSessionGetUrl(),
   {
     ...options,
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiSessionGetApiSessionGetResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiSessionGetApiSessionGetResponse
-}
+);}
 
 
 
 export type apiSessionDeleteApiSessionDeleteResponse200 = {
-  data: unknown
+  data: OkResponse
   status: 200
 }
 
@@ -210,26 +226,19 @@ export const getApiSessionDeleteApiSessionDeleteUrl = () => {
  */
 export const apiSessionDeleteApiSessionDelete = async ( options?: RequestInit): Promise<apiSessionDeleteApiSessionDeleteResponse> => {
 
-  const res = await fetch(getApiSessionDeleteApiSessionDeleteUrl(),
+  return customFetch<apiSessionDeleteApiSessionDeleteResponse>(getApiSessionDeleteApiSessionDeleteUrl(),
   {
     ...options,
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiSessionDeleteApiSessionDeleteResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiSessionDeleteApiSessionDeleteResponse
-}
+);}
 
 
 
 export type apiConsentApiConsentPostResponse200 = {
-  data: unknown
+  data: ConsentResponse
   status: 200
 }
 
@@ -253,26 +262,19 @@ export const getApiConsentApiConsentPostUrl = () => {
  */
 export const apiConsentApiConsentPost = async ( options?: RequestInit): Promise<apiConsentApiConsentPostResponse> => {
 
-  const res = await fetch(getApiConsentApiConsentPostUrl(),
+  return customFetch<apiConsentApiConsentPostResponse>(getApiConsentApiConsentPostUrl(),
   {
     ...options,
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiConsentApiConsentPostResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiConsentApiConsentPostResponse
-}
+);}
 
 
 
 export type apiPendingInfoApiPendingGetResponse200 = {
-  data: unknown
+  data: PendingInfoResponse
   status: 200
 }
 
@@ -310,21 +312,14 @@ export const getApiPendingInfoApiPendingGetUrl = (params: ApiPendingInfoApiPendi
  */
 export const apiPendingInfoApiPendingGet = async (params: ApiPendingInfoApiPendingGetParams, options?: RequestInit): Promise<apiPendingInfoApiPendingGetResponse> => {
 
-  const res = await fetch(getApiPendingInfoApiPendingGetUrl(params),
+  return customFetch<apiPendingInfoApiPendingGetResponse>(getApiPendingInfoApiPendingGetUrl(params),
   {
     ...options,
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiPendingInfoApiPendingGetResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiPendingInfoApiPendingGetResponse
-}
+);}
 
 
 
@@ -353,30 +348,23 @@ export const getApiListWorkspacesApiWorkspacesGetUrl = () => {
  */
 export const apiListWorkspacesApiWorkspacesGet = async ( options?: RequestInit): Promise<apiListWorkspacesApiWorkspacesGetResponse> => {
 
-  const res = await fetch(getApiListWorkspacesApiWorkspacesGetUrl(),
+  return customFetch<apiListWorkspacesApiWorkspacesGetResponse>(getApiListWorkspacesApiWorkspacesGetUrl(),
   {
     ...options,
     method: 'GET'
 
 
   }
-)
+);}
 
 
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
 
-  const data: apiListWorkspacesApiWorkspacesGetResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiListWorkspacesApiWorkspacesGetResponse
+export type apiCreateWorkspaceApiWorkspacesPostResponse201 = {
+  data: CreateWorkspaceResponse
+  status: 201
 }
 
-
-
-export type apiCreateWorkspaceApiWorkspacesPostResponse200 = {
-  data: unknown
-  status: 200
-}
-
-export type apiCreateWorkspaceApiWorkspacesPostResponseSuccess = (apiCreateWorkspaceApiWorkspacesPostResponse200) & {
+export type apiCreateWorkspaceApiWorkspacesPostResponseSuccess = (apiCreateWorkspaceApiWorkspacesPostResponse201) & {
   headers: Headers;
 };
 ;
@@ -396,21 +384,14 @@ export const getApiCreateWorkspaceApiWorkspacesPostUrl = () => {
  */
 export const apiCreateWorkspaceApiWorkspacesPost = async ( options?: RequestInit): Promise<apiCreateWorkspaceApiWorkspacesPostResponse> => {
 
-  const res = await fetch(getApiCreateWorkspaceApiWorkspacesPostUrl(),
+  return customFetch<apiCreateWorkspaceApiWorkspacesPostResponse>(getApiCreateWorkspaceApiWorkspacesPostUrl(),
   {
     ...options,
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiCreateWorkspaceApiWorkspacesPostResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiCreateWorkspaceApiWorkspacesPostResponse
-}
+);}
 
 
 
@@ -455,21 +436,14 @@ export const getApiListNotesApiWorkspacesNameNotesGetUrl = (name: string,
 export const apiListNotesApiWorkspacesNameNotesGet = async (name: string,
     params?: ApiListNotesApiWorkspacesNameNotesGetParams, options?: RequestInit): Promise<apiListNotesApiWorkspacesNameNotesGetResponse> => {
 
-  const res = await fetch(getApiListNotesApiWorkspacesNameNotesGetUrl(name,params),
+  return customFetch<apiListNotesApiWorkspacesNameNotesGetResponse>(getApiListNotesApiWorkspacesNameNotesGetUrl(name,params),
   {
     ...options,
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiListNotesApiWorkspacesNameNotesGetResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiListNotesApiWorkspacesNameNotesGetResponse
-}
+);}
 
 
 
@@ -514,21 +488,14 @@ export const getApiLsApiWorkspacesNameLsGetUrl = (name: string,
 export const apiLsApiWorkspacesNameLsGet = async (name: string,
     params?: ApiLsApiWorkspacesNameLsGetParams, options?: RequestInit): Promise<apiLsApiWorkspacesNameLsGetResponse> => {
 
-  const res = await fetch(getApiLsApiWorkspacesNameLsGetUrl(name,params),
+  return customFetch<apiLsApiWorkspacesNameLsGetResponse>(getApiLsApiWorkspacesNameLsGetUrl(name,params),
   {
     ...options,
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiLsApiWorkspacesNameLsGetResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiLsApiWorkspacesNameLsGetResponse
-}
+);}
 
 
 
@@ -566,21 +533,14 @@ export const getApiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetUrl = (name: st
 export const apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet = async (name: string,
     noteId: string, options?: RequestInit): Promise<apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse> => {
 
-  const res = await fetch(getApiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetUrl(name,noteId),
+  return customFetch<apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse>(getApiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetUrl(name,noteId),
   {
     ...options,
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse
-}
+);}
 
 
 
@@ -618,21 +578,14 @@ export const getApiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetUrl = (
 export const apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGet = async (name: string,
     noteId: string, options?: RequestInit): Promise<apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse> => {
 
-  const res = await fetch(getApiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetUrl(name,noteId),
+  return customFetch<apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse>(getApiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetUrl(name,noteId),
   {
     ...options,
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse
-}
+);}
 
 
 
@@ -670,21 +623,14 @@ export const getApiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetUrl = (name:
 export const apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGet = async (name: string,
     noteId: string, options?: RequestInit): Promise<apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse> => {
 
-  const res = await fetch(getApiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetUrl(name,noteId),
+  return customFetch<apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse>(getApiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetUrl(name,noteId),
   {
     ...options,
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse
-}
+);}
 
 
 
@@ -724,26 +670,19 @@ export const apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGet = async (na
     noteId: string,
     sha: string, options?: RequestInit): Promise<apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse> => {
 
-  const res = await fetch(getApiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetUrl(name,noteId,sha),
+  return customFetch<apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse>(getApiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetUrl(name,noteId,sha),
   {
     ...options,
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse
-}
+);}
 
 
 
 export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse200 = {
-  data: unknown
+  data: RestoreVersionResponse
   status: 200
 }
 
@@ -778,18 +717,11 @@ export const apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestoreP
     noteId: string,
     sha: string, options?: RequestInit): Promise<apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse> => {
 
-  const res = await fetch(getApiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostUrl(name,noteId,sha),
+  return customFetch<apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse>(getApiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostUrl(name,noteId,sha),
   {
     ...options,
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse
-}
+);}

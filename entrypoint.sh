@@ -1,4 +1,4 @@
 #!/bin/sh
 set -e
-uv run alembic upgrade head
-exec uv run kajet-turbo
+uv run --no-dev alembic upgrade head
+exec uv run --no-dev kajet-turbo
