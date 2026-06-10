@@ -117,7 +117,12 @@ def api_ls(
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
 
     ws_path = ws_service.workspace_path(user["id"], name)
-    folder_abs = Path(ws_path, *path.split("/")) if path else Path(ws_path)
+    ws_root = Path(ws_path).resolve()
+    try:
+        folder_abs = (ws_root / path).resolve() if path else ws_root
+        folder_abs.relative_to(ws_root)
+    except (ValueError, OSError):
+        return JSONResponse({"error": "Invalid path"}, status_code=400)
 
     if path and not folder_abs.is_dir():
         return JSONResponse({"error": "Folder not found"}, status_code=404)
