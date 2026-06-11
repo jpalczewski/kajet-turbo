@@ -591,3 +591,28 @@ def test_update_note_returns_401_when_anon(anon_client):
 def test_update_note_returns_403_when_no_access(no_access_client):
     resp = no_access_client.patch("/api/workspaces/test-ws/notes/abc", json={"content": "x"})
     assert resp.status_code == 403
+
+
+def test_delete_note_removes_it(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "To Delete", "c", [])["note_id"]
+    resp = client.delete(f"/api/workspaces/test-ws/notes/{note_id}")
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert note_svc.get(note_id, owner_id="u1") is None
+
+
+def test_delete_note_not_found_returns_404(auth_client):
+    client, _, _ = auth_client
+    resp = client.delete("/api/workspaces/test-ws/notes/nonexistent")
+    assert resp.status_code == 404
+
+
+def test_delete_note_returns_401_when_anon(anon_client):
+    resp = anon_client.delete("/api/workspaces/test-ws/notes/abc")
+    assert resp.status_code == 401
+
+
+def test_delete_note_returns_403_when_no_access(no_access_client):
+    resp = no_access_client.delete("/api/workspaces/test-ws/notes/abc")
+    assert resp.status_code == 403
