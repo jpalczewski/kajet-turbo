@@ -1,12 +1,13 @@
 <script lang="ts">
   import { goto } from '$app/navigation'
+  import { untrack } from 'svelte'
 
   let { data } = $props()
   let note = $derived(data.note)
   let slug = $derived(data.slug)
 
-  let title = $state(note.title as string)
-  let content = $state((note.content as string) ?? '')
+  let title = $state(untrack(() => data.note.title as string))
+  let content = $state(untrack(() => (data.note.content as string) ?? ''))
   let saveError = $state('')
   let saving = $state(false)
 
