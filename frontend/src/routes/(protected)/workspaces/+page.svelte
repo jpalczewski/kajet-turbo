@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state'
-  import { invalidateAll } from '$app/navigation'
+  import { invalidate } from '$app/navigation'
   import { apiCreateWorkspaceApiWorkspacesPost } from '$lib/api'
   import type { WorkspaceInfo } from '$lib/api'
 
@@ -28,7 +28,7 @@
         body: JSON.stringify({ name: trimmed }),
       })
       name = ''
-      await invalidateAll()
+      await invalidate('app:workspaces')
     } catch {
       error = 'Błąd sieci. Spróbuj ponownie.'
     } finally {

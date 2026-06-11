@@ -1,37 +1,41 @@
 import { redirect } from '@sveltejs/kit'
 import type { PageLoad } from './$types'
 
-export const load: PageLoad = async ({ params, fetch }) => {
+export const load: PageLoad = async ({ params, fetch, depends }) => {
   const slug = params.slug
   const segments = params.path ? params.path.split('/').filter(Boolean) : []
+  const lastSegment = segments.at(-1) ?? null
+  const parentPath = segments.slice(0, -1).join('/')
+  const fullPath = segments.join('/')
 
-  const lsUrl = `/api/workspaces/${slug}/ls?path=${segments.join('/')}`
-  const treeUrl = `/api/workspaces/${slug}/ls?recursive=true`
-
-  const [lsResult, treeResult] = await Promise.all([
-    fetch(lsUrl, { credentials: 'include' }).catch(() => null),
-    fetch(treeUrl, { credentials: 'include' }).catch(() => null),
+  // Fire all possible requests in a single round-trip.
+  // We don't yet know if the last segment is a folder or a note, so we fetch
+  // speculatively: notes for both fullPath (if folder) and parentPath (if note),
+  // plus the note html (if it's a note). One of these will be discarded.
+  depends('app:workspace-tree')
+  const [lsResult, treeResult, notesInFolder, notesInParent, noteResult] = await Promise.all([
+    fetch(`/api/workspaces/${slug}/ls?path=${fullPath}`, { credentials: 'include' }).catch(() => null),
+    fetch(`/api/workspaces/${slug}/ls?recursive=true`, { credentials: 'include' }).catch(() => null),
+    segments.length > 0
+      ? fetch(`/api/workspaces/${slug}/notes?folder=${fullPath}`, { credentials: 'include' }).catch(() => null)
+      : Promise.resolve(null),
+    fetch(`/api/workspaces/${slug}/notes?folder=${parentPath}`, { credentials: 'include' }).catch(() => null),
+    lastSegment
+      ? fetch(`/api/workspaces/${slug}/notes/${lastSegment}/html`, { credentials: 'include' }).catch(() => null)
+      : Promise.resolve(null),
   ])
 
   if (lsResult?.status === 401) redirect(307, '/login')
   if (lsResult?.status === 403) redirect(307, '/workspaces')
 
   const isFolder = lsResult?.ok ?? true
-  const folderPath = isFolder ? segments.join('/') : segments.slice(0, -1).join('/')
-  const noteId = isFolder ? null : (segments.at(-1) ?? null)
+  const folderPath = isFolder ? fullPath : parentPath
+  const noteId = isFolder ? null : lastSegment
 
-  const notesUrl = `/api/workspaces/${slug}/notes?folder=${folderPath}`
-
-  const [notesResult, noteResult] = await Promise.all([
-    fetch(notesUrl, { credentials: 'include' }).catch(() => null),
-    noteId
-      ? fetch(`/api/workspaces/${slug}/notes/${noteId}/html`, { credentials: 'include' }).catch(() => null)
-      : Promise.resolve(null),
-  ])
-
+  const notesResult = isFolder ? (notesInFolder ?? notesInParent) : notesInParent
   const notes = notesResult?.ok ? (await notesResult.json()).notes : []
   const tree = treeResult?.ok ? await treeResult.json() : { folders: [], entries: [] }
-  const note = noteResult?.ok ? await noteResult.json() : null
+  const note = !isFolder && noteResult?.ok ? await noteResult.json() : null
 
   return { notes, tree, folderPath, noteId, slug, note }
 }

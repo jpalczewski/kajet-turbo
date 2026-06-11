@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state'
-  import { goto, invalidateAll } from '$app/navigation'
+  import { goto, invalidate } from '$app/navigation'
   import { apiSessionDeleteApiSessionDelete } from '$lib/api'
   import WorkspacePicker from './WorkspacePicker.svelte'
   import UserMenu from './UserMenu.svelte'
@@ -13,7 +13,7 @@
 
   async function handleLogout() {
     await apiSessionDeleteApiSessionDelete({ credentials: 'include' })
-    await invalidateAll()
+    await invalidate('app:session')
     await goto('/')
   }
 </script>

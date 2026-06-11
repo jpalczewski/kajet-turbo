@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invalidateAll, goto } from '$app/navigation'
+  import { invalidate, goto } from '$app/navigation'
   import FolderTree from './FolderTree.svelte'
   import NotesList from './NotesList.svelte'
   import NotePreview from './NotePreview.svelte'
@@ -18,7 +18,7 @@
       const body = await resp.json().catch(() => ({}))
       throw new Error(body.error ?? 'Nie udało się utworzyć folderu')
     }
-    await invalidateAll()
+    await invalidate('app:workspace-tree')
     goto(`/workspace/${slug}/notes/${path}`)
   }
 </script>
