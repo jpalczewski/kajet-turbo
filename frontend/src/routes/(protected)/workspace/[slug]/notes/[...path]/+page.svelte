@@ -5,7 +5,7 @@
   import NotePreview from './NotePreview.svelte'
 
   let { data } = $props()
-  let slug = data.slug
+  let slug = $derived(data.slug)
 
   async function handleCreateFolder(path: string): Promise<void> {
     const resp = await fetch(`/api/workspaces/${slug}/folders`, {
