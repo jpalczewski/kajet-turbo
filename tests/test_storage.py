@@ -2,6 +2,7 @@ import struct
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy import text
 
 from kajet_turbo.db import Database
 from kajet_turbo.repositories.notes import NoteRepository
@@ -20,10 +21,10 @@ def notes(db):
 
 
 def test_schema_creates_all_tables(db):
-    conn = db._conn
-    names = {r[0] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
-    ).fetchall()}
+    with db.engine.connect() as conn:
+        names = {r[0] for r in conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table'")
+        ).fetchall()}
     assert "notes" in names
     assert "oauth_clients" in names
     assert "users" in names
@@ -31,21 +32,23 @@ def test_schema_creates_all_tables(db):
 
 
 def test_schema_creates_virtual_tables(db):
-    conn = db._conn
-    names = {r[0] for r in conn.execute(
-        "SELECT name FROM sqlite_master"
-    ).fetchall()}
+    with db.engine.connect() as conn:
+        names = {r[0] for r in conn.execute(
+            text("SELECT name FROM sqlite_master")
+        ).fetchall()}
     assert any(n.startswith("notes_fts") for n in names)
     assert any(n.startswith("notes_vec") for n in names)
 
 
 def test_vec_version_loaded(db):
-    version = db._conn.execute("SELECT vec_version()").fetchone()[0]
+    with db.engine.connect() as conn:
+        version = conn.execute(text("SELECT vec_version()")).fetchone()[0]
     assert version.startswith("v")
 
 
 def test_wal_mode_enabled(db):
-    mode = db._conn.execute("PRAGMA journal_mode").fetchone()[0]
+    with db.engine.connect() as conn:
+        mode = conn.execute(text("PRAGMA journal_mode")).fetchone()[0]
     assert mode == "wal"
 
 
@@ -173,8 +176,9 @@ def test_insert_vec_and_search(db_small_dim):
     repo.insert("id1", "ws1", "u1", "Notatka A", [], _now(), _now(), "treść A")
     repo.insert("id2", "ws1", "u1", "Notatka B", [], _now(), _now(), "treść B")
 
-    row1 = db_small_dim._conn.execute("SELECT rowid FROM notes WHERE id='id1'").fetchone()
-    row2 = db_small_dim._conn.execute("SELECT rowid FROM notes WHERE id='id2'").fetchone()
+    with db_small_dim.engine.connect() as conn:
+        row1 = conn.execute(text("SELECT rowid FROM notes WHERE id='id1'")).fetchone()
+        row2 = conn.execute(text("SELECT rowid FROM notes WHERE id='id2'")).fetchone()
 
     repo.insert_vec("id1", row1[0], "ws1", _fake_embedding(0.1))
     repo.insert_vec("id2", row2[0], "ws1", _fake_embedding(0.9))
@@ -192,7 +196,8 @@ def test_hybrid_search_fallback_without_vec(notes):
 def test_hybrid_search_with_vec(db_small_dim):
     repo = NoteRepository(db_small_dim.engine)
     repo.insert("id1", "ws1", "u1", "Notatka wektorowa", [], _now(), _now(), "treść z wektorem")
-    row = db_small_dim._conn.execute("SELECT rowid FROM notes WHERE id='id1'").fetchone()
+    with db_small_dim.engine.connect() as conn:
+        row = conn.execute(text("SELECT rowid FROM notes WHERE id='id1'")).fetchone()
     repo.insert_vec("id1", row[0], "ws1", _fake_embedding(0.5))
 
     results = repo.hybrid_search("wektorowa", "ws1", owner_id="u1", embedding=_fake_embedding(0.5))

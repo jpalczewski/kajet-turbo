@@ -23,7 +23,7 @@ def mcp_server(tmp_path, monkeypatch):
     oauth_repo = OAuthRepository(db.engine)
     provider = create_auth(oauth_repo)
     note_service = NoteService(note_repo)
-    workspace_service = WorkspaceService(workspace_repo)
+    workspace_service = WorkspaceService(workspace_repo, note_repo)
     mcp = build_mcp(note_service, workspace_service, oauth_repo, provider)
     yield mcp, db
     db.close()
