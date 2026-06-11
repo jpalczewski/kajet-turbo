@@ -5,8 +5,8 @@ from pathlib import Path
 import sqlite_vec
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import event, text
+from sqlalchemy.pool import SingletonThreadPool
 from sqlmodel import Session, create_engine
 
 from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.metadata
@@ -29,25 +29,25 @@ class Database:
         self.db_path = db_path or os.getenv("DB_PATH", "/data/kajet.db")
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        self._conn = self._create_connection()
+        # SingletonThreadPool: one connection per thread.
+        # WAL mode allows concurrent readers across threads without contention.
         self.engine = create_engine(
-            "sqlite://",
-            creator=lambda: self._conn,
-            poolclass=StaticPool,
+            f"sqlite:///{self.db_path}",
+            poolclass=SingletonThreadPool,
             connect_args={"check_same_thread": False},
         )
+
+        @event.listens_for(self.engine, "connect")
+        def _configure(conn: sqlite3.Connection, _record) -> None:
+            conn.enable_load_extension(True)
+            sqlite_vec.load(conn)
+            conn.enable_load_extension(False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+
         self._run_migrations()
         self._init_schema()
-
-    def _create_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        conn.enable_load_extension(True)
-        sqlite_vec.load(conn)
-        conn.enable_load_extension(False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
 
     def _run_migrations(self) -> None:
         alembic_ini = Path("alembic.ini")
@@ -80,4 +80,3 @@ class Database:
 
     def close(self) -> None:
         self.engine.dispose()
-        self._conn.close()
