@@ -6,7 +6,7 @@ import sqlite_vec
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import event, text
-from sqlalchemy.pool import SingletonThreadPool
+from sqlalchemy.pool import QueuePool
 from sqlmodel import Session, create_engine
 
 from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.metadata
@@ -29,11 +29,13 @@ class Database:
         self.db_path = db_path or os.getenv("DB_PATH", "/data/kajet.db")
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # SingletonThreadPool: one connection per thread.
-        # WAL mode allows concurrent readers across threads without contention.
+        # QueuePool: up to pool_size connections kept warm, each thread gets
+        # its own checkout. WAL mode allows concurrent reads across connections.
         self.engine = create_engine(
             f"sqlite:///{self.db_path}",
-            poolclass=SingletonThreadPool,
+            poolclass=QueuePool,
+            pool_size=5,
+            max_overflow=5,
             connect_args={"check_same_thread": False},
         )
 
