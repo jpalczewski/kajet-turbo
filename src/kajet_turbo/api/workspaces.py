@@ -35,9 +35,13 @@ def _render_html(content: str) -> str:
 
 from kajet_turbo.api.schemas import (
     CreateFolderRequest, CreateFolderResponse,
+    CreateNoteRequest, CreateNoteResponse,
     CreateWorkspaceResponse, LsEntry, LsResponse,
     NoteHistoryResponse, NoteHtmlResponse, NoteMarkdownResponse,
-    NotesListResponse, RestoreVersionResponse, WorkspacesListResponse,
+    NotesListResponse, RestoreVersionResponse,
+    UpdateNoteRequest, UpdateNoteResponse,
+    DeleteNoteResponse,
+    WorkspacesListResponse,
 )
 from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
 from kajet_turbo.services.notes import NoteService
@@ -212,6 +216,41 @@ async def api_create_folder(
             return JSONResponse({"error": str(e)}, status_code=500)
     logger.info("folder_created", ws=name, path=path)
     return JSONResponse({"path": path})
+
+
+@router.post("/api/workspaces/{name}/notes", status_code=201, response_model=CreateNoteResponse)
+@logged_route
+async def api_create_note(
+    name: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    title = str(body.get("title", "")).strip()
+    if not title:
+        return JSONResponse({"error": "Tytuł jest wymagany."}, status_code=422)
+    content = str(body.get("content", ""))
+    folder = str(body.get("folder", ""))
+    tags = body.get("tags", [])
+    if not isinstance(tags, list):
+        tags = []
+    ws_path = ws_service.workspace_path(user["id"], name)
+    try:
+        result = note_service.save(user["id"], name, ws_path, title, content, tags, folder=folder)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=409)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return JSONResponse(result, status_code=201)
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/html", response_model=NoteHtmlResponse)

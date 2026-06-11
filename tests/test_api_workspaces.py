@@ -498,3 +498,52 @@ def test_ls_recursive_includes_empty_folder(auth_client):
     resp = client.get("/api/workspaces/test-ws/ls?recursive=true")
     assert resp.status_code == 200
     assert "empty-dir" in resp.json()["folders"]
+
+
+def test_create_note_returns_note_id(auth_client):
+    client, _, _ = auth_client
+    resp = client.post(
+        "/api/workspaces/test-ws/notes",
+        json={"title": "Nowa Notatka", "content": "treść", "folder": ""},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert "note_id" in data
+    assert len(data["note_id"]) > 0
+
+
+def test_create_note_in_subfolder(auth_client):
+    client, note_svc, ws_path = auth_client
+    resp = client.post(
+        "/api/workspaces/test-ws/notes",
+        json={"title": "Subfolder Note", "content": "", "folder": "docs"},
+    )
+    assert resp.status_code == 201
+    note_id = resp.json()["note_id"]
+    note = note_svc.get_with_content(note_id, owner_id="u1", ws_path=ws_path)
+    assert note is not None
+    assert note["folder"] == "docs"
+
+
+def test_create_note_duplicate_returns_409(auth_client):
+    client, _, _ = auth_client
+    client.post("/api/workspaces/test-ws/notes", json={"title": "Dup"})
+    resp = client.post("/api/workspaces/test-ws/notes", json={"title": "Dup"})
+    assert resp.status_code == 409
+    assert "error" in resp.json()
+
+
+def test_create_note_missing_title_returns_422(auth_client):
+    client, _, _ = auth_client
+    resp = client.post("/api/workspaces/test-ws/notes", json={"content": "x"})
+    assert resp.status_code == 422
+
+
+def test_create_note_returns_401_when_anon(anon_client):
+    resp = anon_client.post("/api/workspaces/test-ws/notes", json={"title": "T"})
+    assert resp.status_code == 401
+
+
+def test_create_note_returns_403_when_no_access(no_access_client):
+    resp = no_access_client.post("/api/workspaces/test-ws/notes", json={"title": "T"})
+    assert resp.status_code == 403
