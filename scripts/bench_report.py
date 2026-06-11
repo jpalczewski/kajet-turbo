@@ -27,21 +27,36 @@ def build_report(results: list[dict]) -> str:
     lines += [header, sep]
     for name in scenario_names:
         for metric, getter in (
-            ("p50 ms", lambda s: s["latency_ms"]["p50"]),
-            ("p95 ms", lambda s: s["latency_ms"]["p95"]),
-            ("p99 ms", lambda s: s["latency_ms"]["p99"]),
+            ("p50 ms", lambda s: s["latency_ms"]["p50"] if s.get("latency_ms") is not None else None),
+            ("p95 ms", lambda s: s["latency_ms"]["p95"] if s.get("latency_ms") is not None else None),
+            ("p99 ms", lambda s: s["latency_ms"]["p99"] if s.get("latency_ms") is not None else None),
             ("rps", lambda s: s["rps"]),
         ):
             cells, values = [], []
             for r in results:
                 s = r["scenarios"].get(name)
-                cells.append("–" if s is None else f"{getter(s)}")
-                values.append(None if s is None else getter(s))
+                if s is None:
+                    cells.append("–")
+                    values.append(None)
+                else:
+                    v = getter(s)
+                    cells.append("–" if v is None else f"{v}")
+                    values.append(v)
             delta = "–"
             if values[0] and values[-1] is not None:
                 pct = (values[-1] - values[0]) / values[0] * 100
                 delta = f"{pct:+.1f}%"
             lines.append(f"| {name} | {metric} | " + " | ".join(cells) + f" | {delta} |")
+        # errors row
+        err_cells = []
+        for r in results:
+            s = r["scenarios"].get(name)
+            if s is None:
+                err_cells.append("–")
+            else:
+                n = s.get("errors", 0)
+                err_cells.append(str(n) if n == 0 else f"⚠ {n}")
+        lines.append(f"| {name} | errors | " + " | ".join(err_cells) + " | – |")
     return "\n".join(lines)
 
 

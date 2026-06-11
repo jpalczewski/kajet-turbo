@@ -41,7 +41,9 @@ def make_content(rng: random.Random, paragraphs: int = 6) -> str:
     return "\n\n".join(" ".join(rng.choices(WORDS, k=60)) for _ in range(paragraphs))
 
 
-def percentiles(latencies_ms: list[float]) -> dict:
+def percentiles(latencies_ms: list[float]) -> dict | None:
+    if not latencies_ms:
+        return None
     xs = sorted(latencies_ms)
 
     def pct(p: float) -> float:
@@ -74,6 +76,8 @@ def spawn_server(tmp: Path) -> subprocess.Popen:
     )
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"server exited during startup, code {proc.returncode}")
         try:
             httpx.get(f"http://127.0.0.1:{PORT}/api/session", timeout=1)
             return proc
@@ -128,14 +132,16 @@ async def run_http_scenario(client, make_request, total: int, concurrency: int) 
                 r = await make_request(i)
                 if r.status_code >= 400:
                     errors += 1
+                else:
+                    latencies.append((time.perf_counter() - t0) * 1000)
             except httpx.HTTPError:
                 errors += 1
-            latencies.append((time.perf_counter() - t0) * 1000)
 
     t0 = time.perf_counter()
     await asyncio.gather(*(one(i) for i in range(total)))
     wall = time.perf_counter() - t0
-    return {"latency_ms": percentiles(latencies),
+    lat = percentiles(latencies)
+    return {"latency_ms": lat,
             "rps": round(len(latencies) / wall, 1), "errors": errors}
 
 
@@ -176,11 +182,13 @@ async def http_phase(n_notes: int, server_pid: int) -> tuple[dict, float]:
 
 
 def inproc_search_phase(tmp: Path) -> dict:
-    """Threaded search against the seeded DB, server stopped. Measures FTS/vec
+    """Threaded search against the seeded DB, server stopped. Measures FTS5
     C-code scaling across real threads (the free-threading payoff)."""
     import sqlite3
     from concurrent.futures import ThreadPoolExecutor
 
+    # No kajet_turbo import may happen before these env vars are set (import-order dependency).
+    os.environ["LOG_LEVEL"] = "WARNING"
     os.environ["DB_PATH"] = str(tmp / "bench.db")
     os.environ["WORKSPACES_DIR"] = str(tmp / "workspaces")
     from kajet_turbo.db import Database
@@ -237,7 +245,10 @@ def main() -> None:
             scenarios, rss = asyncio.run(http_phase(args.notes, proc.pid))
         finally:
             proc.terminate()
-            proc.wait(timeout=10)
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
         scenarios.update(inproc_search_phase(tmp))
 
     result = {
@@ -252,6 +263,10 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=2))
     print(f"wrote {out}", file=sys.stderr)
+    total_errors = sum(s.get("errors", 0) for s in scenarios.values())
+    if total_errors > 0:
+        print(f"\nWARNING: {total_errors} request error(s) detected across all scenarios — results may be unreliable!", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
