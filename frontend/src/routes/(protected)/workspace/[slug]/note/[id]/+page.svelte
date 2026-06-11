@@ -41,6 +41,8 @@
     <p class="note-header__date">
       Zaktualizowano: {formatDate(note.updated_at)} ·
       <a href="/workspace/{slug}/note/{note.note_id}/history" class="note-header__history-link">Historia</a>
+      ·
+      <a href="/workspace/{slug}/note/{note.note_id}/edit" class="note-header__history-link">Edytuj</a>
     </p>
   </header>
 
