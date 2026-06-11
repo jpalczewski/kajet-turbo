@@ -253,6 +253,44 @@ async def api_create_note(
     return JSONResponse(result, status_code=201)
 
 
+@router.patch("/api/workspaces/{name}/notes/{note_id}", response_model=UpdateNoteResponse)
+@logged_route
+async def api_update_note(
+    name: str,
+    note_id: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    title = body.get("title")
+    content = body.get("content")
+    tags = body.get("tags")
+    folder = body.get("folder")
+    ws_path = ws_service.workspace_path(user["id"], name)
+    try:
+        result = note_service.update(
+            note_id,
+            owner_id=user["id"],
+            ws_path=ws_path,
+            title=title,
+            content=content,
+            tags=tags,
+            folder=folder,
+        )
+    except (ValueError, FileNotFoundError) as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+    return JSONResponse(result)
+
+
 @router.get("/api/workspaces/{name}/notes/{note_id}/html", response_model=NoteHtmlResponse)
 @logged_route
 def api_get_note_html(

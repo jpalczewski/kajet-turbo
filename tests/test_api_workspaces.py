@@ -547,3 +547,47 @@ def test_create_note_returns_401_when_anon(anon_client):
 def test_create_note_returns_403_when_no_access(no_access_client):
     resp = no_access_client.post("/api/workspaces/test-ws/notes", json={"title": "T"})
     assert resp.status_code == 403
+
+
+def test_update_note_content(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Orig", "old content", [])["note_id"]
+    resp = client.patch(
+        f"/api/workspaces/test-ws/notes/{note_id}",
+        json={"content": "new content"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["note_id"] == note_id
+    updated = note_svc.get_with_content(note_id, owner_id="u1", ws_path=ws_path)
+    assert updated["content"] == "new content"
+
+
+def test_update_note_title(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Old Title", "c", [])["note_id"]
+    resp = client.patch(
+        f"/api/workspaces/test-ws/notes/{note_id}",
+        json={"title": "New Title"},
+    )
+    assert resp.status_code == 200
+    updated = note_svc.get(note_id, owner_id="u1")
+    assert updated["title"] == "New Title"
+
+
+def test_update_note_not_found_returns_404(auth_client):
+    client, _, _ = auth_client
+    resp = client.patch(
+        "/api/workspaces/test-ws/notes/nonexistent",
+        json={"content": "x"},
+    )
+    assert resp.status_code == 404
+
+
+def test_update_note_returns_401_when_anon(anon_client):
+    resp = anon_client.patch("/api/workspaces/test-ws/notes/abc", json={"content": "x"})
+    assert resp.status_code == 401
+
+
+def test_update_note_returns_403_when_no_access(no_access_client):
+    resp = no_access_client.patch("/api/workspaces/test-ws/notes/abc", json={"content": "x"})
+    assert resp.status_code == 403
