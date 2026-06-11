@@ -101,4 +101,11 @@ def main() -> None:
     import uvicorn
     host = os.getenv("MCP_HOST", "0.0.0.0")
     port = int(os.getenv("MCP_PORT", "8000"))
-    uvicorn.run(build_app(), host=host, port=port)
+    workers = int(os.getenv("MCP_WORKERS", "1"))
+    uvicorn.run(
+        "kajet_turbo.server:build_app",
+        host=host,
+        port=port,
+        workers=workers,
+        factory=True,
+    )

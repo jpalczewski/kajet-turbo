@@ -29,7 +29,7 @@ class Database:
         self.db_path = db_path or os.getenv("DB_PATH", "/data/kajet.db")
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        self._conn = self._connect()
+        self._conn = self._create_connection()
         self.engine = create_engine(
             "sqlite://",
             creator=lambda: self._conn,
@@ -39,7 +39,7 @@ class Database:
         self._run_migrations()
         self._init_schema()
 
-    def _connect(self) -> sqlite3.Connection:
+    def _create_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.enable_load_extension(True)
         sqlite_vec.load(conn)
