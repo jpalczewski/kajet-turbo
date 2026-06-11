@@ -13,8 +13,16 @@ export interface CreateFolderResponse {
   path: string;
 }
 
+export interface CreateNoteResponse {
+  note_id: string;
+}
+
 export interface CreateWorkspaceResponse {
   name: string;
+}
+
+export interface DeleteNoteResponse {
+  ok: boolean;
 }
 
 export type ValidationErrorCtx = { [key: string]: unknown };
@@ -108,6 +116,10 @@ export interface RestoreVersionResponse {
 
 export interface SessionResponse {
   email: string;
+}
+
+export interface UpdateNoteResponse {
+  note_id: string;
 }
 
 export interface WorkspaceInfo {
@@ -451,6 +463,49 @@ export const apiListNotesApiWorkspacesNameNotesGet = async (name: string,
 
 
 
+export type apiCreateNoteApiWorkspacesNameNotesPostResponse201 = {
+  data: CreateNoteResponse
+  status: 201
+}
+
+export type apiCreateNoteApiWorkspacesNameNotesPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiCreateNoteApiWorkspacesNameNotesPostResponseSuccess = (apiCreateNoteApiWorkspacesNameNotesPostResponse201) & {
+  headers: Headers;
+};
+export type apiCreateNoteApiWorkspacesNameNotesPostResponseError = (apiCreateNoteApiWorkspacesNameNotesPostResponse422) & {
+  headers: Headers;
+};
+
+export type apiCreateNoteApiWorkspacesNameNotesPostResponse = (apiCreateNoteApiWorkspacesNameNotesPostResponseSuccess | apiCreateNoteApiWorkspacesNameNotesPostResponseError)
+
+export const getApiCreateNoteApiWorkspacesNameNotesPostUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes`
+}
+
+/**
+ * @summary Api Create Note
+ */
+export const apiCreateNoteApiWorkspacesNameNotesPost = async (name: string, options?: RequestInit): Promise<apiCreateNoteApiWorkspacesNameNotesPostResponse> => {
+
+  return customFetch<apiCreateNoteApiWorkspacesNameNotesPostResponse>(getApiCreateNoteApiWorkspacesNameNotesPostUrl(name),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
 export type apiLsApiWorkspacesNameLsGetResponse200 = {
   data: LsResponse
   status: 200
@@ -539,6 +594,96 @@ export const apiCreateFolderApiWorkspacesNameFoldersPost = async (name: string, 
   {
     ...options,
     method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse200 = {
+  data: UpdateNoteResponse
+  status: 200
+}
+
+export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponseSuccess = (apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse200) & {
+  headers: Headers;
+};
+export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponseError = (apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse422) & {
+  headers: Headers;
+};
+
+export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse = (apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponseSuccess | apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponseError)
+
+export const getApiUpdateNoteApiWorkspacesNameNotesNoteIdPatchUrl = (name: string,
+    noteId: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}`
+}
+
+/**
+ * @summary Api Update Note
+ */
+export const apiUpdateNoteApiWorkspacesNameNotesNoteIdPatch = async (name: string,
+    noteId: string, options?: RequestInit): Promise<apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse> => {
+
+  return customFetch<apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse>(getApiUpdateNoteApiWorkspacesNameNotesNoteIdPatchUrl(name,noteId),
+  {
+    ...options,
+    method: 'PATCH'
+
+
+  }
+);}
+
+
+
+export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse200 = {
+  data: DeleteNoteResponse
+  status: 200
+}
+
+export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponseSuccess = (apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse200) & {
+  headers: Headers;
+};
+export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponseError = (apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse = (apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponseSuccess | apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponseError)
+
+export const getApiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteUrl = (name: string,
+    noteId: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}`
+}
+
+/**
+ * @summary Api Delete Note
+ */
+export const apiDeleteNoteApiWorkspacesNameNotesNoteIdDelete = async (name: string,
+    noteId: string, options?: RequestInit): Promise<apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse> => {
+
+  return customFetch<apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse>(getApiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteUrl(name,noteId),
+  {
+    ...options,
+    method: 'DELETE'
 
 
   }
