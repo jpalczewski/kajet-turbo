@@ -1,13 +1,17 @@
 <script lang="ts">
-  import { goto } from '$app/navigation'
-  import { untrack } from 'svelte'
+  import { goto, invalidate } from '$app/navigation'
 
   let { data } = $props()
   let note = $derived(data.note)
   let slug = $derived(data.slug)
 
-  let title = $state(untrack(() => data.note.title as string))
-  let content = $state(untrack(() => (data.note.content as string) ?? ''))
+  let title = $state('')
+  let content = $state('')
+
+  $effect(() => {
+    title = data.note.title as string
+    content = (data.note.content as string) ?? ''
+  })
   let saveError = $state('')
   let saving = $state(false)
 
@@ -26,6 +30,7 @@
         saveError = body.error ?? 'Nie udało się zapisać'
         return
       }
+      await invalidate('app:workspace-tree')
       goto(`/workspace/${slug}/note/${note.note_id}`)
     } finally {
       saving = false
@@ -44,6 +49,7 @@
       return
     }
     const folderPath = note.folder ?? ''
+    await invalidate('app:workspace-tree')
     goto(folderPath ? `/workspace/${slug}/notes/${folderPath}` : `/workspace/${slug}/notes`)
   }
 

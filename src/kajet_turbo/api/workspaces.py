@@ -310,6 +310,8 @@ async def api_delete_note(
         note_service.delete(note_id, owner_id=user["id"], ws_path=ws_path)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
     return JSONResponse({"ok": True})
 
 
