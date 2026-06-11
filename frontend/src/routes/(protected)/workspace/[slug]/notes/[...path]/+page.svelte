@@ -21,6 +21,22 @@
     await invalidate('app:workspace-tree')
     goto(`/workspace/${slug}/notes/${path}`)
   }
+
+  async function handleCreateNote(title: string): Promise<void> {
+    const resp = await fetch(`/api/workspaces/${slug}/notes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ title, folder: data.folderPath, content: '' }),
+    })
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}))
+      throw new Error(body.error ?? 'Nie udało się utworzyć notatki')
+    }
+    const { note_id } = await resp.json()
+    await invalidate('app:workspace-tree')
+    goto(`/workspace/${slug}/note/${note_id}/edit`)
+  }
 </script>
 
 <div class="explorer">
@@ -39,6 +55,7 @@
       currentNoteId={data.noteId}
       folderPath={data.folderPath}
       {slug}
+      onCreateNote={handleCreateNote}
     />
   </section>
 

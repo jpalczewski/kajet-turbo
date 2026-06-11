@@ -2,11 +2,12 @@
   import { goto } from '$app/navigation'
   import type { NoteItem } from '$lib/api'
 
-  let { notes, currentNoteId, folderPath, slug }: {
+  let { notes, currentNoteId, folderPath, slug, onCreateNote }: {
     notes: NoteItem[]
     currentNoteId: string | null
     folderPath: string
     slug: string
+    onCreateNote: (title: string) => Promise<void>
   } = $props()
 
   function formatSize(bytes: number): string {
@@ -24,13 +25,60 @@
     const base = folderPath ? `/workspace/${slug}/notes/${folderPath}` : `/workspace/${slug}/notes`
     goto(`${base}/${noteId}`)
   }
+
+  let creating = $state(false)
+  let newNoteTitle = $state('')
+  let createError = $state('')
+
+  function startCreating() {
+    creating = true
+    newNoteTitle = ''
+    createError = ''
+  }
+
+  async function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      creating = false
+      newNoteTitle = ''
+      createError = ''
+      return
+    }
+    if (e.key !== 'Enter') return
+    const title = newNoteTitle.trim()
+    if (!title) return
+    try {
+      await onCreateNote(title)
+      creating = false
+      newNoteTitle = ''
+      createError = ''
+    } catch (err: unknown) {
+      createError = err instanceof Error ? err.message : 'Błąd'
+    }
+  }
 </script>
 
 <div class="notes-list">
   <div class="notes-list__header">
     <span class="notes-list__path">{folderPath || slug}/</span>
     <span class="notes-list__count">{notes.length}</span>
+    <button class="create-btn" onclick={startCreating} title="Nowa notatka">+</button>
   </div>
+
+  {#if creating}
+    <div class="new-note-row">
+      <input
+        class="new-note-input"
+        class:new-note-input--error={!!createError}
+        bind:value={newNoteTitle}
+        onkeydown={handleKeydown}
+        placeholder="tytuł-notatki"
+        autofocus
+      />
+      {#if createError}
+        <span class="new-note-error">{createError}</span>
+      {/if}
+    </div>
+  {/if}
 
   {#if notes.length === 0}
     <p class="notes-list__empty">Brak notatek.</p>
@@ -106,6 +154,51 @@
       overflow-y: auto;
       flex: 1;
     }
+  }
+
+  .create-btn {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: v.$text-muted;
+    font-family: v.$font-mono;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0 2px;
+    line-height: 1;
+    transition: color 0.15s;
+
+    &:hover { color: v.$accent; }
+  }
+
+  .new-note-row {
+    padding: 6px 12px;
+    border-bottom: 1px solid v.$border;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .new-note-input {
+    width: 100%;
+    background: v.$bg-raised;
+    border: 1px solid v.$border;
+    border-radius: v.$radius-sm;
+    color: v.$text-primary;
+    font-family: v.$font-mono;
+    font-size: 0.82rem;
+    padding: 4px 8px;
+    outline: none;
+    box-sizing: border-box;
+
+    &:focus { border-color: v.$accent-dark; }
+    &--error { border-color: #c0392b; }
+  }
+
+  .new-note-error {
+    font-family: v.$font-mono;
+    font-size: 0.72rem;
+    color: #c0392b;
   }
 
   .note-row {
