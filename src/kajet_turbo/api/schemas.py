@@ -104,3 +104,29 @@ class CreateFolderRequest(BaseModel):
 
 class CreateFolderResponse(BaseModel):
     path: str
+
+
+class CreateNoteRequest(BaseModel):
+    title: str
+    content: str = ""
+    folder: str = ""
+    tags: list[str] = []
+
+
+class CreateNoteResponse(BaseModel):
+    note_id: str
+
+
+class UpdateNoteRequest(BaseModel):
+    title: str | None = None
+    content: str | None = None
+    folder: str | None = None
+    tags: list[str] | None = None
+
+
+class UpdateNoteResponse(BaseModel):
+    note_id: str
+
+
+class DeleteNoteResponse(BaseModel):
+    ok: bool
