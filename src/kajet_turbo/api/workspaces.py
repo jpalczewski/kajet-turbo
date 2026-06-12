@@ -43,6 +43,7 @@ from kajet_turbo.api.schemas import (
     DeleteNoteResponse,
     WorkspacesListResponse,
 )
+from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -80,7 +81,7 @@ async def api_create_workspace(
     if not name:
         return JSONResponse({"error": "Nazwa workspace'u jest wymagana."}, status_code=422)
     try:
-        ws_service.create(name, user["id"])
+        await run_sync(ws_service.create, name, user["id"])
     except (ValueError, FileExistsError) as e:
         return JSONResponse({"error": str(e)}, status_code=409)
     return JSONResponse({"name": name}, status_code=201)
@@ -210,7 +211,9 @@ async def api_create_folder(
         gitkeep.touch()
         relative = str(gitkeep.relative_to(ws_root))
         try:
-            GitRepository(ws_path).commit_file(relative, f"folder: add {path}")
+            await run_sync(
+                lambda: GitRepository(ws_path).commit_file(relative, f"folder: add {path}")
+            )
         except GitError as e:
             gitkeep.unlink(missing_ok=True)
             return JSONResponse({"error": str(e)}, status_code=500)
@@ -245,7 +248,9 @@ async def api_create_note(
         tags = []
     ws_path = ws_service.workspace_path(user["id"], name)
     try:
-        result = note_service.save(user["id"], name, ws_path, title, content, tags, folder=folder)
+        result = await run_sync(
+            note_service.save, user["id"], name, ws_path, title, content, tags, folder=folder
+        )
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=409)
     except Exception as e:
@@ -277,7 +282,8 @@ async def api_update_note(
     folder = body.get("folder")
     ws_path = ws_service.workspace_path(user["id"], name)
     try:
-        result = note_service.update(
+        result = await run_sync(
+            note_service.update,
             note_id,
             owner_id=user["id"],
             ws_path=ws_path,
@@ -307,7 +313,7 @@ async def api_delete_note(
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
     ws_path = ws_service.workspace_path(user["id"], name)
     try:
-        note_service.delete(note_id, owner_id=user["id"], ws_path=ws_path)
+        await run_sync(note_service.delete, note_id, owner_id=user["id"], ws_path=ws_path)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=404)
     except Exception as e:
@@ -445,7 +451,9 @@ async def api_restore_note_version(
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
     ws_path = ws_service.workspace_path(user["id"], name)
     try:
-        result = note_service.restore_version(note_id, sha, owner_id=user["id"], ws_path=ws_path)
+        result = await run_sync(
+            note_service.restore_version, note_id, sha, owner_id=user["id"], ws_path=ws_path
+        )
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=404)
     return JSONResponse(result)
