@@ -129,3 +129,23 @@ def test_file_content_at_commit_raises_on_invalid_sha(git_ws, tmp_path):
 
     with pytest.raises(GitError):
         git_ws.file_content_at_commit("note.md", "0" * 40)
+
+
+def test_parallel_commits_to_same_repo_do_not_corrupt(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from dulwich.repo import Repo
+
+    from kajet_turbo.repositories.git import GitRepository
+
+    GitRepository.init(str(tmp_path))
+
+    def write_and_commit(i: int) -> None:
+        (tmp_path / f"note-{i}.md").write_text(f"content {i}")
+        GitRepository(str(tmp_path)).commit_file(f"note-{i}.md", f"add {i}")
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        list(ex.map(write_and_commit, range(16)))
+
+    commits = list(Repo(str(tmp_path)).get_walker())
+    assert len(commits) == 16

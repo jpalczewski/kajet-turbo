@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 from dulwich import porcelain
@@ -6,6 +7,19 @@ from dulwich.object_store import tree_lookup_path
 from dulwich.repo import Repo
 
 COMMITTER = b"Kajet <bot@kajet.app>"
+
+_REPO_LOCKS: dict[str, threading.Lock] = {}
+_REPO_LOCKS_GUARD = threading.Lock()
+
+
+def _repo_lock(workspace_path: str) -> threading.Lock:
+    key = str(Path(workspace_path).resolve())
+    with _REPO_LOCKS_GUARD:
+        lock = _REPO_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _REPO_LOCKS[key] = lock
+        return lock
 
 
 class GitError(Exception):
@@ -26,52 +40,55 @@ class GitRepository:
         return cls(path)
 
     def commit_file(self, relative_path: str, message: str) -> None:
-        try:
-            if not Path(self._workspace_path, relative_path).exists():
-                raise GitError(f"File not found: {relative_path}")
-            porcelain.add(self._workspace_path, paths=[relative_path])
-            porcelain.commit(
-                self._workspace_path,
-                message=message.encode(),
-                author=COMMITTER,
-                committer=COMMITTER,
-            )
-        except Exception as e:
-            raise GitError(str(e)) from e
+        with _repo_lock(self._workspace_path):
+            try:
+                if not Path(self._workspace_path, relative_path).exists():
+                    raise GitError(f"File not found: {relative_path}")
+                porcelain.add(self._workspace_path, paths=[relative_path])
+                porcelain.commit(
+                    self._workspace_path,
+                    message=message.encode(),
+                    author=COMMITTER,
+                    committer=COMMITTER,
+                )
+            except Exception as e:
+                raise GitError(str(e)) from e
 
     def delete_file(self, relative_path: str, message: str) -> None:
-        try:
-            Path(self._workspace_path, relative_path).unlink(missing_ok=True)
-            porcelain.rm(self._workspace_path, paths=[relative_path])
-            porcelain.commit(
-                self._workspace_path,
-                message=message.encode(),
-                author=COMMITTER,
-                committer=COMMITTER,
-            )
-        except GitError:
-            raise
-        except Exception as e:
-            raise GitError(str(e)) from e
+        with _repo_lock(self._workspace_path):
+            try:
+                Path(self._workspace_path, relative_path).unlink(missing_ok=True)
+                porcelain.rm(self._workspace_path, paths=[relative_path])
+                porcelain.commit(
+                    self._workspace_path,
+                    message=message.encode(),
+                    author=COMMITTER,
+                    committer=COMMITTER,
+                )
+            except GitError:
+                raise
+            except Exception as e:
+                raise GitError(str(e)) from e
 
     def rename_file(self, old_rel: str, new_rel: str, message: str) -> None:
-        try:
-            old_full = Path(self._workspace_path, old_rel)
-            new_full = Path(self._workspace_path, new_rel)
-            new_full.parent.mkdir(parents=True, exist_ok=True)
-            old_full.rename(new_full)
-            porcelain.rm(self._workspace_path, paths=[old_rel])
-            porcelain.add(self._workspace_path, paths=[new_rel])
-            porcelain.commit(
-                self._workspace_path,
-                message=message.encode(),
-                author=COMMITTER,
-                committer=COMMITTER,
-            )
-        except GitError:
-            raise
-        except Exception as e:
-            raise GitError(str(e)) from e
+        with _repo_lock(self._workspace_path):
+            try:
+                old_full = Path(self._workspace_path, old_rel)
+                new_full = Path(self._workspace_path, new_rel)
+                new_full.parent.mkdir(parents=True, exist_ok=True)
+                old_full.rename(new_full)
+                porcelain.rm(self._workspace_path, paths=[old_rel])
+                porcelain.add(self._workspace_path, paths=[new_rel])
+                porcelain.commit(
+                    self._workspace_path,
+                    message=message.encode(),
+                    author=COMMITTER,
+                    committer=COMMITTER,
+                )
+            except GitError:
+                raise
+            except Exception as e:
+                raise GitError(str(e)) from e
 
     def last_commit_time(self) -> int | None:
         try:
