@@ -6,6 +6,7 @@ from nanoid import generate
 
 from kajet_turbo.log import logged_tool, logger
 from kajet_turbo.repositories.oauth import OAuthRepository
+from kajet_turbo.concurrency import run_sync
 from kajet_turbo.services.workspaces import WorkspaceService
 
 
@@ -43,20 +44,20 @@ def register_workspaces(
     @logged_tool
     async def list_workspaces(ctx: Context) -> str:
         """Zwraca listę workspace'ów dostępnych dla tego użytkownika. Odpowiedź: JSON array stringów."""
-        user_id, err = _resolve_user()
+        user_id, err = await run_sync(_resolve_user)
         if err:
             return err
-        return json.dumps(workspace_service.list_accessible(user_id))
+        return json.dumps(await run_sync(workspace_service.list_accessible, user_id))
 
     @mcp.tool()
     @logged_tool
     async def activate_workspace(name: str, ctx: Context) -> str:
         """Ustawia aktywny workspace dla tej sesji.
         Sukces: {"message": "..."}. Błąd: {"error": "...", "available": [...]}."""
-        user_id, err = _resolve_user()
+        user_id, err = await run_sync(_resolve_user)
         if err:
             return err
-        available = workspace_service.list_accessible(user_id)
+        available = await run_sync(workspace_service.list_accessible, user_id)
         if name not in available:
             msg = "Workspace '{name}' nie istnieje lub brak dostępu." if user_id else "Workspace '{name}' nie istnieje."
             return json.dumps({"error": msg.format(name=name), "available": available})
@@ -73,11 +74,11 @@ def register_workspaces(
     async def create_workspace(name: str, ctx: Context) -> str:
         """Tworzy nowy workspace z repozytorium git.
         Sukces: {"message": "..."}. Błąd: {"error": "..."}."""
-        user_id, err = _resolve_user()
+        user_id, err = await run_sync(_resolve_user)
         if err:
             return err
         try:
-            workspace_service.create(name, user_id)
+            await run_sync(workspace_service.create, name, user_id)
         except (ValueError, FileExistsError) as e:
             return json.dumps({"error": str(e)})
         return json.dumps({"message": f"Workspace '{name}' utworzony."})

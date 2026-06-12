@@ -5,6 +5,7 @@ from fastmcp import Context, FastMCP
 from kajet_turbo.repositories.git import GitError
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.workspaces import get_active_workspace
+from kajet_turbo.concurrency import run_sync
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -28,7 +29,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         try:
-            result = note_service.save(owner_id, ws_name, ws_path, title, content, tags or [], folder=folder)
+            result = await run_sync(note_service.save, owner_id, ws_name, ws_path, title, content, tags or [], folder=folder)
         except (GitError, ValueError) as e:
             return json.dumps({"error": str(e)})
         return json.dumps(result)
@@ -41,7 +42,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
-        result = note_service.get_with_content(note_id, owner_id=owner_id, ws_path=ws_path)
+        result = await run_sync(note_service.get_with_content, note_id, owner_id=owner_id, ws_path=ws_path)
         if result is None:
             return json.dumps({"error": f"Notatka {note_id} nie znaleziona."})
         return json.dumps(result, ensure_ascii=False)
@@ -63,7 +64,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         try:
-            result = note_service.update(note_id, owner_id=owner_id, ws_path=ws_path,
+            result = await run_sync(note_service.update, note_id, owner_id=owner_id, ws_path=ws_path,
                                          title=title, content=content, tags=tags, folder=folder)
         except (ValueError, FileNotFoundError) as e:
             return json.dumps({"error": str(e)})
@@ -80,7 +81,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         try:
-            note_service.delete(note_id, owner_id=owner_id, ws_path=ws_path)
+            await run_sync(note_service.delete, note_id, owner_id=owner_id, ws_path=ws_path)
         except ValueError as e:
             return json.dumps({"error": str(e)})
         return json.dumps({"message": f"Notatka {note_id} usunięta."})
@@ -100,7 +101,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
             owner_id, ws_name, _ = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
-        notes = note_service.list(ws_name, owner_id=owner_id, tags=tags or None, limit=limit, folder=folder)
+        notes = await run_sync(note_service.list, ws_name, owner_id=owner_id, tags=tags or None, limit=limit, folder=folder)
         return json.dumps(notes, ensure_ascii=False)
 
     @mcp.tool()
@@ -120,10 +121,10 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
         real_user_id: str | None = await ctx.get_state("active_user_id")
         ws_param = workspace or "active"
         if ws_param == "all":
-            workspaces = workspace_service.list_accessible(real_user_id)
+            workspaces = await run_sync(workspace_service.list_accessible, real_user_id)
         else:
             workspaces = [ws_param if ws_param != "active" else active_ws]
-        results = note_service.search(query, workspaces, owner_id=owner_id, limit=limit)
+        results = await run_sync(note_service.search, query, workspaces, owner_id=owner_id, limit=limit)
         return json.dumps(results, ensure_ascii=False)
 
     @mcp.tool()
@@ -135,7 +136,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
             owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
-        result = note_service.reindex(ws_name, owner_id=owner_id, ws_path=ws_path)
+        result = await run_sync(note_service.reindex, ws_name, owner_id=owner_id, ws_path=ws_path)
         return json.dumps(result)
 
     @mcp.tool()
@@ -149,7 +150,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         try:
-            entries = note_service.get_history(note_id, owner_id=owner_id, ws_path=ws_path, limit=limit)
+            entries = await run_sync(note_service.get_history, note_id, owner_id=owner_id, ws_path=ws_path, limit=limit)
         except ValueError as e:
             return json.dumps({"error": str(e)})
         return json.dumps(entries)
@@ -165,7 +166,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         try:
-            version = note_service.get_version(note_id, sha, owner_id=owner_id, ws_path=ws_path)
+            version = await run_sync(note_service.get_version, note_id, sha, owner_id=owner_id, ws_path=ws_path)
         except Exception as e:
             return json.dumps({"error": str(e)})
         return json.dumps(version, ensure_ascii=False)
@@ -181,7 +182,7 @@ def register_notes(mcp: FastMCP, note_service: NoteService, workspace_service: W
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         try:
-            result = note_service.restore_version(note_id, sha, owner_id=owner_id, ws_path=ws_path)
+            result = await run_sync(note_service.restore_version, note_id, sha, owner_id=owner_id, ws_path=ws_path)
         except Exception as e:
             return json.dumps({"error": str(e)})
         return json.dumps(result)

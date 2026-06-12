@@ -53,8 +53,9 @@ contexts is dispatched to a bounded threadpool. No aiosqlite, no greenlet.
 - REST: existing sync `GET` endpoints (`def`) stay as they are (Starlette
   threadpool). Async write endpoints (`POST/PATCH/DELETE`) stop calling sync
   services directly — every service call goes through `run_sync`.
-- MCP: all tools change from `async def` to **`def`** — FastMCP runs sync tools
-  in its threadpool automatically. Minimal diff.
+- MCP: tools stay `async def` (FastMCP's `ctx.get_state` API is async-only);
+  every sync service call is wrapped in `await run_sync(...)` instead — same
+  effect, work leaves the event loop.
 - Services and repositories remain synchronous — no `await`, no greenlet,
   no aiosqlite.
 
