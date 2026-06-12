@@ -1,12 +1,19 @@
 <script lang="ts">
+  import { invalidate, invalidateAll } from '$app/navigation';
   import { page } from '$app/state';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import MoveNoteDialog from '$lib/components/MoveNoteDialog.svelte';
   import Prose from '$lib/components/Prose.svelte';
   import { noteEditPath, noteHistoryPath, notesPath } from '$lib/routes';
   import { formatDate } from '$lib/utils/format';
 
   const slug = $derived(page.params.slug as string);
   const note = $derived(page.data.note);
+
+  async function handleMove() {
+    await invalidate('app:workspace-tree');
+    await invalidateAll();
+  }
 </script>
 
 <main class="page">
@@ -29,6 +36,13 @@
       <a href={noteHistoryPath(slug, note.note_id)} class="note-header__history-link">Historia</a>
       ·
       <a href={noteEditPath(slug, note.note_id)} class="note-header__history-link">Edytuj</a>
+      ·
+      <MoveNoteDialog
+        {slug}
+        noteId={note.note_id}
+        currentFolder={note.folder}
+        onmoved={handleMove}
+      />
     </p>
   </header>
 

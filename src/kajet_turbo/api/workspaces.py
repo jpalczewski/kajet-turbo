@@ -12,6 +12,7 @@ from kajet_turbo.api.schemas import (
     CreateWorkspaceResponse,
     DeleteNoteResponse,
     LsResponse,
+    MoveNoteResponse,
     NoteHistoryResponse,
     NoteHtmlResponse,
     NoteMarkdownResponse,
@@ -25,7 +26,7 @@ from kajet_turbo.dependencies import get_note_service, get_session_user, get_wor
 from kajet_turbo.log import logged_route, logger
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
-from kajet_turbo.workspace import note_filepath
+from kajet_turbo.workspace import InvalidFolderError, note_filepath
 
 _ALLOWED_TAGS = [
     *bleach.sanitizer.ALLOWED_TAGS,
@@ -164,15 +165,7 @@ def api_ls(
         return JSONResponse({"error": "Folder not found"}, status_code=404)
 
     if recursive:
-        expanded: set[str] = set()
-        for dirpath in ws_root.rglob("*"):
-            if not dirpath.is_dir():
-                continue
-            rel_parts = dirpath.relative_to(ws_root).parts
-            if any(p.startswith(".") for p in rel_parts):
-                continue
-            expanded.add("/".join(rel_parts))
-        return JSONResponse({"folders": sorted(expanded), "entries": []})
+        return JSONResponse({"folders": note_service.list_folders(ws_path)[1:], "entries": []})
 
     subdirs = sorted(
         d.name for d in folder_abs.iterdir() if d.is_dir() and not d.name.startswith(".")
@@ -316,8 +309,57 @@ async def api_update_note(
             tags=tags,
             folder=folder,
         )
+    except InvalidFolderError as e:
+        return JSONResponse({"error": str(e)}, status_code=422)
+    except FileExistsError as e:
+        return JSONResponse({"error": str(e)}, status_code=409)
     except (ValueError, FileNotFoundError) as e:
         return JSONResponse({"error": str(e)}, status_code=404)
+    return JSONResponse(result)
+
+
+@router.post(
+    "/api/workspaces/{name}/notes/{note_id}/move",
+    response_model=MoveNoteResponse,
+)
+@logged_route
+async def api_move_note(
+    name: str,
+    note_id: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    folder = body.get("folder")
+    if not isinstance(folder, str):
+        return JSONResponse({"error": "Folder jest wymagany."}, status_code=422)
+
+    ws_path = ws_service.workspace_path(user["id"], name)
+    try:
+        result = await run_sync(
+            note_service.move,
+            note_id,
+            owner_id=user["id"],
+            ws_path=ws_path,
+            folder=folder,
+        )
+    except InvalidFolderError as e:
+        return JSONResponse({"error": str(e)}, status_code=422)
+    except (ValueError, FileNotFoundError) as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+    except FileExistsError as e:
+        return JSONResponse({"error": str(e)}, status_code=409)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
     return JSONResponse(result)
 
 

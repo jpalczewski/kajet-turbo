@@ -89,11 +89,44 @@ def register_notes(
                 tags=tags,
                 folder=folder,
             )
-        except (ValueError, FileNotFoundError) as e:
+        except (ValueError, FileNotFoundError, FileExistsError) as e:
             return json.dumps({"error": str(e)})
         except GitError as e:
             return json.dumps({"error": str(e)})
         return json.dumps(result)
+
+    @mcp.tool()
+    @logged_tool
+    async def move_note(note_id: str, folder: str, ctx: Context) -> str:
+        """Przenosi notatkę do folderu w aktywnym workspace, tworząc brakującą ścieżkę.
+        folder: pełna ścieżka folderu lub pusty string dla root.
+        Sukces: {"note_id": "...", "folder": "..."}. Błąd: {"error": "..."}."""
+        try:
+            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        try:
+            result = await run_sync(
+                note_service.move,
+                note_id,
+                owner_id=owner_id,
+                ws_path=ws_path,
+                folder=folder,
+            )
+        except (ValueError, FileNotFoundError, FileExistsError, GitError) as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(result, ensure_ascii=False)
+
+    @mcp.tool()
+    @logged_tool
+    async def list_folders(ctx: Context) -> str:
+        """Zwraca istniejące foldery aktywnego workspace jako JSON array.
+        Pusty string oznacza katalog główny workspace."""
+        try:
+            _, _, ws_path = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(await run_sync(note_service.list_folders, ws_path), ensure_ascii=False)
 
     @mcp.tool()
     @logged_tool

@@ -56,6 +56,11 @@ export interface LsResponse {
   entries: LsEntry[];
 }
 
+export interface MoveNoteResponse {
+  note_id: string;
+  folder: string;
+}
+
 export interface NoteHistoryEntry {
   sha: string;
   message: string;
@@ -684,6 +689,51 @@ export const apiDeleteNoteApiWorkspacesNameNotesNoteIdDelete = async (name: stri
   {
     ...options,
     method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse200 = {
+  data: MoveNoteResponse
+  status: 200
+}
+
+export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponseSuccess = (apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse200) & {
+  headers: Headers;
+};
+export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponseError = (apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse422) & {
+  headers: Headers;
+};
+
+export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse = (apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponseSuccess | apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponseError)
+
+export const getApiMoveNoteApiWorkspacesNameNotesNoteIdMovePostUrl = (name: string,
+    noteId: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}/move`
+}
+
+/**
+ * @summary Api Move Note
+ */
+export const apiMoveNoteApiWorkspacesNameNotesNoteIdMovePost = async (name: string,
+    noteId: string, options?: RequestInit): Promise<apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse> => {
+
+  return customFetch<apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse>(getApiMoveNoteApiWorkspacesNameNotesNoteIdMovePostUrl(name,noteId),
+  {
+    ...options,
+    method: 'POST'
 
 
   }

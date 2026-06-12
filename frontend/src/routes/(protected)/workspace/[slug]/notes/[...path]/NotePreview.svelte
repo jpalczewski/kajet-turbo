@@ -1,14 +1,17 @@
 <script lang="ts">
   import type { NoteHtmlResponse } from '$lib/api';
+  import MoveNoteDialog from '$lib/components/MoveNoteDialog.svelte';
   import Prose from '$lib/components/Prose.svelte';
   import { noteHistoryPath, notePath } from '$lib/routes';
 
   let {
     note,
     slug,
+    onmoved,
   }: {
     note: NoteHtmlResponse | null;
     slug: string;
+    onmoved: (folder: string) => void | Promise<void>;
   } = $props();
 </script>
 
@@ -17,6 +20,7 @@
     <div class="preview__header">
       <span class="preview__path">{note.folder ? note.folder + '/' : ''}{note.title}</span>
       <div class="preview__actions">
+        <MoveNoteDialog {slug} noteId={note.note_id} currentFolder={note.folder} {onmoved} />
         <a href={noteHistoryPath(slug, note.note_id)} class="preview__action-link" title="Historia"
           >Historia</a
         >

@@ -14,6 +14,8 @@ from kajet_turbo.log import logger
 from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.workspace import (
+    InvalidFolderError,
+    list_workspace_folders,
     normalize_folder,
     note_filepath,
     read_note_file,
@@ -106,7 +108,10 @@ class NoteService:
             raise ValueError(f"Notatka {note_id} nie znaleziona.")
         now = datetime.now(UTC).isoformat()
         new_title = title if title is not None else note.title
-        new_folder = normalize_folder(folder) if folder is not None else note.folder
+        try:
+            new_folder = normalize_folder(folder) if folder is not None else note.folder
+        except ValueError as e:
+            raise InvalidFolderError(str(e)) from e
         current_tags = json.loads(note.tags or "[]")
         new_tags = tags if tags is not None else current_tags
 
@@ -117,6 +122,13 @@ class NoteService:
 
         if not Path(old_path).exists():
             raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
+        if old_path != new_path:
+            if not self._repo.check_unique(note.workspace, owner_id, new_folder, new_title):
+                raise FileExistsError(
+                    f"Notatka '{new_title}' już istnieje w folderze '{new_folder or 'root'}'."
+                )
+            if Path(new_path).exists():
+                raise FileExistsError(f"Plik docelowy '{new_rel}' już istnieje.")
         note_data = read_note_file(old_path)
         old_content = note_data["content"]
         new_content = content if content is not None else old_content
@@ -161,6 +173,48 @@ class NoteService:
         logger.info("note_updated", note_id=note_id, folder=new_folder)
         return {"note_id": note_id}
 
+    def move(self, note_id: str, owner_id: str, ws_path: str, folder: str) -> dict:
+        note = self._repo.get(note_id, owner_id=owner_id)
+        if note is None:
+            raise ValueError(f"Notatka {note_id} nie znaleziona.")
+
+        try:
+            new_folder = normalize_folder(folder)
+        except ValueError as e:
+            raise InvalidFolderError(str(e)) from e
+        if new_folder == note.folder:
+            return {"note_id": note_id, "folder": new_folder}
+
+        old_path = Path(note_filepath(ws_path, note.folder, note.title))
+        new_path = Path(note_filepath(ws_path, new_folder, note.title))
+        if not old_path.exists():
+            raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
+        if not self._repo.check_unique(note.workspace, owner_id, new_folder, note.title):
+            raise FileExistsError(
+                f"Notatka '{note.title}' już istnieje w folderze '{new_folder or 'root'}'."
+            )
+        if new_path.exists():
+            raise FileExistsError(
+                f"Plik docelowy '{new_path.relative_to(ws_path)}' już istnieje."
+            )
+
+        old_rel = str(old_path.relative_to(ws_path))
+        new_rel = str(new_path.relative_to(ws_path))
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        GitRepository(ws_path).rename_file(
+            old_rel, new_rel, f"note: move {note.title} to {new_folder or 'root'}"
+        )
+        self._repo.update(
+            note_id,
+            owner_id=owner_id,
+            updated_at=note.updated_at,
+            folder=new_folder,
+        )
+        if self._cache is not None:
+            self._cache.bump(note.workspace, owner_id)
+        logger.info("note_moved", note_id=note_id, folder=new_folder)
+        return {"note_id": note_id, "folder": new_folder}
+
     def delete(self, note_id: str, owner_id: str, ws_path: str) -> None:
         note = self._repo.get(note_id, owner_id=owner_id)
         if note is None:
@@ -184,8 +238,8 @@ class NoteService:
     ) -> builtins.list[dict]:
         return self._repo.list(ws_name, owner_id=owner_id, tags=tags, limit=limit, folder=folder)
 
-    def list_folders(self, ws_name: str, owner_id: str) -> builtins.list[str]:
-        return self._repo.list_folders(ws_name, owner_id)
+    def list_folders(self, ws_path: str) -> builtins.list[str]:
+        return list_workspace_folders(ws_path)
 
     def search(
         self,

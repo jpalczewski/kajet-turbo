@@ -129,6 +129,29 @@ async def test_update_note(workspaces_dir, mcp_server):
         assert "nowa treść" in get_result.content[0].text
 
 
+async def test_move_note_and_list_folders(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    ws_path = workspaces_dir / "test-ws"
+    (ws_path / "archive").mkdir()
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        save_result = await client.call_tool(
+            "save_note", {"title": "Move me", "content": "content"}
+        )
+        note_id = json.loads(save_result.content[0].text)["note_id"]
+        folders = await client.call_tool("list_folders", {})
+        move_result = await client.call_tool(
+            "move_note", {"note_id": note_id, "folder": "archive"}
+        )
+
+        assert json.loads(folders.content[0].text) == ["", "archive"]
+        assert json.loads(move_result.content[0].text) == {
+            "note_id": note_id,
+            "folder": "archive",
+        }
+        assert (ws_path / "archive" / "Move me.md").exists()
+
+
 async def test_list_notes(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:

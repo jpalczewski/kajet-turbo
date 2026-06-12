@@ -128,5 +128,14 @@ class UpdateNoteResponse(BaseModel):
     note_id: str
 
 
+class MoveNoteRequest(BaseModel):
+    folder: str
+
+
+class MoveNoteResponse(BaseModel):
+    note_id: str
+    folder: str
+
+
 class DeleteNoteResponse(BaseModel):
     ok: bool

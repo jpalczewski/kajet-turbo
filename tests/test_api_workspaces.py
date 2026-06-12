@@ -239,6 +239,7 @@ def test_update_note_title_renames_file(auth_client):
 
 def test_update_note_folder_moves_file(auth_client):
     _client, note_svc, ws_path = auth_client
+    (Path(ws_path) / "Archiwum").mkdir()
     note_id = note_svc.save("u1", "test-ws", ws_path, "Przenoszona", "content", [])["note_id"]
 
     note_svc.update(note_id, owner_id="u1", ws_path=ws_path, folder="Archiwum")
@@ -389,9 +390,9 @@ def test_list_folders_returns_distinct_folders(auth_client):
     note_svc.save("u1", "test-ws", ws_path, "N3", "c", [], folder="notes")
     note_svc.save("u1", "test-ws", ws_path, "N4", "c", [])  # root — no folder
 
-    folders = note_svc.list_folders("test-ws", "u1")
+    folders = note_svc.list_folders(ws_path)
 
-    assert sorted(folders) == ["docs", "docs/guide", "notes"]
+    assert sorted(folders) == ["", "docs", "docs/guide", "notes"]
 
 
 def test_list_notes_includes_size_bytes(auth_client):
@@ -602,6 +603,78 @@ def test_update_note_title(auth_client):
     assert resp.status_code == 200
     updated = note_svc.get(note_id, owner_id="u1")
     assert updated["title"] == "New Title"
+
+
+def test_move_note_to_existing_folder(auth_client):
+    client, note_svc, ws_path = auth_client
+    (Path(ws_path) / "archive").mkdir()
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Move me", "c", [])["note_id"]
+
+    resp = client.post(
+        f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": "archive"}
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"note_id": note_id, "folder": "archive"}
+    assert (Path(ws_path) / "archive" / "Move me.md").exists()
+
+
+def test_move_note_to_root(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save(
+        "u1", "test-ws", ws_path, "Move me", "c", [], folder="docs"
+    )["note_id"]
+
+    resp = client.post(f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": ""})
+
+    assert resp.status_code == 200
+    assert (Path(ws_path) / "Move me.md").exists()
+
+
+def test_move_note_creates_missing_folder_path(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Move me", "c", [])["note_id"]
+
+    resp = client.post(
+        f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": "new/nested"}
+    )
+
+    assert resp.status_code == 200
+    assert (Path(ws_path) / "new" / "nested" / "Move me.md").exists()
+
+
+def test_move_note_collision_returns_409(auth_client):
+    client, note_svc, ws_path = auth_client
+    (Path(ws_path) / "archive").mkdir()
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Same", "source", [])["note_id"]
+    note_svc.save("u1", "test-ws", ws_path, "Same", "destination", [], folder="archive")
+
+    resp = client.post(
+        f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": "archive"}
+    )
+
+    assert resp.status_code == 409
+
+
+def test_move_note_invalid_path_returns_422(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Move me", "c", [])["note_id"]
+
+    resp = client.post(
+        f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": "../outside"}
+    )
+
+    assert resp.status_code == 422
+
+
+def test_move_note_returns_401_when_anon(anon_client):
+    resp = anon_client.post("/api/workspaces/test-ws/notes/abc/move", json={"folder": ""})
+    assert resp.status_code == 401
+
+
+def test_move_note_returns_403_when_no_access(no_access_client):
+    resp = no_access_client.post("/api/workspaces/test-ws/notes/abc/move", json={"folder": ""})
+    assert resp.status_code == 403
 
 
 def test_update_note_not_found_returns_404(auth_client):

@@ -5,7 +5,7 @@
     apiCreateNoteApiWorkspacesNameNotesPost,
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
-  import { noteEditPath, notesPath } from '$lib/routes';
+  import { noteEditPath, noteInTreePath, notesPath } from '$lib/routes';
   import FolderTree from './FolderTree.svelte';
   import NotesList from './NotesList.svelte';
   import NotePreview from './NotePreview.svelte';
@@ -38,6 +38,12 @@
     await invalidate('app:workspace-tree');
     goto(noteEditPath(slug, noteId));
   }
+
+  async function handleMoveNote(folder: string): Promise<void> {
+    if (!data.noteId) return;
+    await invalidate('app:workspace-tree');
+    goto(noteInTreePath(slug, folder, data.noteId));
+  }
 </script>
 
 <div class="explorer">
@@ -61,7 +67,7 @@
   </section>
 
   <section class="explorer__preview">
-    <NotePreview note={data.note} {slug} />
+    <NotePreview note={data.note} {slug} onmoved={handleMoveNote} />
   </section>
 </div>
 

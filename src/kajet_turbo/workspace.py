@@ -12,6 +12,10 @@ _WINDOWS_FORBIDDEN = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 _WINDOWS_RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", re.IGNORECASE)
 
 
+class InvalidFolderError(ValueError):
+    pass
+
+
 def title_to_windows_filename(title: str) -> str:
     result = _WINDOWS_FORBIDDEN.sub(" ", title)
     result = re.sub(r" +", " ", result)
@@ -32,6 +36,22 @@ def normalize_folder(folder: str) -> str:
         if part == "..":
             raise ValueError("Invalid folder: '..' not allowed")
     return "/".join(title_to_windows_filename(p) for p in parts)
+
+
+def list_workspace_folders(workspace_path: str) -> list[str]:
+    """List visible workspace folders from disk. Root is represented by an empty string."""
+    root = Path(workspace_path).resolve()
+    if not root.is_dir():
+        return [""]
+    folders = [""]
+    for path in root.rglob("*"):
+        if not path.is_dir():
+            continue
+        parts = path.relative_to(root).parts
+        if any(part.startswith(".") for part in parts):
+            continue
+        folders.append("/".join(parts))
+    return sorted(folders)
 
 
 def workspace_path(name: str, workspaces_dir: str | None = None, user_id: str | None = None) -> str:

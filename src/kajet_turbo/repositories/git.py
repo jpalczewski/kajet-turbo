@@ -73,9 +73,13 @@ class GitRepository:
 
     def rename_file(self, old_rel: str, new_rel: str, message: str) -> None:
         with _repo_lock(self._workspace_path):
+            old_full = Path(self._workspace_path, old_rel)
+            new_full = Path(self._workspace_path, new_rel)
             try:
-                old_full = Path(self._workspace_path, old_rel)
-                new_full = Path(self._workspace_path, new_rel)
+                if not old_full.exists():
+                    raise GitError(f"File not found: {old_rel}")
+                if new_full.exists():
+                    raise GitError(f"File already exists: {new_rel}")
                 new_full.parent.mkdir(parents=True, exist_ok=True)
                 old_full.rename(new_full)
                 porcelain.rm(self._workspace_path, paths=[old_rel])
@@ -89,6 +93,9 @@ class GitRepository:
             except GitError:
                 raise
             except Exception as e:
+                if new_full.exists() and not old_full.exists():
+                    old_full.parent.mkdir(parents=True, exist_ok=True)
+                    new_full.rename(old_full)
                 raise GitError(str(e)) from e
 
     def last_commit_time(self) -> int | None:
