@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Backend (Python, managed with **uv**):
 - Run server: `MCP_BASE_URL=http://localhost:8000 uv run kajet-turbo` (`MCP_BASE_URL` is required — used for OAuth redirect_uri)
-- Tests: `uv run pytest` (single test: `uv run pytest tests/test_services.py::test_name`)
+- Tests: `uv run pytest` (single test: `uv run pytest tests/services/test_notes.py::test_name`)
 - Lint/format: `uv run ruff check --fix . && uv run ruff format .`
 - Type check: `uv run ty check` (ty is pre-1.0; suppress false positives with `# ty: ignore[rule]` + reason)
 

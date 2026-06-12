@@ -43,7 +43,7 @@ dev = [
 exclude = ["alembic"]
 
 [tool.ty.environment]
-# tests/test_bench_report.py imports bench_report from scripts/ via sys.path.
+# tests/scripts/test_bench_report.py imports bench_report from scripts/ via sys.path.
 extra-paths = ["scripts"]
 
 [tool.ruff]

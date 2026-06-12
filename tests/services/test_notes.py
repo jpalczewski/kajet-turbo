@@ -2,26 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from kajet_turbo.db import Database
 from kajet_turbo.repositories.git import GitRepository
-from kajet_turbo.repositories.notes import NoteRepository
-from kajet_turbo.services.notes import NoteService
-
-
-@pytest.fixture
-def workspace(tmp_path):
-    ws = tmp_path / "ws"
-    ws.mkdir(parents=True)
-    GitRepository.init(str(ws))
-    return ws
-
-
-@pytest.fixture
-def service(tmp_path):
-    db = Database(str(tmp_path / "test.db"))
-    repo = NoteRepository(db.engine)
-    yield NoteService(repo)
-    db.close()
 
 
 def test_save_creates_file_and_db_record(service, workspace):
@@ -33,6 +14,20 @@ def test_save_creates_file_and_db_record(service, workspace):
     assert note is not None
     assert note.title == "Testowa notatka"
     assert note.owner_id == "u1"
+
+
+def test_save_in_root_does_not_create_notes_directory(service, workspace):
+    service.save("u1", "ws", str(workspace), "Root note", "content", [])
+
+    assert (workspace / "Root note.md").exists()
+    assert not (workspace / "notes").exists()
+
+
+def test_save_rejects_duplicate_title_in_same_folder(service, workspace):
+    service.save("u1", "ws", str(workspace), "Duplicate", "content", [], folder="docs")
+
+    with pytest.raises(ValueError):
+        service.save("u1", "ws", str(workspace), "Duplicate", "other", [], folder="docs")
 
 
 def test_save_git_error_rolls_back_file(service, workspace):
@@ -80,6 +75,15 @@ def test_update_git_error_reverts_file(service, workspace):
     assert note["content"] == "stara treść"
 
 
+def test_update_title_renames_file(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Old title", "content", [])["note_id"]
+
+    service.update(note_id, owner_id="u1", ws_path=str(workspace), title="New title")
+
+    assert not (workspace / "Old title.md").exists()
+    assert (workspace / "New title.md").exists()
+
+
 def test_move_note_to_existing_folder_preserves_updated_at(service, workspace):
     (workspace / "archive").mkdir()
     note_id = service.save("u1", "ws", str(workspace), "Move me", "content", [])["note_id"]
@@ -96,9 +100,9 @@ def test_move_note_to_existing_folder_preserves_updated_at(service, workspace):
 
 
 def test_move_note_to_root(service, workspace):
-    note_id = service.save(
-        "u1", "ws", str(workspace), "Move me", "content", [], folder="docs"
-    )["note_id"]
+    note_id = service.save("u1", "ws", str(workspace), "Move me", "content", [], folder="docs")[
+        "note_id"
+    ]
 
     service.move(note_id, owner_id="u1", ws_path=str(workspace), folder="")
 
@@ -160,6 +164,16 @@ def test_delete_raises_for_wrong_owner(service, workspace):
         service.delete(note_id, owner_id="u2", ws_path=str(workspace))
 
 
+def test_delete_removes_file_from_note_folder(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Delete me", "content", [], folder="trash")[
+        "note_id"
+    ]
+
+    service.delete(note_id, owner_id="u1", ws_path=str(workspace))
+
+    assert not (workspace / "trash" / "Delete me.md").exists()
+
+
 def test_list_scoped_by_owner(service, workspace):
     service.save("u1", "ws", str(workspace), "Notatka u1", "treść", [])
     service.save("u2", "ws", str(workspace), "Notatka u2", "treść", [])
@@ -198,6 +212,15 @@ def test_reindex_rebuilds_fts(service, workspace):
     assert result["count"] == 1
     found = service._repo.search_fts("Zewnętrzna", "ws", owner_id="u1")
     assert any(n["note_id"] == "ext001" for n in found)
+
+
+def test_reindex_finds_notes_in_subfolders(service, workspace, note_file_factory):
+    note_file_factory(workspace, "Root note", note_id="root-id")
+    note_file_factory(workspace, "Nested note", note_id="nested-id", folder="docs")
+
+    result = service.reindex("ws", owner_id="u1", ws_path=str(workspace))
+
+    assert result["count"] == 2
 
 
 def test_get_history_returns_commits(service, workspace):

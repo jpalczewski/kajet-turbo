@@ -9,10 +9,8 @@ from kajet_turbo.repositories.notes import NoteRepository
 
 
 @pytest.fixture
-def db(tmp_path):
-    d = Database(str(tmp_path / "test.db"))
-    yield d
-    d.close()
+def db(database: Database) -> Database:
+    return database
 
 
 @pytest.fixture
@@ -180,14 +178,8 @@ def _fake_embedding(val: float, dim: int = 4) -> bytes:
 
 
 @pytest.fixture
-def db_small_dim(tmp_path):
-    import os
-
-    os.environ["EMBEDDING_DIM"] = "4"
-    d = Database(str(tmp_path / "test_vec.db"))
-    yield d
-    d.close()
-    del os.environ["EMBEDDING_DIM"]
+def db_small_dim(database_factory):
+    return database_factory("test-vec.db", embedding_dim=4)
 
 
 def test_insert_vec_and_search(db_small_dim):

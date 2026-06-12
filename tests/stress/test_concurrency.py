@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from kajet_turbo.db import Database
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes import NoteService
@@ -16,13 +15,12 @@ OWNER = "user-stress"
 
 
 @pytest.fixture()
-def svc(tmp_path):
+def svc(tmp_path, database_factory):
     from kajet_turbo.cache import WorkspaceCache
 
-    db = Database(db_path=str(tmp_path / "stress.db"))
+    db = database_factory("stress.db")
     service = NoteService(NoteRepository(db.engine), cache=WorkspaceCache())
-    yield service, str(tmp_path / "ws")
-    db.close()
+    return service, str(tmp_path / "ws")
 
 
 def test_parallel_save_search_history(svc, tmp_path):

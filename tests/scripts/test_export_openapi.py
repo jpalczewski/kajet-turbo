@@ -2,7 +2,7 @@ import json
 import subprocess
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parents[2]
 
 
 def test_export_openapi_creates_valid_schema(tmp_path):

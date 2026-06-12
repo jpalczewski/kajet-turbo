@@ -21,11 +21,8 @@ def workspaces_dir(tmp_path):
 
 
 @pytest.fixture
-def workspace(workspaces_dir):
-    ws = workspaces_dir / "moj-projekt"
-    ws.mkdir(parents=True)
-    GitRepository.init(str(ws))
-    return ws
+def workspace(git_workspace_factory):
+    return git_workspace_factory("workspaces/moj-projekt")
 
 
 def test_list_workspaces(workspace, workspaces_dir):
