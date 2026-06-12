@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { notesPath, workspacesPath } from '$lib/routes';
+
   let { slug, workspaces = [] }: { slug?: string; workspaces: string[] } = $props();
   let open = $state(false);
 </script>
@@ -11,9 +13,9 @@
     </button>
     {#if open}
       <div class="workspace-picker__dropdown">
-        {#each workspaces as ws}
+        {#each workspaces as ws (ws)}
           <a
-            href="/workspace/{ws}/notes"
+            href={notesPath(ws)}
             onclick={() => (open = false)}
             class="workspace-picker__item"
             class:workspace-picker__item--active={ws === slug}
@@ -24,14 +26,16 @@
         {#if workspaces.length > 0}
           <div class="workspace-picker__divider"></div>
         {/if}
-        <a href="/workspaces" onclick={() => (open = false)} class="workspace-picker__manage">
+        <a href={workspacesPath()} onclick={() => (open = false)} class="workspace-picker__manage">
           Zarządzaj workspaceami
         </a>
       </div>
     {/if}
   </div>
 {:else}
-  <a href="/workspaces" class="workspace-picker workspace-picker--empty"> Wybierz workspace ▾ </a>
+  <a href={workspacesPath()} class="workspace-picker workspace-picker--empty">
+    Wybierz workspace ▾
+  </a>
 {/if}
 
 <style lang="scss">

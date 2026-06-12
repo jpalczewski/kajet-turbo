@@ -1,17 +1,11 @@
-import { error, redirect } from '@sveltejs/kit';
 import { apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet } from '$lib/api';
+import { loadApi } from '$lib/api/load';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ params }) => {
-  const result = await apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet(params.slug, params.id, {
-    credentials: 'include',
-  }).catch(() => null);
-
-  const status = result?.status as number | undefined;
-  if (status === 401) redirect(307, '/login');
-  if (status === 403 || status === 404) error(404, 'Notatka nie istnieje.');
-  if (!result || status !== 200) error(500, 'Błąd serwera.');
-
-  const note = result.data as any;
-  return { note };
+  const result = await loadApi(
+    apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet(params.slug, params.id),
+    'Notatka nie istnieje.',
+  );
+  return { note: result.data };
 };

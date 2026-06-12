@@ -1,42 +1,10 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { invalidate } from '$app/navigation';
-  import { apiCreateWorkspaceApiWorkspacesPost } from '$lib/api';
-  import type { WorkspaceInfo } from '$lib/api';
+  import { notesPath } from '$lib/routes';
+  import { formatUnixDate } from '$lib/utils/format';
+  import CreateWorkspaceForm from './CreateWorkspaceForm.svelte';
 
-  let workspaces = $derived((page.data.workspaces ?? []) as unknown as WorkspaceInfo[]);
-  let name = $state('');
-  let error = $state('');
-  let creating = $state(false);
-
-  function formatDate(ts: number | null): string {
-    if (!ts) return '';
-    return new Date(ts * 1000).toLocaleDateString('pl-PL', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
-  }
-
-  async function create(e: SubmitEvent) {
-    e.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    creating = true;
-    error = '';
-    try {
-      await apiCreateWorkspaceApiWorkspacesPost({
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmed }),
-      });
-      name = '';
-      await invalidate('app:workspaces');
-    } catch {
-      error = 'Błąd sieci. Spróbuj ponownie.';
-    } finally {
-      creating = false;
-    }
-  }
+  let workspaces = $derived(page.data.workspaces ?? []);
 </script>
 
 <main class="page">
@@ -45,34 +13,15 @@
     <span class="page__count">{workspaces.length}</span>
   </header>
 
-  <form onsubmit={create} class="create-form">
-    {#if error}<p class="create-form__error">{error}</p>{/if}
-    <div class="create-form__row">
-      <input
-        type="text"
-        bind:value={name}
-        placeholder="nazwa-workspace"
-        autocomplete="off"
-        spellcheck="false"
-        disabled={creating}
-      />
-      <button
-        type="submit"
-        disabled={creating || !name.trim()}
-        class="btn-primary create-form__btn"
-      >
-        {creating ? '…' : '+ Nowy'}
-      </button>
-    </div>
-  </form>
+  <CreateWorkspaceForm />
 
   {#if workspaces.length === 0}
     <p class="empty">Brak workspace'ów. Utwórz pierwszy powyżej.</p>
   {:else}
     <ul class="ws-list">
-      {#each workspaces as ws}
+      {#each workspaces as ws (ws.name)}
         <li class="ws-card">
-          <a href="/workspace/{ws.name}/notes" class="ws-card__link">
+          <a href={notesPath(ws.name)} class="ws-card__link">
             <span class="ws-card__name">{ws.name}</span>
             <span class="ws-card__meta">
               <span class="ws-card__count"
@@ -81,7 +30,7 @@
               >
               {#if ws.last_commit_at}
                 <span class="ws-card__sep">·</span>
-                <span class="ws-card__date">{formatDate(ws.last_commit_at)}</span>
+                <span class="ws-card__date">{formatUnixDate(ws.last_commit_at)}</span>
               {/if}
             </span>
             <span class="ws-card__arrow">→</span>
@@ -125,55 +74,6 @@
     border: 1px solid v.$border;
     border-radius: v.$radius-sm;
     padding: 2px 8px;
-  }
-
-  .create-form {
-    margin-bottom: v.$space-xl;
-
-    &__error {
-      font-size: 0.8rem;
-      font-family: v.$font-mono;
-      color: v.$error;
-      margin-bottom: v.$space-sm;
-    }
-
-    &__row {
-      display: flex;
-      gap: v.$space-sm;
-
-      input {
-        flex: 1;
-        padding: 9px 12px;
-        background: v.$bg-surface;
-        border: 1px solid v.$border;
-        border-radius: v.$radius-md;
-        color: v.$text-primary;
-        font-size: 0.9rem;
-        font-family: v.$font-mono;
-        transition:
-          border-color 0.15s,
-          box-shadow 0.15s;
-
-        &:focus {
-          outline: none;
-          border-color: v.$accent;
-          box-shadow: 0 0 0 2px rgba(240, 184, 0, 0.12);
-        }
-
-        &::placeholder {
-          color: v.$text-muted;
-        }
-        &:disabled {
-          opacity: 0.5;
-        }
-      }
-    }
-
-    &__btn {
-      width: auto;
-      padding: 9px 18px;
-      white-space: nowrap;
-    }
   }
 
   .empty {

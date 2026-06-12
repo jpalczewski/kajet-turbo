@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { NoteHtmlResponse } from '$lib/api';
+  import Prose from '$lib/components/Prose.svelte';
+  import { noteHistoryPath, notePath } from '$lib/routes';
 
   let {
     note,
@@ -15,21 +17,18 @@
     <div class="preview__header">
       <span class="preview__path">{note.folder ? note.folder + '/' : ''}{note.title}</span>
       <div class="preview__actions">
-        <a
-          href="/workspace/{slug}/note/{note.note_id}/history"
-          class="preview__action-link"
-          title="Historia">Historia</a
+        <a href={noteHistoryPath(slug, note.note_id)} class="preview__action-link" title="Historia"
+          >Historia</a
         >
         <a
-          href="/workspace/{slug}/note/{note.note_id}"
+          href={notePath(slug, note.note_id)}
           class="preview__action-link preview__action-link--primary"
           title="Otwórz pełny widok">↗</a
         >
       </div>
     </div>
-    <div class="preview__body prose">
-      <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-      {@html note.content_html}
+    <div class="preview__body">
+      <Prose html={note.content_html} />
     </div>
   {:else}
     <div class="preview__empty">

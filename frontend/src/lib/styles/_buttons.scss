@@ -53,3 +53,55 @@
     width: auto;
   }
 }
+
+// Editor button system (used by note edit/history pages) - visually distinct
+// from .btn-primary/.btn-ghost above; do not merge.
+.btn {
+  font-family: v.$font-mono;
+  font-size: 0.8rem;
+  padding: v.$space-sm v.$space-lg;
+  border-radius: v.$radius-sm;
+  border: 1px solid v.$border;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+
+  &--primary {
+    background: v.$accent-dark;
+    color: v.$bg-deep;
+    border-color: v.$accent-dark;
+
+    &:hover:not(:disabled) {
+      background: v.$accent;
+      border-color: v.$accent;
+    }
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+
+  &--secondary {
+    background: none;
+    color: v.$text-secondary;
+
+    &:hover {
+      color: v.$text-primary;
+      background: rgba(255, 255, 255, 0.04);
+    }
+  }
+
+  &--danger {
+    background: none;
+    color: #c0392b;
+    border-color: transparent;
+    margin-left: auto;
+
+    &:hover {
+      background: rgba(192, 57, 43, 0.1);
+    }
+  }
+}

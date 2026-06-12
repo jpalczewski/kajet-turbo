@@ -1,5 +1,10 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { SvelteSet } from 'svelte/reactivity';
+  import { notesPath } from '$lib/routes';
+  import InlineCreateInput from './InlineCreateInput.svelte';
+  import { ancestors, buildTree } from './tree';
+  import type { TreeNode } from './tree';
 
   let {
     folders,
@@ -13,81 +18,46 @@
     onCreateFolder: (path: string) => Promise<void>;
   } = $props();
 
-  type TreeNode = { name: string; fullPath: string; children: TreeNode[] };
-
-  function buildTree(paths: string[]): TreeNode[] {
-    const root: TreeNode[] = [];
-    const map = new Map<string, TreeNode>();
-    for (const path of [...paths].sort()) {
-      const parts = path.split('/');
-      const name = parts.at(-1)!;
-      const node: TreeNode = { name, fullPath: path, children: [] };
-      map.set(path, node);
-      const parentPath = parts.slice(0, -1).join('/');
-      if (parentPath && map.has(parentPath)) {
-        map.get(parentPath)!.children.push(node);
-      } else {
-        root.push(node);
-      }
-    }
-    return root;
-  }
-
   let tree = $derived(buildTree(folders));
-  let expandedOverride = $state<Set<string> | null>(null);
-  let expanded = $derived(
-    expandedOverride ??
-      new Set<string>(
-        currentFolder
-          ? currentFolder.split('/').map((_, i, arr) => arr.slice(0, i + 1).join('/'))
-          : [],
-      ),
-  );
+
+  // Auto-expand ancestors of the current folder on mount and on every
+  // navigation; manual expand/collapse state is kept otherwise (never
+  // auto-collapsed).
+  const expanded = new SvelteSet<string>();
+  $effect(() => {
+    for (const path of ancestors(currentFolder)) expanded.add(path);
+  });
 
   function toggle(path: string) {
-    const next = new Set(expanded);
-    next.has(path) ? next.delete(path) : next.add(path);
-    expandedOverride = next;
+    if (expanded.has(path)) {
+      expanded.delete(path);
+    } else {
+      expanded.add(path);
+    }
   }
 
   function navigate(folder: string) {
-    goto(`/workspace/${slug}/notes/${folder}`);
+    goto(notesPath(slug, folder));
   }
 
   let creatingIn: string | null = $state(null);
-  let newFolderInput = $state('');
-  let createError = $state('');
 
   function startCreating() {
     creatingIn = currentFolder;
-    newFolderInput = '';
-    createError = '';
-    if (currentFolder) {
-      const next = new Set(expanded);
-      currentFolder.split('/').forEach((_, i, arr) => next.add(arr.slice(0, i + 1).join('/')));
-      expandedOverride = next;
-    }
+    for (const path of ancestors(currentFolder)) expanded.add(path);
   }
 
-  async function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      creatingIn = null;
-      return;
-    }
-    if (e.key !== 'Enter') return;
-    const name = newFolderInput.trim();
-    if (!name) return;
+  function validateFolderName(name: string): string | null {
     if (!/^[a-zA-Z0-9._-][a-zA-Z0-9._\-/]*$/.test(name)) {
-      createError = 'Tylko litery, cyfry, kropka, myślnik, ukośnik';
-      return;
+      return 'Tylko litery, cyfry, kropka, myślnik, ukośnik';
     }
-    const fullPath = creatingIn ? `${creatingIn}/${name}` : name;
-    try {
-      await onCreateFolder(fullPath);
-      creatingIn = null;
-    } catch (err: unknown) {
-      createError = err instanceof Error ? err.message : 'Błąd';
-    }
+    return null;
+  }
+
+  async function submitCreate(parentPath: string, name: string) {
+    const fullPath = parentPath ? `${parentPath}/${name}` : name;
+    await onCreateFolder(fullPath);
+    creatingIn = null;
   }
 </script>
 
@@ -95,18 +65,16 @@
   {#if creatingIn === parentPath}
     <li class="new-folder-row">
       <span class="folder-chevron"></span>
-      <input
-        class="new-folder-input"
-        class:new-folder-input--error={!!createError}
-        bind:value={newFolderInput}
-        onkeydown={handleKeydown}
-        placeholder="nazwa-folderu"
-        autofocus
-      />
+      <div class="new-folder-box">
+        <InlineCreateInput
+          variant="tree"
+          placeholder="nazwa-folderu"
+          validate={validateFolderName}
+          onsubmit={(name) => submitCreate(parentPath, name)}
+          oncancel={() => (creatingIn = null)}
+        />
+      </div>
     </li>
-    {#if createError}
-      <li class="new-folder-error">{createError}</li>
-    {/if}
   {/if}
 {/snippet}
 
@@ -125,7 +93,7 @@
     </button>
     {#if expanded.has(n.fullPath)}
       <ul class="subtree">
-        {#each n.children as child}
+        {#each n.children as child (child.fullPath)}
           {@render node(child)}
         {/each}
         {@render inlineInput(n.fullPath)}
@@ -146,7 +114,7 @@
     <button class="create-btn" onclick={startCreating} title="Nowy folder">+</button>
   </div>
   <ul class="tree-root">
-    {#each tree as n}
+    {#each tree as n (n.fullPath)}
       {@render node(n)}
     {/each}
     {@render inlineInput('')}
@@ -235,31 +203,14 @@
 
   .new-folder-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 4px;
     padding: 3px 12px;
   }
 
-  .new-folder-input {
-    background: v.$bg-raised;
-    border: 1px solid v.$accent;
-    color: v.$text-primary;
-    font-family: v.$font-mono;
-    font-size: 0.82rem;
-    padding: 1px 5px;
-    outline: none;
-    border-radius: v.$radius-sm;
-    width: 120px;
-
-    &--error {
-      border-color: v.$error;
-    }
-  }
-
-  .new-folder-error {
-    font-family: v.$font-mono;
-    font-size: 0.72rem;
-    color: v.$error;
-    padding: 1px 12px 3px 22px;
+  .new-folder-box {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
 </style>

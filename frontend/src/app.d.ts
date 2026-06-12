@@ -1,10 +1,10 @@
-import type { NoteItem } from '$lib/types';
+import type { NoteItem, WorkspaceInfo } from '$lib/api';
 
 declare global {
   namespace App {
     interface PageData {
       session: { email: string } | null;
-      workspaces?: string[];
+      workspaces?: WorkspaceInfo[];
       notes?: NoteItem[];
     }
   }

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { settingsPath } from '$lib/routes';
+
   let { email, onLogout }: { email: string; onLogout: () => void } = $props();
   let open = $state(false);
 
@@ -20,7 +22,7 @@
   </button>
   {#if open}
     <div class="user-menu__dropdown">
-      <a href="/settings" onclick={close} class="user-menu__item">Ustawienia instancji</a>
+      <a href={settingsPath()} onclick={close} class="user-menu__item">Ustawienia instancji</a>
       <button
         onclick={() => {
           close();

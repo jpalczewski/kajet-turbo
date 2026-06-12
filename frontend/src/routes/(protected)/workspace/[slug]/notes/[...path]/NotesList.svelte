@@ -1,6 +1,9 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import type { NoteItem } from '$lib/api';
+  import { noteInTreePath } from '$lib/routes';
+  import { formatDate, formatSize } from '$lib/utils/format';
+  import InlineCreateInput from './InlineCreateInput.svelte';
 
   let {
     notes,
@@ -16,77 +19,31 @@
     onCreateNote: (title: string) => Promise<void>;
   } = $props();
 
-  function formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
-  function formatDate(iso: string): string {
-    if (!iso) return '';
-    return new Date(iso).toLocaleDateString('pl-PL', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
-  }
-
   function openNote(noteId: string) {
-    const base = folderPath ? `/workspace/${slug}/notes/${folderPath}` : `/workspace/${slug}/notes`;
-    goto(`${base}/${noteId}`);
+    goto(noteInTreePath(slug, folderPath, noteId));
   }
 
   let creating = $state(false);
-  let newNoteTitle = $state('');
-  let createError = $state('');
-
-  function startCreating() {
-    creating = true;
-    newNoteTitle = '';
-    createError = '';
-  }
-
-  async function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      creating = false;
-      newNoteTitle = '';
-      createError = '';
-      return;
-    }
-    if (e.key !== 'Enter') return;
-    const title = newNoteTitle.trim();
-    if (!title) return;
-    try {
-      await onCreateNote(title);
-      creating = false;
-      newNoteTitle = '';
-      createError = '';
-    } catch (err: unknown) {
-      createError = err instanceof Error ? err.message : 'Błąd';
-    }
-  }
 </script>
 
 <div class="notes-list">
   <div class="notes-list__header">
     <span class="notes-list__path">{folderPath || slug}/</span>
     <span class="notes-list__count">{notes.length}</span>
-    <button class="create-btn" onclick={startCreating} title="Nowa notatka">+</button>
+    <button class="create-btn" onclick={() => (creating = true)} title="Nowa notatka">+</button>
   </div>
 
   {#if creating}
     <div class="new-note-row">
-      <input
-        class="new-note-input"
-        class:new-note-input--error={!!createError}
-        bind:value={newNoteTitle}
-        onkeydown={handleKeydown}
+      <InlineCreateInput
+        variant="list"
         placeholder="tytuł-notatki"
-        autofocus
+        onsubmit={async (title) => {
+          await onCreateNote(title);
+          creating = false;
+        }}
+        oncancel={() => (creating = false)}
       />
-      {#if createError}
-        <span class="new-note-error">{createError}</span>
-      {/if}
     </div>
   {/if}
 
@@ -94,7 +51,7 @@
     <p class="notes-list__empty">Brak notatek.</p>
   {:else}
     <ul>
-      {#each notes as note}
+      {#each notes as note (note.note_id)}
         <li>
           <button
             class="note-row"
@@ -189,32 +146,6 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-  }
-
-  .new-note-input {
-    width: 100%;
-    background: v.$bg-raised;
-    border: 1px solid v.$border;
-    border-radius: v.$radius-sm;
-    color: v.$text-primary;
-    font-family: v.$font-mono;
-    font-size: 0.82rem;
-    padding: 4px 8px;
-    outline: none;
-    box-sizing: border-box;
-
-    &:focus {
-      border-color: v.$accent-dark;
-    }
-    &--error {
-      border-color: #c0392b;
-    }
-  }
-
-  .new-note-error {
-    font-family: v.$font-mono;
-    font-size: 0.72rem;
-    color: #c0392b;
   }
 
   .note-row {

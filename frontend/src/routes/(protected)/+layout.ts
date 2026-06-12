@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { apiListWorkspacesApiWorkspacesGet } from '$lib/api';
 import type { WorkspaceInfo } from '$lib/api';
+import { loginPath } from '$lib/routes';
 import type { LayoutLoad } from './$types';
 
 export const load: LayoutLoad = async ({ parent, depends }) => {
@@ -9,7 +10,7 @@ export const load: LayoutLoad = async ({ parent, depends }) => {
     parent(),
     apiListWorkspacesApiWorkspacesGet().catch(() => null),
   ]);
-  if (!session) redirect(307, '/login');
+  if (!session) redirect(307, loginPath());
   const workspaces: WorkspaceInfo[] = result?.data.workspaces ?? [];
   return { workspaces };
 };

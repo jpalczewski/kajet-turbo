@@ -1,4 +1,5 @@
 import { redirect } from '@sveltejs/kit';
+import { loginPath, workspacesPath } from '$lib/routes';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ params, fetch, depends }) => {
@@ -35,8 +36,8 @@ export const load: PageLoad = async ({ params, fetch, depends }) => {
       : Promise.resolve(null),
   ]);
 
-  if (lsResult?.status === 401) redirect(307, '/login');
-  if (lsResult?.status === 403) redirect(307, '/workspaces');
+  if (lsResult?.status === 401) redirect(307, loginPath());
+  if (lsResult?.status === 403) redirect(307, workspacesPath());
 
   const isFolder = lsResult?.ok ?? true;
   const folderPath = isFolder ? fullPath : parentPath;

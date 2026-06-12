@@ -1,5 +1,11 @@
 <script lang="ts">
   import { invalidate, goto } from '$app/navigation';
+  import {
+    apiCreateFolderApiWorkspacesNameFoldersPost,
+    apiCreateNoteApiWorkspacesNameNotesPost,
+  } from '$lib/api';
+  import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
+  import { noteEditPath, notesPath } from '$lib/routes';
   import FolderTree from './FolderTree.svelte';
   import NotesList from './NotesList.svelte';
   import NotePreview from './NotePreview.svelte';
@@ -8,34 +14,29 @@
   let slug = $derived(data.slug);
 
   async function handleCreateFolder(path: string): Promise<void> {
-    const resp = await fetch(`/api/workspaces/${slug}/folders`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ path }),
-    });
-    if (!resp.ok) {
-      const body = await resp.json().catch(() => ({}));
-      throw new Error(body.error ?? 'Nie udało się utworzyć folderu');
+    try {
+      await apiCreateFolderApiWorkspacesNameFoldersPost(slug, jsonBody({ path }));
+    } catch (e) {
+      throw new Error(apiErrorMessage(e, 'Nie udało się utworzyć folderu'), { cause: e });
     }
     await invalidate('app:workspace-tree');
-    goto(`/workspace/${slug}/notes/${path}`);
+    goto(notesPath(slug, path));
   }
 
   async function handleCreateNote(title: string): Promise<void> {
-    const resp = await fetch(`/api/workspaces/${slug}/notes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ title, folder: data.folderPath, content: '' }),
-    });
-    if (!resp.ok) {
-      const body = await resp.json().catch(() => ({}));
-      throw new Error(body.error ?? 'Nie udało się utworzyć notatki');
+    let noteId: string;
+    try {
+      const result = await apiCreateNoteApiWorkspacesNameNotesPost(
+        slug,
+        jsonBody({ title, folder: data.folderPath, content: '' }),
+      );
+      if (result.status !== 201) throw new Error();
+      noteId = result.data.note_id;
+    } catch (e) {
+      throw new Error(apiErrorMessage(e, 'Nie udało się utworzyć notatki'), { cause: e });
     }
-    const { note_id } = await resp.json();
     await invalidate('app:workspace-tree');
-    goto(`/workspace/${slug}/note/${note_id}/edit`);
+    goto(noteEditPath(slug, noteId));
   }
 </script>
 

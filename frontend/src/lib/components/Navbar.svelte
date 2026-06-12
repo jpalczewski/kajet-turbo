@@ -2,6 +2,7 @@
   import { page } from '$app/state';
   import { goto, invalidate } from '$app/navigation';
   import { apiSessionDeleteApiSessionDelete } from '$lib/api';
+  import { homePath, notesPath } from '$lib/routes';
   import WorkspacePicker from './WorkspacePicker.svelte';
   import UserMenu from './UserMenu.svelte';
 
@@ -12,22 +13,18 @@
   async function handleLogout() {
     await apiSessionDeleteApiSessionDelete({ credentials: 'include' });
     await invalidate('app:session');
-    await goto('/');
+    await goto(homePath());
   }
 </script>
 
 <nav class="navbar">
-  <a href="/" class="navbar__logo">kajet-turbo</a>
+  <a href={homePath()} class="navbar__logo">kajet-turbo</a>
 
   {#if page.data.session}
     <div class="navbar__center">
-      <WorkspacePicker {slug} workspaces={(page.data.workspaces ?? []).map((w: any) => w.name)} />
+      <WorkspacePicker {slug} workspaces={(page.data.workspaces ?? []).map((w) => w.name)} />
       {#if slug}
-        <a
-          href="/workspace/{slug}/notes"
-          class="navbar__link"
-          class:navbar__link--active={notesActive}
-        >
+        <a href={notesPath(slug)} class="navbar__link" class:navbar__link--active={notesActive}>
           Notes
         </a>
       {/if}

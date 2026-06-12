@@ -1,5 +1,12 @@
 <script lang="ts">
   import { goto, invalidate } from '$app/navigation';
+  import {
+    apiDeleteNoteApiWorkspacesNameNotesNoteIdDelete,
+    apiUpdateNoteApiWorkspacesNameNotesNoteIdPatch,
+  } from '$lib/api';
+  import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import { notePath, notesPath } from '$lib/routes';
 
   let { data } = $props();
   let note = $derived(data.note);
@@ -9,8 +16,8 @@
   let content = $state('');
 
   $effect(() => {
-    title = data.note.title as string;
-    content = (data.note.content as string) ?? '';
+    title = data.note.title;
+    content = data.note.content ?? '';
   });
   let saveError = $state('');
   let saving = $state(false);
@@ -19,19 +26,15 @@
     saving = true;
     saveError = '';
     try {
-      const resp = await fetch(`/api/workspaces/${slug}/notes/${note.note_id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ title: title.trim(), content }),
-      });
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        saveError = body.error ?? 'Nie udało się zapisać';
-        return;
-      }
+      await apiUpdateNoteApiWorkspacesNameNotesNoteIdPatch(
+        slug,
+        note.note_id,
+        jsonBody({ title: title.trim(), content }),
+      );
       await invalidate('app:workspace-tree');
-      goto(`/workspace/${slug}/note/${note.note_id}`);
+      goto(notePath(slug, note.note_id));
+    } catch (e) {
+      saveError = apiErrorMessage(e, 'Nie udało się zapisać');
     } finally {
       saving = false;
     }
@@ -39,39 +42,23 @@
 
   async function handleDelete() {
     if (!window.confirm(`Usunąć notatkę "${note.title}"?`)) return;
-    const resp = await fetch(`/api/workspaces/${slug}/notes/${note.note_id}`, {
-      method: 'DELETE',
-      credentials: 'include',
-    });
-    if (!resp.ok) {
-      const body = await resp.json().catch(() => ({}));
-      saveError = body.error ?? 'Nie udało się usunąć';
+    try {
+      await apiDeleteNoteApiWorkspacesNameNotesNoteIdDelete(slug, note.note_id);
+    } catch (e) {
+      saveError = apiErrorMessage(e, 'Nie udało się usunąć');
       return;
     }
-    const folderPath = note.folder ?? '';
     await invalidate('app:workspace-tree');
-    goto(folderPath ? `/workspace/${slug}/notes/${folderPath}` : `/workspace/${slug}/notes`);
+    goto(notesPath(slug, note.folder ?? ''));
   }
 
   function handleCancel() {
-    goto(`/workspace/${slug}/note/${note.note_id}`);
+    goto(notePath(slug, note.note_id));
   }
 </script>
 
 <main class="page">
-  <nav class="breadcrumb">
-    <a href="/workspaces" class="breadcrumb__link">Workspaces</a>
-    <span class="breadcrumb__sep">/</span>
-    <a href="/workspace/{slug}/notes" class="breadcrumb__link">{slug}</a>
-    {#if note.folder}
-      {#each note.folder.split('/') as segment}
-        <span class="breadcrumb__sep">/</span>
-        <span class="breadcrumb__folder">{segment}</span>
-      {/each}
-    {/if}
-    <span class="breadcrumb__sep">/</span>
-    <span class="breadcrumb__current">edycja</span>
-  </nav>
+  <Breadcrumb {slug} folder={note.folder} current="edycja" />
 
   <div class="form">
     <input class="form__title" bind:value={title} placeholder="Tytuł notatki" />
@@ -99,43 +86,6 @@
     max-width: 800px;
     margin: 0 auto;
     padding: v.$space-2xl v.$space-lg;
-  }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: v.$space-xs;
-    margin-bottom: v.$space-xl;
-    font-size: 0.75rem;
-    font-family: v.$font-mono;
-
-    &__link {
-      color: v.$accent-dark;
-      text-decoration: none;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      transition: color 0.15s;
-
-      &:hover {
-        color: v.$accent;
-      }
-    }
-
-    &__sep {
-      color: v.$text-muted;
-    }
-
-    &__folder {
-      color: v.$text-muted;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    &__current {
-      color: v.$text-muted;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
   }
 
   .form {
@@ -190,56 +140,6 @@
       display: flex;
       gap: v.$space-sm;
       align-items: center;
-    }
-  }
-
-  .btn {
-    font-family: v.$font-mono;
-    font-size: 0.8rem;
-    padding: v.$space-sm v.$space-lg;
-    border-radius: v.$radius-sm;
-    border: 1px solid v.$border;
-    cursor: pointer;
-    transition:
-      background 0.15s,
-      color 0.15s;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-
-    &--primary {
-      background: v.$accent-dark;
-      color: v.$bg-deep;
-      border-color: v.$accent-dark;
-
-      &:hover:not(:disabled) {
-        background: v.$accent;
-        border-color: v.$accent;
-      }
-      &:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-    }
-
-    &--secondary {
-      background: none;
-      color: v.$text-secondary;
-
-      &:hover {
-        color: v.$text-primary;
-        background: rgba(255, 255, 255, 0.04);
-      }
-    }
-
-    &--danger {
-      background: none;
-      color: #c0392b;
-      border-color: transparent;
-      margin-left: auto;
-
-      &:hover {
-        background: rgba(192, 57, 43, 0.1);
-      }
     }
   }
 </style>

@@ -2,12 +2,13 @@
   import { page } from '$app/state';
   import { goto, invalidateAll } from '$app/navigation';
   import LoginForm from '$lib/components/LoginForm.svelte';
+  import { workspacesPath } from '$lib/routes';
 
   const serverUrl = typeof window !== 'undefined' ? window.location.origin : '';
 
   async function handleLoginSuccess(_result: { email: string; redirect_uri?: string | null }) {
     await invalidateAll();
-    await goto('/workspaces');
+    await goto(workspacesPath());
   }
 </script>
 
