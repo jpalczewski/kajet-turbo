@@ -16,8 +16,9 @@ OWNER = "user-stress"
 
 @pytest.fixture()
 def svc(tmp_path):
+    from kajet_turbo.cache import WorkspaceCache
     db = Database(db_path=str(tmp_path / "stress.db"))
-    service = NoteService(NoteRepository(db.engine))
+    service = NoteService(NoteRepository(db.engine), cache=WorkspaceCache())
     yield service, str(tmp_path / "ws")
     db.close()
 

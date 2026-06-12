@@ -6,6 +6,7 @@ from pathlib import Path
 import frontmatter
 from nanoid import generate
 
+from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.log import logger
 from kajet_turbo.repositories.notes import NoteRepository
@@ -13,8 +14,9 @@ from kajet_turbo.workspace import normalize_folder, note_filepath, read_note_fil
 
 
 class NoteService:
-    def __init__(self, note_repo: NoteRepository) -> None:
+    def __init__(self, note_repo: NoteRepository, cache: WorkspaceCache | None = None) -> None:
         self._repo = note_repo
+        self._cache = cache
 
     def save(
         self,
@@ -40,6 +42,8 @@ class NoteService:
             Path(filepath).unlink(missing_ok=True)
             raise
         self._repo.insert(note_id, ws_name, user_id, title, tags, now, now, content, folder)
+        if self._cache is not None:
+            self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
         return {"note_id": note_id}
 
@@ -129,6 +133,8 @@ class NoteService:
             note_id, owner_id=owner_id,
             title=new_title, content=new_content, tags=new_tags, updated_at=now, folder=new_folder,
         )
+        if self._cache is not None:
+            self._cache.bump(note.workspace, owner_id)
         logger.info("note_updated", note_id=note_id, folder=new_folder)
         return {"note_id": note_id}
 
@@ -141,6 +147,8 @@ class NoteService:
             relative = str(Path(filepath).relative_to(ws_path))
             GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
         self._repo.delete(note_id, owner_id=owner_id)
+        if self._cache is not None:
+            self._cache.bump(note.workspace, owner_id)
         logger.info("note_deleted", note_id=note_id)
 
     def list(
@@ -163,12 +171,21 @@ class NoteService:
         owner_id: str,
         limit: int = 10,
     ) -> list[dict]:
+        key = None
+        if self._cache is not None:
+            epochs = tuple(self._cache.epoch(ws, owner_id) for ws in workspaces)
+            key = ("search", owner_id, tuple(workspaces), epochs, query, limit)
+            cached = self._cache.get(key)
+            if cached is not None:
+                return cached
         per_ws_limit = limit * 3 if len(workspaces) > 1 else limit
         results = []
         for ws in workspaces:
             hits = self._repo.hybrid_search(query, ws, owner_id, limit=per_ws_limit)
             results.extend(hits)
         results = results[:limit]
+        if key is not None:
+            self._cache.put(key, results)
         logger.info("search_performed", query_len=len(query), results=len(results), ws_count=len(workspaces))
         return results
 
@@ -193,6 +210,8 @@ class NoteService:
                 note["content"] or "", folder,
             )
             count += 1
+        if self._cache is not None:
+            self._cache.bump(ws_name, owner_id)
         logger.info("reindex_complete", ws=ws_name, count=count,
                     duration_ms=round((time.monotonic() - start) * 1000))
         return {"message": f"Reindeksowano {count} notatek w workspace '{ws_name}'.", "count": count}
@@ -201,9 +220,19 @@ class NoteService:
         note = self._repo.get(note_id, owner_id=owner_id)
         if note is None:
             raise ValueError(f"Notatka {note_id} nie znaleziona.")
+        key = None
+        if self._cache is not None:
+            key = ("history", note_id, owner_id,
+                   self._cache.epoch(note.workspace, owner_id), limit)
+            cached = self._cache.get(key)
+            if cached is not None:
+                return cached
         filepath = note_filepath(ws_path, note.folder, note.title)
         relative = str(Path(filepath).relative_to(ws_path))
-        return GitRepository(ws_path).file_history(relative, limit=limit)
+        entries = GitRepository(ws_path).file_history(relative, limit=limit)
+        if key is not None:
+            self._cache.put(key, entries)
+        return entries
 
     def get_version(self, note_id: str, sha: str, owner_id: str, ws_path: str) -> dict:
         note = self._repo.get(note_id, owner_id=owner_id)

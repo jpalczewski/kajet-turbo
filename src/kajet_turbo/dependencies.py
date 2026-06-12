@@ -1,6 +1,7 @@
 from starlette.requests import Request
 
 from kajet_turbo.auth import KajetOAuthProvider, create_auth
+from kajet_turbo.cache import WorkspaceCache, cache_enabled
 from kajet_turbo.db import Database
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
@@ -18,7 +19,7 @@ workspace_repo = WorkspaceRepository(db.engine)
 oauth_repo = OAuthRepository(db.engine)
 provider: KajetOAuthProvider = create_auth(oauth_repo)
 
-note_service = NoteService(note_repo)
+note_service = NoteService(note_repo, cache=WorkspaceCache() if cache_enabled() else None)
 workspace_service = WorkspaceService(workspace_repo, note_repo)
 
 
