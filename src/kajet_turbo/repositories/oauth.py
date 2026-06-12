@@ -28,6 +28,13 @@ class OAuthRepository:
             rows = session.exec(select(OAuthRegisteredClient)).all()
         return [r.data for r in rows]
 
+    def get_registered_client(self, client_id: str) -> str | None:
+        with Session(self._engine) as session:
+            row = session.exec(
+                select(OAuthRegisteredClient).where(OAuthRegisteredClient.client_id == client_id)
+            ).first()
+        return row.data if row else None
+
     def record_client_authorization(self, client_id: str, user_id: str) -> None:
         with Session(self._engine) as session:
             session.execute(  # ty: ignore[deprecated] - raw SQL
@@ -117,6 +124,88 @@ class OAuthRepository:
             ).fetchall()
         return [{**dict(r._mapping), "scopes": json.loads(r.scopes or "[]")} for r in rows]
 
+    def get_access_token(self, token: str) -> dict | None:
+        with Session(self._engine) as session:
+            row = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "SELECT token, client_id, scopes, expires_at, refresh_token"
+                    " FROM oauth_access_tokens WHERE token = :token"
+                ),
+                {"token": token},
+            ).fetchone()
+        if row is None:
+            return None
+        return {**dict(row._mapping), "scopes": json.loads(row.scopes or "[]")}
+
+    def get_refresh_token(self, token: str) -> dict | None:
+        with Session(self._engine) as session:
+            row = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "SELECT token, client_id, scopes, expires_at"
+                    " FROM oauth_refresh_tokens WHERE token = :token"
+                ),
+                {"token": token},
+            ).fetchone()
+        if row is None:
+            return None
+        return {**dict(row._mapping), "scopes": json.loads(row.scopes or "[]")}
+
+    def upsert_auth_code(
+        self,
+        code: str,
+        client_id: str,
+        redirect_uri: str,
+        redirect_uri_provided_explicitly: bool,
+        scopes: list[str] | None,
+        expires_at: float,
+        code_challenge: str | None,
+    ) -> None:
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "INSERT OR REPLACE INTO oauth_authorization_codes"
+                    " (code, client_id, redirect_uri, redirect_uri_provided_explicitly,"
+                    "  scopes, expires_at, code_challenge)"
+                    " VALUES (:code, :client_id, :redirect_uri, :explicit,"
+                    "  :scopes, :expires_at, :code_challenge)"
+                ),
+                {
+                    "code": code,
+                    "client_id": client_id,
+                    "redirect_uri": redirect_uri,
+                    "explicit": redirect_uri_provided_explicitly,
+                    "scopes": json.dumps(scopes or []),
+                    "expires_at": expires_at,
+                    "code_challenge": code_challenge,
+                },
+            )
+            session.commit()
+
+    def get_auth_code(self, code: str) -> dict | None:
+        with Session(self._engine) as session:
+            row = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "SELECT code, client_id, redirect_uri, redirect_uri_provided_explicitly,"
+                    " scopes, expires_at, code_challenge"
+                    " FROM oauth_authorization_codes WHERE code = :code"
+                ),
+                {"code": code},
+            ).fetchone()
+        if row is None:
+            return None
+        return {**dict(row._mapping), "scopes": json.loads(row.scopes or "[]")}
+
+    def delete_auth_code(self, code: str) -> bool:
+        """Delete an auth code; the returned flag is the cross-worker single-use
+        arbiter — exactly one concurrent exchange observes True."""
+        with Session(self._engine) as session:
+            result = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("DELETE FROM oauth_authorization_codes WHERE code = :code"),
+                {"code": code},
+            )
+            session.commit()
+        return result.rowcount > 0  # ty: ignore[unresolved-attribute] - CursorResult at runtime
+
     def save_oauth_client(
         self,
         client_id: str,
@@ -198,11 +287,22 @@ class OAuthRepository:
             )
             session.commit()
 
-    def delete_refresh_token(self, token: str) -> None:
+    def delete_refresh_token(self, token: str) -> bool:
+        """Delete a refresh token; True only for the caller that actually removed
+        it — used as the rotation arbiter across workers."""
         with Session(self._engine) as session:
-            session.execute(  # ty: ignore[deprecated] - raw SQL
+            result = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("DELETE FROM oauth_refresh_tokens WHERE token = :token"),
                 {"token": token},
+            )
+            session.commit()
+        return result.rowcount > 0  # ty: ignore[unresolved-attribute] - CursorResult at runtime
+
+    def delete_access_tokens_by_refresh(self, refresh_token: str) -> None:
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("DELETE FROM oauth_access_tokens WHERE refresh_token = :rt"),
+                {"rt": refresh_token},
             )
             session.commit()
 
@@ -223,15 +323,12 @@ class OAuthRepository:
                 ),
                 {"now": now},
             )
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("DELETE FROM oauth_authorization_codes WHERE expires_at <= :now"),
+                {"now": now},
+            )
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("DELETE FROM oauth_pending_authorizations WHERE expires_at <= :now"),
+                {"now": now},
+            )
             session.commit()
-
-    def get_valid_pending(self) -> list[dict]:
-        with Session(self._engine) as session:
-            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
-                text(
-                    "SELECT pending_id, client_json, params_json FROM oauth_pending_authorizations"
-                    " WHERE expires_at > :now"
-                ),
-                {"now": time.time()},
-            ).fetchall()
-        return [dict(r._mapping) for r in rows]

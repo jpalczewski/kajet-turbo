@@ -87,6 +87,18 @@ class OAuthRefreshToken(SQLModel, table=True):
     expires_at: int | None = None
 
 
+class OAuthAuthorizationCode(SQLModel, table=True):
+    __tablename__ = "oauth_authorization_codes"
+
+    code: str = Field(primary_key=True)
+    client_id: str
+    redirect_uri: str = Field(sa_column=Column(Text, nullable=False))
+    redirect_uri_provided_explicitly: bool
+    scopes: str | None = Field(default=None, sa_column=Column(Text))
+    expires_at: float
+    code_challenge: str | None = None
+
+
 class OAuthPendingAuthorization(SQLModel, table=True):
     __tablename__ = "oauth_pending_authorizations"
 

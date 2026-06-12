@@ -13,6 +13,7 @@ from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.m
     ClientAuthorization,
     Note,
     OAuthAccessToken,
+    OAuthAuthorizationCode,
     OAuthClient,
     OAuthPendingAuthorization,
     OAuthRefreshToken,

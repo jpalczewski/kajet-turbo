@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import ConsentResponse, PendingInfoResponse
+from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_provider, get_session_user
 
 router = APIRouter()
@@ -20,7 +21,7 @@ async def api_consent(
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
     pending_id = str(body.get("pending_id", ""))
-    if not pending_id or pending_id not in provider._pending:
+    if not pending_id:
         return JSONResponse({"error": "Wygasły pending_id."}, status_code=400)
     try:
         redirect_uri = await provider.complete_authorization(pending_id, user["id"])
@@ -34,8 +35,8 @@ async def api_pending_info(
     id: str = Query(...),
     provider=Depends(get_provider),
 ) -> Response:
-    if id not in provider._pending:
+    client = await run_sync(provider.get_pending_client, id)
+    if client is None:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    client, _ = provider._pending[id]
     name = getattr(client, "client_name", None) or client.client_id
     return JSONResponse({"client_name": name})
