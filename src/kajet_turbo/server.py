@@ -1,4 +1,5 @@
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -9,12 +10,14 @@ from fastmcp.utilities.lifespan import combine_lifespans
 from kajet_turbo.api import api_router
 from kajet_turbo.auth import hash_password
 from kajet_turbo.dependencies import db, note_service, oauth_repo, provider, user_repo, workspace_service
-from kajet_turbo.log import LoggingMiddleware, setup_logging
+from kajet_turbo.log import LoggingMiddleware, logger, setup_logging
 from kajet_turbo.mcp import build_mcp
 
 
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI):
+    gil_enabled = sys._is_gil_enabled() if hasattr(sys, "_is_gil_enabled") else True
+    logger.info("runtime", python=sys.version.split()[0], free_threading=not gil_enabled)
     admin_email = os.getenv("KAJET_ADMIN_EMAIL")
     admin_password = os.getenv("KAJET_ADMIN_PASSWORD")
     if admin_email and admin_password and user_repo.count() == 0:
