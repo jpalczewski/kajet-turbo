@@ -1,0 +1,196 @@
+{
+  "label": "refactor-py314t-nocache",
+  "python": "3.14.0",
+  "free_threading": true,
+  "notes": 500,
+  "server_rss_mb": 352.5,
+  "scenarios": {
+    "seed_write@c4": {
+      "latency_ms": {
+        "p50": 150.76,
+        "p95": 194.58,
+        "p99": 228.15,
+        "mean": 147.96,
+        "count": 500
+      },
+      "rps": 26.9,
+      "errors": 0
+    },
+    "note_html@c1": {
+      "latency_ms": {
+        "p50": 3.53,
+        "p95": 4.07,
+        "p99": 4.61,
+        "mean": 3.67,
+        "count": 300
+      },
+      "rps": 270.3,
+      "errors": 0
+    },
+    "note_list@c1": {
+      "latency_ms": {
+        "p50": 6.46,
+        "p95": 6.98,
+        "p99": 7.5,
+        "mean": 6.51,
+        "count": 150
+      },
+      "rps": 153.0,
+      "errors": 0
+    },
+    "history@c1": {
+      "latency_ms": {
+        "p50": 735.09,
+        "p95": 820.54,
+        "p99": 1130.07,
+        "mean": 755.17,
+        "count": 150
+      },
+      "rps": 1.3,
+      "errors": 0
+    },
+    "note_html@c10": {
+      "latency_ms": {
+        "p50": 25.35,
+        "p95": 58.89,
+        "p99": 82.48,
+        "mean": 27.97,
+        "count": 300
+      },
+      "rps": 342.7,
+      "errors": 0
+    },
+    "note_list@c10": {
+      "latency_ms": {
+        "p50": 29.26,
+        "p95": 59.0,
+        "p99": 64.22,
+        "mean": 32.9,
+        "count": 150
+      },
+      "rps": 296.3,
+      "errors": 0
+    },
+    "history@c10": {
+      "latency_ms": {
+        "p50": 4153.01,
+        "p95": 4861.14,
+        "p99": 5028.09,
+        "mean": 4301.95,
+        "count": 150
+      },
+      "rps": 2.3,
+      "errors": 0
+    },
+    "note_html@c50": {
+      "latency_ms": {
+        "p50": 62.82,
+        "p95": 293.3,
+        "p99": 359.28,
+        "mean": 93.28,
+        "count": 300
+      },
+      "rps": 496.1,
+      "errors": 0
+    },
+    "note_list@c50": {
+      "latency_ms": {
+        "p50": 130.67,
+        "p95": 422.44,
+        "p99": 493.06,
+        "mean": 153.24,
+        "count": 150
+      },
+      "rps": 277.9,
+      "errors": 0
+    },
+    "history@c50": {
+      "latency_ms": {
+        "p50": 17749.69,
+        "p95": 33551.49,
+        "p99": 34136.03,
+        "mean": 20030.73,
+        "count": 150
+      },
+      "rps": 2.3,
+      "errors": 0
+    },
+    "note_patch@c1": {
+      "latency_ms": {
+        "p50": 65.9,
+        "p95": 79.42,
+        "p99": 86.67,
+        "mean": 67.29,
+        "count": 60
+      },
+      "rps": 14.9,
+      "errors": 0
+    },
+    "note_patch@c10": {
+      "latency_ms": {
+        "p50": 535.66,
+        "p95": 547.47,
+        "p99": 548.67,
+        "mean": 500.79,
+        "count": 60
+      },
+      "rps": 18.5,
+      "errors": 0
+    },
+    "mixed_80_20@c20": {
+      "latency_ms": {
+        "p50": 18.22,
+        "p95": 1249.15,
+        "p99": 1282.69,
+        "mean": 216.36,
+        "count": 300
+      },
+      "rps": 79.4,
+      "errors": 0
+    },
+    "search_inproc@t1": {
+      "latency_ms": {
+        "p50": 14.52,
+        "p95": 19.34,
+        "p99": 19.95,
+        "mean": 15.72,
+        "count": 200
+      },
+      "rps": 63.6,
+      "errors": 0
+    },
+    "search_inproc@t4": {
+      "latency_ms": {
+        "p50": 21.81,
+        "p95": 31.25,
+        "p99": 33.24,
+        "mean": 22.57,
+        "count": 200
+      },
+      "rps": 176.6,
+      "errors": 0
+    },
+    "search_inproc@t8": {
+      "latency_ms": {
+        "p50": 38.31,
+        "p95": 57.07,
+        "p99": 72.21,
+        "mean": 40.42,
+        "count": 200
+      },
+      "rps": 194.5,
+      "errors": 0
+    },
+    "reindex_total": {
+      "latency_ms": {
+        "p50": 786.32,
+        "p95": 786.32,
+        "p99": 786.32,
+        "mean": 786.32,
+        "count": 1
+      },
+      "rps": 635.9,
+      "errors": 0
+    }
+  }
+}
