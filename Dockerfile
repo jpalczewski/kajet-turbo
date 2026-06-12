@@ -5,7 +5,7 @@ RUN bun install --frozen-lockfile
 COPY frontend/ .
 RUN bun run build
 
-FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim
+FROM ghcr.io/astral-sh/uv:bookworm-slim
 
 WORKDIR /app
 
@@ -14,8 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && \
     git config --global user.email "kajet@localhost" && \
     git config --global user.name "kajet-turbo"
 
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+COPY pyproject.toml uv.lock .python-version ./
+RUN uv python install && uv sync --frozen --no-dev --no-install-project
 
 COPY src/ src/
 RUN uv sync --frozen --no-dev
