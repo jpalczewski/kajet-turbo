@@ -12,13 +12,13 @@ Usage:
 import argparse
 import asyncio
 import json
+import os
 import random
 import statistics
 import subprocess
 import sys
 import tempfile
 import time
-import os
 from pathlib import Path
 
 import httpx
@@ -93,7 +93,9 @@ async def login(client: httpx.AsyncClient) -> None:
     r.raise_for_status()
 
 
-async def seed(client: httpx.AsyncClient, n_notes: int, rng: random.Random) -> tuple[list[str], dict]:
+async def seed(
+    client: httpx.AsyncClient, n_notes: int, rng: random.Random
+) -> tuple[list[str], dict]:
     r = await client.post("/api/workspaces", json={"name": WS})
     r.raise_for_status()
     note_ids: list[str] = []
@@ -204,10 +206,10 @@ def inproc_search_phase(tmp: Path) -> dict:
     for threads in (1, 4, 8):
         latencies: list[float] = []
 
-        def one(i: int) -> None:
+        def one(i: int, lat: list[float] = latencies) -> None:
             t0 = time.perf_counter()
             svc.search(QUERIES[i % len(QUERIES)], [WS], owner_id=owner_id, limit=10)
-            latencies.append((time.perf_counter() - t0) * 1000)
+            lat.append((time.perf_counter() - t0) * 1000)
 
         t0 = time.perf_counter()
         with ThreadPoolExecutor(max_workers=threads) as ex:
@@ -265,7 +267,8 @@ def main() -> None:
     print(f"wrote {out}", file=sys.stderr)
     total_errors = sum(s.get("errors", 0) for s in scenarios.values())
     if total_errors > 0:
-        print(f"\nWARNING: {total_errors} request error(s) detected across all scenarios — results may be unreliable!", file=sys.stderr)
+        print(f"\nWARNING: {total_errors} request error(s) detected across all "
+              "scenarios — results may be unreliable!", file=sys.stderr)
         sys.exit(1)
 
 

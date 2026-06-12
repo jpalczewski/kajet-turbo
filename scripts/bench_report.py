@@ -25,11 +25,14 @@ def build_report(results: list[dict]) -> str:
     header = "| scenario | metric | " + " | ".join(labels) + " | delta vs first |"
     sep = "|---" * (len(labels) + 3) + "|"
     lines += [header, sep]
+    def _pct(which):
+        return lambda s: s["latency_ms"][which] if s.get("latency_ms") is not None else None
+
     for name in scenario_names:
         for metric, getter in (
-            ("p50 ms", lambda s: s["latency_ms"]["p50"] if s.get("latency_ms") is not None else None),
-            ("p95 ms", lambda s: s["latency_ms"]["p95"] if s.get("latency_ms") is not None else None),
-            ("p99 ms", lambda s: s["latency_ms"]["p99"] if s.get("latency_ms") is not None else None),
+            ("p50 ms", _pct("p50")),
+            ("p95 ms", _pct("p95")),
+            ("p99 ms", _pct("p99")),
             ("rps", lambda s: s["rps"]),
         ):
             cells, values = [], []
