@@ -44,3 +44,12 @@ async def test_run_sync_bounded_concurrency():
         for _ in range(30):
             tg.start_soon(run_sync, work)
     assert peak <= 10
+
+
+async def test_run_sync_propagates_contextvars():
+    import contextvars
+
+    var: contextvars.ContextVar[str] = contextvars.ContextVar("var")
+    var.set("from-request")
+
+    assert await run_sync(var.get) == "from-request"
