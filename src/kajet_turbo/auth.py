@@ -80,6 +80,9 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
         for data in self._oauth_repo.get_all_registered_clients():
             try:
                 client = OAuthClientInformationFull.model_validate_json(data)
+                if client.client_id is None:
+                    logger.warning("oauth_restore: registered client missing client_id, skipping")
+                    continue
                 self.clients[client.client_id] = client
             except Exception:
                 logger.exception("oauth_restore: failed to restore registered client")
@@ -117,7 +120,7 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
                     token_prefix=row.get("token", "")[:8],
                 )
 
-    async def load_access_token(self, token: str) -> "AccessToken | None":
+    async def load_access_token(self, token: str) -> AccessToken | None:
         token_obj = self.access_tokens.get(token)
         if token_obj is None:
             logger.warning("oauth_token_rejected", token_prefix=token[:8], reason="not_in_memory")
@@ -142,7 +145,11 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         await super().register_client(client_info)
-        self._oauth_repo.upsert_registered_client(client_info.client_id, client_info.model_dump_json())
+        # super() raises ValueError when client_id is missing, so it is set here.
+        assert client_info.client_id is not None
+        self._oauth_repo.upsert_registered_client(
+            client_info.client_id, client_info.model_dump_json()
+        )
 
     async def exchange_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode
@@ -205,6 +212,8 @@ class KajetOAuthProvider(InMemoryOAuthProvider):
             self._pending[pending_id] = (client, params)
         client, params = self._pending.pop(pending_id)
         self._oauth_repo.delete_pending(pending_id)
+        if client.client_id is None:
+            raise ValueError("Stored OAuth client is missing client_id")
 
         if user_id:
             self._oauth_repo.record_client_authorization(client.client_id, user_id)

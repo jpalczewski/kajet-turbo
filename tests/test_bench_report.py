@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 
-from bench_report import build_report  # noqa: E402
+from bench_report import build_report
 
 
 def _result(label: str, p95: float, rps: float, errors: int = 0, latency_ms=None) -> dict:
@@ -18,8 +18,7 @@ def _result(label: str, p95: float, rps: float, errors: int = 0, latency_ms=None
         "python": "3.14.2",
         "free_threading": False,
         "scenarios": {
-            "note_html@c10": {"latency_ms": lat,
-                              "rps": rps, "errors": errors},
+            "note_html@c10": {"latency_ms": lat, "rps": rps, "errors": errors},
         },
     }
 
@@ -49,8 +48,8 @@ def test_build_report_handles_missing_scenario_and_errors():
         "scenarios": {},  # scenario missing
     }
     report = build_report([r1, r2])
-    # Missing scenario cell should render as "–"
-    assert "–" in report
+    # Missing scenario cell should render as "-"
+    assert "-" in report
 
     # Third case: errors > 0 should render ⚠
     r3 = _result("run3", 5.0, 50.0, errors=7)
@@ -58,8 +57,8 @@ def test_build_report_handles_missing_scenario_and_errors():
     assert "⚠" in report2
     assert "7" in report2
 
-    # Fourth case: latency_ms is None (all requests failed) should render "–" for latency cells
+    # Fourth case: latency_ms is None (all requests failed) should render "-" for latency cells
     r4 = _result("run4", 0.0, 0.0, errors=10, latency_ms=False)
     report3 = build_report([r4])
-    assert "–" in report3
+    assert "-" in report3
     assert "⚠" in report3

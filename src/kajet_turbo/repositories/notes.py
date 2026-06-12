@@ -1,7 +1,10 @@
+# `builtins.list` is used in annotations because the public `list()` method
+# below shadows the `list` builtin within the class body.
+import builtins
 import json
 
-from sqlalchemy import Engine, text
-from sqlmodel import Session, func, select
+from sqlalchemy import CursorResult, Engine, text
+from sqlmodel import Session, col, func, select
 
 from kajet_turbo.models import Note
 
@@ -16,20 +19,22 @@ class NoteRepository:
         workspace: str,
         owner_id: str,
         title: str,
-        tags: list[str],
+        tags: builtins.list[str],
         created_at: str,
         updated_at: str,
         content: str,
         folder: str = "",
     ) -> None:
         with Session(self._engine) as session:
-            result = session.execute(
+            result = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT INTO notes_fts (note_id, workspace, title, content)"
                     " VALUES (:note_id, :workspace, :title, :content)"
                 ),
                 {"note_id": note_id, "workspace": workspace, "title": title, "content": content},
             )
+            # SQLite DML always yields a CursorResult; needed for `lastrowid`.
+            assert isinstance(result, CursorResult)
             fts_rowid = result.lastrowid
             note = Note(
                 id=note_id,
@@ -69,7 +74,7 @@ class NoteRepository:
         owner_id: str | None = None,
         title: str | None = None,
         content: str | None = None,
-        tags: list[str] | None = None,
+        tags: builtins.list[str] | None = None,
         updated_at: str = "",
         folder: str | None = None,
     ) -> None:
@@ -93,17 +98,17 @@ class NoteRepository:
                 note.folder = folder
 
             if title is not None or content is not None:
-                old_fts = session.execute(
+                old_fts = session.execute(  # ty: ignore[deprecated] - raw SQL
                     text("SELECT content FROM notes_fts WHERE rowid = :rowid"),
                     {"rowid": fts_rowid},
                 ).fetchone()
                 old_content = old_fts.content if old_fts else ""
                 new_content = content if content is not None else old_content
 
-                session.execute(
+                session.execute(  # ty: ignore[deprecated] - raw SQL
                     text("DELETE FROM notes_fts WHERE rowid = :rowid"), {"rowid": fts_rowid}
                 )
-                result = session.execute(
+                result = session.execute(  # ty: ignore[deprecated] - raw SQL
                     text(
                         "INSERT INTO notes_fts (note_id, workspace, title, content)"
                         " VALUES (:note_id, :workspace, :title, :content)"
@@ -115,6 +120,8 @@ class NoteRepository:
                         "content": new_content,
                     },
                 )
+                # SQLite DML always yields a CursorResult; needed for `lastrowid`.
+                assert isinstance(result, CursorResult)
                 note.fts_rowid = result.lastrowid
 
             session.add(note)
@@ -127,7 +134,7 @@ class NoteRepository:
                 q = q.where(Note.owner_id == owner_id)
             note = session.exec(q).first()
             if note and note.fts_rowid:
-                session.execute(
+                session.execute(  # ty: ignore[deprecated] - raw SQL
                     text("DELETE FROM notes_fts WHERE rowid = :rowid"),
                     {"rowid": note.fts_rowid},
                 )
@@ -139,38 +146,40 @@ class NoteRepository:
         self,
         workspace: str,
         owner_id: str,
-        tags: list[str] | None = None,
+        tags: builtins.list[str] | None = None,
         limit: int = 20,
         folder: str | None = None,
-    ) -> list[dict]:
+    ) -> builtins.list[dict]:
         with Session(self._engine) as session:
             q = select(Note).where(Note.workspace == workspace, Note.owner_id == owner_id)
             if folder is not None:
                 q = q.where(Note.folder == folder)
-            rows = session.exec(q.order_by(Note.updated_at.desc())).all()
+            rows = session.exec(q.order_by(col(Note.updated_at).desc())).all()
 
         result = []
         for note in rows:
             note_tags = json.loads(note.tags or "[]")
             if tags and not any(t in note_tags for t in tags):
                 continue
-            result.append({
-                "note_id": note.id,
-                "workspace": note.workspace,
-                "owner_id": note.owner_id,
-                "title": note.title,
-                "folder": note.folder,
-                "tags": note_tags,
-                "created_at": note.created_at,
-                "updated_at": note.updated_at,
-            })
+            result.append(
+                {
+                    "note_id": note.id,
+                    "workspace": note.workspace,
+                    "owner_id": note.owner_id,
+                    "title": note.title,
+                    "folder": note.folder,
+                    "tags": note_tags,
+                    "created_at": note.created_at,
+                    "updated_at": note.updated_at,
+                }
+            )
             if len(result) >= limit:
                 break
         return result
 
-    def list_folders(self, workspace: str, owner_id: str) -> list[str]:
+    def list_folders(self, workspace: str, owner_id: str) -> builtins.list[str]:
         with Session(self._engine) as session:
-            rows = session.execute(
+            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "SELECT DISTINCT folder FROM notes"
                     " WHERE workspace = :workspace AND owner_id = :owner_id AND folder != ''"
@@ -179,12 +188,15 @@ class NoteRepository:
             ).fetchall()
         return [row[0] for row in rows]
 
-    def search_fts(self, query: str, workspace: str, owner_id: str, limit: int = 50) -> list[dict]:
+    def search_fts(
+        self, query: str, workspace: str, owner_id: str, limit: int = 50
+    ) -> builtins.list[dict]:
         try:
             with Session(self._engine) as session:
-                rows = session.execute(
+                rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                     text(
-                        "SELECT n.id AS note_id, n.workspace, n.owner_id, n.title, n.tags, n.created_at, n.updated_at"
+                        "SELECT n.id AS note_id, n.workspace, n.owner_id,"
+                        " n.title, n.tags, n.created_at, n.updated_at"
                         " FROM notes_fts"
                         " JOIN notes n ON n.fts_rowid = notes_fts.rowid"
                         " WHERE notes_fts MATCH :query"
@@ -199,7 +211,7 @@ class NoteRepository:
 
     def delete_workspace_notes(self, workspace: str, owner_id: str) -> None:
         with Session(self._engine) as session:
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "DELETE FROM notes_fts WHERE rowid IN"
                     " (SELECT fts_rowid FROM notes WHERE workspace = :workspace"
@@ -207,7 +219,7 @@ class NoteRepository:
                 ),
                 {"workspace": workspace, "owner_id": owner_id},
             )
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("DELETE FROM notes WHERE workspace = :workspace AND owner_id = :owner_id"),
                 {"workspace": workspace, "owner_id": owner_id},
             )
@@ -215,7 +227,7 @@ class NoteRepository:
 
     def insert_vec(self, note_id: str, note_rowid: int, workspace: str, embedding: bytes) -> None:
         with Session(self._engine) as session:
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT INTO notes_vec (note_rowid, embedding, workspace, note_id)"
                     " VALUES (:note_rowid, :embedding, :workspace, :note_id)"
@@ -229,11 +241,14 @@ class NoteRepository:
             )
             session.commit()
 
-    def search_vec(self, embedding: bytes, workspace: str, owner_id: str, k: int = 20) -> list[dict]:
+    def search_vec(
+        self, embedding: bytes, workspace: str, owner_id: str, k: int = 20
+    ) -> builtins.list[dict]:
         with Session(self._engine) as session:
-            rows = session.execute(
+            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
-                    "SELECT n.id AS note_id, n.workspace, n.owner_id, n.title, n.tags, n.created_at, n.updated_at, v.distance"
+                    "SELECT n.id AS note_id, n.workspace, n.owner_id,"
+                    " n.title, n.tags, n.created_at, n.updated_at, v.distance"
                     " FROM notes_vec v"
                     " JOIN notes n ON n.id = v.note_id"
                     " WHERE v.embedding MATCH :embedding AND k = :k AND v.workspace = :workspace"
@@ -251,7 +266,7 @@ class NoteRepository:
         owner_id: str,
         embedding: bytes | None = None,
         limit: int = 10,
-    ) -> list[dict]:
+    ) -> builtins.list[dict]:
         fts_results = self.search_fts(query, workspace, owner_id, limit=50)
         if embedding is None:
             return fts_results[:limit]
@@ -269,13 +284,13 @@ class NoteRepository:
 
     def has_vec_index(self, workspace: str) -> bool:
         with Session(self._engine) as session:
-            count = session.execute(
+            count = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("SELECT COUNT(*) FROM notes_vec WHERE workspace = :workspace"),
                 {"workspace": workspace},
             ).scalar()
         return (count or 0) > 0
 
-    def workspace_stats(self, owner_id: str, workspaces: list[str]) -> dict[str, dict]:
+    def workspace_stats(self, owner_id: str, workspaces: builtins.list[str]) -> dict[str, dict]:
         if not workspaces:
             return {}
         with Session(self._engine) as session:
@@ -285,7 +300,7 @@ class NoteRepository:
                     func.count().label("file_count"),
                     func.max(Note.updated_at).label("last_updated"),
                 )
-                .where(Note.owner_id == owner_id, Note.workspace.in_(workspaces))
+                .where(Note.owner_id == owner_id, col(Note.workspace).in_(workspaces))
                 .group_by(Note.workspace)
             )
             return {

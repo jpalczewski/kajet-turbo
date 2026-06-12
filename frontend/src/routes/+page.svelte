@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { page } from '$app/state'
-  import { goto, invalidateAll } from '$app/navigation'
-  import LoginForm from '$lib/components/LoginForm.svelte'
+  import { page } from '$app/state';
+  import { goto, invalidateAll } from '$app/navigation';
+  import LoginForm from '$lib/components/LoginForm.svelte';
 
-  const serverUrl = typeof window !== 'undefined' ? window.location.origin : ''
+  const serverUrl = typeof window !== 'undefined' ? window.location.origin : '';
 
   async function handleLoginSuccess(_result: { email: string; redirect_uri?: string | null }) {
-    await invalidateAll()
-    await goto('/workspaces')
+    await invalidateAll();
+    await goto('/workspaces');
   }
 </script>
 
@@ -57,8 +57,13 @@
     padding-top: v.$space-lg;
     border-top: 1px solid v.$border;
 
-    &:first-of-type { border-top: none; }
+    &:first-of-type {
+      border-top: none;
+    }
   }
 
-  p { color: v.$text-secondary; line-height: 1.6; }
+  p {
+    color: v.$text-secondary;
+    line-height: 1.6;
+  }
 </style>

@@ -38,7 +38,7 @@ class FakeRepo:
 def test_search_is_cached_and_epoch_invalidates():
     cache = WorkspaceCache()
     repo = FakeRepo()
-    svc = NoteService(repo, cache=cache)
+    svc = NoteService(repo, cache=cache)  # ty: ignore[invalid-argument-type] - test double
 
     r1 = svc.search("q", ["ws"], owner_id="u")
     r2 = svc.search("q", ["ws"], owner_id="u")
@@ -52,7 +52,7 @@ def test_search_is_cached_and_epoch_invalidates():
 
 def test_search_without_cache_always_hits_repo():
     repo = FakeRepo()
-    svc = NoteService(repo, cache=None)
+    svc = NoteService(repo, cache=None)  # ty: ignore[invalid-argument-type] - test double
     svc.search("q", ["ws"], owner_id="u")
     svc.search("q", ["ws"], owner_id="u")
     assert repo.calls == 2

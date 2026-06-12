@@ -57,18 +57,14 @@ class ClientAuthorization(SQLModel, table=True):
     __tablename__ = "client_authorizations"
 
     client_id: str = Field(primary_key=True)
-    user_id: str = Field(
-        sa_column=Column(Text, ForeignKey("users.id"), nullable=False)
-    )
+    user_id: str = Field(sa_column=Column(Text, ForeignKey("users.id"), nullable=False))
 
 
 class UserSession(SQLModel, table=True):
     __tablename__ = "sessions"
 
     token: str = Field(primary_key=True)
-    user_id: str = Field(
-        sa_column=Column(Text, ForeignKey("users.id"), nullable=False)
-    )
+    user_id: str = Field(sa_column=Column(Text, ForeignKey("users.id"), nullable=False))
     expires_at: int
 
 

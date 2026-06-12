@@ -1,15 +1,11 @@
 <script lang="ts">
-  let { slug, workspaces = [] }: { slug?: string; workspaces: string[] } = $props()
-  let open = $state(false)
+  let { slug, workspaces = [] }: { slug?: string; workspaces: string[] } = $props();
+  let open = $state(false);
 </script>
 
 {#if slug}
   <div class="workspace-picker">
-    <button
-      class="workspace-picker__trigger"
-      onclick={() => (open = !open)}
-      aria-expanded={open}
-    >
+    <button class="workspace-picker__trigger" onclick={() => (open = !open)} aria-expanded={open}>
       {slug}
       <span class="workspace-picker__arrow" class:open>▾</span>
     </button>
@@ -35,9 +31,7 @@
     {/if}
   </div>
 {:else}
-  <a href="/workspaces" class="workspace-picker workspace-picker--empty">
-    Wybierz workspace ▾
-  </a>
+  <a href="/workspaces" class="workspace-picker workspace-picker--empty"> Wybierz workspace ▾ </a>
 {/if}
 
 <style lang="scss">
@@ -56,8 +50,13 @@
       padding: 4px 10px;
       border: 1px solid v.$border;
       border-radius: v.$radius-md;
-      transition: border-color 0.15s, color 0.15s;
-      &:hover { color: v.$accent; border-color: v.$accent-dark; }
+      transition:
+        border-color 0.15s,
+        color 0.15s;
+      &:hover {
+        color: v.$accent;
+        border-color: v.$accent-dark;
+      }
     }
   }
 
@@ -75,7 +74,9 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
     cursor: pointer;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
     &:hover {
       border-color: v.$accent-dark;
       box-shadow: 0 0 6px rgba(240, 184, 0, 0.12);
@@ -85,7 +86,9 @@
   .workspace-picker__arrow {
     color: v.$accent-dark;
     transition: transform 0.15s;
-    &.open { transform: rotate(180deg); }
+    &.open {
+      transform: rotate(180deg);
+    }
   }
 
   .workspace-picker__dropdown {
@@ -98,7 +101,9 @@
     border-radius: v.$radius-lg;
     padding: v.$space-xs;
     z-index: 100;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(240, 184, 0, 0.05);
+    box-shadow:
+      0 4px 24px rgba(0, 0, 0, 0.6),
+      0 0 0 1px rgba(240, 184, 0, 0.05);
   }
 
   .workspace-picker__item {
@@ -111,9 +116,14 @@
     letter-spacing: 0.06em;
     text-decoration: none;
     border-radius: v.$radius-sm;
-    transition: background 0.1s, color 0.1s;
+    transition:
+      background 0.1s,
+      color 0.1s;
 
-    &:hover { background: rgba(240, 184, 0, 0.06); color: v.$accent; }
+    &:hover {
+      background: rgba(240, 184, 0, 0.06);
+      color: v.$accent;
+    }
 
     &--active {
       color: v.$accent;
@@ -137,7 +147,12 @@
     letter-spacing: 0.06em;
     text-decoration: none;
     border-radius: v.$radius-sm;
-    transition: background 0.1s, color 0.1s;
-    &:hover { background: rgba(240, 184, 0, 0.06); color: v.$accent; }
+    transition:
+      background 0.1s,
+      color 0.1s;
+    &:hover {
+      background: rgba(240, 184, 0, 0.06);
+      color: v.$accent;
+    }
   }
 </style>

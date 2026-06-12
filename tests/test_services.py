@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -37,9 +37,14 @@ def test_save_creates_file_and_db_record(service, workspace):
 
 def test_save_git_error_rolls_back_file(service, workspace):
     from kajet_turbo.repositories.git import GitError
-    with patch("kajet_turbo.repositories.git.GitRepository.commit_file", side_effect=GitError("fail")):
-        with pytest.raises(GitError):
-            service.save("u1", "ws", str(workspace), "Git fail note", "treść", [])
+
+    with (
+        patch(
+            "kajet_turbo.repositories.git.GitRepository.commit_file", side_effect=GitError("fail")
+        ),
+        pytest.raises(GitError),
+    ):
+        service.save("u1", "ws", str(workspace), "Git fail note", "treść", [])
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
     assert md_files == []
 
@@ -61,11 +66,16 @@ def test_get_with_content_returns_content(service, workspace):
 
 def test_update_git_error_reverts_file(service, workspace):
     from kajet_turbo.repositories.git import GitError
+
     result = service.save("u1", "ws", str(workspace), "Oryginał", "stara treść", [])
     note_id = result["note_id"]
-    with patch("kajet_turbo.repositories.git.GitRepository.commit_file", side_effect=GitError("fail")):
-        with pytest.raises(GitError):
-            service.update(note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść")
+    with (
+        patch(
+            "kajet_turbo.repositories.git.GitRepository.commit_file", side_effect=GitError("fail")
+        ),
+        pytest.raises(GitError),
+    ):
+        service.update(note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść")
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note["content"] == "stara treść"
 
@@ -100,8 +110,17 @@ def test_search_across_workspaces(service, workspace):
 
 def test_reindex_rebuilds_fts(service, workspace):
     from kajet_turbo.workspace import note_filepath, write_note_file
+
     path = note_filepath(str(workspace), "", "Zewnętrzna notatka")
-    write_note_file(path, "ext001", "Zewnętrzna notatka", [], "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", "treść zewnętrzna")
+    write_note_file(
+        path,
+        "ext001",
+        "Zewnętrzna notatka",
+        [],
+        "2026-01-01T00:00:00+00:00",
+        "2026-01-01T00:00:00+00:00",
+        "treść zewnętrzna",
+    )
     result = service.reindex("ws", owner_id="u1", ws_path=str(workspace))
     assert result["count"] == 1
     found = service._repo.search_fts("Zewnętrzna", "ws", owner_id="u1")

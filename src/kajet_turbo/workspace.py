@@ -9,31 +9,29 @@ from kajet_turbo.repositories.git import GitRepository
 WORKSPACES_DIR = os.getenv("WORKSPACES_DIR", "/workspaces")
 
 _WINDOWS_FORBIDDEN = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
-_WINDOWS_RESERVED = re.compile(
-    r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$', re.IGNORECASE
-)
+_WINDOWS_RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", re.IGNORECASE)
 
 
 def title_to_windows_filename(title: str) -> str:
-    result = _WINDOWS_FORBIDDEN.sub(' ', title)
-    result = re.sub(r' +', ' ', result)
-    result = result.strip().rstrip('. ')
+    result = _WINDOWS_FORBIDDEN.sub(" ", title)
+    result = re.sub(r" +", " ", result)
+    result = result.strip().rstrip(". ")
     if _WINDOWS_RESERVED.match(result):
-        result = '_' + result
+        result = "_" + result
     if not result:
-        result = 'untitled'
+        result = "untitled"
     return result[:200]
 
 
 def normalize_folder(folder: str) -> str:
-    folder = folder.strip().strip('/')
+    folder = folder.strip().strip("/")
     if not folder:
-        return ''
-    parts = [s for s in folder.split('/') if s]
+        return ""
+    parts = [s for s in folder.split("/") if s]
     for part in parts:
-        if part == '..':
+        if part == "..":
             raise ValueError("Invalid folder: '..' not allowed")
-    return '/'.join(title_to_windows_filename(p) for p in parts)
+    return "/".join(title_to_windows_filename(p) for p in parts)
 
 
 def workspace_path(name: str, workspaces_dir: str | None = None, user_id: str | None = None) -> str:
@@ -77,7 +75,7 @@ def write_note_file(
         updated_at=updated_at,
     )
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with Path(path).open("w") as f:
         frontmatter.dump(post, f)
 
 
@@ -106,10 +104,15 @@ def scan_notes(workspace_path: str) -> list[dict]:
     return results
 
 
-def create_workspace(name: str, workspaces_dir: str | None = None, user_id: str | None = None) -> str:
+def create_workspace(
+    name: str, workspaces_dir: str | None = None, user_id: str | None = None
+) -> str:
     """Creates a new workspace directory with git repo. Returns the workspace path."""
     if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,49}$", name):
-        raise ValueError(f"Invalid workspace name '{name}'. Use letters, digits, hyphens, underscores (max 50 chars).")
+        raise ValueError(
+            f"Invalid workspace name '{name}'."
+            " Use letters, digits, hyphens, underscores (max 50 chars)."
+        )
 
     ws_path = Path(workspace_path(name, workspaces_dir=workspaces_dir, user_id=user_id))
 

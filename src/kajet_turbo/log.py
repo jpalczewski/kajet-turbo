@@ -69,25 +69,30 @@ def _is_framework_param(param: inspect.Parameter) -> bool:
 
 def logged_route(fn):
     _skip = frozenset(
-        name for name, param in inspect.signature(fn).parameters.items()
+        name
+        for name, param in inspect.signature(fn).parameters.items()
         if _is_framework_param(param)
     )
 
     if inspect.iscoroutinefunction(fn):
+
         @wraps(fn)
         async def async_wrapper(*args, **kwargs):
             params = {k: v for k, v in kwargs.items() if k not in _skip}
             result = await fn(*args, **kwargs)
             logger.debug(fn.__name__, **params)
             return result
+
         return async_wrapper
     else:
+
         @wraps(fn)
         def sync_wrapper(*args, **kwargs):
             params = {k: v for k, v in kwargs.items() if k not in _skip}
             result = fn(*args, **kwargs)
             logger.debug(fn.__name__, **params)
             return result
+
         return sync_wrapper
 
 
@@ -97,13 +102,16 @@ def logged_tool(fn):
         start = time.monotonic()
         try:
             result = await fn(*args, **kwargs)
-            logger.info(fn.__name__, tool=fn.__name__,
-                        duration_ms=round((time.monotonic() - start) * 1000))
+            logger.info(
+                fn.__name__, tool=fn.__name__, duration_ms=round((time.monotonic() - start) * 1000)
+            )
             return result
         except Exception:
-            logger.exception(fn.__name__, tool=fn.__name__,
-                             duration_ms=round((time.monotonic() - start) * 1000))
+            logger.exception(
+                fn.__name__, tool=fn.__name__, duration_ms=round((time.monotonic() - start) * 1000)
+            )
             raise
+
     return wrapper
 
 

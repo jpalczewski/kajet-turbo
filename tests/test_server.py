@@ -36,8 +36,12 @@ def workspaces_dir(tmp_path, monkeypatch, mcp_server):
     ws = ws_dir / "test-ws"
     ws.mkdir()
     subprocess.run(["git", "init", str(ws)], check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws), check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "T"], cwd=str(ws), check=True, capture_output=True
+    )
     monkeypatch.setenv("WORKSPACES_DIR", str(ws_dir))
     return ws_dir
 
@@ -75,7 +79,8 @@ async def test_save_and_get_note(workspaces_dir, mcp_server):
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         save_result = await client.call_tool(
-            "save_note", {"title": "Moja notatka", "content": "# Treść\n\nTekst.", "tags": ["python"]}
+            "save_note",
+            {"title": "Moja notatka", "content": "# Treść\n\nTekst.", "tags": ["python"]},
         )
         note_id = json.loads(save_result.content[0].text)["note_id"]
         assert len(note_id) > 0
@@ -99,7 +104,9 @@ async def test_delete_note(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        save_result = await client.call_tool("save_note", {"title": "Do usunięcia", "content": "treść"})
+        save_result = await client.call_tool(
+            "save_note", {"title": "Do usunięcia", "content": "treść"}
+        )
         note_id = json.loads(save_result.content[0].text)["note_id"]
         await client.call_tool("delete_note", {"note_id": note_id})
         get_result = await client.call_tool("get_note", {"note_id": note_id})
@@ -110,9 +117,13 @@ async def test_update_note(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        save_result = await client.call_tool("save_note", {"title": "Stary tytuł", "content": "stara treść"})
+        save_result = await client.call_tool(
+            "save_note", {"title": "Stary tytuł", "content": "stara treść"}
+        )
         note_id = json.loads(save_result.content[0].text)["note_id"]
-        await client.call_tool("update_note", {"note_id": note_id, "title": "Nowy tytuł", "content": "nowa treść"})
+        await client.call_tool(
+            "update_note", {"note_id": note_id, "title": "Nowy tytuł", "content": "nowa treść"}
+        )
         get_result = await client.call_tool("get_note", {"note_id": note_id})
         assert "Nowy tytuł" in get_result.content[0].text
         assert "nowa treść" in get_result.content[0].text
@@ -122,8 +133,12 @@ async def test_list_notes(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        await client.call_tool("save_note", {"title": "Notatka 1", "content": "treść 1", "tags": ["python"]})
-        await client.call_tool("save_note", {"title": "Notatka 2", "content": "treść 2", "tags": ["js"]})
+        await client.call_tool(
+            "save_note", {"title": "Notatka 1", "content": "treść 1", "tags": ["python"]}
+        )
+        await client.call_tool(
+            "save_note", {"title": "Notatka 2", "content": "treść 2", "tags": ["js"]}
+        )
         result = await client.call_tool("list_notes", {})
         assert "Notatka 1" in result.content[0].text
         assert "Notatka 2" in result.content[0].text
@@ -133,8 +148,13 @@ async def test_search_notes_fts_fallback(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        await client.call_tool("save_note", {"title": "Python asyncio guide", "content": "Tutorial o coroutines.", "tags": []})
-        await client.call_tool("save_note", {"title": "JavaScript intro", "content": "Podstawy JS.", "tags": []})
+        await client.call_tool(
+            "save_note",
+            {"title": "Python asyncio guide", "content": "Tutorial o coroutines.", "tags": []},
+        )
+        await client.call_tool(
+            "save_note", {"title": "JavaScript intro", "content": "Podstawy JS.", "tags": []}
+        )
         result = await client.call_tool("search_notes", {"query": "asyncio"})
         assert "Python asyncio guide" in result.content[0].text
         assert "JavaScript intro" not in result.content[0].text
@@ -144,15 +164,23 @@ async def test_search_notes_all_workspaces(workspaces_dir, mcp_server):
     ws2 = workspaces_dir / "drugi-ws"
     ws2.mkdir()
     subprocess.run(["git", "init", str(ws2)], check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws2), check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws2), check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@t.com"], cwd=str(ws2), check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "T"], cwd=str(ws2), check=True, capture_output=True
+    )
 
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        await client.call_tool("save_note", {"title": "Notatka w ws1", "content": "Python content.", "tags": []})
+        await client.call_tool(
+            "save_note", {"title": "Notatka w ws1", "content": "Python content.", "tags": []}
+        )
         await client.call_tool("activate_workspace", {"name": "drugi-ws"})
-        await client.call_tool("save_note", {"title": "Notatka w ws2", "content": "Python content.", "tags": []})
+        await client.call_tool(
+            "save_note", {"title": "Notatka w ws2", "content": "Python content.", "tags": []}
+        )
         result = await client.call_tool("search_notes", {"query": "Python", "workspace": "all"})
         text = result.content[0].text
         assert "ws1" in text or "Notatka w ws1" in text
@@ -164,13 +192,24 @@ async def test_reindex_workspace(workspaces_dir, mcp_server):
 
     ws_path = workspaces_dir / "test-ws"
     path = note_filepath(str(ws_path), "", "Reindexed note")
-    write_note_file(path, "zzz1111", "Reindexed note", ["test"], "2026-06-08T12:00:00+00:00", "2026-06-08T12:00:00+00:00", "treść")
+    write_note_file(
+        path,
+        "zzz1111",
+        "Reindexed note",
+        ["test"],
+        "2026-06-08T12:00:00+00:00",
+        "2026-06-08T12:00:00+00:00",
+        "treść",
+    )
 
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         reindex_result = await client.call_tool("reindex_workspace")
-        assert "ok" in reindex_result.content[0].text.lower() or "reindeks" in reindex_result.content[0].text.lower()
+        assert (
+            "ok" in reindex_result.content[0].text.lower()
+            or "reindeks" in reindex_result.content[0].text.lower()
+        )
         search_result = await client.call_tool("search_notes", {"query": "Reindexed"})
         assert "Reindexed note" in search_result.content[0].text
 
@@ -178,6 +217,7 @@ async def test_reindex_workspace(workspaces_dir, mcp_server):
 def test_user_repository_create_and_get(tmp_path):
     from kajet_turbo.db import Database
     from kajet_turbo.repositories.users import UserRepository
+
     db = Database(str(tmp_path / "test.db"))
     repo = UserRepository(db.engine)
     uid = repo.create("a@b.com", "hash123")
@@ -192,8 +232,9 @@ def test_user_repository_create_and_get(tmp_path):
 
 def test_session_repository(tmp_path):
     from kajet_turbo.db import Database
-    from kajet_turbo.repositories.users import UserRepository
     from kajet_turbo.repositories.sessions import SessionRepository
+    from kajet_turbo.repositories.users import UserRepository
+
     db = Database(str(tmp_path / "test.db"))
     users = UserRepository(db.engine)
     sessions = SessionRepository(db.engine)
@@ -212,6 +253,7 @@ def test_workspace_repository(tmp_path):
     from kajet_turbo.db import Database
     from kajet_turbo.repositories.users import UserRepository
     from kajet_turbo.repositories.workspaces import WorkspaceRepository
+
     db = Database(str(tmp_path / "test.db"))
     users = UserRepository(db.engine)
     workspaces = WorkspaceRepository(db.engine)
@@ -225,8 +267,9 @@ def test_workspace_repository(tmp_path):
 
 def test_oauth_repository(tmp_path):
     from kajet_turbo.db import Database
-    from kajet_turbo.repositories.users import UserRepository
     from kajet_turbo.repositories.oauth import OAuthRepository
+    from kajet_turbo.repositories.users import UserRepository
+
     db = Database(str(tmp_path / "test.db"))
     users = UserRepository(db.engine)
     oauth = OAuthRepository(db.engine)
@@ -256,6 +299,7 @@ def test_oauth_repository(tmp_path):
 def test_note_repository(tmp_path):
     from kajet_turbo.db import Database
     from kajet_turbo.repositories.notes import NoteRepository
+
     db = Database(str(tmp_path / "test.db"))
     repo = NoteRepository(db.engine)
 
@@ -277,6 +321,7 @@ def test_note_repository(tmp_path):
 
     repo.update("n001", title="Nowy tytuł", content="Nowa treść", updated_at=now)
     updated = repo.get("n001")
+    assert updated is not None
     assert updated.title == "Nowy tytuł"
 
     repo.delete("n001")

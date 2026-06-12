@@ -1,38 +1,40 @@
 <script lang="ts">
-  import { page } from '$app/state'
-  import { invalidate } from '$app/navigation'
-  import { apiCreateWorkspaceApiWorkspacesPost } from '$lib/api'
-  import type { WorkspaceInfo } from '$lib/api'
+  import { page } from '$app/state';
+  import { invalidate } from '$app/navigation';
+  import { apiCreateWorkspaceApiWorkspacesPost } from '$lib/api';
+  import type { WorkspaceInfo } from '$lib/api';
 
-  let workspaces = $derived((page.data.workspaces ?? []) as unknown as WorkspaceInfo[])
-  let name = $state('')
-  let error = $state('')
-  let creating = $state(false)
+  let workspaces = $derived((page.data.workspaces ?? []) as unknown as WorkspaceInfo[]);
+  let name = $state('');
+  let error = $state('');
+  let creating = $state(false);
 
   function formatDate(ts: number | null): string {
-    if (!ts) return ''
+    if (!ts) return '';
     return new Date(ts * 1000).toLocaleDateString('pl-PL', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-    })
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
   }
 
   async function create(e: SubmitEvent) {
-    e.preventDefault()
-    const trimmed = name.trim()
-    if (!trimmed) return
-    creating = true
-    error = ''
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    creating = true;
+    error = '';
     try {
       await apiCreateWorkspaceApiWorkspacesPost({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed }),
-      })
-      name = ''
-      await invalidate('app:workspaces')
+      });
+      name = '';
+      await invalidate('app:workspaces');
     } catch {
-      error = 'Błąd sieci. Spróbuj ponownie.'
+      error = 'Błąd sieci. Spróbuj ponownie.';
     } finally {
-      creating = false
+      creating = false;
     }
   }
 </script>
@@ -54,7 +56,11 @@
         spellcheck="false"
         disabled={creating}
       />
-      <button type="submit" disabled={creating || !name.trim()} class="btn-primary create-form__btn">
+      <button
+        type="submit"
+        disabled={creating || !name.trim()}
+        class="btn-primary create-form__btn"
+      >
         {creating ? '…' : '+ Nowy'}
       </button>
     </div>
@@ -69,7 +75,10 @@
           <a href="/workspace/{ws.name}/notes" class="ws-card__link">
             <span class="ws-card__name">{ws.name}</span>
             <span class="ws-card__meta">
-              <span class="ws-card__count">{ws.file_count} {ws.file_count === 1 ? 'notatka' : ws.file_count < 5 ? 'notatki' : 'notatek'}</span>
+              <span class="ws-card__count"
+                >{ws.file_count}
+                {ws.file_count === 1 ? 'notatka' : ws.file_count < 5 ? 'notatki' : 'notatek'}</span
+              >
               {#if ws.last_commit_at}
                 <span class="ws-card__sep">·</span>
                 <span class="ws-card__date">{formatDate(ws.last_commit_at)}</span>
@@ -141,7 +150,9 @@
         color: v.$text-primary;
         font-size: 0.9rem;
         font-family: v.$font-mono;
-        transition: border-color 0.15s, box-shadow 0.15s;
+        transition:
+          border-color 0.15s,
+          box-shadow 0.15s;
 
         &:focus {
           outline: none;
@@ -149,8 +160,12 @@
           box-shadow: 0 0 0 2px rgba(240, 184, 0, 0.12);
         }
 
-        &::placeholder { color: v.$text-muted; }
-        &:disabled { opacity: 0.5; }
+        &::placeholder {
+          color: v.$text-muted;
+        }
+        &:disabled {
+          opacity: 0.5;
+        }
       }
     }
 
@@ -183,7 +198,9 @@
     border-radius: v.$radius-lg;
     transition: border-color 0.15s;
 
-    &:hover { border-color: v.$accent-dark; }
+    &:hover {
+      border-color: v.$accent-dark;
+    }
 
     &__link {
       display: flex;
@@ -226,7 +243,9 @@
     &__arrow {
       color: v.$accent-dark;
       font-size: 0.85rem;
-      transition: color 0.15s, transform 0.15s;
+      transition:
+        color 0.15s,
+        transform 0.15s;
     }
 
     &:hover &__arrow {

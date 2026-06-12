@@ -2,9 +2,9 @@ import os
 
 import sqlite_vec
 from sqlalchemy import create_engine, event, pool
-from alembic import context
 from sqlmodel import SQLModel
 
+from alembic import context
 from kajet_turbo import models as _models  # noqa: F401 — registers models in SQLModel.metadata
 
 target_metadata = SQLModel.metadata

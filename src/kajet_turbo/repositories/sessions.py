@@ -22,7 +22,7 @@ class SessionRepository:
 
     def get_user(self, token: str) -> dict | None:
         with Session(self._engine) as session:
-            row = session.execute(
+            row = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "SELECT u.id, u.email FROM sessions s"
                     " JOIN users u ON u.id = s.user_id"
@@ -34,5 +34,7 @@ class SessionRepository:
 
     def delete(self, token: str) -> None:
         with Session(self._engine) as session:
-            session.execute(text("DELETE FROM sessions WHERE token = :token"), {"token": token})
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("DELETE FROM sessions WHERE token = :token"), {"token": token}
+            )
             session.commit()

@@ -1,11 +1,17 @@
 <script lang="ts">
-  let { email, onLogout }: { email: string; onLogout: () => void } = $props()
-  let open = $state(false)
+  let { email, onLogout }: { email: string; onLogout: () => void } = $props();
+  let open = $state(false);
 
-  function close() { open = false }
+  function close() {
+    open = false;
+  }
 </script>
 
-<svelte:window onclick={(e) => { if (!(e.target as Element).closest('.user-menu')) close() }} />
+<svelte:window
+  onclick={(e) => {
+    if (!(e.target as Element).closest('.user-menu')) close();
+  }}
+/>
 
 <div class="user-menu">
   <button class="user-menu__trigger" onclick={() => (open = !open)} aria-expanded={open}>
@@ -16,7 +22,10 @@
     <div class="user-menu__dropdown">
       <a href="/settings" onclick={close} class="user-menu__item">Ustawienia instancji</a>
       <button
-        onclick={() => { close(); onLogout() }}
+        onclick={() => {
+          close();
+          onLogout();
+        }}
         class="user-menu__item user-menu__item--danger"
       >
         Wyloguj się
@@ -28,7 +37,9 @@
 <style lang="scss">
   @use '$lib/styles/variables' as v;
 
-  .user-menu { position: relative; }
+  .user-menu {
+    position: relative;
+  }
 
   .user-menu__trigger {
     display: flex;
@@ -42,13 +53,20 @@
     font-size: 0.75rem;
     font-family: v.$font-mono;
     cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
-    &:hover { border-color: v.$border-accent; color: v.$text-secondary; }
+    transition:
+      border-color 0.15s,
+      color 0.15s;
+    &:hover {
+      border-color: v.$border-accent;
+      color: v.$text-secondary;
+    }
   }
 
   .user-menu__arrow {
     transition: transform 0.15s;
-    &.open { transform: rotate(180deg); }
+    &.open {
+      transform: rotate(180deg);
+    }
   }
 
   .user-menu__dropdown {
@@ -61,7 +79,9 @@
     border-radius: v.$radius-lg;
     padding: v.$space-xs;
     z-index: 100;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(240, 184, 0, 0.05);
+    box-shadow:
+      0 4px 24px rgba(0, 0, 0, 0.6),
+      0 0 0 1px rgba(240, 184, 0, 0.05);
   }
 
   .user-menu__item {
@@ -79,8 +99,16 @@
     border-radius: v.$radius-sm;
     text-align: left;
     cursor: pointer;
-    transition: background 0.1s, color 0.1s;
-    &:hover { background: rgba(240, 184, 0, 0.06); color: v.$text-primary; }
-    &--danger:hover { color: v.$error; background: rgba(255, 77, 77, 0.06); }
+    transition:
+      background 0.1s,
+      color 0.1s;
+    &:hover {
+      background: rgba(240, 184, 0, 0.06);
+      color: v.$text-primary;
+    }
+    &--danger:hover {
+      color: v.$error;
+      background: rgba(255, 77, 77, 0.06);
+    }
   }
 </style>

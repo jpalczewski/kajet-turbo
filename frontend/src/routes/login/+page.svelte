@@ -1,20 +1,20 @@
 <script lang="ts">
-  import { page } from '$app/state'
-  import { invalidateAll } from '$app/navigation'
-  import { apiSessionDeleteApiSessionDelete } from '$lib/api'
-  import LoginForm from '$lib/components/LoginForm.svelte'
-  import ConsentCard from '$lib/components/ConsentCard.svelte'
+  import { page } from '$app/state';
+  import { invalidateAll } from '$app/navigation';
+  import { apiSessionDeleteApiSessionDelete } from '$lib/api';
+  import LoginForm from '$lib/components/LoginForm.svelte';
+  import ConsentCard from '$lib/components/ConsentCard.svelte';
 
-  let { data } = $props()
+  let { data } = $props();
 
   async function handleLoginSuccess(result: { email: string; redirect_uri?: string | null }) {
-    await invalidateAll()
-    if (result.redirect_uri) window.location.href = result.redirect_uri
+    await invalidateAll();
+    if (result.redirect_uri) window.location.href = result.redirect_uri;
   }
 
   async function handleLogout() {
-    await apiSessionDeleteApiSessionDelete({ credentials: 'include' })
-    await invalidateAll()
+    await apiSessionDeleteApiSessionDelete({ credentials: 'include' });
+    await invalidateAll();
   }
 </script>
 
@@ -53,5 +53,7 @@
     gap: v.$space-md;
   }
 
-  h1 { font-size: 2rem; }
+  h1 {
+    font-size: 2rem;
+  }
 </style>

@@ -26,4 +26,7 @@ class UserRepository:
 
     def count(self) -> int:
         with Session(self._engine) as session:
-            return session.execute(text("SELECT COUNT(*) FROM users")).scalar() or 0
+            result = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("SELECT COUNT(*) FROM users")
+            )
+            return result.scalar() or 0

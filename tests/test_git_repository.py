@@ -1,6 +1,8 @@
-import pytest
 from pathlib import Path
+
+import pytest
 from dulwich.repo import Repo as DulwichRepo
+
 from kajet_turbo.repositories.git import GitError, GitRepository
 
 

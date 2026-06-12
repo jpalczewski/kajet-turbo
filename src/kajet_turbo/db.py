@@ -3,12 +3,12 @@ import sqlite3
 from pathlib import Path
 
 import sqlite_vec
-from alembic import command
 from alembic.config import Config
 from sqlalchemy import event, text
 from sqlalchemy.pool import QueuePool
 from sqlmodel import Session, create_engine
 
+from alembic import command
 from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.metadata
     ClientAuthorization,
     Note,
@@ -62,7 +62,8 @@ class Database:
 
     def _init_schema(self) -> None:
         with Session(self.engine) as session:
-            session.execute(text(f"""
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
                     note_id   UNINDEXED,
                     workspace UNINDEXED,
@@ -70,15 +71,18 @@ class Database:
                     content,
                     tokenize='trigram'
                 )
-            """))
-            session.execute(text(f"""
+            """)
+            )
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(f"""
                 CREATE VIRTUAL TABLE IF NOT EXISTS notes_vec USING vec0(
                     note_rowid INTEGER PRIMARY KEY,
                     embedding  float[{self.embedding_dim}],
                     workspace  TEXT partition key,
                     note_id    TEXT
                 )
-            """))
+            """)
+            )
             session.commit()
 
     def close(self) -> None:

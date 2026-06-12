@@ -8,6 +8,7 @@ Limitation (by design, see spec): per-process. With MCP_WORKERS>1 each process
 caches independently; TTL bounds staleness caused by writes in sibling
 processes.
 """
+
 import os
 import threading
 from collections.abc import Callable
@@ -20,8 +21,9 @@ def cache_enabled() -> bool:
 
 
 class WorkspaceCache:
-    def __init__(self, maxsize: int = 2048, ttl: float = 300.0,
-                 timer: Callable[[], float] | None = None) -> None:
+    def __init__(
+        self, maxsize: int = 2048, ttl: float = 300.0, timer: Callable[[], float] | None = None
+    ) -> None:
         kwargs = {"timer": timer} if timer is not None else {}
         self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl, **kwargs)
         self._epochs: dict[tuple[str, str], int] = {}

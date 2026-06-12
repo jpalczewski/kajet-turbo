@@ -30,7 +30,7 @@ class OAuthRepository:
 
     def record_client_authorization(self, client_id: str, user_id: str) -> None:
         with Session(self._engine) as session:
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT OR REPLACE INTO client_authorizations (client_id, user_id)"
                     " VALUES (:client_id, :user_id)"
@@ -55,7 +55,7 @@ class OAuthRepository:
         refresh_token: str | None = None,
     ) -> None:
         with Session(self._engine) as session:
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT OR REPLACE INTO oauth_access_tokens"
                     " (token, client_id, scopes, expires_at, refresh_token)"
@@ -79,7 +79,7 @@ class OAuthRepository:
         expires_at: int | None,
     ) -> None:
         with Session(self._engine) as session:
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT OR REPLACE INTO oauth_refresh_tokens"
                     " (token, client_id, scopes, expires_at)"
@@ -96,7 +96,7 @@ class OAuthRepository:
 
     def get_valid_access_tokens(self) -> list[dict]:
         with Session(self._engine) as session:
-            rows = session.execute(
+            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "SELECT token, client_id, scopes, expires_at, refresh_token"
                     " FROM oauth_access_tokens"
@@ -108,7 +108,7 @@ class OAuthRepository:
 
     def get_valid_refresh_tokens(self) -> list[dict]:
         with Session(self._engine) as session:
-            rows = session.execute(
+            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "SELECT token, client_id, scopes, expires_at FROM oauth_refresh_tokens"
                     " WHERE expires_at IS NULL OR expires_at > :now"
@@ -125,7 +125,7 @@ class OAuthRepository:
         created_at: str,
     ) -> None:
         with Session(self._engine) as session:
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT OR REPLACE INTO oauth_clients"
                     " (client_id, client_secret, redirect_uris, created_at)"
@@ -142,7 +142,7 @@ class OAuthRepository:
 
     def get_oauth_client(self, client_id: str) -> dict | None:
         with Session(self._engine) as session:
-            row = session.execute(
+            row = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "SELECT client_id, client_secret, redirect_uris"
                     " FROM oauth_clients WHERE client_id = :client_id"
@@ -153,16 +153,22 @@ class OAuthRepository:
             return None
         return {**dict(row._mapping), "redirect_uris": json.loads(row.redirect_uris)}
 
-    def upsert_pending(self, pending_id: str, client_json: str, params_json: str, expires_at: float) -> None:
+    def upsert_pending(
+        self, pending_id: str, client_json: str, params_json: str, expires_at: float
+    ) -> None:
         with Session(self._engine) as session:
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT OR REPLACE INTO oauth_pending_authorizations"
                     " (pending_id, client_json, params_json, expires_at)"
                     " VALUES (:pending_id, :client_json, :params_json, :expires_at)"
                 ),
-                {"pending_id": pending_id, "client_json": client_json,
-                 "params_json": params_json, "expires_at": expires_at},
+                {
+                    "pending_id": pending_id,
+                    "client_json": client_json,
+                    "params_json": params_json,
+                    "expires_at": expires_at,
+                },
             )
             session.commit()
 
@@ -178,7 +184,7 @@ class OAuthRepository:
 
     def delete_pending(self, pending_id: str) -> None:
         with Session(self._engine) as session:
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("DELETE FROM oauth_pending_authorizations WHERE pending_id = :id"),
                 {"id": pending_id},
             )
@@ -186,7 +192,7 @@ class OAuthRepository:
 
     def delete_access_token(self, token: str) -> None:
         with Session(self._engine) as session:
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("DELETE FROM oauth_access_tokens WHERE token = :token"),
                 {"token": token},
             )
@@ -194,7 +200,7 @@ class OAuthRepository:
 
     def delete_refresh_token(self, token: str) -> None:
         with Session(self._engine) as session:
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("DELETE FROM oauth_refresh_tokens WHERE token = :token"),
                 {"token": token},
             )
@@ -203,14 +209,14 @@ class OAuthRepository:
     def delete_expired_tokens(self) -> None:
         now = int(time.time())
         with Session(self._engine) as session:
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "DELETE FROM oauth_access_tokens"
                     " WHERE expires_at IS NOT NULL AND expires_at <= :now"
                 ),
                 {"now": now},
             )
-            session.execute(
+            session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "DELETE FROM oauth_refresh_tokens"
                     " WHERE expires_at IS NOT NULL AND expires_at <= :now"
@@ -221,7 +227,7 @@ class OAuthRepository:
 
     def get_valid_pending(self) -> list[dict]:
         with Session(self._engine) as session:
-            rows = session.execute(
+            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "SELECT pending_id, client_json, params_json FROM oauth_pending_authorizations"
                     " WHERE expires_at > :now"

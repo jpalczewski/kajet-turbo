@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { page } from '$app/state'
+  import { page } from '$app/state';
 
-  const slug = $derived(page.params.slug)
-  const note = $derived(page.data.note)
+  const slug = $derived(page.params.slug);
+  const note = $derived(page.data.note);
 
   function formatDate(iso: string): string {
-    if (!iso) return ''
-    const d = new Date(iso)
-    return d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' });
   }
 </script>
 
@@ -40,9 +40,13 @@
     {/if}
     <p class="note-header__date">
       Zaktualizowano: {formatDate(note.updated_at)} ·
-      <a href="/workspace/{slug}/note/{note.note_id}/history" class="note-header__history-link">Historia</a>
+      <a href="/workspace/{slug}/note/{note.note_id}/history" class="note-header__history-link"
+        >Historia</a
+      >
       ·
-      <a href="/workspace/{slug}/note/{note.note_id}/edit" class="note-header__history-link">Edytuj</a>
+      <a href="/workspace/{slug}/note/{note.note_id}/edit" class="note-header__history-link"
+        >Edytuj</a
+      >
     </p>
   </header>
 
@@ -75,10 +79,14 @@
       letter-spacing: 0.04em;
       transition: color 0.15s;
 
-      &:hover { color: v.$accent; }
+      &:hover {
+        color: v.$accent;
+      }
     }
 
-    &__sep { color: v.$text-muted; }
+    &__sep {
+      color: v.$text-muted;
+    }
 
     &__folder {
       color: v.$text-muted;
@@ -106,7 +114,9 @@
     margin-bottom: v.$space-xl;
     transition: color 0.15s;
 
-    &:hover { color: v.$accent; }
+    &:hover {
+      color: v.$accent;
+    }
   }
 
   .note-header {
@@ -159,7 +169,9 @@
       letter-spacing: 0.04em;
       transition: color 0.15s;
 
-      &:hover { color: v.$accent; }
+      &:hover {
+        color: v.$accent;
+      }
     }
   }
 
@@ -180,11 +192,19 @@
       line-height: 1.3;
     }
 
-    :global(h1) { font-size: 1.5rem; }
-    :global(h2) { font-size: 1.25rem; }
-    :global(h3) { font-size: 1.05rem; }
+    :global(h1) {
+      font-size: 1.5rem;
+    }
+    :global(h2) {
+      font-size: 1.25rem;
+    }
+    :global(h3) {
+      font-size: 1.05rem;
+    }
 
-    :global(p) { margin: 0 0 v.$space-md 0; }
+    :global(p) {
+      margin: 0 0 v.$space-md 0;
+    }
 
     :global(a) {
       color: v.$accent;
@@ -192,7 +212,9 @@
       text-underline-offset: 3px;
     }
 
-    :global(a:hover) { color: v.$accent-hover; }
+    :global(a:hover) {
+      color: v.$accent-hover;
+    }
 
     :global(ul),
     :global(ol) {
@@ -200,7 +222,9 @@
       margin: 0 0 v.$space-md 0;
     }
 
-    :global(li) { margin-bottom: v.$space-xs; }
+    :global(li) {
+      margin-bottom: v.$space-xs;
+    }
 
     :global(code) {
       font-family: v.$font-mono;
@@ -238,7 +262,9 @@
       font-style: italic;
     }
 
-    :global(blockquote p) { margin: 0; }
+    :global(blockquote p) {
+      margin: 0;
+    }
 
     :global(hr) {
       border: none;

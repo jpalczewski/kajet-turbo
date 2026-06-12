@@ -9,7 +9,14 @@ from fastmcp.utilities.lifespan import combine_lifespans
 
 from kajet_turbo.api import api_router
 from kajet_turbo.auth import hash_password
-from kajet_turbo.dependencies import db, note_service, oauth_repo, provider, user_repo, workspace_service
+from kajet_turbo.dependencies import (
+    db,
+    note_service,
+    oauth_repo,
+    provider,
+    user_repo,
+    workspace_service,
+)
 from kajet_turbo.log import LoggingMiddleware, logger, setup_logging
 from kajet_turbo.mcp import build_mcp
 
@@ -39,7 +46,7 @@ async def _logging_lifespan(app: FastAPI):
 
 
 class _SPAFiles:
-    """Starlette mount that serves index.html for any path without a matching file (SPA fallback)."""
+    """Starlette mount serving index.html for any path without a matching file (SPA fallback)."""
 
     def __init__(self, directory: str) -> None:
         from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -91,7 +98,11 @@ def build_app() -> Any:
     # FastMCP generates path-aware well-known URLs for the issuer path (/mcp);
     # without this the SPA catch-all intercepts them and returns HTML.
     for _route in provider.get_well_known_routes(mcp_path="/"):
-        app.add_route(_route.path, _route.endpoint, methods=list(_route.methods) if _route.methods else ["GET"])
+        app.add_route(
+            _route.path,
+            _route.endpoint,
+            methods=list(_route.methods) if _route.methods else ["GET"],
+        )
 
     dist = Path(__file__).parent.parent.parent / "dist"
     if dist.exists():
@@ -102,6 +113,7 @@ def build_app() -> Any:
 
 def main() -> None:
     import uvicorn
+
     host = os.getenv("MCP_HOST", "0.0.0.0")
     port = int(os.getenv("MCP_PORT", "8000"))
     workers = int(os.getenv("MCP_WORKERS", "1"))

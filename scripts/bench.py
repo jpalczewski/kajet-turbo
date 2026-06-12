@@ -9,6 +9,7 @@ Usage:
     uv run python scripts/bench.py --label baseline-py314 \
         --out docs/benchmarks/baseline-py314.json
 """
+
 import argparse
 import asyncio
 import json
@@ -28,13 +29,39 @@ ADMIN_PASSWORD = "bench-password"
 WS = "bench"
 PORT = 8765
 WORDS = [
-    "projekt", "klient", "spotkanie", "notatka", "pomysl", "budzet", "raport",
-    "analiza", "wdrozenie", "testy", "architektura", "baza", "wyszukiwanie",
-    "frontend", "backend", "python", "sqlite", "asyncio", "watki", "cache",
+    "projekt",
+    "klient",
+    "spotkanie",
+    "notatka",
+    "pomysl",
+    "budzet",
+    "raport",
+    "analiza",
+    "wdrozenie",
+    "testy",
+    "architektura",
+    "baza",
+    "wyszukiwanie",
+    "frontend",
+    "backend",
+    "python",
+    "sqlite",
+    "asyncio",
+    "watki",
+    "cache",
 ]
-QUERIES = ["projekt klient", "raport budzet", "sqlite cache", "testy backend",
-           "architektura baza", "python asyncio", "notatka spotkanie",
-           "frontend wdrozenie", "analiza raport", "watki python"]
+QUERIES = [
+    "projekt klient",
+    "raport budzet",
+    "sqlite cache",
+    "testy backend",
+    "architektura baza",
+    "python asyncio",
+    "notatka spotkanie",
+    "frontend wdrozenie",
+    "analiza raport",
+    "watki python",
+]
 
 
 def make_content(rng: random.Random, paragraphs: int = 6) -> str:
@@ -49,13 +76,19 @@ def percentiles(latencies_ms: list[float]) -> dict | None:
     def pct(p: float) -> float:
         return round(xs[min(len(xs) - 1, max(0, round(p / 100 * (len(xs) - 1))))], 2)
 
-    return {"p50": pct(50), "p95": pct(95), "p99": pct(99),
-            "mean": round(statistics.fmean(xs), 2), "count": len(xs)}
+    return {
+        "p50": pct(50),
+        "p95": pct(95),
+        "p99": pct(99),
+        "mean": round(statistics.fmean(xs), 2),
+        "count": len(xs),
+    }
 
 
 def rss_mb(pid: int) -> float:
-    out = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)],
-                         capture_output=True, text=True).stdout.strip()
+    out = subprocess.run(
+        ["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True, check=False
+    ).stdout.strip()
     return round(int(out) / 1024, 1) if out else 0.0
 
 
@@ -88,8 +121,7 @@ def spawn_server(tmp: Path) -> subprocess.Popen:
 
 
 async def login(client: httpx.AsyncClient) -> None:
-    r = await client.post("/api/login",
-                          json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+    r = await client.post("/api/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     r.raise_for_status()
 
 
@@ -107,8 +139,12 @@ async def seed(
             t0 = time.perf_counter()
             r = await client.post(
                 f"/api/workspaces/{WS}/notes",
-                json={"title": f"Nota {i}", "content": make_content(rng),
-                      "tags": [rng.choice(WORDS)], "folder": ""},
+                json={
+                    "title": f"Nota {i}",
+                    "content": make_content(rng),
+                    "tags": [rng.choice(WORDS)],
+                    "folder": "",
+                },
             )
             latencies.append((time.perf_counter() - t0) * 1000)
             r.raise_for_status()
@@ -117,8 +153,11 @@ async def seed(
     t0 = time.perf_counter()
     await asyncio.gather(*(create(i) for i in range(n_notes)))
     wall = time.perf_counter() - t0
-    return note_ids, {"latency_ms": percentiles(latencies),
-                      "rps": round(n_notes / wall, 1), "errors": 0}
+    return note_ids, {
+        "latency_ms": percentiles(latencies),
+        "rps": round(n_notes / wall, 1),
+        "errors": 0,
+    }
 
 
 async def run_http_scenario(client, make_request, total: int, concurrency: int) -> dict:
@@ -143,8 +182,7 @@ async def run_http_scenario(client, make_request, total: int, concurrency: int) 
     await asyncio.gather(*(one(i) for i in range(total)))
     wall = time.perf_counter() - t0
     lat = percentiles(latencies)
-    return {"latency_ms": lat,
-            "rps": round(len(latencies) / wall, 1), "errors": errors}
+    return {"latency_ms": lat, "rps": round(len(latencies) / wall, 1), "errors": errors}
 
 
 async def http_phase(n_notes: int, server_pid: int) -> tuple[dict, float]:
@@ -167,7 +205,8 @@ async def http_phase(n_notes: int, server_pid: int) -> tuple[dict, float]:
         def patch(i):
             return client.patch(
                 f"/api/workspaces/{WS}/notes/{note_ids[i % len(note_ids)]}",
-                json={"content": make_content(rng)})
+                json={"content": make_content(rng)},
+            )
 
         def mixed(i):
             return patch(i) if i % 5 == 0 else html(i)
@@ -197,8 +236,11 @@ def inproc_search_phase(tmp: Path) -> dict:
     from kajet_turbo.repositories.notes import NoteRepository
     from kajet_turbo.services.notes import NoteService
 
-    owner_id = sqlite3.connect(str(tmp / "bench.db")).execute(
-        'SELECT id FROM "users" LIMIT 1').fetchone()[0]
+    owner_id = (
+        sqlite3.connect(str(tmp / "bench.db"))
+        .execute('SELECT id FROM "users" LIMIT 1')
+        .fetchone()[0]
+    )
     db = Database()
     svc = NoteService(NoteRepository(db.engine))
     results: dict[str, dict] = {}
@@ -217,16 +259,20 @@ def inproc_search_phase(tmp: Path) -> dict:
         wall = time.perf_counter() - t0
         results[f"search_inproc@t{threads}"] = {
             "latency_ms": percentiles(latencies),
-            "rps": round(total / wall, 1), "errors": 0}
+            "rps": round(total / wall, 1),
+            "errors": 0,
+        }
 
     from kajet_turbo.workspace import workspace_path
+
     t0 = time.perf_counter()
-    reindexed = svc.reindex(WS, owner_id=owner_id,
-                            ws_path=workspace_path(WS, user_id=owner_id))
+    reindexed = svc.reindex(WS, owner_id=owner_id, ws_path=workspace_path(WS, user_id=owner_id))
     wall = time.perf_counter() - t0
     results["reindex_total"] = {
         "latency_ms": percentiles([wall * 1000]),
-        "rps": round(reindexed["count"] / wall, 1), "errors": 0}
+        "rps": round(reindexed["count"] / wall, 1),
+        "errors": 0,
+    }
     db.close()
     return results
 
@@ -267,8 +313,11 @@ def main() -> None:
     print(f"wrote {out}", file=sys.stderr)
     total_errors = sum(s.get("errors", 0) for s in scenarios.values())
     if total_errors > 0:
-        print(f"\nWARNING: {total_errors} request error(s) detected across all "
-              "scenarios — results may be unreliable!", file=sys.stderr)
+        print(
+            f"\nWARNING: {total_errors} request error(s) detected across all "
+            "scenarios — results may be unreliable!",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 

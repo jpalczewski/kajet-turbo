@@ -18,7 +18,11 @@ from kajet_turbo.services.workspaces import WorkspaceService
 
 def _create_user(engine, user_id: str = "u1") -> None:
     with Session(engine) as session:
-        session.add(User(id=user_id, email=f"{user_id}@test.com", password_hash="x", created_at="2026-01-01"))
+        session.add(
+            User(
+                id=user_id, email=f"{user_id}@test.com", password_hash="x", created_at="2026-01-01"
+            )
+        )
         session.commit()
 
 
@@ -27,8 +31,12 @@ def workspace(tmp_path):
     ws = tmp_path / "workspaces" / "u1" / "test-ws"
     ws.mkdir(parents=True)
     subprocess.run(["git", "init", str(ws)], check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "T"], cwd=str(ws), check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@t.com"], cwd=str(ws), check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "T"], cwd=str(ws), check=True, capture_output=True
+    )
     return ws
 
 
@@ -96,7 +104,9 @@ def anon_client(tmp_path, workspace, monkeypatch):
 
 def test_html_returns_rendered_content(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save("u1", "test-ws", ws_path, "Testowa notatka", "# Nagłówek\n\nAkapit.", ["python"])["note_id"]
+    note_id = note_svc.save(
+        "u1", "test-ws", ws_path, "Testowa notatka", "# Nagłówek\n\nAkapit.", ["python"]
+    )["note_id"]
 
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/html")
 
@@ -129,7 +139,9 @@ def test_html_returns_404_when_note_missing(auth_client):
 
 def test_markdown_returns_raw_content(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save("u1", "test-ws", ws_path, "MD notatka", "# Hello\n\nŚwiat.", [])["note_id"]
+    note_id = note_svc.save("u1", "test-ws", ws_path, "MD notatka", "# Hello\n\nŚwiat.", [])[
+        "note_id"
+    ]
 
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/markdown")
 
@@ -160,8 +172,12 @@ def test_markdown_returns_404_when_note_missing(auth_client):
 def test_html_strips_script_tags(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save(
-        "u1", "test-ws", ws_path, "XSS test",
-        '<script>alert(1)</script>\n\n## Bezpieczny nagłówek', []
+        "u1",
+        "test-ws",
+        ws_path,
+        "XSS test",
+        "<script>alert(1)</script>\n\n## Bezpieczny nagłówek",
+        [],
     )["note_id"]
 
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/html")
@@ -176,8 +192,7 @@ def test_html_strips_script_tags(auth_client):
 def test_html_strips_javascript_urls(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save(
-        "u1", "test-ws", ws_path, "JS URL test",
-        '[kliknij](javascript:alert(1))', []
+        "u1", "test-ws", ws_path, "JS URL test", "[kliknij](javascript:alert(1))", []
     )["note_id"]
 
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/html")
@@ -188,14 +203,16 @@ def test_html_strips_javascript_urls(auth_client):
 
 
 def test_save_note_creates_file_in_folder(auth_client):
-    client, note_svc, ws_path = auth_client
-    note_svc.save("u1", "test-ws", ws_path, "Moja notatka", "content", [], folder="Projekty/Klient A")
+    _client, note_svc, ws_path = auth_client
+    note_svc.save(
+        "u1", "test-ws", ws_path, "Moja notatka", "content", [], folder="Projekty/Klient A"
+    )
     expected = Path(ws_path) / "Projekty" / "Klient A" / "Moja notatka.md"
     assert expected.exists()
 
 
 def test_save_note_root_no_notes_subdir(auth_client):
-    client, note_svc, ws_path = auth_client
+    _client, note_svc, ws_path = auth_client
     note_svc.save("u1", "test-ws", ws_path, "Root notatka", "content", [])
     expected = Path(ws_path) / "Root notatka.md"
     assert expected.exists()
@@ -203,14 +220,14 @@ def test_save_note_root_no_notes_subdir(auth_client):
 
 
 def test_save_note_duplicate_title_same_folder_raises(auth_client):
-    client, note_svc, ws_path = auth_client
+    _client, note_svc, ws_path = auth_client
     note_svc.save("u1", "test-ws", ws_path, "Dup", "content", [], folder="F")
     with pytest.raises(ValueError, match="już istnieje"):
         note_svc.save("u1", "test-ws", ws_path, "Dup", "content2", [], folder="F")
 
 
 def test_update_note_title_renames_file(auth_client):
-    client, note_svc, ws_path = auth_client
+    _client, note_svc, ws_path = auth_client
     note_id = note_svc.save("u1", "test-ws", ws_path, "Stary tytuł", "content", [])["note_id"]
     old_path = Path(ws_path) / "Stary tytuł.md"
     assert old_path.exists()
@@ -221,7 +238,7 @@ def test_update_note_title_renames_file(auth_client):
 
 
 def test_update_note_folder_moves_file(auth_client):
-    client, note_svc, ws_path = auth_client
+    _client, note_svc, ws_path = auth_client
     note_id = note_svc.save("u1", "test-ws", ws_path, "Przenoszona", "content", [])["note_id"]
 
     note_svc.update(note_id, owner_id="u1", ws_path=ws_path, folder="Archiwum")
@@ -230,8 +247,10 @@ def test_update_note_folder_moves_file(auth_client):
 
 
 def test_get_with_content_uses_db_path(auth_client):
-    client, note_svc, ws_path = auth_client
-    note_id = note_svc.save("u1", "test-ws", ws_path, "Notatka get", "treść", [], folder="Docs")["note_id"]
+    _client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Notatka get", "treść", [], folder="Docs")[
+        "note_id"
+    ]
     result = note_svc.get_with_content(note_id, owner_id="u1", ws_path=ws_path)
     assert result is not None
     assert result["folder"] == "Docs"
@@ -239,8 +258,10 @@ def test_get_with_content_uses_db_path(auth_client):
 
 
 def test_delete_uses_db_path(auth_client):
-    client, note_svc, ws_path = auth_client
-    note_id = note_svc.save("u1", "test-ws", ws_path, "Do usunięcia", "content", [], folder="Trash")["note_id"]
+    _client, note_svc, ws_path = auth_client
+    note_id = note_svc.save(
+        "u1", "test-ws", ws_path, "Do usunięcia", "content", [], folder="Trash"
+    )["note_id"]
     filepath = Path(ws_path) / "Trash" / "Do usunięcia.md"
     assert filepath.exists()
 
@@ -249,12 +270,17 @@ def test_delete_uses_db_path(auth_client):
 
 
 def test_reindex_finds_notes_in_subfolders(auth_client):
-    client, note_svc, ws_path = auth_client
+    _client, note_svc, ws_path = auth_client
     from kajet_turbo.workspace import note_filepath, write_note_file
+
     p1 = note_filepath(ws_path, "", "Root note")
-    write_note_file(p1, "rid1", "Root note", [], "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", "r")
+    write_note_file(
+        p1, "rid1", "Root note", [], "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", "r"
+    )
     p2 = note_filepath(ws_path, "Sub", "Sub note")
-    write_note_file(p2, "sid1", "Sub note", [], "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", "s")
+    write_note_file(
+        p2, "sid1", "Sub note", [], "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00", "s"
+    )
 
     result = note_svc.reindex("test-ws", owner_id="u1", ws_path=ws_path)
     assert result["count"] == 2
@@ -283,7 +309,9 @@ def test_list_notes_folder_filter(auth_client):
 
 def test_html_returns_folder(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save("u1", "test-ws", ws_path, "HTML folder", "treść", [], folder="Docs")["note_id"]
+    note_id = note_svc.save("u1", "test-ws", ws_path, "HTML folder", "treść", [], folder="Docs")[
+        "note_id"
+    ]
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/html")
     assert resp.status_code == 200
     assert resp.json()["folder"] == "Docs"
@@ -291,7 +319,9 @@ def test_html_returns_folder(auth_client):
 
 def test_markdown_returns_folder(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save("u1", "test-ws", ws_path, "MD folder", "treść", [], folder="Arch")["note_id"]
+    note_id = note_svc.save("u1", "test-ws", ws_path, "MD folder", "treść", [], folder="Arch")[
+        "note_id"
+    ]
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/markdown")
     assert resp.status_code == 200
     assert resp.json()["folder"] == "Arch"
@@ -353,7 +383,7 @@ def test_restore_note_version_reverts_content(auth_client):
 
 
 def test_list_folders_returns_distinct_folders(auth_client):
-    client, note_svc, ws_path = auth_client
+    _client, note_svc, ws_path = auth_client
     note_svc.save("u1", "test-ws", ws_path, "N1", "c", [], folder="docs")
     note_svc.save("u1", "test-ws", ws_path, "N2", "c", [], folder="docs/guide")
     note_svc.save("u1", "test-ws", ws_path, "N3", "c", [], folder="notes")
@@ -403,7 +433,7 @@ def test_ls_subfolder_returns_notes_in_folder(auth_client):
 
 
 def test_ls_nonexistent_path_returns_404(auth_client):
-    client, note_svc, ws_path = auth_client
+    client, _note_svc, _ws_path = auth_client
     resp = client.get("/api/workspaces/test-ws/ls?path=nonexistent")
     assert resp.status_code == 404
 
@@ -448,7 +478,7 @@ def test_create_folder_nested(auth_client):
 
 
 def test_create_folder_idempotent(auth_client):
-    client, _, ws_path = auth_client
+    client, _, _ws_path = auth_client
     client.post("/api/workspaces/test-ws/folders", json={"path": "docs"})
     resp = client.post("/api/workspaces/test-ws/folders", json={"path": "docs"})
     assert resp.status_code == 200

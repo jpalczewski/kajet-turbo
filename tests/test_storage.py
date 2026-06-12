@@ -22,9 +22,12 @@ def notes(db):
 
 def test_schema_creates_all_tables(db):
     with db.engine.connect() as conn:
-        names = {r[0] for r in conn.execute(
-            text("SELECT name FROM sqlite_master WHERE type='table'")
-        ).fetchall()}
+        names = {
+            r[0]
+            for r in conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table'")
+            ).fetchall()
+        }
     assert "notes" in names
     assert "oauth_clients" in names
     assert "users" in names
@@ -33,9 +36,7 @@ def test_schema_creates_all_tables(db):
 
 def test_schema_creates_virtual_tables(db):
     with db.engine.connect() as conn:
-        names = {r[0] for r in conn.execute(
-            text("SELECT name FROM sqlite_master")
-        ).fetchall()}
+        names = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master")).fetchall()}
     assert any(n.startswith("notes_fts") for n in names)
     assert any(n.startswith("notes_vec") for n in names)
 
@@ -57,7 +58,9 @@ def _now() -> str:
 
 
 def test_insert_and_get_note(notes):
-    notes.insert("abc1234", "ws1", "u1", "Moja notatka", ["python"], _now(), _now(), "treść notatki")
+    notes.insert(
+        "abc1234", "ws1", "u1", "Moja notatka", ["python"], _now(), _now(), "treść notatki"
+    )
     note = notes.get("abc1234")
     assert note.id == "abc1234"
     assert note.title == "Moja notatka"
@@ -112,7 +115,16 @@ def test_list_notes_isolated_by_owner(notes):
 
 
 def test_fts_search_finds_by_title(notes):
-    notes.insert("id1", "ws1", "u1", "Python async programming", ["python"], _now(), _now(), "tutorial o asyncio")
+    notes.insert(
+        "id1",
+        "ws1",
+        "u1",
+        "Python async programming",
+        ["python"],
+        _now(),
+        _now(),
+        "tutorial o asyncio",
+    )
     notes.insert("id2", "ws1", "u1", "JavaScript basics", ["js"], _now(), _now(), "podstawy JS")
     results = notes.search_fts("async", "ws1", owner_id="u1")
     ids = [r["note_id"] for r in results]
@@ -121,7 +133,9 @@ def test_fts_search_finds_by_title(notes):
 
 
 def test_fts_search_finds_by_content(notes):
-    notes.insert("id1", "ws1", "u1", "Notatka", [], _now(), _now(), "sqlite jest świetny do embeddingów")
+    notes.insert(
+        "id1", "ws1", "u1", "Notatka", [], _now(), _now(), "sqlite jest świetny do embeddingów"
+    )
     results = notes.search_fts("embedding", "ws1", owner_id="u1")
     assert any(r["note_id"] == "id1" for r in results)
 
@@ -145,13 +159,17 @@ def test_fts_search_respects_owner(notes):
 
 
 def test_fts_search_trigram_partial(notes):
-    notes.insert("id1", "ws1", "u1", "Programowanie", [], _now(), _now(), "nauka programowania w Pythonie")
+    notes.insert(
+        "id1", "ws1", "u1", "Programowanie", [], _now(), _now(), "nauka programowania w Pythonie"
+    )
     results = notes.search_fts("gram", "ws1", owner_id="u1")
     assert any(r["note_id"] == "id1" for r in results)
 
 
 def test_update_note_title_only_preserves_fts_content(notes):
-    notes.insert("abc1234", "ws1", "u1", "Stary tytuł", [], _now(), _now(), "unikalna treść notatki")
+    notes.insert(
+        "abc1234", "ws1", "u1", "Stary tytuł", [], _now(), _now(), "unikalna treść notatki"
+    )
     notes.update("abc1234", title="Nowy tytuł", updated_at=_now())
     results = notes.search_fts("unikalna", "ws1", owner_id="u1")
     assert any(r["note_id"] == "abc1234" for r in results)
@@ -164,6 +182,7 @@ def _fake_embedding(val: float, dim: int = 4) -> bytes:
 @pytest.fixture
 def db_small_dim(tmp_path):
     import os
+
     os.environ["EMBEDDING_DIM"] = "4"
     d = Database(str(tmp_path / "test_vec.db"))
     yield d
@@ -188,7 +207,9 @@ def test_insert_vec_and_search(db_small_dim):
 
 
 def test_hybrid_search_fallback_without_vec(notes):
-    notes.insert("id1", "ws1", "u1", "Python tutorial", [], _now(), _now(), "programowanie w Pythonie")
+    notes.insert(
+        "id1", "ws1", "u1", "Python tutorial", [], _now(), _now(), "programowanie w Pythonie"
+    )
     results = notes.hybrid_search("Python", "ws1", owner_id="u1")
     assert any(r["note_id"] == "id1" for r in results)
 

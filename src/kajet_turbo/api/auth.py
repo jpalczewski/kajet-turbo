@@ -43,8 +43,9 @@ async def api_login(
             return JSONResponse({"error": "Wygasły pending_id."}, status_code=400)
 
     resp = JSONResponse(data)
-    resp.set_cookie(_SESSION_COOKIE, session_token, max_age=_SESSION_MAX_AGE,
-                    httponly=True, samesite="lax")
+    resp.set_cookie(
+        _SESSION_COOKIE, session_token, max_age=_SESSION_MAX_AGE, httponly=True, samesite="lax"
+    )
     return resp
 
 

@@ -1,15 +1,17 @@
-import pytest
 from pathlib import Path
+
+import pytest
+
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.workspace import (
-    list_workspaces,
     create_workspace,
-    note_filepath,
-    write_note_file,
-    read_note_file,
-    title_to_windows_filename,
+    list_workspaces,
     normalize_folder,
+    note_filepath,
+    read_note_file,
     scan_notes,
+    title_to_windows_filename,
+    write_note_file,
 )
 
 
@@ -42,6 +44,7 @@ def test_list_workspaces_with_user_id(tmp_path):
 
 
 # --- title_to_windows_filename ---
+
 
 def test_title_to_windows_filename_strips_colon():
     assert title_to_windows_filename("Spotkanie: kickoff") == "Spotkanie kickoff"
@@ -89,6 +92,7 @@ def test_title_to_windows_filename_truncates_to_200():
 
 # --- normalize_folder ---
 
+
 def test_normalize_folder_empty():
     assert normalize_folder("") == ""
 
@@ -122,6 +126,7 @@ def test_normalize_folder_sanitizes_forbidden_chars_in_segment():
 
 # --- note_filepath ---
 
+
 def test_note_filepath_root():
     path = note_filepath("/ws", "", "My Note")
     assert path == str(Path("/ws/My Note.md"))
@@ -138,6 +143,7 @@ def test_note_filepath_sanitizes_title():
 
 
 # --- write/read ---
+
 
 def test_write_and_read_note_file(workspace):
     path = note_filepath(str(workspace), "", "Test Note")
@@ -161,10 +167,26 @@ def test_scan_notes_finds_all_including_subfolders(workspace):
     for i in range(2):
         path = note_filepath(str(workspace), "", f"Notatka {i}")
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        write_note_file(path, f"id{i}", f"Notatka {i}", [], "2026-06-08T12:00:00+00:00", "2026-06-08T12:00:00+00:00", f"treść {i}")
+        write_note_file(
+            path,
+            f"id{i}",
+            f"Notatka {i}",
+            [],
+            "2026-06-08T12:00:00+00:00",
+            "2026-06-08T12:00:00+00:00",
+            f"treść {i}",
+        )
     path_sub = note_filepath(str(workspace), "Projekty", "Sub-notatka")
     Path(path_sub).parent.mkdir(parents=True, exist_ok=True)
-    write_note_file(path_sub, "idsub", "Sub-notatka", [], "2026-06-08T12:00:00+00:00", "2026-06-08T12:00:00+00:00", "sub")
+    write_note_file(
+        path_sub,
+        "idsub",
+        "Sub-notatka",
+        [],
+        "2026-06-08T12:00:00+00:00",
+        "2026-06-08T12:00:00+00:00",
+        "sub",
+    )
     notes = scan_notes(str(workspace))
     ids = [n["id"] for n in notes if n["id"]]
     assert set(ids) == {"id0", "id1", "idsub"}
@@ -174,7 +196,15 @@ def test_scan_notes_ignores_non_note_md(workspace):
     (workspace / "README.md").write_text("# Readme\n\nNo frontmatter here.")
     path = note_filepath(str(workspace), "", "Real Note")
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    write_note_file(path, "r1", "Real Note", [], "2026-06-08T12:00:00+00:00", "2026-06-08T12:00:00+00:00", "content")
+    write_note_file(
+        path,
+        "r1",
+        "Real Note",
+        [],
+        "2026-06-08T12:00:00+00:00",
+        "2026-06-08T12:00:00+00:00",
+        "content",
+    )
     notes = scan_notes(str(workspace))
     ids = [n["id"] for n in notes if n["id"]]
     assert ids == ["r1"]

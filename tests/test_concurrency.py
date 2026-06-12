@@ -36,6 +36,7 @@ async def test_run_sync_bounded_concurrency():
             active += 1
             peak = max(peak, active)
         import time
+
         time.sleep(0.05)
         with lock:
             active -= 1

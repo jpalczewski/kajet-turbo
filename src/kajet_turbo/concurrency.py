@@ -9,6 +9,7 @@ completion (abandon_on_cancel=False), but a *native* task.cancel() — e.g. a
 client disconnect — releases the caller (and the limiter token) before the
 thread finishes; pool checkout timeout + busy_timeout cover that window.
 """
+
 import asyncio
 import threading
 from collections.abc import Callable
@@ -36,6 +37,4 @@ def _db_limiter() -> CapacityLimiter:
 
 
 async def run_sync[**P, T](fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> T:
-    return await anyio.to_thread.run_sync(
-        partial(fn, *args, **kwargs), limiter=_db_limiter()
-    )
+    return await anyio.to_thread.run_sync(partial(fn, *args, **kwargs), limiter=_db_limiter())

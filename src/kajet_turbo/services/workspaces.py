@@ -35,10 +35,18 @@ class WorkspaceService:
             s = stats.get(name, {})
             last_updated = s.get("last_updated")
             if last_updated:
-                last_commit_at = int(datetime.fromisoformat(last_updated).replace(tzinfo=UTC).timestamp())
+                last_commit_at = int(
+                    datetime.fromisoformat(last_updated).replace(tzinfo=UTC).timestamp()
+                )
             else:
                 last_commit_at = None
-            result.append({"name": name, "file_count": s.get("file_count", 0), "last_commit_at": last_commit_at})
+            result.append(
+                {
+                    "name": name,
+                    "file_count": s.get("file_count", 0),
+                    "last_commit_at": last_commit_at,
+                }
+            )
         return result
 
     def has_access(self, user_id: str, name: str) -> bool:

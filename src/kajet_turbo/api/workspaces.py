@@ -1,17 +1,54 @@
-import bleach
-import mistune
 import re
 from pathlib import Path
+
+import bleach
+import mistune
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from kajet_turbo.log import logger, logged_route
+
+from kajet_turbo.api.schemas import (
+    CreateFolderResponse,
+    CreateNoteResponse,
+    CreateWorkspaceResponse,
+    DeleteNoteResponse,
+    LsResponse,
+    NoteHistoryResponse,
+    NoteHtmlResponse,
+    NoteMarkdownResponse,
+    NotesListResponse,
+    RestoreVersionResponse,
+    UpdateNoteResponse,
+    WorkspacesListResponse,
+)
+from kajet_turbo.concurrency import run_sync
+from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
+from kajet_turbo.log import logged_route, logger
+from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.workspace import note_filepath
 
 _ALLOWED_TAGS = [
     *bleach.sanitizer.ALLOWED_TAGS,
-    "p", "h1", "h2", "h3", "h4", "h5", "h6",
-    "pre", "code", "blockquote",
-    "ul", "ol", "li", "hr",
-    "table", "thead", "tbody", "tr", "th", "td",
+    "p",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "pre",
+    "code",
+    "blockquote",
+    "ul",
+    "ol",
+    "li",
+    "hr",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
     "img",
 ]
 _ALLOWED_ATTRS = {
@@ -21,7 +58,7 @@ _ALLOWED_ATTRS = {
 }
 _ALLOWED_PROTOCOLS = ["http", "https", "mailto"]
 
-_FOLDER_PATH_RE = re.compile(r'^[a-zA-Z0-9._-][a-zA-Z0-9._\-/]*$')
+_FOLDER_PATH_RE = re.compile(r"^[a-zA-Z0-9._-][a-zA-Z0-9._\-/]*$")
 
 
 def _render_html(content: str) -> str:
@@ -33,21 +70,6 @@ def _render_html(content: str) -> str:
         strip=True,
     )
 
-from kajet_turbo.api.schemas import (
-    CreateFolderRequest, CreateFolderResponse,
-    CreateNoteRequest, CreateNoteResponse,
-    CreateWorkspaceResponse, LsEntry, LsResponse,
-    NoteHistoryResponse, NoteHtmlResponse, NoteMarkdownResponse,
-    NotesListResponse, RestoreVersionResponse,
-    UpdateNoteRequest, UpdateNoteResponse,
-    DeleteNoteResponse,
-    WorkspacesListResponse,
-)
-from kajet_turbo.concurrency import run_sync
-from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
-from kajet_turbo.services.notes import NoteService
-from kajet_turbo.services.workspaces import WorkspaceService
-from kajet_turbo.workspace import note_filepath
 
 router = APIRouter()
 
@@ -135,7 +157,7 @@ def api_ls(
     try:
         folder_abs = (ws_root / path).resolve() if path else ws_root
         folder_abs.relative_to(ws_root)
-    except (ValueError, OSError):
+    except ValueError, OSError:
         return JSONResponse({"error": "Invalid path"}, status_code=400)
 
     if path and not folder_abs.is_dir():
@@ -153,8 +175,7 @@ def api_ls(
         return JSONResponse({"folders": sorted(expanded), "entries": []})
 
     subdirs = sorted(
-        d.name for d in folder_abs.iterdir()
-        if d.is_dir() and not d.name.startswith(".")
+        d.name for d in folder_abs.iterdir() if d.is_dir() and not d.name.startswith(".")
     )
     notes = note_service.list(name, owner_id=user["id"], folder=path, limit=1000)
     entries = []
@@ -164,12 +185,14 @@ def api_ls(
             size_bytes = Path(filepath).stat().st_size
         except OSError:
             size_bytes = 0
-        entries.append({
-            "note_id": note["note_id"],
-            "title": note["title"],
-            "size_bytes": size_bytes,
-            "updated_at": note["updated_at"],
-        })
+        entries.append(
+            {
+                "note_id": note["note_id"],
+                "title": note["title"],
+                "size_bytes": size_bytes,
+                "updated_at": note["updated_at"],
+            }
+        )
     return JSONResponse({"folders": subdirs, "entries": entries})
 
 
@@ -180,7 +203,8 @@ async def api_create_folder(
     request: Request,
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:
-    from kajet_turbo.repositories.git import GitRepository, GitError
+    from kajet_turbo.repositories.git import GitError, GitRepository
+
     user = get_session_user(request)
     if not user:
         return JSONResponse({"error": "Not logged in"}, status_code=401)
@@ -334,21 +358,29 @@ def api_get_note_html(
     if not user:
         return JSONResponse({"error": "Not logged in"}, status_code=401)
     if not ws_service.has_access(user["id"], name):
-        logger.warning("note_html_access_denied", user_id=user["id"], email=user.get("email"), workspace=name, note_id=note_id)
+        logger.warning(
+            "note_html_access_denied",
+            user_id=user["id"],
+            email=user.get("email"),
+            workspace=name,
+            note_id=note_id,
+        )
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
     ws_path = ws_service.workspace_path(user["id"], name)
     note = note_service.get_with_content(note_id, owner_id=user["id"], ws_path=ws_path)
     if note is None:
         return JSONResponse({"error": "Notatka nie istnieje."}, status_code=404)
-    return JSONResponse({
-        "note_id": note["note_id"],
-        "title": note["title"],
-        "folder": note["folder"],
-        "tags": note["tags"],
-        "created_at": note["created_at"],
-        "updated_at": note["updated_at"],
-        "content_html": _render_html(note["content"]),
-    })
+    return JSONResponse(
+        {
+            "note_id": note["note_id"],
+            "title": note["title"],
+            "folder": note["folder"],
+            "tags": note["tags"],
+            "created_at": note["created_at"],
+            "updated_at": note["updated_at"],
+            "content_html": _render_html(note["content"]),
+        }
+    )
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/markdown", response_model=NoteMarkdownResponse)
@@ -369,15 +401,17 @@ def api_get_note_markdown(
     note = note_service.get_with_content(note_id, owner_id=user["id"], ws_path=ws_path)
     if note is None:
         return JSONResponse({"error": "Notatka nie istnieje."}, status_code=404)
-    return JSONResponse({
-        "note_id": note["note_id"],
-        "title": note["title"],
-        "folder": note["folder"],
-        "tags": note["tags"],
-        "created_at": note["created_at"],
-        "updated_at": note["updated_at"],
-        "content": note["content"],
-    })
+    return JSONResponse(
+        {
+            "note_id": note["note_id"],
+            "title": note["title"],
+            "folder": note["folder"],
+            "tags": note["tags"],
+            "created_at": note["created_at"],
+            "updated_at": note["updated_at"],
+            "content": note["content"],
+        }
+    )
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/history", response_model=NoteHistoryResponse)
@@ -413,6 +447,7 @@ def api_note_version(
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
     from kajet_turbo.repositories.git import GitError
+
     user = get_session_user(request)
     if not user:
         return JSONResponse({"error": "Not logged in"}, status_code=401)
@@ -423,18 +458,23 @@ def api_note_version(
         version = note_service.get_version(note_id, sha, owner_id=user["id"], ws_path=ws_path)
     except (ValueError, GitError) as e:
         return JSONResponse({"error": str(e)}, status_code=404)
-    return JSONResponse({
-        "note_id": version["note_id"],
-        "title": version["title"],
-        "folder": version["folder"],
-        "tags": version["tags"],
-        "created_at": version["created_at"],
-        "updated_at": version["updated_at"],
-        "content_html": _render_html(version["content"]),
-    })
+    return JSONResponse(
+        {
+            "note_id": version["note_id"],
+            "title": version["title"],
+            "folder": version["folder"],
+            "tags": version["tags"],
+            "created_at": version["created_at"],
+            "updated_at": version["updated_at"],
+            "content_html": _render_html(version["content"]),
+        }
+    )
 
 
-@router.post("/api/workspaces/{name}/notes/{note_id}/history/{sha}/restore", response_model=RestoreVersionResponse)
+@router.post(
+    "/api/workspaces/{name}/notes/{note_id}/history/{sha}/restore",
+    response_model=RestoreVersionResponse,
+)
 @logged_route
 async def api_restore_note_version(
     name: str,

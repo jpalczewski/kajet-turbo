@@ -1,5 +1,6 @@
 import pytest
 from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
+from pydantic import AnyUrl
 
 from kajet_turbo.auth import KajetOAuthProvider
 
@@ -78,9 +79,10 @@ def test_create_auth_fallback_coolify_url(monkeypatch, tmp_path):
 
 
 def test_save_and_get_oauth_client(tmp_path):
+    from datetime import UTC, datetime
+
     from kajet_turbo.db import Database
     from kajet_turbo.repositories.oauth import OAuthRepository
-    from datetime import UTC, datetime
 
     db = Database(str(tmp_path / "test.db"))
     oauth = OAuthRepository(db.engine)
@@ -91,6 +93,7 @@ def test_save_and_get_oauth_client(tmp_path):
         created_at=datetime.now(UTC).isoformat(),
     )
     client = oauth.get_oauth_client("test-client")
+    assert client is not None
     assert client["client_id"] == "test-client"
     assert client["client_secret"] == "secret123"
     assert "https://example.com/callback" in client["redirect_uris"]
@@ -123,6 +126,7 @@ def test_verify_password_none_hash():
 
 def test_delete_expired_tokens_leaves_valid_and_null_expiry(tmp_path):
     import time
+
     from kajet_turbo.db import Database
     from kajet_turbo.repositories.oauth import OAuthRepository
 
@@ -148,6 +152,7 @@ def test_delete_expired_tokens_leaves_valid_and_null_expiry(tmp_path):
 
 def test_delete_individual_tokens(tmp_path):
     import time
+
     from kajet_turbo.db import Database
     from kajet_turbo.repositories.oauth import OAuthRepository
 
@@ -169,8 +174,10 @@ def test_expired_access_token_preserves_refresh_token(monkeypatch, tmp_path):
     """AT expiry must NOT wipe the paired RT — client needs RT to refresh."""
     import asyncio
     import time
+
     from mcp.server.auth.provider import AccessToken, RefreshToken
     from mcp.server.auth.settings import ClientRegistrationOptions
+
     from kajet_turbo.auth import KajetOAuthProvider
     from kajet_turbo.db import Database
     from kajet_turbo.repositories.oauth import OAuthRepository
@@ -208,9 +215,10 @@ def test_expired_access_token_preserves_refresh_token(monkeypatch, tmp_path):
 def test_exchange_refresh_token_deletes_old_tokens_from_db(monkeypatch, tmp_path):
     import asyncio
     import time
-    from mcp.server.auth.provider import RefreshToken
+
     from mcp.server.auth.settings import ClientRegistrationOptions
     from mcp.shared.auth import OAuthClientInformationFull
+
     from kajet_turbo.auth import KajetOAuthProvider
     from kajet_turbo.db import Database
     from kajet_turbo.repositories.oauth import OAuthRepository
@@ -235,7 +243,7 @@ def test_exchange_refresh_token_deletes_old_tokens_from_db(monkeypatch, tmp_path
 
     client = OAuthClientInformationFull(
         client_id="client1",
-        redirect_uris=["http://localhost/callback"],
+        redirect_uris=[AnyUrl("http://localhost/callback")],
     )
     provider.clients["client1"] = client
     old_refresh_obj = provider.refresh_tokens[old_rt]

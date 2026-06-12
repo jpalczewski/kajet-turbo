@@ -1,5 +1,6 @@
 """Parallel save/search/history on one workspace — catches git races,
 SQLite pool exhaustion and (later) cache races under real threads."""
+
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -17,6 +18,7 @@ OWNER = "user-stress"
 @pytest.fixture()
 def svc(tmp_path):
     from kajet_turbo.cache import WorkspaceCache
+
     db = Database(db_path=str(tmp_path / "stress.db"))
     service = NoteService(NoteRepository(db.engine), cache=WorkspaceCache())
     yield service, str(tmp_path / "ws")
@@ -34,19 +36,19 @@ def test_parallel_save_search_history(svc, tmp_path):
     def save(i: int) -> None:
         try:
             service.save(OWNER, WS, ws_path, f"Nota {i}", f"treść {i}", ["tag"])
-        except Exception as e:  # noqa: BLE001 — collect everything
+        except Exception as e:
             errors.append(e)
 
     def search(i: int) -> None:
         try:
             service.search("treść", [WS], owner_id=OWNER, limit=10)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             errors.append(e)
 
     def history(i: int) -> None:
         try:
             service.get_history(seed["note_id"], owner_id=OWNER, ws_path=ws_path)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             errors.append(e)
 
     with ThreadPoolExecutor(max_workers=10) as ex:

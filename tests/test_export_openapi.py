@@ -2,7 +2,6 @@ import json
 import subprocess
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).parent.parent
 
 
@@ -12,6 +11,7 @@ def test_export_openapi_creates_valid_schema(tmp_path):
         cwd=PROJECT_ROOT,
         capture_output=True,
         text=True,
+        check=False,
     )
     assert result.returncode == 0, f"Script failed:\n{result.stderr}"
 

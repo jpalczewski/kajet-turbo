@@ -4,6 +4,7 @@ from pathlib import Path
 from dulwich import porcelain
 from dulwich.errors import NotGitRepository
 from dulwich.object_store import tree_lookup_path
+from dulwich.objects import Blob, Commit
 from dulwich.repo import Repo
 
 COMMITTER = b"Kajet <bot@kajet.app>"
@@ -35,7 +36,7 @@ class GitRepository:
             raise GitError(str(e)) from e
 
     @classmethod
-    def init(cls, path: str) -> "GitRepository":
+    def init(cls, path: str) -> GitRepository:
         porcelain.init(path)
         return cls(path)
 
@@ -121,7 +122,12 @@ class GitRepository:
         try:
             repo = Repo(self._workspace_path)
             commit = repo[sha.encode("ascii")]
+            # repo[<commit sha>] yields a Commit; anything else is a bad sha
+            # and surfaces as GitError via the except below.
+            assert isinstance(commit, Commit)
             _, blob_sha = tree_lookup_path(repo.get_object, commit.tree, relative_path.encode())
-            return repo[blob_sha].data.decode("utf-8")
+            blob = repo[blob_sha]
+            assert isinstance(blob, Blob)
+            return blob.data.decode("utf-8")
         except Exception as e:
             raise GitError(str(e)) from e

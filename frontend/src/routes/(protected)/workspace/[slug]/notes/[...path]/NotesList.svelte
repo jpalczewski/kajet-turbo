@@ -1,58 +1,68 @@
 <script lang="ts">
-  import { goto } from '$app/navigation'
-  import type { NoteItem } from '$lib/api'
+  import { goto } from '$app/navigation';
+  import type { NoteItem } from '$lib/api';
 
-  let { notes, currentNoteId, folderPath, slug, onCreateNote }: {
-    notes: NoteItem[]
-    currentNoteId: string | null
-    folderPath: string
-    slug: string
-    onCreateNote: (title: string) => Promise<void>
-  } = $props()
+  let {
+    notes,
+    currentNoteId,
+    folderPath,
+    slug,
+    onCreateNote,
+  }: {
+    notes: NoteItem[];
+    currentNoteId: string | null;
+    folderPath: string;
+    slug: string;
+    onCreateNote: (title: string) => Promise<void>;
+  } = $props();
 
   function formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   function formatDate(iso: string): string {
-    if (!iso) return ''
-    return new Date(iso).toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    if (!iso) return '';
+    return new Date(iso).toLocaleDateString('pl-PL', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
   }
 
   function openNote(noteId: string) {
-    const base = folderPath ? `/workspace/${slug}/notes/${folderPath}` : `/workspace/${slug}/notes`
-    goto(`${base}/${noteId}`)
+    const base = folderPath ? `/workspace/${slug}/notes/${folderPath}` : `/workspace/${slug}/notes`;
+    goto(`${base}/${noteId}`);
   }
 
-  let creating = $state(false)
-  let newNoteTitle = $state('')
-  let createError = $state('')
+  let creating = $state(false);
+  let newNoteTitle = $state('');
+  let createError = $state('');
 
   function startCreating() {
-    creating = true
-    newNoteTitle = ''
-    createError = ''
+    creating = true;
+    newNoteTitle = '';
+    createError = '';
   }
 
   async function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
-      creating = false
-      newNoteTitle = ''
-      createError = ''
-      return
+      creating = false;
+      newNoteTitle = '';
+      createError = '';
+      return;
     }
-    if (e.key !== 'Enter') return
-    const title = newNoteTitle.trim()
-    if (!title) return
+    if (e.key !== 'Enter') return;
+    const title = newNoteTitle.trim();
+    if (!title) return;
     try {
-      await onCreateNote(title)
-      creating = false
-      newNoteTitle = ''
-      createError = ''
+      await onCreateNote(title);
+      creating = false;
+      newNoteTitle = '';
+      createError = '';
     } catch (err: unknown) {
-      createError = err instanceof Error ? err.message : 'Błąd'
+      createError = err instanceof Error ? err.message : 'Błąd';
     }
   }
 </script>
@@ -168,7 +178,9 @@
     line-height: 1;
     transition: color 0.15s;
 
-    &:hover { color: v.$accent; }
+    &:hover {
+      color: v.$accent;
+    }
   }
 
   .new-note-row {
@@ -191,8 +203,12 @@
     outline: none;
     box-sizing: border-box;
 
-    &:focus { border-color: v.$accent-dark; }
-    &--error { border-color: #c0392b; }
+    &:focus {
+      border-color: v.$accent-dark;
+    }
+    &--error {
+      border-color: #c0392b;
+    }
   }
 
   .new-note-error {
@@ -213,8 +229,12 @@
     cursor: pointer;
     text-align: left;
 
-    &:hover { background: rgba(255,255,255,0.02); }
-    &.active { background: rgba(240, 184, 0, 0.06); }
+    &:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    &.active {
+      background: rgba(240, 184, 0, 0.06);
+    }
 
     &__title {
       font-family: v.$font-mono;

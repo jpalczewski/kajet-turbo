@@ -1,86 +1,92 @@
 <script lang="ts">
-  import { goto } from '$app/navigation'
+  import { goto } from '$app/navigation';
 
-  let { folders, currentFolder, slug, onCreateFolder }: {
-    folders: string[]
-    currentFolder: string
-    slug: string
-    onCreateFolder: (path: string) => Promise<void>
-  } = $props()
+  let {
+    folders,
+    currentFolder,
+    slug,
+    onCreateFolder,
+  }: {
+    folders: string[];
+    currentFolder: string;
+    slug: string;
+    onCreateFolder: (path: string) => Promise<void>;
+  } = $props();
 
-  type TreeNode = { name: string; fullPath: string; children: TreeNode[] }
+  type TreeNode = { name: string; fullPath: string; children: TreeNode[] };
 
   function buildTree(paths: string[]): TreeNode[] {
-    const root: TreeNode[] = []
-    const map = new Map<string, TreeNode>()
+    const root: TreeNode[] = [];
+    const map = new Map<string, TreeNode>();
     for (const path of [...paths].sort()) {
-      const parts = path.split('/')
-      const name = parts.at(-1)!
-      const node: TreeNode = { name, fullPath: path, children: [] }
-      map.set(path, node)
-      const parentPath = parts.slice(0, -1).join('/')
+      const parts = path.split('/');
+      const name = parts.at(-1)!;
+      const node: TreeNode = { name, fullPath: path, children: [] };
+      map.set(path, node);
+      const parentPath = parts.slice(0, -1).join('/');
       if (parentPath && map.has(parentPath)) {
-        map.get(parentPath)!.children.push(node)
+        map.get(parentPath)!.children.push(node);
       } else {
-        root.push(node)
+        root.push(node);
       }
     }
-    return root
+    return root;
   }
 
-  let tree = $derived(buildTree(folders))
-  let expandedOverride = $state<Set<string> | null>(null)
+  let tree = $derived(buildTree(folders));
+  let expandedOverride = $state<Set<string> | null>(null);
   let expanded = $derived(
-    expandedOverride ?? new Set<string>(
-      currentFolder
-        ? currentFolder.split('/').map((_, i, arr) => arr.slice(0, i + 1).join('/'))
-        : []
-    )
-  )
+    expandedOverride ??
+      new Set<string>(
+        currentFolder
+          ? currentFolder.split('/').map((_, i, arr) => arr.slice(0, i + 1).join('/'))
+          : [],
+      ),
+  );
 
   function toggle(path: string) {
-    const next = new Set(expanded)
-    next.has(path) ? next.delete(path) : next.add(path)
-    expandedOverride = next
+    const next = new Set(expanded);
+    next.has(path) ? next.delete(path) : next.add(path);
+    expandedOverride = next;
   }
 
   function navigate(folder: string) {
-    goto(`/workspace/${slug}/notes/${folder}`)
+    goto(`/workspace/${slug}/notes/${folder}`);
   }
 
-  let creatingIn: string | null = $state(null)
-  let newFolderInput = $state('')
-  let createError = $state('')
+  let creatingIn: string | null = $state(null);
+  let newFolderInput = $state('');
+  let createError = $state('');
 
   function startCreating() {
-    creatingIn = currentFolder
-    newFolderInput = ''
-    createError = ''
+    creatingIn = currentFolder;
+    newFolderInput = '';
+    createError = '';
     if (currentFolder) {
-      const next = new Set(expanded)
-      currentFolder.split('/').forEach((_, i, arr) => next.add(arr.slice(0, i + 1).join('/')))
-      expandedOverride = next
+      const next = new Set(expanded);
+      currentFolder.split('/').forEach((_, i, arr) => next.add(arr.slice(0, i + 1).join('/')));
+      expandedOverride = next;
     }
   }
 
   async function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
-      creatingIn = null
-      return
+      creatingIn = null;
+      return;
     }
-    if (e.key !== 'Enter') return
-    const name = newFolderInput.trim()
-    if (!name) return
+    if (e.key !== 'Enter') return;
+    const name = newFolderInput.trim();
+    if (!name) return;
     if (!/^[a-zA-Z0-9._-][a-zA-Z0-9._\-/]*$/.test(name)) {
-      createError = 'Tylko litery, cyfry, kropka, myślnik, ukośnik'
-      return
+      createError = 'Tylko litery, cyfry, kropka, myślnik, ukośnik';
+      return;
     }
-    const fullPath = creatingIn ? `${creatingIn}/${name}` : name
+    const fullPath = creatingIn ? `${creatingIn}/${name}` : name;
     try {
-      await onCreateFolder(fullPath)
-      creatingIn = null
+      await onCreateFolder(fullPath);
+      creatingIn = null;
     } catch (err: unknown) {
-      createError = err instanceof Error ? err.message : 'Błąd'
+      createError = err instanceof Error ? err.message : 'Błąd';
     }
   }
 </script>
@@ -109,7 +115,10 @@
     <button
       class="folder-row"
       class:active={currentFolder === n.fullPath}
-      onclick={() => { toggle(n.fullPath); navigate(n.fullPath) }}
+      onclick={() => {
+        toggle(n.fullPath);
+        navigate(n.fullPath);
+      }}
     >
       <span class="folder-chevron">{expanded.has(n.fullPath) ? '▼' : '▶'}</span>
       <span class="folder-name">{n.name}/</span>
@@ -186,8 +195,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
 
-    &:hover { color: v.$text-primary; }
-    &.active { color: v.$accent; }
+    &:hover {
+      color: v.$text-primary;
+    }
+    &.active {
+      color: v.$accent;
+    }
   }
 
   .root-row {
@@ -215,7 +228,9 @@
     cursor: pointer;
     flex-shrink: 0;
 
-    &:hover { color: v.$accent-hover; }
+    &:hover {
+      color: v.$accent-hover;
+    }
   }
 
   .new-folder-row {
@@ -236,7 +251,9 @@
     border-radius: v.$radius-sm;
     width: 120px;
 
-    &--error { border-color: v.$error; }
+    &--error {
+      border-color: v.$error;
+    }
   }
 
   .new-folder-error {

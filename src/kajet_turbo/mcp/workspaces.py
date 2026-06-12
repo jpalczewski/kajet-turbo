@@ -4,13 +4,15 @@ from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_access_token
 from nanoid import generate
 
+from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool, logger
 from kajet_turbo.repositories.oauth import OAuthRepository
-from kajet_turbo.concurrency import run_sync
 from kajet_turbo.services.workspaces import WorkspaceService
 
 
-async def get_active_workspace(ctx: Context, workspace_service: WorkspaceService) -> tuple[str, str, str]:
+async def get_active_workspace(
+    ctx: Context, workspace_service: WorkspaceService
+) -> tuple[str, str, str]:
     """Returns (owner_id, workspace_slug, workspace_path)."""
     name = await ctx.get_state("active_workspace")
     if not name:
@@ -43,7 +45,8 @@ def register_workspaces(
     @mcp.tool()
     @logged_tool
     async def list_workspaces(ctx: Context) -> str:
-        """Zwraca listę workspace'ów dostępnych dla tego użytkownika. Odpowiedź: JSON array stringów."""
+        """Zwraca listę workspace'ów dostępnych dla tego użytkownika.
+        Odpowiedź: JSON array stringów."""
         user_id, err = await run_sync(_resolve_user)
         if err:
             return err
@@ -59,7 +62,11 @@ def register_workspaces(
             return err
         available = await run_sync(workspace_service.list_accessible, user_id)
         if name not in available:
-            msg = "Workspace '{name}' nie istnieje lub brak dostępu." if user_id else "Workspace '{name}' nie istnieje."
+            msg = (
+                "Workspace '{name}' nie istnieje lub brak dostępu."
+                if user_id
+                else "Workspace '{name}' nie istnieje."
+            )
             return json.dumps({"error": msg.format(name=name), "available": available})
         existing_owner_id = await ctx.get_state("active_owner_id")
         owner_id = user_id or existing_owner_id or f"anon-{generate(size=12)}"

@@ -1,10 +1,13 @@
 <script lang="ts">
-  import type { NoteHtmlResponse } from '$lib/api'
+  import type { NoteHtmlResponse } from '$lib/api';
 
-  let { note, slug }: {
-    note: NoteHtmlResponse | null
-    slug: string
-  } = $props()
+  let {
+    note,
+    slug,
+  }: {
+    note: NoteHtmlResponse | null;
+    slug: string;
+  } = $props();
 </script>
 
 <div class="preview">
@@ -15,13 +18,13 @@
         <a
           href="/workspace/{slug}/note/{note.note_id}/history"
           class="preview__action-link"
-          title="Historia"
-        >Historia</a>
+          title="Historia">Historia</a
+        >
         <a
           href="/workspace/{slug}/note/{note.note_id}"
           class="preview__action-link preview__action-link--primary"
-          title="Otwórz pełny widok"
-        >↗</a>
+          title="Otwórz pełny widok">↗</a
+        >
       </div>
     </div>
     <div class="preview__body prose">
@@ -77,12 +80,16 @@
       color: v.$text-muted;
       text-decoration: none;
       white-space: nowrap;
-      &:hover { color: v.$text-primary; }
+      &:hover {
+        color: v.$text-primary;
+      }
 
       &--primary {
         color: v.$accent-dark;
         font-size: 0.8rem;
-        &:hover { color: v.$accent; }
+        &:hover {
+          color: v.$accent;
+        }
       }
     }
 

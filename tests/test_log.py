@@ -10,7 +10,7 @@ def test_json_sink_produces_valid_jsonl(capsys):
     logger.info("hello world", foo="bar")
 
     captured = capsys.readouterr()
-    lines = [l for l in captured.err.strip().split("\n") if l]
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
     entry = json.loads(lines[-1])
     assert entry["msg"] == "hello world"
     assert entry["level"] == "info"
@@ -28,7 +28,7 @@ def test_json_sink_includes_exception_fields(capsys):
         logger.exception("something failed")
 
     captured = capsys.readouterr()
-    lines = [l for l in captured.err.strip().split("\n") if l]
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
     entry = json.loads(lines[-1])
     assert entry["error_type"] == "ValueError"
     assert entry["error_msg"] == "boom"
@@ -47,7 +47,7 @@ async def test_logged_tool_logs_on_success(capsys):
     assert result == "ok"
 
     captured = capsys.readouterr()
-    lines = [l for l in captured.err.strip().split("\n") if l]
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
     entry = json.loads(lines[-1])
     assert entry["msg"] == "my_tool"
     assert entry["tool"] == "my_tool"
@@ -67,7 +67,7 @@ async def test_logged_tool_propagates_exception(capsys):
         await broken_tool()
 
     captured = capsys.readouterr()
-    lines = [l for l in captured.err.strip().split("\n") if l]
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
     entry = json.loads(lines[-1])
     assert entry["level"] == "error"
     assert entry["error_type"] == "RuntimeError"
@@ -93,8 +93,8 @@ def test_logging_middleware_logs_http_entry(capsys, monkeypatch, tmp_path):
         client.get("/ping")
 
     captured = capsys.readouterr()
-    lines = [l for l in captured.err.strip().split("\n") if l]
-    entries = [json.loads(l) for l in lines]
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
+    entries = [json.loads(ln) for ln in lines]
     http_entries = [e for e in entries if e.get("msg") == "http"]
     assert len(http_entries) == 1
     e = http_entries[0]
@@ -126,7 +126,7 @@ def test_logging_middleware_injects_request_id(capsys, monkeypatch, tmp_path):
         client.get("/ctx")
 
     captured = capsys.readouterr()
-    lines = [l for l in captured.err.strip().split("\n") if l]
-    entries = [json.loads(l) for l in lines]
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
+    entries = [json.loads(ln) for ln in lines]
     inside = next(e for e in entries if e.get("msg") == "inside request")
     assert "request_id" in inside

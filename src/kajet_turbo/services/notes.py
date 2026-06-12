@@ -1,3 +1,6 @@
+# `builtins.list` is used in annotations because the public `list()` method
+# below shadows the `list` builtin within the class body.
+import builtins
 import json
 import time
 from datetime import UTC, datetime
@@ -7,10 +10,16 @@ import frontmatter
 from nanoid import generate
 
 from kajet_turbo.cache import WorkspaceCache
-from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.log import logger
+from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
-from kajet_turbo.workspace import normalize_folder, note_filepath, read_note_file, scan_notes, write_note_file
+from kajet_turbo.workspace import (
+    normalize_folder,
+    note_filepath,
+    read_note_file,
+    scan_notes,
+    write_note_file,
+)
 
 
 class NoteService:
@@ -25,7 +34,7 @@ class NoteService:
         ws_path: str,
         title: str,
         content: str,
-        tags: list[str],
+        tags: builtins.list[str],
         folder: str = "",
     ) -> dict:
         folder = normalize_folder(folder)
@@ -89,7 +98,7 @@ class NoteService:
         ws_path: str,
         title: str | None = None,
         content: str | None = None,
-        tags: list[str] | None = None,
+        tags: builtins.list[str] | None = None,
         folder: str | None = None,
     ) -> dict:
         note = self._repo.get(note_id, owner_id=owner_id)
@@ -117,21 +126,35 @@ class NoteService:
             if old_path != new_path:
                 Path(new_path).parent.mkdir(parents=True, exist_ok=True)
                 repo.rename_file(old_rel, new_rel, f"note: rename to {new_title}")
-                write_note_file(new_path, note_id, new_title, new_tags, note.created_at, now, new_content)
+                write_note_file(
+                    new_path, note_id, new_title, new_tags, note.created_at, now, new_content
+                )
                 repo.commit_file(new_rel, f"note: update {new_title}")
             else:
-                write_note_file(old_path, note_id, new_title, new_tags, note.created_at, now, new_content)
+                write_note_file(
+                    old_path, note_id, new_title, new_tags, note.created_at, now, new_content
+                )
                 repo.commit_file(old_rel, f"note: update {new_title}")
         except GitError:
             write_note_file(
                 new_path if old_path != new_path else old_path,
-                note_id, note.title, current_tags, note.created_at, note.updated_at, old_content,
+                note_id,
+                note.title,
+                current_tags,
+                note.created_at,
+                note.updated_at,
+                old_content,
             )
             raise
 
         self._repo.update(
-            note_id, owner_id=owner_id,
-            title=new_title, content=new_content, tags=new_tags, updated_at=now, folder=new_folder,
+            note_id,
+            owner_id=owner_id,
+            title=new_title,
+            content=new_content,
+            tags=new_tags,
+            updated_at=now,
+            folder=new_folder,
         )
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
@@ -155,22 +178,22 @@ class NoteService:
         self,
         ws_name: str,
         owner_id: str,
-        tags: list[str] | None = None,
+        tags: builtins.list[str] | None = None,
         limit: int = 20,
         folder: str | None = None,
-    ) -> list[dict]:
+    ) -> builtins.list[dict]:
         return self._repo.list(ws_name, owner_id=owner_id, tags=tags, limit=limit, folder=folder)
 
-    def list_folders(self, ws_name: str, owner_id: str) -> list[str]:
+    def list_folders(self, ws_name: str, owner_id: str) -> builtins.list[str]:
         return self._repo.list_folders(ws_name, owner_id)
 
     def search(
         self,
         query: str,
-        workspaces: list[str],
+        workspaces: builtins.list[str],
         owner_id: str,
         limit: int = 10,
-    ) -> list[dict]:
+    ) -> builtins.list[dict]:
         key = None
         if self._cache is not None:
             epochs = tuple(self._cache.epoch(ws, owner_id) for ws in workspaces)
@@ -184,9 +207,11 @@ class NoteService:
             hits = self._repo.hybrid_search(query, ws, owner_id, limit=per_ws_limit)
             results.extend(hits)
         results = results[:limit]
-        if key is not None:
+        if self._cache is not None and key is not None:
             self._cache.put(key, results)
-        logger.info("search_performed", query_len=len(query), results=len(results), ws_count=len(workspaces))
+        logger.info(
+            "search_performed", query_len=len(query), results=len(results), ws_count=len(workspaces)
+        )
         return results
 
     def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
@@ -204,33 +229,46 @@ class NoteService:
             if folder == ".":
                 folder = ""
             self._repo.insert(
-                note["id"], ws_name, owner_id,
-                note["title"] or "", note["tags"] or [],
-                str(note["created_at"] or ""), str(note["updated_at"] or ""),
-                note["content"] or "", folder,
+                note["id"],
+                ws_name,
+                owner_id,
+                note["title"] or "",
+                note["tags"] or [],
+                str(note["created_at"] or ""),
+                str(note["updated_at"] or ""),
+                note["content"] or "",
+                folder,
             )
             count += 1
         if self._cache is not None:
             self._cache.bump(ws_name, owner_id)
-        logger.info("reindex_complete", ws=ws_name, count=count,
-                    duration_ms=round((time.monotonic() - start) * 1000))
-        return {"message": f"Reindeksowano {count} notatek w workspace '{ws_name}'.", "count": count}
+        logger.info(
+            "reindex_complete",
+            ws=ws_name,
+            count=count,
+            duration_ms=round((time.monotonic() - start) * 1000),
+        )
+        return {
+            "message": f"Reindeksowano {count} notatek w workspace '{ws_name}'.",
+            "count": count,
+        }
 
-    def get_history(self, note_id: str, owner_id: str, ws_path: str, limit: int = 50) -> list[dict]:
+    def get_history(
+        self, note_id: str, owner_id: str, ws_path: str, limit: int = 50
+    ) -> builtins.list[dict]:
         note = self._repo.get(note_id, owner_id=owner_id)
         if note is None:
             raise ValueError(f"Notatka {note_id} nie znaleziona.")
         key = None
         if self._cache is not None:
-            key = ("history", note_id, owner_id,
-                   self._cache.epoch(note.workspace, owner_id), limit)
+            key = ("history", note_id, owner_id, self._cache.epoch(note.workspace, owner_id), limit)
             cached = self._cache.get(key)
             if cached is not None:
                 return cached
         filepath = note_filepath(ws_path, note.folder, note.title)
         relative = str(Path(filepath).relative_to(ws_path))
         entries = GitRepository(ws_path).file_history(relative, limit=limit)
-        if key is not None:
+        if self._cache is not None and key is not None:
             self._cache.put(key, entries)
         return entries
 
@@ -242,13 +280,15 @@ class NoteService:
         relative = str(Path(filepath).relative_to(ws_path))
         raw = GitRepository(ws_path).file_content_at_commit(relative, sha)
         parsed = frontmatter.loads(raw)
+        # Frontmatter metadata is untyped; only a YAML list is a valid tags value.
+        tags_meta = parsed.get("tags", [])
         return {
             "note_id": note_id,
             "workspace": note.workspace,
             "owner_id": note.owner_id,
             "title": str(parsed.get("title", note.title)),
             "folder": note.folder,
-            "tags": list(parsed.get("tags", [])),
+            "tags": list(tags_meta) if isinstance(tags_meta, list) else [],
             "created_at": str(parsed.get("created_at", note.created_at)),
             "updated_at": str(parsed.get("updated_at", note.updated_at)),
             "content": parsed.content,

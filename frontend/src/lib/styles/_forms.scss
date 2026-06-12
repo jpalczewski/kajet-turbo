@@ -1,6 +1,10 @@
 @use 'variables' as v;
 
-form { display: flex; flex-direction: column; gap: 14px; }
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 
 label {
   display: flex;
@@ -21,7 +25,9 @@ input {
   color: v.$text-primary;
   font-size: 0.95rem;
   font-family: v.$font-mono;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 
   &:focus {
     outline: none;

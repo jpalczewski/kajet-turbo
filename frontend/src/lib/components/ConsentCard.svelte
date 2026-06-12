@@ -1,28 +1,32 @@
 <script lang="ts">
-  import { apiConsentApiConsentPost } from '$lib/api'
+  import { apiConsentApiConsentPost } from '$lib/api';
 
-  let { pendingId, email, onLogout }: {
-    pendingId: string
-    email: string
-    onLogout: () => void
-  } = $props()
+  let {
+    pendingId,
+    email,
+    onLogout,
+  }: {
+    pendingId: string;
+    email: string;
+    onLogout: () => void;
+  } = $props();
 
-  let error = $state('')
-  let submitting = $state(false)
+  let error = $state('');
+  let submitting = $state(false);
 
   async function handleConsent() {
-    submitting = true
-    error = ''
+    submitting = true;
+    error = '';
     try {
       const result = await apiConsentApiConsentPost({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pending_id: pendingId }),
-      })
-      window.location.href = result.data.redirect_uri
+      });
+      window.location.href = result.data.redirect_uri;
     } catch {
-      error = 'Błąd sieci.'
+      error = 'Błąd sieci.';
     } finally {
-      submitting = false
+      submitting = false;
     }
   }
 </script>

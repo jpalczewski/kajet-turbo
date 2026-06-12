@@ -1,20 +1,18 @@
 <script lang="ts">
-  import { page } from '$app/state'
-  import { goto, invalidate } from '$app/navigation'
-  import { apiSessionDeleteApiSessionDelete } from '$lib/api'
-  import WorkspacePicker from './WorkspacePicker.svelte'
-  import UserMenu from './UserMenu.svelte'
+  import { page } from '$app/state';
+  import { goto, invalidate } from '$app/navigation';
+  import { apiSessionDeleteApiSessionDelete } from '$lib/api';
+  import WorkspacePicker from './WorkspacePicker.svelte';
+  import UserMenu from './UserMenu.svelte';
 
-  const slug = $derived((page.params as Record<string, string>).slug as string | undefined)
+  const slug = $derived((page.params as Record<string, string>).slug as string | undefined);
 
-  const notesActive = $derived(
-    !!slug && page.url.pathname.startsWith(`/workspace/${slug}/note`)
-  )
+  const notesActive = $derived(!!slug && page.url.pathname.startsWith(`/workspace/${slug}/note`));
 
   async function handleLogout() {
-    await apiSessionDeleteApiSessionDelete({ credentials: 'include' })
-    await invalidate('app:session')
-    await goto('/')
+    await apiSessionDeleteApiSessionDelete({ credentials: 'include' });
+    await invalidate('app:session');
+    await goto('/');
   }
 </script>
 
@@ -67,7 +65,9 @@
     -webkit-text-fill-color: transparent;
     background-clip: text;
     transition: filter 0.15s;
-    &:hover { filter: brightness(1.2); }
+    &:hover {
+      filter: brightness(1.2);
+    }
   }
 
   .navbar__center {
@@ -88,7 +88,9 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
     transition: color 0.15s;
-    &:hover { color: v.$text-secondary; }
+    &:hover {
+      color: v.$text-secondary;
+    }
     &--active {
       color: v.$accent;
       background: rgba(240, 184, 0, 0.08);

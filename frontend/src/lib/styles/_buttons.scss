@@ -11,7 +11,9 @@
   font-family: v.$font-mono;
   letter-spacing: 0.03em;
   cursor: pointer;
-  transition: filter 0.15s, box-shadow 0.15s;
+  transition:
+    filter 0.15s,
+    box-shadow 0.15s;
   width: 100%;
   text-transform: uppercase;
 
@@ -19,7 +21,10 @@
     filter: brightness(1.15);
     box-shadow: 0 0 12px rgba(240, 184, 0, 0.35);
   }
-  &:disabled { opacity: 0.4; cursor: not-allowed; }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
 }
 
 .btn-ghost {
@@ -31,11 +36,20 @@
   font-size: 0.875rem;
   font-family: v.$font-mono;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
   width: 100%;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 
-  &:hover { border-color: v.$accent-dark; color: v.$text-secondary; }
-  &--small { padding: 5px 10px; font-size: 0.8rem; width: auto; }
+  &:hover {
+    border-color: v.$accent-dark;
+    color: v.$text-secondary;
+  }
+  &--small {
+    padding: 5px 10px;
+    font-size: 0.8rem;
+    width: auto;
+  }
 }

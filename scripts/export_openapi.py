@@ -5,6 +5,7 @@ kajet_turbo/dependencies.py initializes Database() at module import time.
 DB_PATH must be set before importing any kajet_turbo module to avoid
 attempting to write to /data/kajet.db (Docker path, may not exist locally).
 """
+
 import json
 import os
 from pathlib import Path
@@ -12,8 +13,9 @@ from pathlib import Path
 os.environ.setdefault("DB_PATH", "/tmp/kajet_openapi_export.db")
 os.environ.setdefault("MCP_BASE_URL", "http://localhost:8000")
 
-from fastapi import FastAPI  # noqa: E402
-from kajet_turbo.api import api_router  # noqa: E402
+from fastapi import FastAPI
+
+from kajet_turbo.api import api_router
 
 
 def build_schema_app() -> FastAPI:

@@ -1,60 +1,60 @@
 <script lang="ts">
-  import { goto, invalidate } from '$app/navigation'
+  import { goto, invalidate } from '$app/navigation';
 
-  let { data } = $props()
-  let note = $derived(data.note)
-  let slug = $derived(data.slug)
+  let { data } = $props();
+  let note = $derived(data.note);
+  let slug = $derived(data.slug);
 
-  let title = $state('')
-  let content = $state('')
+  let title = $state('');
+  let content = $state('');
 
   $effect(() => {
-    title = data.note.title as string
-    content = (data.note.content as string) ?? ''
-  })
-  let saveError = $state('')
-  let saving = $state(false)
+    title = data.note.title as string;
+    content = (data.note.content as string) ?? '';
+  });
+  let saveError = $state('');
+  let saving = $state(false);
 
   async function handleSave() {
-    saving = true
-    saveError = ''
+    saving = true;
+    saveError = '';
     try {
       const resp = await fetch(`/api/workspaces/${slug}/notes/${note.note_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ title: title.trim(), content }),
-      })
+      });
       if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}))
-        saveError = body.error ?? 'Nie udało się zapisać'
-        return
+        const body = await resp.json().catch(() => ({}));
+        saveError = body.error ?? 'Nie udało się zapisać';
+        return;
       }
-      await invalidate('app:workspace-tree')
-      goto(`/workspace/${slug}/note/${note.note_id}`)
+      await invalidate('app:workspace-tree');
+      goto(`/workspace/${slug}/note/${note.note_id}`);
     } finally {
-      saving = false
+      saving = false;
     }
   }
 
   async function handleDelete() {
-    if (!window.confirm(`Usunąć notatkę "${note.title}"?`)) return
+    if (!window.confirm(`Usunąć notatkę "${note.title}"?`)) return;
     const resp = await fetch(`/api/workspaces/${slug}/notes/${note.note_id}`, {
       method: 'DELETE',
       credentials: 'include',
-    })
+    });
     if (!resp.ok) {
-      const body = await resp.json().catch(() => ({}))
-      saveError = body.error ?? 'Nie udało się usunąć'
-      return
+      const body = await resp.json().catch(() => ({}));
+      saveError = body.error ?? 'Nie udało się usunąć';
+      return;
     }
-    const folderPath = note.folder ?? ''
-    await invalidate('app:workspace-tree')
-    goto(folderPath ? `/workspace/${slug}/notes/${folderPath}` : `/workspace/${slug}/notes`)
+    const folderPath = note.folder ?? '';
+    await invalidate('app:workspace-tree');
+    goto(folderPath ? `/workspace/${slug}/notes/${folderPath}` : `/workspace/${slug}/notes`);
   }
 
   function handleCancel() {
-    goto(`/workspace/${slug}/note/${note.note_id}`)
+    goto(`/workspace/${slug}/note/${note.note_id}`);
   }
 </script>
 
@@ -74,16 +74,8 @@
   </nav>
 
   <div class="form">
-    <input
-      class="form__title"
-      bind:value={title}
-      placeholder="Tytuł notatki"
-    />
-    <textarea
-      class="form__content"
-      bind:value={content}
-      placeholder="Treść w Markdown..."
-      rows={20}
+    <input class="form__title" bind:value={title} placeholder="Tytuł notatki" />
+    <textarea class="form__content" bind:value={content} placeholder="Treść w Markdown..." rows={20}
     ></textarea>
 
     {#if saveError}
@@ -124,10 +116,14 @@
       letter-spacing: 0.04em;
       transition: color 0.15s;
 
-      &:hover { color: v.$accent; }
+      &:hover {
+        color: v.$accent;
+      }
     }
 
-    &__sep { color: v.$text-muted; }
+    &__sep {
+      color: v.$text-muted;
+    }
 
     &__folder {
       color: v.$text-muted;
@@ -158,7 +154,9 @@
       outline: none;
       width: 100%;
 
-      &:focus { border-bottom-color: v.$accent-dark; }
+      &:focus {
+        border-bottom-color: v.$accent-dark;
+      }
     }
 
     &__content {
@@ -176,7 +174,9 @@
       box-sizing: border-box;
       line-height: 1.6;
 
-      &:focus { border-color: v.$accent-dark; }
+      &:focus {
+        border-color: v.$accent-dark;
+      }
     }
 
     &__error {
@@ -200,7 +200,9 @@
     border-radius: v.$radius-sm;
     border: 1px solid v.$border;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
     letter-spacing: 0.04em;
     text-transform: uppercase;
 
@@ -209,15 +211,24 @@
       color: v.$bg-deep;
       border-color: v.$accent-dark;
 
-      &:hover:not(:disabled) { background: v.$accent; border-color: v.$accent; }
-      &:disabled { opacity: 0.5; cursor: not-allowed; }
+      &:hover:not(:disabled) {
+        background: v.$accent;
+        border-color: v.$accent;
+      }
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
     }
 
     &--secondary {
       background: none;
       color: v.$text-secondary;
 
-      &:hover { color: v.$text-primary; background: rgba(255,255,255,0.04); }
+      &:hover {
+        color: v.$text-primary;
+        background: rgba(255, 255, 255, 0.04);
+      }
     }
 
     &--danger {
@@ -226,7 +237,9 @@
       border-color: transparent;
       margin-left: auto;
 
-      &:hover { background: rgba(192, 57, 43, 0.1); }
+      &:hover {
+        background: rgba(192, 57, 43, 0.1);
+      }
     }
   }
 </style>
