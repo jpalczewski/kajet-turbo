@@ -11,6 +11,7 @@ from nanoid import generate
 
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
+from kajet_turbo.note_edit import apply_edit
 from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.workspace import (
@@ -102,6 +103,9 @@ class NoteService:
         content: str | None = None,
         tags: builtins.list[str] | None = None,
         folder: str | None = None,
+        mode: str = "overwrite",
+        target_heading: str | None = None,
+        old_text: str | None = None,
     ) -> dict:
         note = self._repo.get(note_id, owner_id=owner_id)
         if note is None:
@@ -131,7 +135,12 @@ class NoteService:
                 raise FileExistsError(f"Plik docelowy '{new_rel}' już istnieje.")
         note_data = read_note_file(old_path)
         old_content = note_data["content"]
-        new_content = content if content is not None else old_content
+        if mode == "overwrite":
+            new_content = content if content is not None else old_content
+        else:
+            if content is None:
+                raise ValueError("content jest wymagany dla trybu edycji.")
+            new_content = apply_edit(old_content, mode, content, target_heading, old_text)
 
         repo = GitRepository(ws_path)
         try:
@@ -194,9 +203,7 @@ class NoteService:
                 f"Notatka '{note.title}' już istnieje w folderze '{new_folder or 'root'}'."
             )
         if new_path.exists():
-            raise FileExistsError(
-                f"Plik docelowy '{new_path.relative_to(ws_path)}' już istnieje."
-            )
+            raise FileExistsError(f"Plik docelowy '{new_path.relative_to(ws_path)}' już istnieje.")
 
         old_rel = str(old_path.relative_to(ws_path))
         new_rel = str(new_path.relative_to(ws_path))

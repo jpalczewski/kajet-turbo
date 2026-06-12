@@ -84,6 +84,81 @@ def test_update_title_renames_file(service, workspace):
     assert (workspace / "New title.md").exists()
 
 
+def test_update_append_mode_adds_to_section(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Dziennik", "## Zadania\n\n- Pierwsze", [])[
+        "note_id"
+    ]
+
+    service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        content="- Drugie",
+        mode="append",
+        target_heading="## Zadania",
+    )
+
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert "- Pierwsze\n- Drugie" in note["content"]
+    # Edit produced a second commit (history grows).
+    assert len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace))) == 2
+
+
+def test_update_replace_text_mode(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notatka", "Hello world.", [])["note_id"]
+
+    service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        content="earth",
+        mode="replace_text",
+        old_text="world",
+    )
+
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note["content"] == "Hello earth."
+
+
+def test_update_insert_after_mode(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Lista", "- A\n- B\n", [])["note_id"]
+
+    service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        content="- A.5",
+        mode="insert_after",
+        old_text="- A",
+    )
+
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert "- A\n- A.5\n- B" in note["content"]
+
+
+def test_update_edit_mode_requires_content(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notatka", "treść", [])["note_id"]
+
+    with pytest.raises(ValueError, match="content"):
+        service.update(
+            note_id, owner_id="u1", ws_path=str(workspace), mode="append", target_heading=None
+        )
+
+
+def test_update_replace_text_ambiguous_raises(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notatka", "foo bar foo", [])["note_id"]
+
+    with pytest.raises(ValueError):
+        service.update(
+            note_id,
+            owner_id="u1",
+            ws_path=str(workspace),
+            content="qux",
+            mode="replace_text",
+            old_text="foo",
+        )
+
+
 def test_move_note_to_existing_folder_preserves_updated_at(service, workspace):
     (workspace / "archive").mkdir()
     note_id = service.save("u1", "ws", str(workspace), "Move me", "content", [])["note_id"]

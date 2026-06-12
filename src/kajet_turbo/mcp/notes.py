@@ -1,6 +1,8 @@
 import json
+from typing import Annotated, Literal
 
 from fastmcp import Context, FastMCP
+from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
@@ -63,16 +65,45 @@ def register_notes(
 
     @mcp.tool()
     @logged_tool
-    async def update_note(
+    async def edit_note(
         note_id: str,
         ctx: Context,
         title: str | None = None,
         content: str | None = None,
         tags: list[str] | None = None,
         folder: str | None = None,
+        mode: Annotated[
+            Literal[
+                "overwrite", "append", "prepend", "replace_section", "replace_text", "insert_after"
+            ],
+            Field(
+                description="Tryb edycji pola content: 'overwrite' (podmień całe body, domyślny), "
+                "'append'/'prepend' (dopisz na koniec/początek body lub sekcji target_heading), "
+                "'replace_section' (podmień body sekcji target_heading), "
+                "'replace_text' (exact match: podmień unikalny old_text na content), "
+                "'insert_after' (wstaw content zaraz po unikalnej kotwicy old_text)."
+            ),
+        ] = "overwrite",
+        target_heading: Annotated[
+            str | None,
+            Field(
+                description="Nagłówek sekcji, np. '## Zadania'. "
+                "Wymagany dla replace_section, opcjonalny dla append/prepend."
+            ),
+        ] = None,
+        old_text: Annotated[
+            str | None,
+            Field(
+                description="Dokładny tekst do podmiany (replace_text) lub kotwica, po której "
+                "wstawić content (insert_after). Musi być unikalny w notatce."
+            ),
+        ] = None,
     ) -> str:
-        """Aktualizuje notatkę. folder opcjonalny — jeśli podany,
-        przenosi notatkę do nowego folderu.
+        """Edytuje notatkę. Domyślnie (mode='overwrite') podmienia całe body na content;
+        tryby chirurgiczne pozwalają dopisać/podmienić fragment bez przepisywania całości.
+        folder opcjonalny — jeśli podany, przenosi notatkę do nowego folderu.
+        title/tags/folder można zmieniać niezależnie od trybu edycji content.
+        content powinien zawierać rzeczywiste znaki nowej linii (\\n), nie literalne \\\\n.
         Sukces: {"note_id": "..."}. Błąd: {"error": "..."}."""
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
@@ -88,6 +119,9 @@ def register_notes(
                 content=content,
                 tags=tags,
                 folder=folder,
+                mode=mode,
+                target_heading=target_heading,
+                old_text=old_text,
             )
         except (ValueError, FileNotFoundError, FileExistsError) as e:
             return json.dumps({"error": str(e)})

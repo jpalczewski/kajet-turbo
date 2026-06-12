@@ -38,11 +38,6 @@ def register_workspaces(
         return user_id, None
 
     @mcp.tool()
-    def ping() -> str:
-        """Health check."""
-        return "pong"
-
-    @mcp.tool()
     @logged_tool
     async def list_workspaces(ctx: Context) -> str:
         """Zwraca listę workspace'ów dostępnych dla tego użytkownika.

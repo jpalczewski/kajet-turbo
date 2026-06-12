@@ -5,13 +5,6 @@ from fastmcp import Client
 from kajet_turbo.repositories.git import GitRepository
 
 
-async def test_ping_returns_pong(mcp_server):
-    mcp, _ = mcp_server
-    async with Client(mcp) as client:
-        result = await client.call_tool("ping")
-    assert result.content[0].text == "pong"
-
-
 async def test_list_workspaces(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
@@ -72,7 +65,7 @@ async def test_delete_note(workspaces_dir, mcp_server):
         assert "error" in json.loads(get_result.content[0].text)
 
 
-async def test_update_note(workspaces_dir, mcp_server):
+async def test_edit_note_overwrite(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
@@ -81,11 +74,49 @@ async def test_update_note(workspaces_dir, mcp_server):
         )
         note_id = json.loads(save_result.content[0].text)["note_id"]
         await client.call_tool(
-            "update_note", {"note_id": note_id, "title": "Nowy tytuł", "content": "nowa treść"}
+            "edit_note", {"note_id": note_id, "title": "Nowy tytuł", "content": "nowa treść"}
         )
         get_result = await client.call_tool("get_note", {"note_id": note_id})
         assert "Nowy tytuł" in get_result.content[0].text
         assert "nowa treść" in get_result.content[0].text
+
+
+async def test_edit_note_append_mode(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        save_result = await client.call_tool(
+            "save_note", {"title": "Dziennik", "content": "## Zadania\n\n- Pierwsze"}
+        )
+        note_id = json.loads(save_result.content[0].text)["note_id"]
+        edit_result = await client.call_tool(
+            "edit_note",
+            {
+                "note_id": note_id,
+                "mode": "append",
+                "target_heading": "## Zadania",
+                "content": "- Drugie",
+            },
+        )
+        assert json.loads(edit_result.content[0].text) == {"note_id": note_id}
+        get_result = await client.call_tool("get_note", {"note_id": note_id})
+        content = json.loads(get_result.content[0].text)["content"]
+        assert "- Pierwsze\n- Drugie" in content
+
+
+async def test_edit_note_replace_text_ambiguous_errors(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        save_result = await client.call_tool(
+            "save_note", {"title": "Dwa razy", "content": "foo bar foo"}
+        )
+        note_id = json.loads(save_result.content[0].text)["note_id"]
+        edit_result = await client.call_tool(
+            "edit_note",
+            {"note_id": note_id, "mode": "replace_text", "old_text": "foo", "content": "qux"},
+        )
+        assert "error" in json.loads(edit_result.content[0].text)
 
 
 async def test_move_note_and_list_folders(workspaces_dir, mcp_server):
