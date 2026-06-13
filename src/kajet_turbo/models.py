@@ -66,6 +66,50 @@ class NoteLink(SQLModel, table=True):
     __table_args__ = (Index("ix_note_links_target", "target_note_id", "source_note_id"),)
 
 
+class Tag(SQLModel, table=True):
+    """A node in a workspace's tag hierarchy. ``path`` is the full slash-path
+    (bare, lowercased); ancestor rows are materialized so every node exists and
+    ``parent_id`` forms a real adjacency-list tree. Structure only for now —
+    metadata (color/description) can be added by a later migration.
+    """
+
+    __tablename__ = "tags"
+
+    id: str = Field(primary_key=True)
+    workspace: str
+    owner_id: str
+    path: str
+    name: str
+    parent_id: str | None = Field(default=None, sa_column=Column(Text, ForeignKey("tags.id")))
+    created_at: str
+
+    __table_args__ = (
+        Index("ix_tags_ws_owner_path", "workspace", "owner_id", "path", unique=True),
+        Index("ix_tags_ws_owner_parent", "workspace", "owner_id", "parent_id"),
+    )
+
+
+class NoteTag(SQLModel, table=True):
+    """Join row linking a note to a tag it actually carries (never ancestors).
+
+    Deduped to one row per ``(note_id, tag_id)``; ``source`` records where the tag
+    came from with frontmatter winning over inline. The ``ix_note_tags_tag`` index
+    serves the hot "notes for this tag" lookup.
+    """
+
+    __tablename__ = "note_tags"
+
+    note_id: str = Field(
+        sa_column=Column(Text, ForeignKey("notes.id"), primary_key=True, nullable=False)
+    )
+    tag_id: str = Field(
+        sa_column=Column(Text, ForeignKey("tags.id"), primary_key=True, nullable=False)
+    )
+    source: str
+
+    __table_args__ = (Index("ix_note_tags_tag", "tag_id"),)
+
+
 class OAuthRegisteredClient(SQLModel, table=True):
     __tablename__ = "oauth_registered_clients"
 
