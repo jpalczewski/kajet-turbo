@@ -18,6 +18,16 @@ export const notesPath = (slug: string, folder = '') =>
     path: trimSlashes(folder),
   });
 
+export const tagsPath = (slug: string, tagPath = '', includeDescendants = true) => {
+  const base = resolve('/(protected)/workspace/[slug]/notes/[...path]', {
+    slug,
+    path: trimSlashes(tagPath),
+  });
+  const params = new URLSearchParams({ view: 'tags' });
+  if (!includeDescendants) params.set('desc', '0');
+  return `${base}?${params.toString()}`;
+};
+
 export const noteInTreePath = (slug: string, folder: string, noteId: string) =>
   notesPath(slug, folder ? `${trimSlashes(folder)}/${noteId}` : noteId);
 
