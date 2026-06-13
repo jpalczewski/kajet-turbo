@@ -6,6 +6,7 @@
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import TagEditor from '$lib/components/TagEditor.svelte';
   import { notePath, notesPath } from '$lib/routes';
 
   let { data } = $props();
@@ -14,10 +15,12 @@
 
   let title = $state('');
   let content = $state('');
+  let tags = $state<string[]>([]);
 
   $effect(() => {
     title = data.note.title;
     content = data.note.content ?? '';
+    tags = data.note.tags ?? [];
   });
   let saveError = $state('');
   let saving = $state(false);
@@ -29,7 +32,7 @@
       await apiUpdateNoteApiWorkspacesNameNotesNoteIdPatch(
         slug,
         note.note_id,
-        jsonBody({ title: title.trim(), content }),
+        jsonBody({ title: title.trim(), content, tags }),
       );
       await invalidate('app:workspace-tree');
       goto(notePath(slug, note.note_id));
@@ -62,6 +65,12 @@
 
   <div class="form">
     <input class="form__title" bind:value={title} placeholder="Tytuł notatki" />
+
+    <div class="form__tags">
+      <span class="form__tags-label">Tagi</span>
+      <TagEditor bind:tags suggestions={data.allTags} />
+    </div>
+
     <textarea class="form__content" bind:value={content} placeholder="Treść w Markdown..." rows={20}
     ></textarea>
 
@@ -107,6 +116,20 @@
       &:focus {
         border-bottom-color: v.$accent-dark;
       }
+    }
+
+    &__tags {
+      display: flex;
+      flex-direction: column;
+      gap: v.$space-xs;
+    }
+
+    &__tags-label {
+      font-family: v.$font-mono;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: v.$text-muted;
     }
 
     &__content {
