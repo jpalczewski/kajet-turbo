@@ -65,7 +65,7 @@ def test_render_resolved_is_clickable_anchor():
         resolver=lambda f, t: "abc1234" if (f, t) == ("A", "Plan") else None,
         slug="myws",
     )
-    assert '<a class="wikilink" href="/workspace/myws/note/abc1234">Plan</a>' in html
+    assert '<a class="wikilink" href="/workspace/myws/notes/A/abc1234">Plan</a>' in html
 
 
 def test_render_unresolved_is_broken_span():
