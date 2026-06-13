@@ -150,3 +150,14 @@ class MoveNoteResponse(BaseModel):
 
 class DeleteNoteResponse(BaseModel):
     ok: bool
+
+
+class TagNode(BaseModel):
+    path: str
+    name: str
+    exact_count: int
+    descendant_count: int
+
+
+class TagsResponse(BaseModel):
+    tags: list[TagNode]

@@ -18,6 +18,7 @@ from kajet_turbo.api.schemas import (
     NoteMarkdownResponse,
     NotesListResponse,
     RestoreVersionResponse,
+    TagsResponse,
     UpdateNoteResponse,
     WorkspacesListResponse,
 )
@@ -123,6 +124,8 @@ def api_list_notes(
     ws_service: WorkspaceService = Depends(get_workspace_service),
     note_service: NoteService = Depends(get_note_service),
     folder: str | None = None,
+    tag: str | None = None,
+    include_descendants: bool = True,
 ) -> JSONResponse:
     user = get_session_user(request)
     if not user:
@@ -130,8 +133,13 @@ def api_list_notes(
     if not ws_service.has_access(user["id"], name):
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
     ws_path = ws_service.workspace_path(user["id"], name)
-    # Explorer lists the full folder; no cap (MCP list_notes keeps its own limit).
-    notes = note_service.list(name, owner_id=user["id"], folder=folder, limit=None)
+    if tag is not None:
+        notes = note_service.notes_by_tag(
+            name, user["id"], tag, include_descendants=include_descendants
+        )
+    else:
+        # Explorer lists the full folder; no cap (MCP list_notes keeps its own limit).
+        notes = note_service.list(name, owner_id=user["id"], folder=folder, limit=None)
     enriched = []
     for note in notes:
         filepath = note_filepath(ws_path, note["folder"], note["title"])
@@ -141,6 +149,22 @@ def api_list_notes(
             size_bytes = 0
         enriched.append({**note, "size_bytes": size_bytes})
     return JSONResponse({"notes": enriched})
+
+
+@router.get("/api/workspaces/{name}/tags", response_model=TagsResponse)
+@logged_route
+def api_list_tags(
+    name: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    return JSONResponse({"tags": note_service.tag_tree(name, owner_id=user["id"])})
 
 
 @router.get("/api/workspaces/{name}/ls", response_model=LsResponse)
