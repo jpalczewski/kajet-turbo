@@ -20,7 +20,7 @@ def test_sync_materializes_ancestors(repo: NoteRepository):
     assert paths == {"work", "work/projects", "work/projects/client-a"}
 
 
-def test_sync_dedup_and_source_precedence(repo: NoteRepository):
+def test_sync_single_tag_roundtrips(repo: NoteRepository):
     _insert_note(repo, "n1")
     repo.sync_note_tags("n1", "ws", "u1", [("work", "frontmatter")])
     rows = repo.notes_by_tag("ws", "u1", "work", include_descendants=False, limit=None)
