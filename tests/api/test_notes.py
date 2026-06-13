@@ -380,7 +380,7 @@ def test_html_renders_clickable_wikilink(auth_client):
 
     assert resp.status_code == 200
     html = resp.json()["content_html"]
-    assert f'<a class="wikilink" href="/workspace/test-ws/note/{tid}">here</a>' in html
+    assert f'<a class="wikilink" href="/workspace/test-ws/notes/A/{tid}">here</a>' in html
 
 
 def test_html_renders_broken_wikilink_when_target_deleted(auth_client):

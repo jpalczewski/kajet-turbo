@@ -15,6 +15,7 @@ the service and API/MCP layers surface ``{"error": ...}`` to the caller.
 
 import re
 from collections.abc import Callable, Iterator
+from urllib.parse import quote
 
 from markdown_it import MarkdownIt
 from markdown_it.common.utils import escapeHtml
@@ -63,9 +64,14 @@ def _render_wikilink(self, tokens: list[Token], idx: int, options, env) -> str:
     label = escapeHtml(meta["alias"] or target)
     resolver: LinkResolver | None = env.get("wl_resolver")
     slug: str | None = env.get("wl_slug")
-    note_id = resolver(*split_target(target)) if resolver else None
+    folder, title = split_target(target)
+    note_id = resolver(folder, title) if resolver else None
     if note_id and slug:
-        return f'<a class="wikilink" href="/workspace/{slug}/note/{note_id}">{label}</a>'
+        # Point at the explorer route (/notes/{folder}/{id}) so the click opens the target's
+        # folder and shows the file in the tree, rather than the standalone note page.
+        segments = [quote(s) for s in folder.split("/") if s] + [note_id]
+        href = f"/workspace/{slug}/notes/{'/'.join(segments)}"
+        return f'<a class="wikilink" href="{href}">{label}</a>'
     return f'<span class="wikilink-broken">{label}</span>'
 
 

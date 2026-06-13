@@ -1,14 +1,15 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { notePath } from '$lib/routes';
+  import { noteInTreePath } from '$lib/routes';
 
   let { html }: { html: string } = $props();
 
-  // Wikilinks are injected via {@html} as <a class="wikilink" href="/workspace/{slug}/note/{id}">.
+  // Wikilinks are injected via {@html} as <a class="wikilink" href="/workspace/{slug}/notes/{folder}/{id}">.
   // Such anchors bypass SvelteKit's link interception, so a plain click would full-page reload.
-  // Delegate clicks here and route client-side, rebuilding the path through notePath() to satisfy
+  // Delegate clicks here and route client-side into the explorer (so the target's folder opens and
+  // the file shows in the tree), rebuilding the path through noteInTreePath() to satisfy
   // svelte/no-navigation-without-resolve. Modifier/middle clicks fall through to the browser.
-  const WIKILINK_HREF = /^\/workspace\/([^/]+)\/note\/([^/]+)$/;
+  const WIKILINK_HREF = /^\/workspace\/([^/]+)\/notes\/(.+)$/;
 
   function handleClick(event: MouseEvent) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
@@ -17,7 +18,9 @@
     const match = href?.match(WIKILINK_HREF);
     if (!match) return;
     event.preventDefault();
-    goto(notePath(match[1], match[2]));
+    const segments = match[2].split('/').map(decodeURIComponent);
+    const id = segments.pop() as string;
+    goto(noteInTreePath(match[1], segments.join('/'), id));
   }
 </script>
 
