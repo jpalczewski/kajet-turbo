@@ -14,6 +14,7 @@ from kajet_turbo.log import logger
 from kajet_turbo.note_edit import apply_edit
 from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.tags import extract_inline_tags, normalize
 from kajet_turbo.wikilinks import (
     BrokenWikilinkError,
     extract_wikilinks,
@@ -49,6 +50,27 @@ class NoteService:
         if broken:
             raise BrokenWikilinkError(broken)
         return set(resolved.values())
+
+    @staticmethod
+    def _normalize_tags(raw: builtins.list[str]) -> builtins.list[str]:
+        """Normalize frontmatter tags, dropping invalids and duplicates (order kept)."""
+        out: builtins.list[str] = []
+        seen: builtins.set[str] = set()
+        for tag in raw:
+            norm = normalize(tag)
+            if norm and norm not in seen:
+                seen.add(norm)
+                out.append(norm)
+        return out
+
+    def _sync_tags(
+        self, note_id: str, ws_name: str, owner_id: str, fm_tags: builtins.list[str], content: str
+    ) -> None:
+        """Index the note's tags: union of frontmatter (normalized) and inline, frontmatter wins."""
+        tagged: dict[str, str] = dict.fromkeys(fm_tags, "frontmatter")
+        for tag in extract_inline_tags(content):
+            tagged.setdefault(tag, "inline")
+        self._repo.sync_note_tags(note_id, ws_name, owner_id, list(tagged.items()))
 
     def _rewrite_backlinks(
         self,
@@ -110,6 +132,7 @@ class NoteService:
         folder = normalize_folder(folder)
         if not self._repo.check_unique(ws_name, user_id, folder, title):
             raise ValueError(f"Notatka '{title}' już istnieje w folderze '{folder or 'root'}'.")
+        tags = self._normalize_tags(tags)
         target_ids = self._validate_wikilinks(ws_name, user_id, content)
         note_id = generate(size=7)
         now = datetime.now(UTC).isoformat()
@@ -123,6 +146,7 @@ class NoteService:
             raise
         self._repo.insert(note_id, ws_name, user_id, title, tags, now, now, content, folder)
         self._repo.replace_links(note_id, ws_name, user_id, target_ids)
+        self._sync_tags(note_id, ws_name, user_id, tags, content)
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
@@ -220,7 +244,7 @@ class NoteService:
         except ValueError as e:
             raise InvalidFolderError(str(e)) from e
         current_tags = json.loads(note.tags or "[]")
-        new_tags = tags if tags is not None else current_tags
+        new_tags = self._normalize_tags(tags) if tags is not None else current_tags
 
         old_path = note_filepath(ws_path, note.folder, note.title)
         new_path = note_filepath(ws_path, new_folder, new_title)
@@ -284,6 +308,7 @@ class NoteService:
             folder=new_folder,
         )
         self._repo.replace_links(note_id, note.workspace, owner_id, target_ids)
+        self._sync_tags(note_id, note.workspace, owner_id, new_tags, new_content)
         if old_path != new_path:
             self._rewrite_backlinks(
                 note_id, owner_id, ws_path, note.folder, note.title, new_folder, new_title
@@ -344,6 +369,7 @@ class NoteService:
         if Path(filepath).exists():
             relative = str(Path(filepath).relative_to(ws_path))
             GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
+        self._repo.delete_note_tags(note_id, note.workspace, owner_id)
         self._repo.delete(note_id, owner_id=owner_id)
         self._repo.delete_links_from(note_id)
         self._repo.delete_links_to(note_id)
@@ -358,11 +384,32 @@ class NoteService:
         tags: builtins.list[str] | None = None,
         limit: int | None = 20,
         folder: str | None = None,
+        include_descendants: bool = True,
     ) -> builtins.list[dict]:
-        return self._repo.list(ws_name, owner_id=owner_id, tags=tags, limit=limit, folder=folder)
+        return self._repo.list(
+            ws_name,
+            owner_id=owner_id,
+            tags=tags,
+            limit=limit,
+            folder=folder,
+            include_descendants=include_descendants,
+        )
 
     def list_folders(self, ws_path: str) -> builtins.list[str]:
         return list_workspace_folders(ws_path)
+
+    def tag_tree(self, ws_name: str, owner_id: str) -> builtins.list[dict]:
+        return self._repo.tag_tree(ws_name, owner_id)
+
+    def notes_by_tag(
+        self,
+        ws_name: str,
+        owner_id: str,
+        path: str,
+        include_descendants: bool = True,
+        limit: int | None = None,
+    ) -> builtins.list[dict]:
+        return self._repo.notes_by_tag(ws_name, owner_id, path, include_descendants, limit)
 
     def search(
         self,
@@ -394,6 +441,7 @@ class NoteService:
     def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
         start = time.monotonic()
         notes = scan_notes(ws_path)
+        self._repo.delete_workspace_tags(ws_name, owner_id)
         self._repo.delete_workspace_notes(ws_name, owner_id=owner_id)
         ws_root = Path(ws_path)
         count = 0
@@ -423,6 +471,8 @@ class NoteService:
         for note in notes:
             if not note["id"]:
                 continue
+            fm_tags = self._normalize_tags(note["tags"] or [])
+            self._sync_tags(note["id"], ws_name, owner_id, fm_tags, note["content"] or "")
             pairs = [split_target(target) for target, _ in extract_wikilinks(note["content"] or "")]
             if not pairs:
                 continue

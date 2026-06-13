@@ -457,3 +457,51 @@ def test_move_rewrite_creates_commit_in_source_history(service, workspace):
     service.move(tid, owner_id="u1", ws_path=str(workspace), folder="New")
     history = service.get_history(sid, owner_id="u1", ws_path=str(workspace))
     assert any("rewrite wikilink" in h["message"] for h in history)
+
+
+def test_save_indexes_frontmatter_and_inline_tags(service, workspace):
+    service.save(
+        "u1",
+        "ws",
+        str(workspace),
+        "Note",
+        "body with #inline/tag here",
+        ["Work/Projects"],
+    )
+    paths = {r["path"] for r in service._repo.tag_tree("ws", "u1")}
+    assert paths == {"work", "work/projects", "inline", "inline/tag"}
+
+
+def test_save_normalizes_frontmatter_tags_in_file(service, workspace):
+    service.save("u1", "ws", str(workspace), "Note", "body", ["Work/Projects"])
+    note_id = service._repo.list("ws", "u1", limit=None)[0]["note_id"]
+    fetched = service.get(note_id, owner_id="u1")
+    assert fetched["tags"] == ["work/projects"]  # normalized, frontmatter-only
+
+
+def test_save_does_not_promote_inline_to_frontmatter(service, workspace):
+    service.save("u1", "ws", str(workspace), "Note", "see #inline", [])
+    note_id = service._repo.list("ws", "u1", limit=None)[0]["note_id"]
+    assert service.get(note_id, owner_id="u1")["tags"] == []  # inline stays out of frontmatter
+
+
+def test_update_resyncs_tags(service, workspace):
+    res = service.save("u1", "ws", str(workspace), "Note", "body #old", ["keep"])
+    service.update(res["note_id"], owner_id="u1", ws_path=str(workspace), content="body #new")
+    paths = {r["path"] for r in service._repo.tag_tree("ws", "u1")}
+    assert paths == {"keep", "new"}  # #old gone, #new added, frontmatter 'keep' stays
+
+
+def test_delete_removes_tags(service, workspace):
+    res = service.save("u1", "ws", str(workspace), "Note", "#x", ["y"])
+    service.delete(res["note_id"], owner_id="u1", ws_path=str(workspace))
+    assert service._repo.tag_tree("ws", "u1") == []
+
+
+def test_tag_tree_and_notes_by_tag_service(service, workspace):
+    service.save("u1", "ws", str(workspace), "A", "body", ["work/projects"])
+    service.save("u1", "ws", str(workspace), "B", "body", ["work"])
+    tree = service.tag_tree("ws", "u1")
+    assert {t["path"] for t in tree} == {"work", "work/projects"}
+    with_desc = service.notes_by_tag("ws", "u1", "work", include_descendants=True)
+    assert {n["title"] for n in with_desc} == {"A", "B"}
