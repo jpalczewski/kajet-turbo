@@ -19,6 +19,8 @@
 
   let tree = $derived(buildTagTree(tags));
 
+  // Auto-expand ancestors of the current tag on navigation; manual expand/collapse
+  // state is otherwise kept (never auto-collapsed), mirroring FolderTree.
   const expanded = new SvelteSet<string>();
   $effect(() => {
     for (const path of tagAncestors(currentTag)) expanded.add(path);
