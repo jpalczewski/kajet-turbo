@@ -5,16 +5,6 @@
  * OpenAPI spec version: 0.1.0
  */
 import { customFetch } from './fetcher';
-export interface BacklinkItem {
-  note_id: string;
-  title: string;
-  folder: string;
-}
-
-export interface BacklinksResponse {
-  backlinks: BacklinkItem[];
-}
-
 export interface ConsentResponse {
   redirect_uri: string;
 }
@@ -47,6 +37,17 @@ export interface ValidationError {
 
 export interface HTTPValidationError {
   detail?: ValidationError[];
+}
+
+export interface NoteLinkItem {
+  note_id: string;
+  title: string;
+  folder: string;
+}
+
+export interface LinksResponse {
+  backlinks: NoteLinkItem[];
+  outlinks: NoteLinkItem[];
 }
 
 export interface LoginResponse {
@@ -841,41 +842,41 @@ export const apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGet = async (
 
 
 
-export type apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse200 = {
-  data: BacklinksResponse
+export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse200 = {
+  data: LinksResponse
   status: 200
 }
 
-export type apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse422 = {
+export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse422 = {
   data: HTTPValidationError
   status: 422
 }
 
-export type apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponseSuccess = (apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse200) & {
+export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponseSuccess = (apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse200) & {
   headers: Headers;
 };
-export type apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponseError = (apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse422) & {
+export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponseError = (apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse422) & {
   headers: Headers;
 };
 
-export type apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse = (apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponseSuccess | apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponseError)
+export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse = (apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponseSuccess | apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponseError)
 
-export const getApiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetUrl = (name: string,
+export const getApiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetUrl = (name: string,
     noteId: string,) => {
 
 
 
 
-  return `/api/workspaces/${name}/notes/${noteId}/backlinks`
+  return `/api/workspaces/${name}/notes/${noteId}/links`
 }
 
 /**
- * @summary Api Note Backlinks
+ * @summary Api Note Links
  */
-export const apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGet = async (name: string,
-    noteId: string, options?: RequestInit): Promise<apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse> => {
+export const apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGet = async (name: string,
+    noteId: string, options?: RequestInit): Promise<apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse> => {
 
-  return customFetch<apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse>(getApiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetUrl(name,noteId),
+  return customFetch<apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse>(getApiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetUrl(name,noteId),
   {
     ...options,
     method: 'GET'

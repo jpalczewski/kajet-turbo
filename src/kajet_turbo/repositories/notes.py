@@ -231,6 +231,14 @@ class NoteRepository:
             ).all()
         return list(rows)
 
+    def outlinks(self, source_note_id: str) -> builtins.list[str]:
+        """Return target note_ids that ``source_note_id`` links to (uses the composite PK)."""
+        with Session(self._engine) as session:
+            rows = session.exec(
+                select(NoteLink.target_note_id).where(NoteLink.source_note_id == source_note_id)
+            ).all()
+        return list(rows)
+
     def list(
         self,
         workspace: str,

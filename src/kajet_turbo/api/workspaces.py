@@ -6,11 +6,11 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import (
-    BacklinksResponse,
     CreateFolderResponse,
     CreateNoteResponse,
     CreateWorkspaceResponse,
     DeleteNoteResponse,
+    LinksResponse,
     LsResponse,
     MoveNoteResponse,
     NoteHistoryResponse,
@@ -467,9 +467,9 @@ def api_get_note_markdown(
     )
 
 
-@router.get("/api/workspaces/{name}/notes/{note_id}/backlinks", response_model=BacklinksResponse)
+@router.get("/api/workspaces/{name}/notes/{note_id}/links", response_model=LinksResponse)
 @logged_route
-def api_note_backlinks(
+def api_note_links(
     name: str,
     note_id: str,
     request: Request,
@@ -481,7 +481,7 @@ def api_note_backlinks(
         return JSONResponse({"error": "Not logged in"}, status_code=401)
     if not ws_service.has_access(user["id"], name):
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
-    return JSONResponse({"backlinks": note_service.backlinks(note_id, owner_id=user["id"])})
+    return JSONResponse(note_service.links(note_id, owner_id=user["id"]))
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/history", response_model=NoteHistoryResponse)

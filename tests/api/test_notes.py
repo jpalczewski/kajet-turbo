@@ -396,28 +396,32 @@ def test_html_renders_broken_wikilink_when_target_deleted(auth_client):
     assert '<span class="wikilink-broken">Target</span>' in html
 
 
-def test_backlinks_returns_linking_notes(auth_client):
+def test_links_returns_backlinks_and_outlinks(auth_client):
     client, note_svc, ws_path = auth_client
     note_svc.save("u1", "test-ws", ws_path, "Target", "t", [])
     note_svc.save("u1", "test-ws", ws_path, "Source", "[[Target]]", [])
     tid = note_svc._repo.get_by_path("test-ws", "u1", "", "Target").id
+    sid = note_svc._repo.get_by_path("test-ws", "u1", "", "Source").id
 
-    resp = client.get(f"/api/workspaces/test-ws/notes/{tid}/backlinks")
+    # Target sees Source as a backlink, no outlinks.
+    target = client.get(f"/api/workspaces/test-ws/notes/{tid}/links").json()
+    assert [b["title"] for b in target["backlinks"]] == ["Source"]
+    assert target["outlinks"] == []
 
-    assert resp.status_code == 200
-    backlinks = resp.json()["backlinks"]
-    assert len(backlinks) == 1
-    assert backlinks[0]["title"] == "Source"
+    # Source sees Target as an outlink, no backlinks.
+    source = client.get(f"/api/workspaces/test-ws/notes/{sid}/links").json()
+    assert source["backlinks"] == []
+    assert [o["title"] for o in source["outlinks"]] == ["Target"]
 
 
-def test_backlinks_empty(auth_client):
+def test_links_empty(auth_client):
     client, note_svc, ws_path = auth_client
     tid = note_svc.save("u1", "test-ws", ws_path, "Lonely", "t", [])["note_id"]
-    resp = client.get(f"/api/workspaces/test-ws/notes/{tid}/backlinks")
+    resp = client.get(f"/api/workspaces/test-ws/notes/{tid}/links")
     assert resp.status_code == 200
-    assert resp.json()["backlinks"] == []
+    assert resp.json() == {"backlinks": [], "outlinks": []}
 
 
-def test_backlinks_returns_403_when_no_access(no_access_client):
-    resp = no_access_client.get("/api/workspaces/test-ws/notes/abc1234/backlinks")
+def test_links_returns_403_when_no_access(no_access_client):
+    resp = no_access_client.get("/api/workspaces/test-ws/notes/abc1234/links")
     assert resp.status_code == 403

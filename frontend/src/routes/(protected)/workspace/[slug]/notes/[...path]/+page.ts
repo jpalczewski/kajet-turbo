@@ -14,27 +14,33 @@ export const load: PageLoad = async ({ params, fetch, depends }) => {
   // speculatively: notes for both fullPath (if folder) and parentPath (if note),
   // plus the note html (if it's a note). One of these will be discarded.
   depends('app:workspace-tree');
-  const [lsResult, treeResult, notesInFolder, notesInParent, noteResult] = await Promise.all([
-    fetch(`/api/workspaces/${slug}/ls?path=${fullPath}`, { credentials: 'include' }).catch(
-      () => null,
-    ),
-    fetch(`/api/workspaces/${slug}/ls?recursive=true`, { credentials: 'include' }).catch(
-      () => null,
-    ),
-    segments.length > 0
-      ? fetch(`/api/workspaces/${slug}/notes?folder=${fullPath}`, { credentials: 'include' }).catch(
-          () => null,
-        )
-      : Promise.resolve(null),
-    fetch(`/api/workspaces/${slug}/notes?folder=${parentPath}`, { credentials: 'include' }).catch(
-      () => null,
-    ),
-    lastSegment
-      ? fetch(`/api/workspaces/${slug}/notes/${lastSegment}/html`, {
-          credentials: 'include',
-        }).catch(() => null)
-      : Promise.resolve(null),
-  ]);
+  const [lsResult, treeResult, notesInFolder, notesInParent, noteResult, linksResult] =
+    await Promise.all([
+      fetch(`/api/workspaces/${slug}/ls?path=${fullPath}`, { credentials: 'include' }).catch(
+        () => null,
+      ),
+      fetch(`/api/workspaces/${slug}/ls?recursive=true`, { credentials: 'include' }).catch(
+        () => null,
+      ),
+      segments.length > 0
+        ? fetch(`/api/workspaces/${slug}/notes?folder=${fullPath}`, {
+            credentials: 'include',
+          }).catch(() => null)
+        : Promise.resolve(null),
+      fetch(`/api/workspaces/${slug}/notes?folder=${parentPath}`, { credentials: 'include' }).catch(
+        () => null,
+      ),
+      lastSegment
+        ? fetch(`/api/workspaces/${slug}/notes/${lastSegment}/html`, {
+            credentials: 'include',
+          }).catch(() => null)
+        : Promise.resolve(null),
+      lastSegment
+        ? fetch(`/api/workspaces/${slug}/notes/${lastSegment}/links`, {
+            credentials: 'include',
+          }).catch(() => null)
+        : Promise.resolve(null),
+    ]);
 
   if (lsResult?.status === 401) redirect(307, loginPath());
   if (lsResult?.status === 403) redirect(307, workspacesPath());
@@ -47,6 +53,8 @@ export const load: PageLoad = async ({ params, fetch, depends }) => {
   const notes = notesResult?.ok ? (await notesResult.json()).notes : [];
   const tree = treeResult?.ok ? await treeResult.json() : { folders: [], entries: [] };
   const note = !isFolder && noteResult?.ok ? await noteResult.json() : null;
+  const links =
+    !isFolder && linksResult?.ok ? await linksResult.json() : { backlinks: [], outlinks: [] };
 
-  return { notes, tree, folderPath, noteId, slug, note };
+  return { notes, tree, folderPath, noteId, slug, note, links };
 };

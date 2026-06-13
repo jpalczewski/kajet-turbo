@@ -67,7 +67,7 @@
   </section>
 
   <section class="explorer__preview">
-    <NotePreview note={data.note} {slug} onmoved={handleMoveNote} />
+    <NotePreview note={data.note} {slug} links={data.links} onmoved={handleMoveNote} />
   </section>
 </div>
 
