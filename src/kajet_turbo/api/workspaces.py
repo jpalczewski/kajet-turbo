@@ -130,7 +130,8 @@ def api_list_notes(
     if not ws_service.has_access(user["id"], name):
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
     ws_path = ws_service.workspace_path(user["id"], name)
-    notes = note_service.list(name, owner_id=user["id"], folder=folder)
+    # Explorer lists the full folder; no cap (MCP list_notes keeps its own limit).
+    notes = note_service.list(name, owner_id=user["id"], folder=folder, limit=None)
     enriched = []
     for note in notes:
         filepath = note_filepath(ws_path, note["folder"], note["title"])
