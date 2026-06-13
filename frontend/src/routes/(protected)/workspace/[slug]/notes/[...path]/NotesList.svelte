@@ -11,16 +11,20 @@
     folderPath,
     slug,
     onCreateNote,
+    useNoteFolder = false,
+    showCreate = true,
   }: {
     notes: NoteItem[];
     currentNoteId: string | null;
     folderPath: string;
     slug: string;
     onCreateNote: (title: string) => Promise<void>;
+    useNoteFolder?: boolean;
+    showCreate?: boolean;
   } = $props();
 
-  function openNote(noteId: string) {
-    goto(noteInTreePath(slug, folderPath, noteId));
+  function openNote(note: NoteItem) {
+    goto(noteInTreePath(slug, useNoteFolder ? note.folder : folderPath, note.note_id));
   }
 
   let creating = $state(false);
@@ -30,7 +34,9 @@
   <div class="notes-list__header">
     <span class="notes-list__path">{folderPath || slug}/</span>
     <span class="notes-list__count">{notes.length}</span>
-    <button class="create-btn" onclick={() => (creating = true)} title="Nowa notatka">+</button>
+    {#if showCreate}
+      <button class="create-btn" onclick={() => (creating = true)} title="Nowa notatka">+</button>
+    {/if}
   </div>
 
   {#if creating}
@@ -56,7 +62,7 @@
           <button
             class="note-row"
             class:active={note.note_id === currentNoteId}
-            onclick={() => openNote(note.note_id)}
+            onclick={() => openNote(note)}
           >
             <span class="note-row__title">{note.title}</span>
             <span class="note-row__meta">

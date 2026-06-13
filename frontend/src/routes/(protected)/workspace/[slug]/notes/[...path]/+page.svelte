@@ -5,8 +5,10 @@
     apiCreateNoteApiWorkspacesNameNotesPost,
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
-  import { noteEditPath, noteInTreePath, notesPath } from '$lib/routes';
+  import { noteEditPath, noteInTreePath, notesPath, tagsPath } from '$lib/routes';
+  import ExplorerModeToggle from './ExplorerModeToggle.svelte';
   import FolderTree from './FolderTree.svelte';
+  import TagTree from './TagTree.svelte';
   import NotesList from './NotesList.svelte';
   import NotePreview from './NotePreview.svelte';
 
@@ -44,26 +46,62 @@
     await invalidate('app:workspace-tree');
     goto(noteInTreePath(slug, folder, data.noteId));
   }
+
+  function toggleDescendants() {
+    // eslint-disable-next-line svelte/no-navigation-without-resolve
+    goto(tagsPath(slug, data.tagPath, !data.includeDescendants));
+  }
 </script>
 
 <div class="explorer">
   <aside class="explorer__sidebar">
-    <FolderTree
-      folders={data.tree.folders}
-      currentFolder={data.folderPath}
-      {slug}
-      onCreateFolder={handleCreateFolder}
-    />
+    <ExplorerModeToggle {slug} mode={data.mode} />
+    {#if data.mode === 'tags'}
+      <TagTree
+        tags={data.tags}
+        currentTag={data.tagPath}
+        includeDescendants={data.includeDescendants}
+        {slug}
+      />
+    {:else}
+      <FolderTree
+        folders={data.tree.folders}
+        currentFolder={data.folderPath}
+        {slug}
+        onCreateFolder={handleCreateFolder}
+      />
+    {/if}
   </aside>
 
   <section class="explorer__list">
-    <NotesList
-      notes={data.notes}
-      currentNoteId={data.noteId}
-      folderPath={data.folderPath}
-      {slug}
-      onCreateNote={handleCreateNote}
-    />
+    {#if data.mode === 'tags'}
+      <div class="tag-list-header">
+        <span class="tag-list-title">{data.tagPath ? '#' + data.tagPath : 'Wybierz tag'}</span>
+        {#if data.tagPath}
+          <label class="desc-toggle">
+            <input type="checkbox" checked={data.includeDescendants} onchange={toggleDescendants} />
+            z podtagami
+          </label>
+        {/if}
+      </div>
+      <NotesList
+        notes={data.notes}
+        currentNoteId={data.noteId}
+        folderPath=""
+        {slug}
+        onCreateNote={handleCreateNote}
+        useNoteFolder
+        showCreate={false}
+      />
+    {:else}
+      <NotesList
+        notes={data.notes}
+        currentNoteId={data.noteId}
+        folderPath={data.folderPath}
+        {slug}
+        onCreateNote={handleCreateNote}
+      />
+    {/if}
   </section>
 
   <section class="explorer__preview">
@@ -102,5 +140,28 @@
       display: flex;
       flex-direction: column;
     }
+  }
+
+  .tag-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid v.$border;
+    flex-shrink: 0;
+  }
+  .tag-list-title {
+    font-family: v.$font-mono;
+    font-size: 0.72rem;
+    color: v.$text-muted;
+  }
+  .desc-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-family: v.$font-mono;
+    font-size: 0.68rem;
+    color: v.$text-muted;
+    cursor: pointer;
   }
 </style>
