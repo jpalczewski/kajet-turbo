@@ -186,7 +186,8 @@ def register_notes(
     ) -> str:
         """Zwraca listę notatek jako JSON array. Każda notatka zawiera pole 'folder'.
         folder: opcjonalny filtr — tylko notatki z tego folderu (np. 'Projekty/Klient A').
-        Filtr tags używa OR — notatka pasuje jeśli ma KTÓRYKOLWIEK z podanych tagów."""
+        Filtr tags używa OR i jest hierarchiczny: podanie 'work' dopasuje też notatki
+        otagowane 'work/projects' itd. (dopasowanie po prefiksie segmentów)."""
         try:
             owner_id, ws_name, _ = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
