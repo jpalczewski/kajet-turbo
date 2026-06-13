@@ -1,16 +1,19 @@
 <script lang="ts">
-  import type { NoteHtmlResponse } from '$lib/api';
+  import type { LinksResponse, NoteHtmlResponse } from '$lib/api';
   import MoveNoteDialog from '$lib/components/MoveNoteDialog.svelte';
   import Prose from '$lib/components/Prose.svelte';
   import { noteHistoryPath, notePath } from '$lib/routes';
+  import NoteLinksPanel from './NoteLinksPanel.svelte';
 
   let {
     note,
     slug,
+    links,
     onmoved,
   }: {
     note: NoteHtmlResponse | null;
     slug: string;
+    links: LinksResponse;
     onmoved: (folder: string) => void | Promise<void>;
   } = $props();
 </script>
@@ -31,8 +34,11 @@
         >
       </div>
     </div>
-    <div class="preview__body">
-      <Prose html={note.content_html} />
+    <div class="preview__main">
+      <NoteLinksPanel {slug} backlinks={links.backlinks} outlinks={links.outlinks} />
+      <div class="preview__body">
+        <Prose html={note.content_html} />
+      </div>
     </div>
   {:else}
     <div class="preview__empty">
@@ -94,6 +100,12 @@
           color: v.$accent;
         }
       }
+    }
+
+    &__main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
     }
 
     &__body {

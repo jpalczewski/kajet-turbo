@@ -128,15 +128,30 @@ class NoteService:
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
         return {"note_id": note_id}
 
+    def _resolve_link_notes(
+        self, note_ids: builtins.list[str], owner_id: str
+    ) -> builtins.list[dict]:
+        """Map note_ids to ``{note_id, title, folder}``, skipping missing/foreign notes."""
+        result = []
+        for note_id in note_ids:
+            note = self._repo.get(note_id, owner_id=owner_id)
+            if note is not None:
+                result.append({"note_id": note.id, "title": note.title, "folder": note.folder})
+        return result
+
     def backlinks(self, note_id: str, owner_id: str) -> builtins.list[dict]:
         """Notes that link to ``note_id``. Orphaned/foreign sources are skipped."""
-        result = []
-        for source_id in self._repo.backlinks(note_id):
-            src = self._repo.get(source_id, owner_id=owner_id)
-            if src is None:
-                continue
-            result.append({"note_id": src.id, "title": src.title, "folder": src.folder})
-        return result
+        return self._resolve_link_notes(self._repo.backlinks(note_id), owner_id)
+
+    def outlinks(self, note_id: str, owner_id: str) -> builtins.list[dict]:
+        """Notes that ``note_id`` links to. Orphaned/foreign targets are skipped."""
+        return self._resolve_link_notes(self._repo.outlinks(note_id), owner_id)
+
+    def links(self, note_id: str, owner_id: str) -> dict:
+        return {
+            "backlinks": self.backlinks(note_id, owner_id),
+            "outlinks": self.outlinks(note_id, owner_id),
+        }
 
     def link_resolver(self, ws_name: str, owner_id: str):
         """Return a ``(folder, title) -> note_id | None`` resolver for rendering wikilinks."""
