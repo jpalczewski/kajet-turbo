@@ -17,6 +17,16 @@ class NotesListResponse(BaseModel):
     notes: list[NoteItem]
 
 
+class BacklinkItem(BaseModel):
+    note_id: str
+    title: str
+    folder: str
+
+
+class BacklinksResponse(BaseModel):
+    backlinks: list[BacklinkItem]
+
+
 class NoteHtmlResponse(BaseModel):
     note_id: str
     title: str

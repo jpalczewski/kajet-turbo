@@ -215,3 +215,29 @@ def test_hybrid_search_with_vec(db_small_dim):
 
     results = repo.hybrid_search("wektorowa", "ws1", owner_id="u1", embedding=_fake_embedding(0.5))
     assert any(r["note_id"] == "id1" for r in results)
+
+
+def test_get_by_path_root_and_folder(notes):
+    notes.insert("id1", "ws1", "u1", "Plan", [], _now(), _now(), "treść", folder="")
+    notes.insert("id2", "ws1", "u1", "Plan", [], _now(), _now(), "treść", folder="Projekty")
+    root = notes.get_by_path("ws1", "u1", "", "Plan")
+    nested = notes.get_by_path("ws1", "u1", "Projekty", "Plan")
+    assert root is not None and root.id == "id1"
+    assert nested is not None and nested.id == "id2"
+
+
+def test_get_by_path_missing_returns_none(notes):
+    notes.insert("id1", "ws1", "u1", "Plan", [], _now(), _now(), "treść")
+    assert notes.get_by_path("ws1", "u1", "Inny", "Plan") is None
+    assert notes.get_by_path("ws1", "u2", "", "Plan") is None
+
+
+def test_resolve_paths_batch(notes):
+    notes.insert("id1", "ws1", "u1", "Plan", [], _now(), _now(), "t", folder="A")
+    notes.insert("id2", "ws1", "u1", "Notes", [], _now(), _now(), "t", folder="")
+    resolved = notes.resolve_paths("ws1", "u1", [("A", "Plan"), ("", "Notes"), ("", "Ghost")])
+    assert resolved == {("A", "Plan"): "id1", ("", "Notes"): "id2"}
+
+
+def test_resolve_paths_empty(notes):
+    assert notes.resolve_paths("ws1", "u1", []) == {}

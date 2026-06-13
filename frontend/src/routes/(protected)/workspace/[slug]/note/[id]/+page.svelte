@@ -4,11 +4,12 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MoveNoteDialog from '$lib/components/MoveNoteDialog.svelte';
   import Prose from '$lib/components/Prose.svelte';
-  import { noteEditPath, noteHistoryPath, notesPath } from '$lib/routes';
+  import { noteEditPath, noteHistoryPath, notePath, notesPath } from '$lib/routes';
   import { formatDate } from '$lib/utils/format';
 
   const slug = $derived(page.params.slug as string);
   const note = $derived(page.data.note);
+  const backlinks = $derived(page.data.backlinks);
 
   async function handleMove() {
     await invalidate('app:workspace-tree');
@@ -47,6 +48,22 @@
   </header>
 
   <Prose html={note.content_html} />
+
+  {#if backlinks.length > 0}
+    <section class="backlinks">
+      <h2 class="backlinks__title">Linkują tutaj ({backlinks.length})</h2>
+      <ul class="backlinks__list">
+        {#each backlinks as backlink (backlink.note_id)}
+          <li>
+            <a href={notePath(slug, backlink.note_id)} class="backlinks__link">
+              {#if backlink.folder}<span class="backlinks__folder">{backlink.folder}/</span
+                >{/if}{backlink.title}
+            </a>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
 </main>
 
 <style lang="scss">
@@ -69,6 +86,46 @@
 
     &:hover {
       color: v.$accent;
+    }
+  }
+
+  .backlinks {
+    margin-top: v.$space-2xl;
+    padding-top: v.$space-lg;
+    border-top: 1px solid v.$border;
+
+    &__title {
+      font-size: 0.8rem;
+      font-family: v.$font-mono;
+      color: v.$text-muted;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin: 0 0 v.$space-md 0;
+    }
+
+    &__list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: v.$space-xs;
+    }
+
+    &__link {
+      font-family: v.$font-mono;
+      font-size: 0.85rem;
+      color: v.$accent;
+      text-decoration: none;
+
+      &:hover {
+        color: v.$accent-hover;
+        text-decoration: underline;
+      }
+    }
+
+    &__folder {
+      color: v.$text-muted;
     }
   }
 

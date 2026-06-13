@@ -336,3 +336,124 @@ def test_restore_version_reverts_content(service, workspace):
 
     current = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert current["content"] == "treść oryginalna"
+
+
+def test_save_with_valid_wikilink_succeeds(service, workspace):
+    service.save("u1", "ws", str(workspace), "Target", "treść", [], folder="A")
+    result = service.save("u1", "ws", str(workspace), "Source", "see [[A/Target|t]]", [])
+    assert "note_id" in result
+    assert (workspace / "Source.md").exists()
+
+
+def test_save_with_broken_wikilink_rejected_and_no_file(service, workspace):
+    from kajet_turbo.wikilinks import BrokenWikilinkError
+
+    with pytest.raises(BrokenWikilinkError) as exc:
+        service.save("u1", "ws", str(workspace), "Source", "see [[Ghost]] and [[A/Nope]]", [])
+    assert exc.value.broken == ["A/Nope", "Ghost"]
+    assert not (workspace / "Source.md").exists()
+
+
+def test_save_wikilink_in_code_is_not_validated(service, workspace):
+    # `[[Ghost]]` inside inline code must not trigger validation.
+    result = service.save("u1", "ws", str(workspace), "Source", "code `[[Ghost]]` here", [])
+    assert "note_id" in result
+
+
+def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, workspace):
+    from kajet_turbo.wikilinks import BrokenWikilinkError
+
+    result = service.save("u1", "ws", str(workspace), "Note", "original", [])
+    note_id = result["note_id"]
+    with pytest.raises(BrokenWikilinkError):
+        service.update(note_id, owner_id="u1", ws_path=str(workspace), content="[[Ghost]]")
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note["content"] == "original"
+
+
+def test_update_append_mode_validates_after_apply_edit(service, workspace):
+    from kajet_turbo.wikilinks import BrokenWikilinkError
+
+    result = service.save("u1", "ws", str(workspace), "Note", "body", [])
+    note_id = result["note_id"]
+    with pytest.raises(BrokenWikilinkError):
+        service.update(
+            note_id, owner_id="u1", ws_path=str(workspace), content="[[Ghost]]", mode="append"
+        )
+
+
+def test_update_to_valid_wikilink_succeeds(service, workspace):
+    service.save("u1", "ws", str(workspace), "Target", "t", [])
+    result = service.save("u1", "ws", str(workspace), "Note", "body", [])
+    note_id = result["note_id"]
+    service.update(note_id, owner_id="u1", ws_path=str(workspace), content="link [[Target]]")
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert "[[Target]]" in note["content"]
+
+
+def test_save_records_note_link(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target]]", [])["note_id"]
+    assert service._repo.backlinks(tid) == [sid]
+
+
+def test_update_replaces_links(service, workspace):
+    a = service.save("u1", "ws", str(workspace), "A", "a", [])["note_id"]
+    b = service.save("u1", "ws", str(workspace), "B", "b", [])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[A]]", [])["note_id"]
+    assert service._repo.backlinks(a) == [sid]
+    service.update(sid, owner_id="u1", ws_path=str(workspace), content="now [[B]]")
+    assert service._repo.backlinks(a) == []
+    assert service._repo.backlinks(b) == [sid]
+
+
+def test_delete_removes_outgoing_and_incoming_links(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
+    # Source -> Target edge exists; deleting Source clears the edge.
+    service.delete(sid, owner_id="u1", ws_path=str(workspace))
+    assert service._repo.backlinks(tid) == []
+
+
+def test_delete_target_orphans_handled(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])
+    service.delete(tid, owner_id="u1", ws_path=str(workspace))
+    # Incoming edge to the deleted target is removed.
+    assert service._repo.backlinks(tid) == []
+
+
+def test_reindex_rebuilds_links(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
+    service.reindex("ws", "u1", str(workspace))
+    assert service._repo.backlinks(tid) == [sid]
+
+
+def test_move_rewrites_backlink_path(service, workspace):
+    service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Old")
+    sid = service.save("u1", "ws", str(workspace), "Source", "see [[Old/Target|T]]", [])["note_id"]
+    tid = service._repo.get_by_path("ws", "u1", "Old", "Target").id
+    service.move(tid, owner_id="u1", ws_path=str(workspace), folder="New")
+    src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
+    assert "[[New/Target|T]]" in src["content"]
+    assert "[[Old/Target" not in src["content"]
+    # edge still points to the same target note
+    assert service._repo.backlinks(tid) == [sid]
+
+
+def test_rename_via_update_rewrites_backlink(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
+    service.update(tid, owner_id="u1", ws_path=str(workspace), title="Renamed")
+    src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
+    assert "[[Renamed]]" in src["content"]
+
+
+def test_move_rewrite_creates_commit_in_source_history(service, workspace):
+    service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Old")
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Old/Target]]", [])["note_id"]
+    tid = service._repo.get_by_path("ws", "u1", "Old", "Target").id
+    service.move(tid, owner_id="u1", ws_path=str(workspace), folder="New")
+    history = service.get_history(sid, owner_id="u1", ws_path=str(workspace))
+    assert any("rewrite wikilink" in h["message"] for h in history)

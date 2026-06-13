@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, ForeignKey, Text
+from sqlalchemy import Column, ForeignKey, Index, Text
 from sqlmodel import Field, SQLModel
 
 
@@ -44,6 +44,26 @@ class Note(SQLModel, table=True):
     created_at: str
     updated_at: str
     fts_rowid: int | None = None
+
+
+class NoteLink(SQLModel, table=True):
+    """Directed edge in the note link graph: ``source_note_id`` links to ``target_note_id``.
+
+    Deduped to one edge per pair via the composite primary key — whose leading column
+    (``source_note_id``) also serves the hot ``WHERE source_note_id = ?`` path (refresh on save,
+    delete on note removal) with no extra index. The covering ``(target_note_id, source_note_id)``
+    index serves backlinks / move-rewrite as an index-only scan. ``workspace``/``owner_id`` are
+    denormalized for bulk cleanup on workspace reset, not for hot-path queries.
+    """
+
+    __tablename__ = "note_links"
+
+    source_note_id: str = Field(primary_key=True)
+    target_note_id: str = Field(primary_key=True)
+    workspace: str
+    owner_id: str
+
+    __table_args__ = (Index("ix_note_links_target", "target_note_id", "source_note_id"),)
 
 
 class OAuthRegisteredClient(SQLModel, table=True):

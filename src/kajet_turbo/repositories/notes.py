@@ -3,10 +3,10 @@
 import builtins
 import json
 
-from sqlalchemy import CursorResult, Engine, text
+from sqlalchemy import CursorResult, Engine, delete, text
 from sqlmodel import Session, col, func, select
 
-from kajet_turbo.models import Note
+from kajet_turbo.models import Note, NoteLink
 
 
 class NoteRepository:
@@ -67,6 +67,40 @@ class NoteRepository:
             if owner_id is not None:
                 q = q.where(Note.owner_id == owner_id)
             return session.exec(q).first()
+
+    def get_by_path(self, workspace: str, owner_id: str, folder: str, title: str) -> Note | None:
+        """Resolve a note by its workspace-relative (folder, title) natural key."""
+        with Session(self._engine) as session:
+            q = select(Note).where(
+                Note.workspace == workspace,
+                Note.owner_id == owner_id,
+                Note.folder == folder,
+                Note.title == title,
+            )
+            return session.exec(q).first()
+
+    def resolve_paths(
+        self,
+        workspace: str,
+        owner_id: str,
+        pairs: builtins.list[tuple[str, str]],
+    ) -> dict[tuple[str, str], str]:
+        """Map ``(folder, title) -> note_id`` for the pairs that exist.
+
+        One query loads the workspace's ``(folder, title, id)`` index into memory (a single
+        user's workspace is small), avoiding N+1 lookups during link validation.
+        """
+        if not pairs:
+            return {}
+        wanted = set(pairs)
+        with Session(self._engine) as session:
+            rows = session.exec(
+                select(Note.folder, Note.title, Note.id).where(
+                    Note.workspace == workspace, Note.owner_id == owner_id
+                )
+            ).all()
+        index = {(folder, title): note_id for folder, title, note_id in rows}
+        return {pair: index[pair] for pair in wanted if pair in index}
 
     def update(
         self,
@@ -141,6 +175,61 @@ class NoteRepository:
             if note:
                 session.delete(note)
             session.commit()
+
+    def replace_links(
+        self,
+        source_note_id: str,
+        workspace: str,
+        owner_id: str,
+        target_ids: builtins.set[str],
+    ) -> None:
+        """Replace the set of outgoing links for ``source_note_id`` (delete + reinsert)."""
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+                delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id)
+            )
+            for target_id in target_ids:
+                session.add(
+                    NoteLink(
+                        source_note_id=source_note_id,
+                        target_note_id=target_id,
+                        workspace=workspace,
+                        owner_id=owner_id,
+                    )
+                )
+            session.commit()
+
+    def delete_links_from(self, source_note_id: str) -> None:
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+                delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id)
+            )
+            session.commit()
+
+    def delete_links_to(self, target_note_id: str) -> None:
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+                delete(NoteLink).where(col(NoteLink.target_note_id) == target_note_id)
+            )
+            session.commit()
+
+    def delete_workspace_links(self, workspace: str, owner_id: str) -> None:
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+                delete(NoteLink).where(
+                    col(NoteLink.workspace) == workspace,
+                    col(NoteLink.owner_id) == owner_id,
+                )
+            )
+            session.commit()
+
+    def backlinks(self, target_note_id: str) -> builtins.list[str]:
+        """Return source note_ids that link to ``target_note_id`` (index-only scan)."""
+        with Session(self._engine) as session:
+            rows = session.exec(
+                select(NoteLink.source_note_id).where(NoteLink.target_note_id == target_note_id)
+            ).all()
+        return list(rows)
 
     def list(
         self,

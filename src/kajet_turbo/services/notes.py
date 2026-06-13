@@ -14,6 +14,12 @@ from kajet_turbo.log import logger
 from kajet_turbo.note_edit import apply_edit
 from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.wikilinks import (
+    BrokenWikilinkError,
+    extract_wikilinks,
+    rewrite_wikilink_target,
+    split_target,
+)
 from kajet_turbo.workspace import (
     InvalidFolderError,
     list_workspace_folders,
@@ -30,6 +36,67 @@ class NoteService:
         self._repo = note_repo
         self._cache = cache
 
+    def _validate_wikilinks(self, ws_name: str, owner_id: str, content: str) -> set[str]:
+        """Resolve every wikilink in ``content``; raise if any points to a missing note.
+
+        Returns the set of resolved target note_ids (used to persist the link graph).
+        """
+        pairs = [(target, split_target(target)) for target, _ in extract_wikilinks(content)]
+        if not pairs:
+            return set()
+        resolved = self._repo.resolve_paths(ws_name, owner_id, [pair for _, pair in pairs])
+        broken = sorted({target for target, pair in pairs if pair not in resolved})
+        if broken:
+            raise BrokenWikilinkError(broken)
+        return set(resolved.values())
+
+    def _rewrite_backlinks(
+        self,
+        note_id: str,
+        owner_id: str,
+        ws_path: str,
+        old_folder: str,
+        old_title: str,
+        new_folder: str,
+        new_title: str,
+    ) -> None:
+        """Rewrite wikilink paths in every note that links to ``note_id`` after it moved/renamed.
+
+        Each affected source is committed separately; the link graph edges are unchanged
+        (``target_note_id`` stays the same), so no link-table update is needed.
+        """
+        source_ids = self._repo.backlinks(note_id)
+        if not source_ids:
+            return
+        old_key = (old_folder, old_title)
+        new_target = f"{new_folder}/{new_title}" if new_folder else new_title
+        repo = GitRepository(ws_path)
+        for source_id in source_ids:
+            src = self._repo.get(source_id, owner_id=owner_id)
+            if src is None:
+                continue
+            src_path = note_filepath(ws_path, src.folder, src.title)
+            if not Path(src_path).exists():
+                continue
+            data = read_note_file(src_path)
+            new_body, changed = rewrite_wikilink_target(data["content"], old_key, new_target)
+            if not changed:
+                continue
+            write_note_file(
+                src_path,
+                src.id,
+                src.title,
+                json.loads(src.tags or "[]"),
+                src.created_at,
+                src.updated_at,
+                new_body,
+            )
+            relative = str(Path(src_path).relative_to(ws_path))
+            repo.commit_file(relative, f"note: rewrite wikilink {old_title} -> {new_title}")
+            self._repo.update(
+                source_id, owner_id=owner_id, content=new_body, updated_at=src.updated_at
+            )
+
     def save(
         self,
         user_id: str,
@@ -43,6 +110,7 @@ class NoteService:
         folder = normalize_folder(folder)
         if not self._repo.check_unique(ws_name, user_id, folder, title):
             raise ValueError(f"Notatka '{title}' już istnieje w folderze '{folder or 'root'}'.")
+        target_ids = self._validate_wikilinks(ws_name, user_id, content)
         note_id = generate(size=7)
         now = datetime.now(UTC).isoformat()
         filepath = note_filepath(ws_path, folder, title)
@@ -54,10 +122,30 @@ class NoteService:
             Path(filepath).unlink(missing_ok=True)
             raise
         self._repo.insert(note_id, ws_name, user_id, title, tags, now, now, content, folder)
+        self._repo.replace_links(note_id, ws_name, user_id, target_ids)
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
         return {"note_id": note_id}
+
+    def backlinks(self, note_id: str, owner_id: str) -> builtins.list[dict]:
+        """Notes that link to ``note_id``. Orphaned/foreign sources are skipped."""
+        result = []
+        for source_id in self._repo.backlinks(note_id):
+            src = self._repo.get(source_id, owner_id=owner_id)
+            if src is None:
+                continue
+            result.append({"note_id": src.id, "title": src.title, "folder": src.folder})
+        return result
+
+    def link_resolver(self, ws_name: str, owner_id: str):
+        """Return a ``(folder, title) -> note_id | None`` resolver for rendering wikilinks."""
+
+        def resolve(folder: str, title: str) -> str | None:
+            note = self._repo.get_by_path(ws_name, owner_id, folder, title)
+            return note.id if note else None
+
+        return resolve
 
     def get(self, note_id: str, owner_id: str) -> dict | None:
         note = self._repo.get(note_id, owner_id=owner_id)
@@ -142,6 +230,9 @@ class NoteService:
                 raise ValueError("content jest wymagany dla trybu edycji.")
             new_content = apply_edit(old_content, mode, content, target_heading, old_text)
 
+        # Validate links on the final content (post apply_edit), before any git mutation.
+        target_ids = self._validate_wikilinks(note.workspace, owner_id, new_content)
+
         repo = GitRepository(ws_path)
         try:
             if old_path != new_path:
@@ -177,6 +268,11 @@ class NoteService:
             updated_at=now,
             folder=new_folder,
         )
+        self._repo.replace_links(note_id, note.workspace, owner_id, target_ids)
+        if old_path != new_path:
+            self._rewrite_backlinks(
+                note_id, owner_id, ws_path, note.folder, note.title, new_folder, new_title
+            )
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_updated", note_id=note_id, folder=new_folder)
@@ -217,6 +313,9 @@ class NoteService:
             updated_at=note.updated_at,
             folder=new_folder,
         )
+        self._rewrite_backlinks(
+            note_id, owner_id, ws_path, note.folder, note.title, new_folder, note.title
+        )
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_moved", note_id=note_id, folder=new_folder)
@@ -231,6 +330,8 @@ class NoteService:
             relative = str(Path(filepath).relative_to(ws_path))
             GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
         self._repo.delete(note_id, owner_id=owner_id)
+        self._repo.delete_links_from(note_id)
+        self._repo.delete_links_to(note_id)
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_deleted", note_id=note_id)
@@ -301,6 +402,18 @@ class NoteService:
                 folder,
             )
             count += 1
+        # Second pass: rebuild the link graph now that every note is resolvable.
+        # Broken links are silently skipped here (reindex must not fail on pre-existing data).
+        self._repo.delete_workspace_links(ws_name, owner_id)
+        for note in notes:
+            if not note["id"]:
+                continue
+            pairs = [split_target(target) for target, _ in extract_wikilinks(note["content"] or "")]
+            if not pairs:
+                continue
+            resolved = self._repo.resolve_paths(ws_name, owner_id, pairs)
+            if resolved:
+                self._repo.replace_links(note["id"], ws_name, owner_id, set(resolved.values()))
         if self._cache is not None:
             self._cache.bump(ws_name, owner_id)
         logger.info(

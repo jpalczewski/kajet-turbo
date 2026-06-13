@@ -5,6 +5,16 @@
  * OpenAPI spec version: 0.1.0
  */
 import { customFetch } from './fetcher';
+export interface BacklinkItem {
+  note_id: string;
+  title: string;
+  folder: string;
+}
+
+export interface BacklinksResponse {
+  backlinks: BacklinkItem[];
+}
+
 export interface ConsentResponse {
   redirect_uri: string;
 }
@@ -821,6 +831,51 @@ export const apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGet = async (
     noteId: string, options?: RequestInit): Promise<apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse> => {
 
   return customFetch<apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse>(getApiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetUrl(name,noteId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse200 = {
+  data: BacklinksResponse
+  status: 200
+}
+
+export type apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponseSuccess = (apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse200) & {
+  headers: Headers;
+};
+export type apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponseError = (apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse = (apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponseSuccess | apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponseError)
+
+export const getApiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetUrl = (name: string,
+    noteId: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}/backlinks`
+}
+
+/**
+ * @summary Api Note Backlinks
+ */
+export const apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGet = async (name: string,
+    noteId: string, options?: RequestInit): Promise<apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse> => {
+
+  return customFetch<apiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetResponse>(getApiNoteBacklinksApiWorkspacesNameNotesNoteIdBacklinksGetUrl(name,noteId),
   {
     ...options,
     method: 'GET'
