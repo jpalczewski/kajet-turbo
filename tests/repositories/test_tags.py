@@ -73,3 +73,12 @@ def test_delete_note_tags_gcs(repo: NoteRepository):
     repo.sync_note_tags("n1", "ws", "u1", [("work/projects", "frontmatter")])
     repo.delete_note_tags("n1", "ws", "u1")
     assert repo.tag_tree("ws", "u1") == []
+
+
+def test_list_tag_filter_is_prefix_aware(repo: NoteRepository):
+    _insert_note(repo, "n1")
+    _insert_note(repo, "n2")
+    repo.sync_note_tags("n1", "ws", "u1", [("work/projects", "frontmatter")])
+    repo.sync_note_tags("n2", "ws", "u1", [("life", "frontmatter")])
+    got = {r["note_id"] for r in repo.list("ws", "u1", tags=["work"], limit=None)}
+    assert got == {"n1"}  # matched via descendant work/projects

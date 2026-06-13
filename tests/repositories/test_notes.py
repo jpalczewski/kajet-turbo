@@ -97,6 +97,8 @@ def test_list_notes_by_workspace(notes):
 def test_list_notes_filter_by_tag(notes):
     notes.insert("id1", "ws1", "u1", "Tagged", ["python", "mcp"], _now(), _now(), "treść")
     notes.insert("id2", "ws1", "u1", "Untagged", [], _now(), _now(), "treść")
+    # list() now filters via the tag index (not JSON field); sync_note_tags populates it.
+    notes.sync_note_tags("id1", "ws1", "u1", [("python", "frontmatter"), ("mcp", "frontmatter")])
     result = notes.list("ws1", owner_id="u1", tags=["python"])
     ids = [n["note_id"] for n in result]
     assert "id1" in ids

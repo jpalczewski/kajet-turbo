@@ -476,7 +476,15 @@ class NoteRepository:
         tags: builtins.list[str] | None = None,
         limit: int | None = 20,
         folder: str | None = None,
+        include_descendants: bool = True,
     ) -> builtins.list[dict]:
+        allowed: builtins.set[str] | None = None
+        if tags:
+            allowed = self.note_ids_for_tags(
+                workspace, owner_id, tags, include_descendants=include_descendants
+            )
+            if not allowed:
+                return []
         with Session(self._engine) as session:
             q = select(Note).where(Note.workspace == workspace, Note.owner_id == owner_id)
             if folder is not None:
@@ -490,8 +498,7 @@ class NoteRepository:
 
         result = []
         for note in rows:
-            note_tags = json.loads(note.tags or "[]")
-            if tags and not any(t in note_tags for t in tags):
+            if allowed is not None and note.id not in allowed:
                 continue
             result.append(
                 {
@@ -500,7 +507,7 @@ class NoteRepository:
                     "owner_id": note.owner_id,
                     "title": note.title,
                     "folder": note.folder,
-                    "tags": note_tags,
+                    "tags": json.loads(note.tags or "[]"),
                     "created_at": note.created_at,
                     "updated_at": note.updated_at,
                 }
