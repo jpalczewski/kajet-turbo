@@ -2,11 +2,11 @@ import re
 from pathlib import Path
 
 import bleach
-import mistune
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import (
+    BacklinksResponse,
     CreateFolderResponse,
     CreateNoteResponse,
     CreateWorkspaceResponse,
@@ -26,6 +26,7 @@ from kajet_turbo.dependencies import get_note_service, get_session_user, get_wor
 from kajet_turbo.log import logged_route, logger
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.wikilinks import BrokenWikilinkError, LinkResolver, render_markdown
 from kajet_turbo.workspace import InvalidFolderError, note_filepath
 
 _ALLOWED_TAGS = [
@@ -51,20 +52,24 @@ _ALLOWED_TAGS = [
     "th",
     "td",
     "img",
+    "span",
 ]
 _ALLOWED_ATTRS = {
     **bleach.sanitizer.ALLOWED_ATTRIBUTES,
-    "a": ["href", "title"],
+    "a": ["href", "title", "class"],
     "img": ["src", "alt", "title"],
+    "span": ["class"],
 }
 _ALLOWED_PROTOCOLS = ["http", "https", "mailto"]
 
 _FOLDER_PATH_RE = re.compile(r"^[a-zA-Z0-9._-][a-zA-Z0-9._\-/]*$")
 
 
-def _render_html(content: str) -> str:
+def _render_html(
+    content: str, resolver: LinkResolver | None = None, slug: str | None = None
+) -> str:
     return bleach.clean(
-        mistune.html(content),
+        render_markdown(content, resolver, slug),
         tags=_ALLOWED_TAGS,
         attributes=_ALLOWED_ATTRS,
         protocols=_ALLOWED_PROTOCOLS,
@@ -268,6 +273,8 @@ async def api_create_note(
         result = await run_sync(
             note_service.save, user["id"], name, ws_path, title, content, tags, folder=folder
         )
+    except BrokenWikilinkError as e:
+        return JSONResponse({"error": str(e)}, status_code=422)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=409)
     except Exception as e:
@@ -309,7 +316,7 @@ async def api_update_note(
             tags=tags,
             folder=folder,
         )
-    except InvalidFolderError as e:
+    except (InvalidFolderError, BrokenWikilinkError) as e:
         return JSONResponse({"error": str(e)}, status_code=422)
     except FileExistsError as e:
         return JSONResponse({"error": str(e)}, status_code=409)
@@ -420,7 +427,11 @@ def api_get_note_html(
             "tags": note["tags"],
             "created_at": note["created_at"],
             "updated_at": note["updated_at"],
-            "content_html": _render_html(note["content"]),
+            "content_html": _render_html(
+                note["content"],
+                resolver=note_service.link_resolver(name, user["id"]),
+                slug=name,
+            ),
         }
     )
 
@@ -454,6 +465,23 @@ def api_get_note_markdown(
             "content": note["content"],
         }
     )
+
+
+@router.get("/api/workspaces/{name}/notes/{note_id}/backlinks", response_model=BacklinksResponse)
+@logged_route
+def api_note_backlinks(
+    name: str,
+    note_id: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    return JSONResponse({"backlinks": note_service.backlinks(note_id, owner_id=user["id"])})
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/history", response_model=NoteHistoryResponse)
@@ -508,7 +536,11 @@ def api_note_version(
             "tags": version["tags"],
             "created_at": version["created_at"],
             "updated_at": version["updated_at"],
-            "content_html": _render_html(version["content"]),
+            "content_html": _render_html(
+                version["content"],
+                resolver=note_service.link_resolver(name, user["id"]),
+                slug=name,
+            ),
         }
     )
 

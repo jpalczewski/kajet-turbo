@@ -1,8 +1,28 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
+  import { notePath } from '$lib/routes';
+
   let { html }: { html: string } = $props();
+
+  // Wikilinks are injected via {@html} as <a class="wikilink" href="/workspace/{slug}/note/{id}">.
+  // Such anchors bypass SvelteKit's link interception, so a plain click would full-page reload.
+  // Delegate clicks here and route client-side, rebuilding the path through notePath() to satisfy
+  // svelte/no-navigation-without-resolve. Modifier/middle clicks fall through to the browser.
+  const WIKILINK_HREF = /^\/workspace\/([^/]+)\/note\/([^/]+)$/;
+
+  function handleClick(event: MouseEvent) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+    const anchor = (event.target as HTMLElement).closest('a.wikilink');
+    const href = anchor?.getAttribute('href');
+    const match = href?.match(WIKILINK_HREF);
+    if (!match) return;
+    event.preventDefault();
+    goto(notePath(match[1], match[2]));
+  }
 </script>
 
-<div class="prose">
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+<div class="prose" onclick={handleClick}>
   <!-- eslint-disable-next-line svelte/no-at-html-tags -- content_html is sanitized server-side with bleach -->
   {@html html}
 </div>
@@ -49,6 +69,20 @@
 
     :global(a:hover) {
       color: v.$accent-hover;
+    }
+
+    // Wikilinks: distinct from external links (dotted underline, cursor pointer).
+    :global(a.wikilink) {
+      text-decoration-style: dotted;
+      cursor: pointer;
+    }
+
+    // Broken wikilink: target no longer resolves — flag it, not clickable.
+    :global(.wikilink-broken) {
+      color: v.$text-muted;
+      text-decoration: line-through;
+      text-decoration-color: v.$accent-dark;
+      cursor: help;
     }
 
     :global(ul),

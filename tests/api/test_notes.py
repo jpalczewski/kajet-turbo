@@ -98,7 +98,10 @@ def test_html_strips_javascript_urls(auth_client):
 
     assert resp.status_code == 200
     html = resp.json()["content_html"]
-    assert "javascript:" not in html
+    # markdown-it refuses to linkify a javascript: URL, leaving inert literal text rather than a
+    # clickable link; the security property is that no executable javascript href is produced.
+    assert 'href="javascript:' not in html
+    assert "<a" not in html
 
 
 def test_list_notes_returns_folder(auth_client):
@@ -334,4 +337,87 @@ def test_delete_note_returns_401_when_anon(anon_client):
 
 def test_delete_note_returns_403_when_no_access(no_access_client):
     resp = no_access_client.delete("/api/workspaces/test-ws/notes/abc")
+    assert resp.status_code == 403
+
+
+def test_create_note_broken_wikilink_returns_422(auth_client):
+    client, _, _ = auth_client
+    resp = client.post(
+        "/api/workspaces/test-ws/notes",
+        json={"title": "Source", "content": "see [[Ghost]]"},
+    )
+    assert resp.status_code == 422
+    assert "Ghost" in resp.json()["error"]
+
+
+def test_create_note_valid_wikilink_succeeds(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "Target", "t", [])
+    resp = client.post(
+        "/api/workspaces/test-ws/notes",
+        json={"title": "Source", "content": "see [[Target|t]]"},
+    )
+    assert resp.status_code == 201
+
+
+def test_update_note_broken_wikilink_returns_422(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Note", "body", [])["note_id"]
+    resp = client.patch(
+        f"/api/workspaces/test-ws/notes/{note_id}",
+        json={"content": "[[Ghost]]"},
+    )
+    assert resp.status_code == 422
+
+
+def test_html_renders_clickable_wikilink(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "Target", "t", [], folder="A")
+    sid = note_svc.save("u1", "test-ws", ws_path, "Source", "go [[A/Target|here]]", [])["note_id"]
+    tid = note_svc._repo.get_by_path("test-ws", "u1", "A", "Target").id
+
+    resp = client.get(f"/api/workspaces/test-ws/notes/{sid}/html")
+
+    assert resp.status_code == 200
+    html = resp.json()["content_html"]
+    assert f'<a class="wikilink" href="/workspace/test-ws/note/{tid}">here</a>' in html
+
+
+def test_html_renders_broken_wikilink_when_target_deleted(auth_client):
+    client, note_svc, ws_path = auth_client
+    tid = note_svc.save("u1", "test-ws", ws_path, "Target", "t", [])["note_id"]
+    sid = note_svc.save("u1", "test-ws", ws_path, "Source", "go [[Target]]", [])["note_id"]
+    note_svc.delete(tid, owner_id="u1", ws_path=ws_path)
+
+    resp = client.get(f"/api/workspaces/test-ws/notes/{sid}/html")
+
+    assert resp.status_code == 200
+    html = resp.json()["content_html"]
+    assert '<span class="wikilink-broken">Target</span>' in html
+
+
+def test_backlinks_returns_linking_notes(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "Target", "t", [])
+    note_svc.save("u1", "test-ws", ws_path, "Source", "[[Target]]", [])
+    tid = note_svc._repo.get_by_path("test-ws", "u1", "", "Target").id
+
+    resp = client.get(f"/api/workspaces/test-ws/notes/{tid}/backlinks")
+
+    assert resp.status_code == 200
+    backlinks = resp.json()["backlinks"]
+    assert len(backlinks) == 1
+    assert backlinks[0]["title"] == "Source"
+
+
+def test_backlinks_empty(auth_client):
+    client, note_svc, ws_path = auth_client
+    tid = note_svc.save("u1", "test-ws", ws_path, "Lonely", "t", [])["note_id"]
+    resp = client.get(f"/api/workspaces/test-ws/notes/{tid}/backlinks")
+    assert resp.status_code == 200
+    assert resp.json()["backlinks"] == []
+
+
+def test_backlinks_returns_403_when_no_access(no_access_client):
+    resp = no_access_client.get("/api/workspaces/test-ws/notes/abc1234/backlinks")
     assert resp.status_code == 403
