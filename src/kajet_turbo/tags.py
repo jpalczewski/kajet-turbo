@@ -50,6 +50,7 @@ def ancestors(path: str) -> list[str]:
 _TAG_BODY = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-/")
 
 
+# Hyphen is NOT a word char here: 'foo-#tag' yields a tag, 'foo_#tag' does not.
 def _is_word_char(ch: str) -> bool:
     return ch.isalnum() or ch == "_"
 
@@ -67,6 +68,8 @@ def _inline_tag_rule(state: StateInline, silent: bool) -> bool:
             return False
     end = pos + 1
     n = len(state.src)
+    # _TAG_BODY covers ASCII tag chars; .isalnum() extends acceptance to Unicode
+    # letters/digits (so '#zażółć' is captured).
     while end < n and (state.src[end] in _TAG_BODY or state.src[end].isalnum()):
         end += 1
     tag = normalize(state.src[pos + 1 : end])

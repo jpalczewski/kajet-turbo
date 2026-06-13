@@ -71,3 +71,13 @@ def test_extract_stops_at_punctuation():
 
 def test_extract_trailing_slash_normalized():
     assert extract_inline_tags("#work/") == {"work"}
+
+
+def test_extract_unicode_tag():
+    assert extract_inline_tags("notatka #zażółć tutaj") == {"zażółć"}
+
+
+def test_extract_hyphen_before_hash_is_boundary():
+    # Hyphen before '#' is a boundary (tag captured); underscore is not.
+    assert extract_inline_tags("foo-#bar") == {"bar"}
+    assert extract_inline_tags("foo_#bar") == set()
