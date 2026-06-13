@@ -1,6 +1,11 @@
 import { redirect } from '@sveltejs/kit';
+import type { NoteItem } from '$lib/api';
 import { loginPath, workspacesPath } from '$lib/routes';
 import type { PageLoad } from './$types';
+
+// Ordering (README-first + natural) is done backend-side; here we only need to
+// locate the README to default the folder preview to it.
+const isReadme = (n: NoteItem) => n.title.trim().toLowerCase() === 'readme';
 
 export const load: PageLoad = async ({ params, fetch, depends }) => {
   const slug = params.slug;
@@ -47,14 +52,34 @@ export const load: PageLoad = async ({ params, fetch, depends }) => {
 
   const isFolder = lsResult?.ok ?? true;
   const folderPath = isFolder ? fullPath : parentPath;
-  const noteId = isFolder ? null : lastSegment;
+  let noteId = isFolder ? null : lastSegment;
 
   const notesResult = isFolder ? (notesInFolder ?? notesInParent) : notesInParent;
-  const notes = notesResult?.ok ? (await notesResult.json()).notes : [];
+  const notes: NoteItem[] = notesResult?.ok ? (await notesResult.json()).notes : [];
   const tree = treeResult?.ok ? await treeResult.json() : { folders: [], entries: [] };
-  const note = !isFolder && noteResult?.ok ? await noteResult.json() : null;
-  const links =
+  let note = !isFolder && noteResult?.ok ? await noteResult.json() : null;
+  let links =
     !isFolder && linksResult?.ok ? await linksResult.json() : { backlinks: [], outlinks: [] };
+
+  // Landing on a folder: default the preview to its README, if one exists.
+  if (isFolder && !note) {
+    const readme = notes.find(isReadme);
+    if (readme) {
+      const [readmeHtml, readmeLinks] = await Promise.all([
+        fetch(`/api/workspaces/${slug}/notes/${readme.note_id}/html`, {
+          credentials: 'include',
+        }).catch(() => null),
+        fetch(`/api/workspaces/${slug}/notes/${readme.note_id}/links`, {
+          credentials: 'include',
+        }).catch(() => null),
+      ]);
+      if (readmeHtml?.ok) {
+        note = await readmeHtml.json();
+        noteId = readme.note_id;
+      }
+      if (readmeLinks?.ok) links = await readmeLinks.json();
+    }
+  }
 
   return { notes, tree, folderPath, noteId, slug, note, links };
 };
