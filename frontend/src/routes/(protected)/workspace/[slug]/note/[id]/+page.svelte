@@ -4,7 +4,7 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MoveNoteDialog from '$lib/components/MoveNoteDialog.svelte';
   import Prose from '$lib/components/Prose.svelte';
-  import { noteEditPath, noteHistoryPath, notePath, notesPath } from '$lib/routes';
+  import { noteEditPath, noteHistoryPath, notePath, notesPath, tagsPath } from '$lib/routes';
   import { formatDate } from '$lib/utils/format';
 
   const slug = $derived(page.params.slug as string);
@@ -28,7 +28,8 @@
     {#if note.tags.length > 0}
       <div class="note-header__tags">
         {#each note.tags as tag (tag)}
-          <span class="note-header__tag">#{tag}</span>
+          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+          <a class="note-header__tag" href={tagsPath(slug, tag)}>#{tag}</a>
         {/each}
       </div>
     {/if}
@@ -162,6 +163,10 @@
       font-family: v.$font-mono;
       color: v.$accent-dark;
       letter-spacing: 0.04em;
+      text-decoration: none;
+      &:hover {
+        color: v.$accent;
+      }
     }
 
     &__date {
