@@ -134,6 +134,17 @@ export interface SessionResponse {
   email: string;
 }
 
+export interface TagNode {
+  path: string;
+  name: string;
+  exact_count: number;
+  descendant_count: number;
+}
+
+export interface TagsResponse {
+  tags: TagNode[];
+}
+
 export interface UpdateNoteResponse {
   note_id: string;
 }
@@ -154,6 +165,8 @@ id: string;
 
 export type ApiListNotesApiWorkspacesNameNotesGetParams = {
 folder?: string | null;
+tag?: string | null;
+include_descendants?: boolean;
 };
 
 export type ApiLsApiWorkspacesNameLsGetParams = {
@@ -515,6 +528,49 @@ export const apiCreateNoteApiWorkspacesNameNotesPost = async (name: string, opti
   {
     ...options,
     method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiListTagsApiWorkspacesNameTagsGetResponse200 = {
+  data: TagsResponse
+  status: 200
+}
+
+export type apiListTagsApiWorkspacesNameTagsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiListTagsApiWorkspacesNameTagsGetResponseSuccess = (apiListTagsApiWorkspacesNameTagsGetResponse200) & {
+  headers: Headers;
+};
+export type apiListTagsApiWorkspacesNameTagsGetResponseError = (apiListTagsApiWorkspacesNameTagsGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiListTagsApiWorkspacesNameTagsGetResponse = (apiListTagsApiWorkspacesNameTagsGetResponseSuccess | apiListTagsApiWorkspacesNameTagsGetResponseError)
+
+export const getApiListTagsApiWorkspacesNameTagsGetUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/tags`
+}
+
+/**
+ * @summary Api List Tags
+ */
+export const apiListTagsApiWorkspacesNameTagsGet = async (name: string, options?: RequestInit): Promise<apiListTagsApiWorkspacesNameTagsGetResponse> => {
+
+  return customFetch<apiListTagsApiWorkspacesNameTagsGetResponse>(getApiListTagsApiWorkspacesNameTagsGetUrl(name),
+  {
+    ...options,
+    method: 'GET'
 
 
   }
