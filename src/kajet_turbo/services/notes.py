@@ -356,7 +356,7 @@ class NoteService:
         ws_name: str,
         owner_id: str,
         tags: builtins.list[str] | None = None,
-        limit: int = 20,
+        limit: int | None = 20,
         folder: str | None = None,
     ) -> builtins.list[dict]:
         return self._repo.list(ws_name, owner_id=owner_id, tags=tags, limit=limit, folder=folder)

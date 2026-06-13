@@ -2,11 +2,23 @@
 # below shadows the `list` builtin within the class body.
 import builtins
 import json
+import re
 
 from sqlalchemy import CursorResult, Engine, delete, text
 from sqlmodel import Session, col, func, select
 
 from kajet_turbo.models import Note, NoteLink
+
+_NUM_SPLIT = re.compile(r"(\d+)")
+
+
+def _folder_sort_key(note: Note) -> tuple:
+    """README pinned first, then natural order by title (01, 02, … 10)."""
+    is_readme = 0 if note.title.strip().lower() == "readme" else 1
+    natural = [
+        int(part) if part.isdigit() else part.lower() for part in _NUM_SPLIT.split(note.title)
+    ]
+    return (is_readme, natural)
 
 
 class NoteRepository:
@@ -244,7 +256,7 @@ class NoteRepository:
         workspace: str,
         owner_id: str,
         tags: builtins.list[str] | None = None,
-        limit: int = 20,
+        limit: int | None = 20,
         folder: str | None = None,
     ) -> builtins.list[dict]:
         with Session(self._engine) as session:
@@ -252,6 +264,11 @@ class NoteRepository:
             if folder is not None:
                 q = q.where(Note.folder == folder)
             rows = session.exec(q.order_by(col(Note.updated_at).desc())).all()
+
+        # Folder browsing gets README-first + natural order; the global listing
+        # (folder is None, e.g. MCP "recent notes") keeps recency order.
+        if folder is not None:
+            rows = sorted(rows, key=_folder_sort_key)
 
         result = []
         for note in rows:
@@ -270,7 +287,7 @@ class NoteRepository:
                     "updated_at": note.updated_at,
                 }
             )
-            if len(result) >= limit:
+            if limit is not None and len(result) >= limit:
                 break
         return result
 

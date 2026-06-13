@@ -112,6 +112,31 @@ def test_list_notes_isolated_by_owner(notes):
     assert [n["note_id"] for n in result_u2] == ["id2"]
 
 
+def test_list_notes_folder_readme_first_natural_order(notes):
+    # updated_at deliberately reversed vs. the desired display order, so a wrong
+    # sort (recency) would be caught. "10" vs "02" also catches lexicographic sort.
+    notes.insert("id01", "ws1", "u1", "01-intro", [], _now(), "2026-01-04", "x", folder="ch1")
+    notes.insert("id02", "ws1", "u1", "02-body", [], _now(), "2026-01-03", "x", folder="ch1")
+    notes.insert("id10", "ws1", "u1", "10-end", [], _now(), "2026-01-02", "x", folder="ch1")
+    notes.insert("idrd", "ws1", "u1", "README", [], _now(), "2026-01-01", "x", folder="ch1")
+    result = notes.list("ws1", owner_id="u1", folder="ch1")
+    assert [n["note_id"] for n in result] == ["idrd", "id01", "id02", "id10"]
+
+
+def test_list_notes_no_folder_keeps_recency_order(notes):
+    notes.insert("idA", "ws1", "u1", "README", [], _now(), "2026-01-01", "x", folder="ch1")
+    notes.insert("idB", "ws1", "u1", "01-intro", [], _now(), "2026-01-09", "x", folder="ch1")
+    result = notes.list("ws1", owner_id="u1")  # folder=None -> recent first
+    assert [n["note_id"] for n in result] == ["idB", "idA"]
+
+
+def test_list_notes_limit_none_returns_all(notes):
+    for i in range(25):
+        notes.insert(f"id{i:02d}", "ws1", "u1", f"{i:02d}-note", [], _now(), _now(), "x")
+    assert len(notes.list("ws1", owner_id="u1", limit=None)) == 25
+    assert len(notes.list("ws1", owner_id="u1")) == 20  # default cap unchanged
+
+
 def test_fts_search_finds_by_title(notes):
     notes.insert(
         "id1",
