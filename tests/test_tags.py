@@ -23,6 +23,11 @@ def test_normalize_allows_unicode_and_hyphen_underscore():
 
 def test_segments():
     assert segments("work/projects/client-a") == ["work", "projects", "client-a"]
+    assert segments("") == []
+
+
+def test_ancestors_empty_path():
+    assert ancestors("") == []
 
 
 def test_ancestors_includes_self_top_down():

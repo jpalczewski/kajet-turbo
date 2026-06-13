@@ -28,6 +28,7 @@ def normalize(raw: str) -> str | None:
 
 
 def segments(path: str) -> list[str]:
+    """Split a normalized path into its segment list."""
     return [s for s in path.split("/") if s]
 
 
