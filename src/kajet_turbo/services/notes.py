@@ -3,6 +3,7 @@
 import builtins
 import json
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -62,6 +63,28 @@ class NoteService:
                 seen.add(norm)
                 out.append(norm)
         return out
+
+    @staticmethod
+    def _normalize_with_warnings(
+        raw: builtins.list[str],
+    ) -> tuple[builtins.list[str], builtins.list[str]]:
+        """Like ``_normalize_tags`` but returns (normalized_unique, warnings).
+
+        Invalid entries are reported as warnings instead of being silently dropped,
+        so a batch tool can surface them without failing the whole call.
+        """
+        out: builtins.list[str] = []
+        seen: builtins.set[str] = set()
+        warnings: builtins.list[str] = []
+        for tag in raw:
+            norm = normalize(tag)
+            if norm is None:
+                warnings.append(f"{tag!r}: niepoprawny tag — pominięty")
+                continue
+            if norm not in seen:
+                seen.add(norm)
+                out.append(norm)
+        return out, warnings
 
     def _sync_tags(
         self, note_id: str, ws_name: str, owner_id: str, fm_tags: builtins.list[str], content: str
@@ -360,6 +383,120 @@ class NoteService:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_moved", note_id=note_id, folder=new_folder)
         return {"note_id": note_id, "folder": new_folder}
+
+    def _apply_tag_change(
+        self,
+        note_id: str,
+        owner_id: str,
+        ws_path: str,
+        mutate: Callable[[builtins.list[str], str], tuple[builtins.list[str], builtins.list[str]]],
+    ) -> dict:
+        """Read the note's frontmatter tags, apply ``mutate`` -> (new_tags, warnings),
+        and persist only if the list changed. Returns the effective state.
+
+        The file (not the DB column) is the source of truth for the current list, so the
+        change is computed against on-disk reality. Content/title are never touched.
+        """
+        note = self._repo.get(note_id, owner_id=owner_id)
+        if note is None:
+            raise ValueError(f"Notatka {note_id} nie znaleziona.")
+        filepath = note_filepath(ws_path, note.folder, note.title)
+        if not Path(filepath).exists():
+            raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
+        data = read_note_file(filepath)
+        content = data["content"]
+        current = self._normalize_tags(data["tags"])
+        new_tags, warnings = mutate(current, content)
+        if new_tags != current:
+            now = datetime.now(UTC).isoformat()
+            relative = str(Path(filepath).relative_to(ws_path))
+            repo = GitRepository(ws_path)
+            try:
+                write_note_file(
+                    filepath, note_id, note.title, new_tags, note.created_at, now, content
+                )
+                repo.commit_file(relative, f"note: tag {note.title}")
+            except GitError:
+                write_note_file(
+                    filepath,
+                    note_id,
+                    note.title,
+                    current,
+                    note.created_at,
+                    note.updated_at,
+                    content,
+                )
+                raise
+            self._repo.update(
+                note_id,
+                owner_id=owner_id,
+                title=note.title,
+                content=content,
+                tags=new_tags,
+                updated_at=now,
+                folder=note.folder,
+            )
+            self._sync_tags(note_id, note.workspace, owner_id, new_tags, content)
+            if self._cache is not None:
+                self._cache.bump(note.workspace, owner_id)
+            logger.info("note_tags_changed", note_id=note_id)
+        inline = extract_inline_tags(content)
+        effective = list(dict.fromkeys([*new_tags, *sorted(inline)]))
+        return {
+            "note_id": note_id,
+            "tags": effective,
+            "frontmatter_tags": new_tags,
+            "warnings": warnings,
+        }
+
+    def add_tags(self, note_id: str, owner_id: str, ws_path: str, tags: builtins.list[str]) -> dict:
+        """Union ``tags`` into the note's frontmatter list (idempotent, order-preserving)."""
+
+        def mutate(
+            current: builtins.list[str], content: str
+        ) -> tuple[builtins.list[str], builtins.list[str]]:
+            normalized, warnings = self._normalize_with_warnings(tags)
+            new_tags = list(dict.fromkeys([*current, *normalized]))
+            return new_tags, warnings
+
+        return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
+
+    def remove_tags(
+        self, note_id: str, owner_id: str, ws_path: str, tags: builtins.list[str]
+    ) -> dict:
+        """Remove ``tags`` from the note's frontmatter list (idempotent).
+
+        A requested tag that exists only as an inline ``#hashtag`` in the body cannot be
+        removed here (that would mean editing prose); it is reported as a warning instead.
+        """
+
+        def mutate(
+            current: builtins.list[str], content: str
+        ) -> tuple[builtins.list[str], builtins.list[str]]:
+            normalized, warnings = self._normalize_with_warnings(tags)
+            to_remove = set(normalized)
+            new_tags = [t for t in current if t not in to_remove]
+            inline = extract_inline_tags(content)
+            for tag in normalized:
+                if tag in inline:
+                    warnings.append(
+                        f"{tag}: nadal obecny jako #{tag} w treści — "
+                        "usuń edytując body przez edit_note"
+                    )
+            return new_tags, warnings
+
+        return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
+
+    def set_tags(self, note_id: str, owner_id: str, ws_path: str, tags: builtins.list[str]) -> dict:
+        """Overwrite the note's frontmatter list with ``tags`` (tag-only alias of update)."""
+
+        def mutate(
+            current: builtins.list[str], content: str
+        ) -> tuple[builtins.list[str], builtins.list[str]]:
+            normalized, warnings = self._normalize_with_warnings(tags)
+            return normalized, warnings
+
+        return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
 
     def delete(self, note_id: str, owner_id: str, ws_path: str) -> None:
         note = self._repo.get(note_id, owner_id=owner_id)
