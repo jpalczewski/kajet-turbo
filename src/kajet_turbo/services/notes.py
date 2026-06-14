@@ -487,6 +487,17 @@ class NoteService:
 
         return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
 
+    def set_tags(self, note_id: str, owner_id: str, ws_path: str, tags: builtins.list[str]) -> dict:
+        """Overwrite the note's frontmatter list with ``tags`` (tag-only alias of update)."""
+
+        def mutate(
+            current: builtins.list[str], content: str
+        ) -> tuple[builtins.list[str], builtins.list[str]]:
+            normalized, warnings = self._normalize_with_warnings(tags)
+            return normalized, warnings
+
+        return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
+
     def delete(self, note_id: str, owner_id: str, ws_path: str) -> None:
         note = self._repo.get(note_id, owner_id=owner_id)
         if note is None:

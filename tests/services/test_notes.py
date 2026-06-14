@@ -584,3 +584,16 @@ def test_remove_inline_only_tag_warns_and_keeps_it(service, workspace):
     assert any("work" in w and "#work" in w for w in result["warnings"])
     after = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
     assert after == before
+
+
+def test_set_tags_overwrites_frontmatter(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python", "work"])[
+        "note_id"
+    ]
+
+    result = service.set_tags(note_id, "u1", str(workspace), ["#Docs", "docs", "a b"])
+
+    assert result["frontmatter_tags"] == ["docs"]  # normalized, deduped, invalid dropped
+    assert len(result["warnings"]) == 1  # 'a b' warned
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note["tags"] == ["docs"]
