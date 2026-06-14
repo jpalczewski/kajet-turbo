@@ -545,7 +545,7 @@ def test_add_tags_includes_inline_in_effective(service, workspace):
     result = service.add_tags(note_id, "u1", str(workspace), ["work"])
 
     assert result["frontmatter_tags"] == ["work"]
-    assert set(result["tags"]) == {"work", "inline"}  # effective = frontmatter ∪ inline
+    assert set(result["tags"]) == {"work", "inline"}  # effective = frontmatter union inline
 
 
 def test_remove_tags_drops_from_frontmatter(service, workspace):
