@@ -3,6 +3,7 @@
 import builtins
 import json
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -382,6 +383,83 @@ class NoteService:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_moved", note_id=note_id, folder=new_folder)
         return {"note_id": note_id, "folder": new_folder}
+
+    def _apply_tag_change(
+        self,
+        note_id: str,
+        owner_id: str,
+        ws_path: str,
+        mutate: Callable[[builtins.list[str], str], tuple[builtins.list[str], builtins.list[str]]],
+    ) -> dict:
+        """Read the note's frontmatter tags, apply ``mutate`` -> (new_tags, warnings),
+        and persist only if the list changed. Returns the effective state.
+
+        The file (not the DB column) is the source of truth for the current list, so the
+        change is computed against on-disk reality. Content/title are never touched.
+        """
+        note = self._repo.get(note_id, owner_id=owner_id)
+        if note is None:
+            raise ValueError(f"Notatka {note_id} nie znaleziona.")
+        filepath = note_filepath(ws_path, note.folder, note.title)
+        if not Path(filepath).exists():
+            raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
+        data = read_note_file(filepath)
+        content = data["content"]
+        current = self._normalize_tags(data["tags"])
+        new_tags, warnings = mutate(current, content)
+        if new_tags != current:
+            now = datetime.now(UTC).isoformat()
+            relative = str(Path(filepath).relative_to(ws_path))
+            repo = GitRepository(ws_path)
+            try:
+                write_note_file(
+                    filepath, note_id, note.title, new_tags, note.created_at, now, content
+                )
+                repo.commit_file(relative, f"note: tag {note.title}")
+            except GitError:
+                write_note_file(
+                    filepath,
+                    note_id,
+                    note.title,
+                    current,
+                    note.created_at,
+                    note.updated_at,
+                    content,
+                )
+                raise
+            self._repo.update(
+                note_id,
+                owner_id=owner_id,
+                title=note.title,
+                content=content,
+                tags=new_tags,
+                updated_at=now,
+                folder=note.folder,
+            )
+            self._sync_tags(note_id, note.workspace, owner_id, new_tags, content)
+            if self._cache is not None:
+                self._cache.bump(note.workspace, owner_id)
+            logger.info("note_tags_changed", note_id=note_id)
+        inline = extract_inline_tags(content)
+        effective = list(dict.fromkeys([*new_tags, *sorted(inline)]))
+        return {
+            "note_id": note_id,
+            "tags": effective,
+            "frontmatter_tags": new_tags,
+            "warnings": warnings,
+        }
+
+    def add_tags(self, note_id: str, owner_id: str, ws_path: str, tags: builtins.list[str]) -> dict:
+        """Union ``tags`` into the note's frontmatter list (idempotent, order-preserving)."""
+
+        def mutate(
+            current: builtins.list[str], content: str
+        ) -> tuple[builtins.list[str], builtins.list[str]]:
+            normalized, warnings = self._normalize_with_warnings(tags)
+            new_tags = list(dict.fromkeys([*current, *normalized]))
+            return new_tags, warnings
+
+        return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
 
     def delete(self, note_id: str, owner_id: str, ws_path: str) -> None:
         note = self._repo.get(note_id, owner_id=owner_id)

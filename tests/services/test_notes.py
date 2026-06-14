@@ -514,3 +514,35 @@ def test_normalize_with_warnings_drops_invalid_and_dedups():
     assert out == ["work", "a/b"]  # 'Work'/'work' unify, dedup; order kept
     assert len(warnings) == 1
     assert "has space" in warnings[0]
+
+
+def test_add_tags_unions_into_frontmatter(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python"])["note_id"]
+
+    result = service.add_tags(note_id, "u1", str(workspace), ["work", "python"])
+
+    assert result["frontmatter_tags"] == ["python", "work"]  # existing kept, new appended, dedup
+    assert set(result["tags"]) == {"python", "work"}
+    assert result["warnings"] == []
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert set(note["tags"]) == {"python", "work"}
+
+
+def test_add_tags_idempotent_no_extra_commit(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python"])["note_id"]
+    before = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+
+    result = service.add_tags(note_id, "u1", str(workspace), ["python"])
+
+    assert result["frontmatter_tags"] == ["python"]
+    after = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+    assert after == before  # no-op: identical list produced no new commit
+
+
+def test_add_tags_includes_inline_in_effective(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "body #inline here", [])["note_id"]
+
+    result = service.add_tags(note_id, "u1", str(workspace), ["work"])
+
+    assert result["frontmatter_tags"] == ["work"]
+    assert set(result["tags"]) == {"work", "inline"}  # effective = frontmatter ∪ inline
