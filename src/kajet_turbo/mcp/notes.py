@@ -292,3 +292,50 @@ def register_notes(
         except Exception as e:
             return json.dumps({"error": str(e)})
         return json.dumps(result)
+
+    @mcp.tool()
+    @logged_tool
+    async def add_tag(note_id: str, tags: list[str], ctx: Context) -> str:
+        """Dodaje tagi do frontmattera notatki (idempotentnie), bez ruszania treści.
+        Zwraca {"note_id","tags","frontmatter_tags","warnings"}. Błąd: {"error": "..."}.
+        Uwaga: rusza tylko tagi z frontmattera; inline #hashtagi siedzą w treści."""
+        try:
+            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        try:
+            result = await run_sync(note_service.add_tags, note_id, owner_id, ws_path, tags)
+        except (GitError, ValueError, FileNotFoundError) as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(result, ensure_ascii=False)
+
+    @mcp.tool()
+    @logged_tool
+    async def remove_tag(note_id: str, tags: list[str], ctx: Context) -> str:
+        """Usuwa tagi z frontmattera notatki (idempotentnie), bez ruszania treści.
+        Tag obecny tylko jako inline #hashtag nie zniknie — wróci jako warning.
+        Zwraca {"note_id","tags","frontmatter_tags","warnings"}. Błąd: {"error": "..."}."""
+        try:
+            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        try:
+            result = await run_sync(note_service.remove_tags, note_id, owner_id, ws_path, tags)
+        except (GitError, ValueError, FileNotFoundError) as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(result, ensure_ascii=False)
+
+    @mcp.tool()
+    @logged_tool
+    async def set_tags(note_id: str, tags: list[str], ctx: Context) -> str:
+        """Nadpisuje frontmatter tagów notatki podaną listą, bez ruszania treści.
+        Zwraca {"note_id","tags","frontmatter_tags","warnings"}. Błąd: {"error": "..."}."""
+        try:
+            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        try:
+            result = await run_sync(note_service.set_tags, note_id, owner_id, ws_path, tags)
+        except (GitError, ValueError, FileNotFoundError) as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(result, ensure_ascii=False)
