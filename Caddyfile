@@ -1,10 +1,15 @@
 # Internal ingress for the kajet stack. Keeps the host proxy unaware of the
-# MCP/API split: it only needs Host -> ingress:8000.
+# MCP/API split: it only needs Host -> this service.
+#
+# Listen on both :80 and :8000. The caddy image exposes 80/443/2019 on top of
+# our 8000, so the host Traefik (which gets no explicit loadbalancer port from
+# Coolify) targets the lowest exposed port (80) in production, while local dev
+# hits 8000. Both are plain HTTP (TLS is terminated upstream).
 #
 # MCP is stateful and single-process (kajet-mcp); everything else is the
 # stateless API + SPA (kajet-api). Caddy streams text/event-stream responses by
 # default, which the MCP StreamableHTTP transport relies on.
-:8000 {
+:80, :8000 {
 	@mcp path /mcp /mcp/* /authorize* /token* /register* /revoke* /.well-known/*
 	reverse_proxy @mcp kajet-mcp:8000
 	reverse_proxy kajet-api:8000
