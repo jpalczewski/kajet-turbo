@@ -2,6 +2,8 @@ import json
 from typing import Annotated, Literal
 
 from fastmcp import Context, FastMCP
+from fastmcp.server.elicitation import AcceptedElicitation
+from mcp.types import ClientCapabilities, ElicitationCapability
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
@@ -10,6 +12,40 @@ from kajet_turbo.mcp.workspaces import get_active_workspace
 from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
+
+
+def _client_supports_elicitation(ctx: Context) -> bool:
+    """Whether the connected MCP client advertised the elicitation capability."""
+    try:
+        return ctx.session.check_client_capability(
+            ClientCapabilities(elicitation=ElicitationCapability())
+        )
+    except Exception:
+        return False
+
+
+async def _confirm_and_apply(ctx: Context, result: dict, reapply) -> str:
+    """Resolve a possibly-destructive service result.
+
+    If ``result`` asks for confirmation, ask the human via elicitation when the client
+    supports it and re-run ``reapply`` (the op with confirm=True) on accept; otherwise
+    return the payload so the model can relay it and re-call with confirm=true.
+    """
+    if not result.get("requires_confirmation"):
+        return json.dumps(result, ensure_ascii=False)
+    if _client_supports_elicitation(ctx):
+        elicited = await ctx.elicit(result["warning"], response_type=["potwierdzam", "anuluj"])
+        if isinstance(elicited, AcceptedElicitation) and elicited.data == "potwierdzam":
+            return json.dumps(await reapply(), ensure_ascii=False)
+        return json.dumps(
+            {
+                "note_id": result["note_id"],
+                "cancelled": True,
+                "message": "Anulowano — nic nie zmieniono.",
+            },
+            ensure_ascii=False,
+        )
+    return json.dumps(result, ensure_ascii=False)
 
 
 def register_notes(
@@ -327,15 +363,23 @@ def register_notes(
 
     @mcp.tool()
     @logged_tool
-    async def set_tags(note_id: str, tags: list[str], ctx: Context) -> str:
+    async def set_tags(note_id: str, tags: list[str], ctx: Context, confirm: bool = False) -> str:
         """Nadpisuje frontmatter tagów notatki podaną listą, bez ruszania treści.
+        Destrukcyjne: jeśli usunęłoby istniejące tagi, prosi o potwierdzenie (elicitation;
+        gdy klient nie wspiera — zwraca requires_confirmation, zawołaj ponownie z confirm=true).
         Zwraca {"note_id","tags","frontmatter_tags","warnings"}. Błąd: {"error": "..."}."""
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         try:
-            result = await run_sync(note_service.set_tags, note_id, owner_id, ws_path, tags)
+            result = await run_sync(
+                note_service.set_tags, note_id, owner_id, ws_path, tags, confirm
+            )
         except (GitError, ValueError, FileNotFoundError) as e:
             return json.dumps({"error": str(e)})
-        return json.dumps(result, ensure_ascii=False)
+
+        async def reapply() -> dict:
+            return await run_sync(note_service.set_tags, note_id, owner_id, ws_path, tags, True)
+
+        return await _confirm_and_apply(ctx, result, reapply)

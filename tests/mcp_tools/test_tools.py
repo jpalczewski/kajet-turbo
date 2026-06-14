@@ -252,8 +252,116 @@ async def test_tag_tools_add_remove_set(workspaces_dir, mcp_server):
         assert any("inline" in w for w in rem_inline["warnings"])  # inline-only -> warning
 
         st = json.loads(
-            (await client.call_tool("set_tags", {"note_id": note_id, "tags": ["docs"]}))
+            (
+                await client.call_tool(
+                    "set_tags", {"note_id": note_id, "tags": ["docs"], "confirm": True}
+                )
+            )
             .content[0]
             .text
         )
         assert st["frontmatter_tags"] == ["docs"]
+
+
+async def test_set_tags_gate_fallback_without_elicitation(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:  # no elicitation_handler -> no capability
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id = json.loads(
+            (
+                await client.call_tool(
+                    "save_note", {"title": "T", "content": "x", "tags": ["python", "work"]}
+                )
+            )
+            .content[0]
+            .text
+        )["note_id"]
+        res = json.loads(
+            (await client.call_tool("set_tags", {"note_id": note_id, "tags": ["docs"]}))
+            .content[0]
+            .text
+        )
+        assert res["requires_confirmation"] is True
+        assert set(res["would_remove_tags"]) == {"python", "work"}
+
+
+async def test_set_tags_gate_confirm_flag_applies(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id = json.loads(
+            (
+                await client.call_tool(
+                    "save_note", {"title": "T2", "content": "x", "tags": ["python", "work"]}
+                )
+            )
+            .content[0]
+            .text
+        )["note_id"]
+        res = json.loads(
+            (
+                await client.call_tool(
+                    "set_tags", {"note_id": note_id, "tags": ["docs"], "confirm": True}
+                )
+            )
+            .content[0]
+            .text
+        )
+        assert res["frontmatter_tags"] == ["docs"]
+
+
+async def test_set_tags_gate_elicit_accept_applies(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+
+    async def accept(message, response_type, params, context):
+        return {"value": "potwierdzam"}
+
+    async with Client(mcp, elicitation_handler=accept) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id = json.loads(
+            (
+                await client.call_tool(
+                    "save_note", {"title": "T3", "content": "x", "tags": ["python", "work"]}
+                )
+            )
+            .content[0]
+            .text
+        )["note_id"]
+        res = json.loads(
+            (await client.call_tool("set_tags", {"note_id": note_id, "tags": ["docs"]}))
+            .content[0]
+            .text
+        )
+        assert res["frontmatter_tags"] == ["docs"]  # elicit accepted -> applied without confirm
+
+
+async def test_set_tags_gate_elicit_decline_keeps(workspaces_dir, mcp_server):
+    from fastmcp.client.elicitation import ElicitResult
+
+    mcp, _ = mcp_server
+
+    async def decline(message, response_type, params, context):
+        return ElicitResult(action="decline")
+
+    async with Client(mcp, elicitation_handler=decline) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id = json.loads(
+            (
+                await client.call_tool(
+                    "save_note", {"title": "T4", "content": "x", "tags": ["python", "work"]}
+                )
+            )
+            .content[0]
+            .text
+        )["note_id"]
+        res = json.loads(
+            (await client.call_tool("set_tags", {"note_id": note_id, "tags": ["docs"]}))
+            .content[0]
+            .text
+        )
+        assert res.get("cancelled") is True
+        # unchanged
+        note = json.loads(
+            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
+        )
+        assert set(note["tags"]) == {"python", "work"}
