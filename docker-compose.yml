@@ -1,8 +1,9 @@
 services:
-  # Single host-facing entrypoint. The host proxy (Coolify/Traefik) routes
-  # Host -> ingress:8000 exactly like it did for the old single service; the
-  # MCP/API path split happens internally (Caddyfile), not in host config.
-  ingress:
+  # Single host-facing entrypoint (Caddy). Kept under the name "kajet-turbo" so
+  # Coolify's existing domain->service binding (it keys Traefik labels by service
+  # name) keeps routing the FQDN here after the split. The MCP/API path split
+  # happens internally (Caddyfile), not in host config.
+  kajet-turbo:
     build:
       context: .
       dockerfile: Dockerfile.caddy
