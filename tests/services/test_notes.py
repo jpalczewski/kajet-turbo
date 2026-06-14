@@ -591,9 +591,46 @@ def test_set_tags_overwrites_frontmatter(service, workspace):
         "note_id"
     ]
 
-    result = service.set_tags(note_id, "u1", str(workspace), ["#Docs", "docs", "a b"])
+    result = service.set_tags(note_id, "u1", str(workspace), ["#Docs", "docs", "a b"], confirm=True)
 
     assert result["frontmatter_tags"] == ["docs"]  # normalized, deduped, invalid dropped
     assert len(result["warnings"]) == 1  # 'a b' warned
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note["tags"] == ["docs"]
+
+
+def test_set_tags_requires_confirmation_when_dropping(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python", "work"])[
+        "note_id"
+    ]
+    before = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+
+    result = service.set_tags(note_id, "u1", str(workspace), ["docs"])
+
+    assert result["requires_confirmation"] is True
+    assert set(result["would_remove_tags"]) == {"python", "work"}
+    assert result["overwrites_content"] is False
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert set(note["tags"]) == {"python", "work"}
+    after = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+    assert after == before
+
+
+def test_set_tags_confirm_applies_drop(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python", "work"])[
+        "note_id"
+    ]
+
+    result = service.set_tags(note_id, "u1", str(workspace), ["docs"], confirm=True)
+
+    assert result.get("requires_confirmation") is None
+    assert result["frontmatter_tags"] == ["docs"]
+
+
+def test_set_tags_no_gate_when_superset(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python"])["note_id"]
+
+    result = service.set_tags(note_id, "u1", str(workspace), ["python", "work"])
+
+    assert result.get("requires_confirmation") is None
+    assert set(result["frontmatter_tags"]) == {"python", "work"}
