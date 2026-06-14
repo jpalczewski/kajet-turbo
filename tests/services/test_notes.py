@@ -546,3 +546,41 @@ def test_add_tags_includes_inline_in_effective(service, workspace):
 
     assert result["frontmatter_tags"] == ["work"]
     assert set(result["tags"]) == {"work", "inline"}  # effective = frontmatter ∪ inline
+
+
+def test_remove_tags_drops_from_frontmatter(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python", "work"])[
+        "note_id"
+    ]
+
+    result = service.remove_tags(note_id, "u1", str(workspace), ["work"])
+
+    assert result["frontmatter_tags"] == ["python"]
+    assert result["warnings"] == []
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note["tags"] == ["python"]
+
+
+def test_remove_absent_tag_is_noop(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python"])["note_id"]
+    before = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+
+    result = service.remove_tags(note_id, "u1", str(workspace), ["nope"])
+
+    assert result["frontmatter_tags"] == ["python"]
+    after = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+    assert after == before
+
+
+def test_remove_inline_only_tag_warns_and_keeps_it(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "body #work here", [])["note_id"]
+    before = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+
+    result = service.remove_tags(note_id, "u1", str(workspace), ["work"])
+
+    # frontmatter had no 'work' -> no file change, but tag survives as inline
+    assert result["frontmatter_tags"] == []
+    assert "work" in result["tags"]
+    assert any("work" in w and "#work" in w for w in result["warnings"])
+    after = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+    assert after == before

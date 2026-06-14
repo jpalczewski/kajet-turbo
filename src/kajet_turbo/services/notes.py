@@ -461,6 +461,32 @@ class NoteService:
 
         return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
 
+    def remove_tags(
+        self, note_id: str, owner_id: str, ws_path: str, tags: builtins.list[str]
+    ) -> dict:
+        """Remove ``tags`` from the note's frontmatter list (idempotent).
+
+        A requested tag that exists only as an inline ``#hashtag`` in the body cannot be
+        removed here (that would mean editing prose); it is reported as a warning instead.
+        """
+
+        def mutate(
+            current: builtins.list[str], content: str
+        ) -> tuple[builtins.list[str], builtins.list[str]]:
+            normalized, warnings = self._normalize_with_warnings(tags)
+            to_remove = set(normalized)
+            new_tags = [t for t in current if t not in to_remove]
+            inline = extract_inline_tags(content)
+            for tag in normalized:
+                if tag in inline:
+                    warnings.append(
+                        f"{tag}: nadal obecny jako #{tag} w treści — "
+                        "usuń edytując body przez edit_note"
+                    )
+            return new_tags, warnings
+
+        return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
+
     def delete(self, note_id: str, owner_id: str, ws_path: str) -> None:
         note = self._repo.get(note_id, owner_id=owner_id)
         if note is None:
