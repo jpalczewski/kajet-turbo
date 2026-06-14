@@ -505,3 +505,12 @@ def test_tag_tree_and_notes_by_tag_service(service, workspace):
     assert {t["path"] for t in tree} == {"work", "work/projects"}
     with_desc = service.notes_by_tag("ws", "u1", "work", include_descendants=True)
     assert {n["title"] for n in with_desc} == {"A", "B"}
+
+
+def test_normalize_with_warnings_drops_invalid_and_dedups():
+    from kajet_turbo.services.notes import NoteService
+
+    out, warnings = NoteService._normalize_with_warnings(["Work", "work", "has space", "a/b"])
+    assert out == ["work", "a/b"]  # 'Work'/'work' unify, dedup; order kept
+    assert len(warnings) == 1
+    assert "has space" in warnings[0]

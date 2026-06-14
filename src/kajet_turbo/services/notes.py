@@ -63,6 +63,28 @@ class NoteService:
                 out.append(norm)
         return out
 
+    @staticmethod
+    def _normalize_with_warnings(
+        raw: builtins.list[str],
+    ) -> tuple[builtins.list[str], builtins.list[str]]:
+        """Like ``_normalize_tags`` but returns (normalized_unique, warnings).
+
+        Invalid entries are reported as warnings instead of being silently dropped,
+        so a batch tool can surface them without failing the whole call.
+        """
+        out: builtins.list[str] = []
+        seen: builtins.set[str] = set()
+        warnings: builtins.list[str] = []
+        for tag in raw:
+            norm = normalize(tag)
+            if norm is None:
+                warnings.append(f"{tag!r}: niepoprawny tag — pominięty")
+                continue
+            if norm not in seen:
+                seen.add(norm)
+                out.append(norm)
+        return out, warnings
+
     def _sync_tags(
         self, note_id: str, ws_name: str, owner_id: str, fm_tags: builtins.list[str], content: str
     ) -> None:
