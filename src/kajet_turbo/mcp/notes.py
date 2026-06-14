@@ -34,7 +34,13 @@ async def _confirm_and_apply(ctx: Context, result: dict, reapply) -> str:
     if not result.get("requires_confirmation"):
         return json.dumps(result, ensure_ascii=False)
     if _client_supports_elicitation(ctx):
-        elicited = await ctx.elicit(result["warning"], response_type=["potwierdzam", "anuluj"])
+        try:
+            elicited = await ctx.elicit(result["warning"], response_type=["potwierdzam", "anuluj"])
+        except Exception:
+            # Capability was advertised but the elicitation round-trip failed
+            # (protocol/network). Degrade to the flag fallback rather than erroring:
+            # return the payload so the model can re-call with confirm=true.
+            return json.dumps(result, ensure_ascii=False)
         if isinstance(elicited, AcceptedElicitation) and elicited.data == "potwierdzam":
             return json.dumps(await reapply(), ensure_ascii=False)
         return json.dumps(
