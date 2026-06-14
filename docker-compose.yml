@@ -3,11 +3,11 @@ services:
   # Host -> ingress:8000 exactly like it did for the old single service; the
   # MCP/API path split happens internally (Caddyfile), not in host config.
   ingress:
-    image: caddy:2-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
     expose:
       - "8000"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - kajet-api
       - kajet-mcp

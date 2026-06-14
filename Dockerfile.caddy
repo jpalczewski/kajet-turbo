@@ -1,0 +1,6 @@
+# Bake the Caddyfile into the image instead of bind-mounting it. Coolify-managed
+# hosts don't reliably have ./Caddyfile present at `up` time, so a host bind
+# mount gets auto-created as a directory and fails ("mount a directory onto a
+# file"). The build context (the repo) always has it.
+FROM caddy:2-alpine
+COPY Caddyfile /etc/caddy/Caddyfile
