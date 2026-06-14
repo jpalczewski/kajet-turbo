@@ -33,6 +33,14 @@ from kajet_turbo.workspace import (
 )
 
 
+class _ConfirmationRequired(Exception):
+    """Internal signal: a destructive change needs confirmation. Carries the payload."""
+
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+        super().__init__("confirmation required")
+
+
 class NoteService:
     def __init__(self, note_repo: NoteRepository, cache: WorkspaceCache | None = None) -> None:
         self._repo = note_repo
@@ -256,6 +264,7 @@ class NoteService:
         mode: str = "overwrite",
         target_heading: str | None = None,
         old_text: str | None = None,
+        confirm: bool = False,
     ) -> dict:
         note = self._repo.get(note_id, owner_id=owner_id)
         if note is None:
@@ -294,6 +303,19 @@ class NoteService:
 
         # Validate links on the final content (post apply_edit), before any git mutation.
         target_ids = self._validate_wikilinks(note.workspace, owner_id, new_content)
+
+        old_fm_tags = self._normalize_tags(note_data["tags"])
+        would_remove = (
+            [t for t in old_fm_tags if t not in set(new_tags)] if tags is not None else []
+        )
+        overwrites_content = (
+            mode == "overwrite"
+            and content is not None
+            and old_content.strip() != ""
+            and new_content != old_content
+        )
+        if (would_remove or overwrites_content) and not confirm:
+            return self._confirmation_payload(note_id, would_remove, overwrites_content)
 
         repo = GitRepository(ws_path)
         try:
@@ -487,16 +509,60 @@ class NoteService:
 
         return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
 
-    def set_tags(self, note_id: str, owner_id: str, ws_path: str, tags: builtins.list[str]) -> dict:
-        """Overwrite the note's frontmatter list with ``tags`` (tag-only alias of update)."""
+    @staticmethod
+    def _confirmation_payload(
+        note_id: str,
+        would_remove: builtins.list[str],
+        overwrites_content: bool,
+    ) -> dict:
+        """Non-applied result telling the caller a destructive op needs confirmation."""
+        parts: builtins.list[str] = []
+        if would_remove:
+            parts.append(f"usunie tagi: {', '.join(would_remove)}")
+        if overwrites_content:
+            parts.append("nadpisze istniejącą treść notatki")
+        return {
+            "note_id": note_id,
+            "requires_confirmation": True,
+            "would_remove_tags": would_remove,
+            "overwrites_content": overwrites_content,
+            "warning": (
+                "Operacja destrukcyjna: "
+                + "; ".join(parts)
+                + ". Potwierdź z użytkownikiem i zawołaj ponownie z confirm=true."
+            ),
+        }
+
+    def set_tags(
+        self,
+        note_id: str,
+        owner_id: str,
+        ws_path: str,
+        tags: builtins.list[str],
+        confirm: bool = False,
+    ) -> dict:
+        """Overwrite the note's frontmatter list with ``tags`` (tag-only alias of update).
+
+        Destructive: if it would drop existing frontmatter tags and ``confirm`` is False,
+        nothing is written and a ``requires_confirmation`` payload is returned instead.
+        """
+        normalized, warnings = self._normalize_with_warnings(tags)
+        new_set = set(normalized)
 
         def mutate(
             current: builtins.list[str], content: str
         ) -> tuple[builtins.list[str], builtins.list[str]]:
-            normalized, warnings = self._normalize_with_warnings(tags)
+            would_remove = [t for t in current if t not in new_set]
+            if would_remove and not confirm:
+                raise _ConfirmationRequired(
+                    self._confirmation_payload(note_id, would_remove, False)
+                )
             return normalized, warnings
 
-        return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
+        try:
+            return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
+        except _ConfirmationRequired as exc:
+            return exc.payload
 
     def delete(self, note_id: str, owner_id: str, ws_path: str) -> None:
         note = self._repo.get(note_id, owner_id=owner_id)
@@ -672,4 +738,7 @@ class NoteService:
 
     def restore_version(self, note_id: str, sha: str, owner_id: str, ws_path: str) -> dict:
         version = self.get_version(note_id, sha, owner_id, ws_path)
-        return self.update(note_id, owner_id=owner_id, ws_path=ws_path, content=version["content"])
+        # Version restore is an explicit intent — always bypass the destructive-op gate.
+        return self.update(
+            note_id, owner_id=owner_id, ws_path=ws_path, content=version["content"], confirm=True
+        )

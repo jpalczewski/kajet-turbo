@@ -70,7 +70,9 @@ def test_update_git_error_reverts_file(service, workspace):
         ),
         pytest.raises(GitError),
     ):
-        service.update(note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść")
+        service.update(
+            note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść", confirm=True
+        )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note["content"] == "stara treść"
 
@@ -301,7 +303,7 @@ def test_reindex_finds_notes_in_subfolders(service, workspace, note_file_factory
 def test_get_history_returns_commits(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Historia", "v1", [])
     note_id = result["note_id"]
-    service.update(note_id, owner_id="u1", ws_path=str(workspace), content="v2")
+    service.update(note_id, owner_id="u1", ws_path=str(workspace), content="v2", confirm=True)
 
     history = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))
 
@@ -386,7 +388,9 @@ def test_update_to_valid_wikilink_succeeds(service, workspace):
     service.save("u1", "ws", str(workspace), "Target", "t", [])
     result = service.save("u1", "ws", str(workspace), "Note", "body", [])
     note_id = result["note_id"]
-    service.update(note_id, owner_id="u1", ws_path=str(workspace), content="link [[Target]]")
+    service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), content="link [[Target]]", confirm=True
+    )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert "[[Target]]" in note["content"]
 
@@ -402,7 +406,7 @@ def test_update_replaces_links(service, workspace):
     b = service.save("u1", "ws", str(workspace), "B", "b", [])["note_id"]
     sid = service.save("u1", "ws", str(workspace), "Source", "[[A]]", [])["note_id"]
     assert service._repo.backlinks(a) == [sid]
-    service.update(sid, owner_id="u1", ws_path=str(workspace), content="now [[B]]")
+    service.update(sid, owner_id="u1", ws_path=str(workspace), content="now [[B]]", confirm=True)
     assert service._repo.backlinks(a) == []
     assert service._repo.backlinks(b) == [sid]
 
@@ -487,7 +491,9 @@ def test_save_does_not_promote_inline_to_frontmatter(service, workspace):
 
 def test_update_resyncs_tags(service, workspace):
     res = service.save("u1", "ws", str(workspace), "Note", "body #old", ["keep"])
-    service.update(res["note_id"], owner_id="u1", ws_path=str(workspace), content="body #new")
+    service.update(
+        res["note_id"], owner_id="u1", ws_path=str(workspace), content="body #new", confirm=True
+    )
     paths = {r["path"] for r in service._repo.tag_tree("ws", "u1")}
     assert paths == {"keep", "new"}  # #old gone, #new added, frontmatter 'keep' stays
 
@@ -591,9 +597,109 @@ def test_set_tags_overwrites_frontmatter(service, workspace):
         "note_id"
     ]
 
-    result = service.set_tags(note_id, "u1", str(workspace), ["#Docs", "docs", "a b"])
+    result = service.set_tags(note_id, "u1", str(workspace), ["#Docs", "docs", "a b"], confirm=True)
 
     assert result["frontmatter_tags"] == ["docs"]  # normalized, deduped, invalid dropped
     assert len(result["warnings"]) == 1  # 'a b' warned
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note["tags"] == ["docs"]
+
+
+def test_set_tags_requires_confirmation_when_dropping(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python", "work"])[
+        "note_id"
+    ]
+    before = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+
+    result = service.set_tags(note_id, "u1", str(workspace), ["docs"])
+
+    assert result["requires_confirmation"] is True
+    assert set(result["would_remove_tags"]) == {"python", "work"}
+    assert result["overwrites_content"] is False
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert set(note["tags"]) == {"python", "work"}
+    after = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+    assert after == before
+
+
+def test_set_tags_confirm_applies_drop(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python", "work"])[
+        "note_id"
+    ]
+
+    result = service.set_tags(note_id, "u1", str(workspace), ["docs"], confirm=True)
+
+    assert result.get("requires_confirmation") is None
+    assert result["frontmatter_tags"] == ["docs"]
+
+
+def test_set_tags_no_gate_when_superset(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python"])["note_id"]
+
+    result = service.set_tags(note_id, "u1", str(workspace), ["python", "work"])
+
+    assert result.get("requires_confirmation") is None
+    assert set(result["frontmatter_tags"]) == {"python", "work"}
+
+
+def test_update_requires_confirmation_on_content_overwrite(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "stara treść", [])["note_id"]
+    before = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+
+    result = service.update(note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść")
+
+    assert result["requires_confirmation"] is True
+    assert result["overwrites_content"] is True
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note["content"] == "stara treść"
+    after = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+    assert after == before
+
+
+def test_update_confirm_applies_content_overwrite(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "stara treść", [])["note_id"]
+
+    service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść", confirm=True
+    )
+
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note["content"] == "nowa treść"
+
+
+def test_update_no_gate_on_empty_body_overwrite(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "", [])["note_id"]
+
+    result = service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), content="pierwsza treść"
+    )
+
+    assert result.get("requires_confirmation") is None
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note["content"] == "pierwsza treść"
+
+
+def test_update_no_gate_on_surgical_append(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "## H\n\n- a", [])["note_id"]
+
+    result = service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        content="- b",
+        mode="append",
+        target_heading="## H",
+    )
+
+    assert result.get("requires_confirmation") is None
+
+
+def test_update_requires_confirmation_on_tag_drop(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python", "work"])[
+        "note_id"
+    ]
+
+    result = service.update(note_id, owner_id="u1", ws_path=str(workspace), tags=["python"])
+
+    assert result["requires_confirmation"] is True
+    assert result["would_remove_tags"] == ["work"]
