@@ -70,7 +70,9 @@ def test_update_git_error_reverts_file(service, workspace):
         ),
         pytest.raises(GitError),
     ):
-        service.update(note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść", confirm=True)
+        service.update(
+            note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść", confirm=True
+        )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note["content"] == "stara treść"
 
@@ -386,7 +388,9 @@ def test_update_to_valid_wikilink_succeeds(service, workspace):
     service.save("u1", "ws", str(workspace), "Target", "t", [])
     result = service.save("u1", "ws", str(workspace), "Note", "body", [])
     note_id = result["note_id"]
-    service.update(note_id, owner_id="u1", ws_path=str(workspace), content="link [[Target]]", confirm=True)
+    service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), content="link [[Target]]", confirm=True
+    )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert "[[Target]]" in note["content"]
 
@@ -487,7 +491,9 @@ def test_save_does_not_promote_inline_to_frontmatter(service, workspace):
 
 def test_update_resyncs_tags(service, workspace):
     res = service.save("u1", "ws", str(workspace), "Note", "body #old", ["keep"])
-    service.update(res["note_id"], owner_id="u1", ws_path=str(workspace), content="body #new", confirm=True)
+    service.update(
+        res["note_id"], owner_id="u1", ws_path=str(workspace), content="body #new", confirm=True
+    )
     paths = {r["path"] for r in service._repo.tag_tree("ws", "u1")}
     assert paths == {"keep", "new"}  # #old gone, #new added, frontmatter 'keep' stays
 
@@ -664,7 +670,9 @@ def test_update_confirm_applies_content_overwrite(service, workspace):
 def test_update_no_gate_on_empty_body_overwrite(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notka", "", [])["note_id"]
 
-    result = service.update(note_id, owner_id="u1", ws_path=str(workspace), content="pierwsza treść")
+    result = service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), content="pierwsza treść"
+    )
 
     assert result.get("requires_confirmation") is None
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
