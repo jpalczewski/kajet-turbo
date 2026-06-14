@@ -340,6 +340,10 @@ async def api_update_note(
             content=content,
             tags=tags,
             folder=folder,
+            # Human-driven editor: an explicit save IS the consent. The destructive-op
+            # confirmation gate exists to stop the agent (MCP) from accidentally
+            # overwriting; it must not block the user's own UI.
+            confirm=True,
         )
     except (InvalidFolderError, BrokenWikilinkError) as e:
         return JSONResponse({"error": str(e)}, status_code=422)
