@@ -74,7 +74,8 @@ async def test_edit_note_overwrite(workspaces_dir, mcp_server):
         )
         note_id = json.loads(save_result.content[0].text)["note_id"]
         await client.call_tool(
-            "edit_note", {"note_id": note_id, "title": "Nowy tytuł", "content": "nowa treść"}
+            "edit_note",
+            {"note_id": note_id, "title": "Nowy tytuł", "content": "nowa treść", "confirm": True},
         )
         get_result = await client.call_tool("get_note", {"note_id": note_id})
         assert "Nowy tytuł" in get_result.content[0].text
@@ -365,3 +366,43 @@ async def test_set_tags_gate_elicit_decline_keeps(workspaces_dir, mcp_server):
             (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
         )
         assert set(note["tags"]) == {"python", "work"}
+
+
+async def test_edit_note_overwrite_gate_fallback(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id = json.loads(
+            (await client.call_tool("save_note", {"title": "E", "content": "stara"}))
+            .content[0]
+            .text
+        )["note_id"]
+        res = json.loads(
+            (await client.call_tool("edit_note", {"note_id": note_id, "content": "nowa"}))
+            .content[0]
+            .text
+        )
+        assert res["requires_confirmation"] is True
+        assert res["overwrites_content"] is True
+
+
+async def test_edit_note_overwrite_confirm_applies(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id = json.loads(
+            (await client.call_tool("save_note", {"title": "E2", "content": "stara"}))
+            .content[0]
+            .text
+        )["note_id"]
+        res = json.loads(
+            (
+                await client.call_tool(
+                    "edit_note", {"note_id": note_id, "content": "nowa", "confirm": True}
+                )
+            )
+            .content[0]
+            .text
+        )
+        assert res.get("requires_confirmation") is None
+        assert res["note_id"] == note_id

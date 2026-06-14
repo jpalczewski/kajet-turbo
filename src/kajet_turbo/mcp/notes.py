@@ -134,12 +134,19 @@ def register_notes(
                 "wstawić content (insert_after). Musi być unikalny w notatce."
             ),
         ] = None,
+        confirm: bool = Field(
+            False,
+            description="Potwierdzenie destrukcyjnego nadpisania "
+            "(utrata tagów / nadpisanie treści).",
+        ),
     ) -> str:
         """Edytuje notatkę. Domyślnie (mode='overwrite') podmienia całe body na content;
         tryby chirurgiczne pozwalają dopisać/podmienić fragment bez przepisywania całości.
         folder opcjonalny — jeśli podany, przenosi notatkę do nowego folderu.
         title/tags/folder można zmieniać niezależnie od trybu edycji content.
         content powinien zawierać rzeczywiste znaki nowej linii (\\n), nie literalne \\\\n.
+        Nadpisanie niepustej treści lub utrata tagów wymagają potwierdzenia — elicitation gdy
+        klient wspiera, inaczej zwraca requires_confirmation=true; zawołaj ponownie z confirm=true.
         Sukces: {"note_id": "..."}. Błąd: {"error": "..."}."""
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
@@ -158,12 +165,30 @@ def register_notes(
                 mode=mode,
                 target_heading=target_heading,
                 old_text=old_text,
+                confirm=confirm,
             )
         except (ValueError, FileNotFoundError, FileExistsError) as e:
             return json.dumps({"error": str(e)})
         except GitError as e:
             return json.dumps({"error": str(e)})
-        return json.dumps(result)
+
+        async def reapply() -> dict:
+            return await run_sync(
+                note_service.update,
+                note_id,
+                owner_id=owner_id,
+                ws_path=ws_path,
+                title=title,
+                content=content,
+                tags=tags,
+                folder=folder,
+                mode=mode,
+                target_heading=target_heading,
+                old_text=old_text,
+                confirm=True,
+            )
+
+        return await _confirm_and_apply(ctx, result, reapply)
 
     @mcp.tool()
     @logged_tool
