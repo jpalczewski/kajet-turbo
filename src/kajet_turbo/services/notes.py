@@ -264,6 +264,7 @@ class NoteService:
         mode: str = "overwrite",
         target_heading: str | None = None,
         old_text: str | None = None,
+        confirm: bool = False,
     ) -> dict:
         note = self._repo.get(note_id, owner_id=owner_id)
         if note is None:
@@ -302,6 +303,19 @@ class NoteService:
 
         # Validate links on the final content (post apply_edit), before any git mutation.
         target_ids = self._validate_wikilinks(note.workspace, owner_id, new_content)
+
+        old_fm_tags = self._normalize_tags(note_data["tags"])
+        would_remove = (
+            [t for t in old_fm_tags if t not in set(new_tags)] if tags is not None else []
+        )
+        overwrites_content = (
+            mode == "overwrite"
+            and content is not None
+            and old_content.strip() != ""
+            and new_content != old_content
+        )
+        if (would_remove or overwrites_content) and not confirm:
+            return self._confirmation_payload(note_id, would_remove, overwrites_content)
 
         repo = GitRepository(ws_path)
         try:
@@ -724,4 +738,7 @@ class NoteService:
 
     def restore_version(self, note_id: str, sha: str, owner_id: str, ws_path: str) -> dict:
         version = self.get_version(note_id, sha, owner_id, ws_path)
-        return self.update(note_id, owner_id=owner_id, ws_path=ws_path, content=version["content"])
+        # Version restore is an explicit intent — always bypass the destructive-op gate.
+        return self.update(
+            note_id, owner_id=owner_id, ws_path=ws_path, content=version["content"], confirm=True
+        )
