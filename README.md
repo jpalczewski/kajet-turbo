@@ -23,6 +23,15 @@ MCP_BASE_URL=http://localhost:8000 kajet-turbo
 |---|---|---|
 | `MCP_HOST` | `0.0.0.0` | Adres nasłuchu |
 | `MCP_PORT` | `8000` | Port nasłuchu |
+| `KAJET_ROLE` | `all` | Rola procesu: `all` (MCP+API+SPA w jednym — dev), `mcp` (tylko `/mcp` + OAuth, **zawsze 1 worker**), `api` (REST `/api` + SPA, N workerów) |
+| `MCP_WORKERS` | `1` | Liczba workerów dla roli `all` |
+| `API_WORKERS` | `2` | Liczba workerów dla roli `api` |
+
+Topologia produkcyjna (`docker-compose.yml`): ingress (Caddy) + `kajet-api`
+(stateless, N workerów) + `kajet-mcp` (stateful, 1 worker — sesje MCP i
+`ctx.sample()` wymagają jednego procesu). Obie role współdzielą wolumeny `/data`
+(SQLite) i `/workspaces` (git) **na tym samym hoście**. Host-proxy kieruje tylko
+`Host → ingress:8000`; podział ścieżek robi `Caddyfile`.
 
 ### Dane
 

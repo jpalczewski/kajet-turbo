@@ -1,0 +1,11 @@
+# Internal ingress for the kajet stack. Keeps the host proxy unaware of the
+# MCP/API split: it only needs Host -> ingress:8000.
+#
+# MCP is stateful and single-process (kajet-mcp); everything else is the
+# stateless API + SPA (kajet-api). Caddy streams text/event-stream responses by
+# default, which the MCP StreamableHTTP transport relies on.
+:8000 {
+	@mcp path /mcp /mcp/* /authorize* /token* /register* /revoke* /.well-known/*
+	reverse_proxy @mcp kajet-mcp:8000
+	reverse_proxy kajet-api:8000
+}

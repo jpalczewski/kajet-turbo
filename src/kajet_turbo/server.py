@@ -85,15 +85,12 @@ class _MCPPathFix:
         await self._app(scope, receive, send)
 
 
-def build_app() -> Any:
+def _new_mcp_app() -> Any:
     mcp = build_mcp(note_service, workspace_service, oauth_repo, provider)
-    mcp_app = mcp.http_app(path="/")
+    return mcp.http_app(path="/")
 
-    app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan, _logging_lifespan))
-    app.add_middleware(LoggingMiddleware)
-    app.include_router(api_router)
-    app.mount("/mcp", mcp_app)
 
+def _add_oauth_routes(app: FastAPI) -> None:
     # RFC 8414 / RFC 9728: expose OAuth discovery routes at the origin root.
     # FastMCP generates path-aware well-known URLs for the issuer path (/mcp);
     # without this the SPA catch-all intercepts them and returns HTML.
@@ -104,10 +101,41 @@ def build_app() -> Any:
             methods=list(_route.methods) if _route.methods else ["GET"],
         )
 
+
+def _mount_spa(app: FastAPI) -> None:
     dist = Path(__file__).parent.parent.parent / "dist"
     if dist.exists():
         app.mount("/", _SPAFiles(str(dist)))
 
+
+def build_mcp_app() -> Any:
+    """MCP role: /mcp + OAuth routes only. Stateful — must run single-process."""
+    mcp_app = _new_mcp_app()
+    app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan, _logging_lifespan))
+    app.add_middleware(LoggingMiddleware)
+    app.mount("/mcp", mcp_app)
+    _add_oauth_routes(app)
+    return _MCPPathFix(app)
+
+
+def build_api_app() -> Any:
+    """API role: REST /api + SPA. Stateless — scales to any worker count."""
+    app = FastAPI(lifespan=combine_lifespans(_app_lifespan, _logging_lifespan))
+    app.add_middleware(LoggingMiddleware)
+    app.include_router(api_router)
+    _mount_spa(app)
+    return app
+
+
+def build_app() -> Any:
+    """Combined role ("all"): MCP + API + SPA in one process (local dev)."""
+    mcp_app = _new_mcp_app()
+    app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan, _logging_lifespan))
+    app.add_middleware(LoggingMiddleware)
+    app.include_router(api_router)
+    app.mount("/mcp", mcp_app)
+    _add_oauth_routes(app)
+    _mount_spa(app)
     return _MCPPathFix(app)
 
 
@@ -116,11 +144,15 @@ def main() -> None:
 
     host = os.getenv("MCP_HOST", "0.0.0.0")
     port = int(os.getenv("MCP_PORT", "8000"))
-    workers = int(os.getenv("MCP_WORKERS", "1"))
-    uvicorn.run(
-        "kajet_turbo.server:build_app",
-        host=host,
-        port=port,
-        workers=workers,
-        factory=True,
-    )
+    role = os.getenv("KAJET_ROLE", "all")
+    if role == "mcp":
+        # Hard invariant: stateful MCP sessions live in process memory, so the
+        # MCP role MUST be single-process regardless of any env. This is the fix.
+        factory, workers = "kajet_turbo.server:build_mcp_app", 1
+    elif role == "api":
+        factory = "kajet_turbo.server:build_api_app"
+        workers = int(os.getenv("API_WORKERS", "2"))
+    else:
+        factory = "kajet_turbo.server:build_app"
+        workers = int(os.getenv("MCP_WORKERS", "1"))
+    uvicorn.run(factory, host=host, port=port, workers=workers, factory=True)

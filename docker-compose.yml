@@ -1,9 +1,43 @@
 services:
-  kajet-turbo:
+  # Single host-facing entrypoint. The host proxy (Coolify/Traefik) routes
+  # Host -> ingress:8000 exactly like it did for the old single service; the
+  # MCP/API path split happens internally (Caddyfile), not in host config.
+  ingress:
+    image: caddy:2-alpine
+    expose:
+      - "8000"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - kajet-api
+      - kajet-mcp
+
+  # Stateless REST API + SPA. Scales to any worker count.
+  kajet-api:
     build: .
+    image: kajet-turbo:local
     expose:
       - "8000"
     env_file: .env
+    environment:
+      KAJET_ROLE: api
+      API_WORKERS: "2"
+    volumes:
+      - kajet_data:/data
+      - kajet_workspaces:/workspaces
+
+  # Stateful MCP. Single process (enforced in code) so sessions stay coherent
+  # and ctx.sample()/elicitation keep working. Shares the DB + workspaces with
+  # the api role; api runs migrations first.
+  kajet-mcp:
+    image: kajet-turbo:local
+    depends_on:
+      - kajet-api
+    expose:
+      - "8000"
+    env_file: .env
+    environment:
+      KAJET_ROLE: mcp
     volumes:
       - kajet_data:/data
       - kajet_workspaces:/workspaces
