@@ -30,7 +30,7 @@ The runtime is free-threaded Python (no GIL). Two hard rules:
 - `DISABLE_SQLALCHEMY_CEXT_RUNTIME=1` must be set before any sqlalchemy import — it's done in `src/kajet_turbo/__init__.py` and `tests/conftest.py`. Never remove it: SQLAlchemy's C extensions don't declare free-threading support and silently re-enable the GIL.
 - All blocking work (DB, git via dulwich, file I/O) in async endpoints and MCP tools must go through `run_sync()` from `src/kajet_turbo/concurrency.py` — never call sync repositories directly from async code.
 
-Git mutations are serialized per workspace via keyed locks; workspace writes must bump the cache epoch (`src/kajet_turbo/cache.py`) or stale search/history results will be served.
+Git mutations are serialized per workspace by two layers in `src/kajet_turbo/repositories/git.py`: an in-process `threading.Lock` (keyed by workspace path) plus a **cross-process** `fcntl.flock` on `<workspace>/.git/kajet-write.lock`. The flock is what keeps concurrent writes safe across the separate `kajet-api`/`kajet-mcp` processes (and any multi-worker setup) sharing the `/workspaces` volume — without it `dulwich` commits race and a commit can be silently lost (ref last-writer-wins). The cache is per-process: workspace writes bump the cache epoch (`src/kajet_turbo/cache.py`) within that process, and TTL bounds cross-process staleness.
 
 ## Conventions
 

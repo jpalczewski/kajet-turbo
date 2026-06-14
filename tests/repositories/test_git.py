@@ -152,3 +152,32 @@ def test_parallel_commits_to_same_repo_do_not_corrupt(tmp_path):
 
     commits = list(Repo(str(tmp_path)).get_walker())
     assert len(commits) == 16
+
+
+def _commit_one(args: tuple[str, int]) -> None:
+    # Module-level so it is picklable under the spawn start method (macOS default).
+    ws, i = args
+    from kajet_turbo.repositories.git import GitRepository
+
+    Path(ws, f"proc-{i}.md").write_text(f"content {i}")
+    GitRepository(ws).commit_file(f"proc-{i}.md", f"add {i}")
+
+
+def test_parallel_commits_across_processes_keep_all(tmp_path):
+    """Cross-process: the in-process threading.Lock does not span processes, so
+    without the flock two processes racing add+commit overwrite HEAD and lose a
+    commit. This exercises the cross-process lock that the thread test cannot."""
+    import multiprocessing as mp
+
+    from dulwich.repo import Repo
+
+    from kajet_turbo.repositories.git import GitRepository
+
+    GitRepository.init(str(tmp_path))
+
+    ctx = mp.get_context("spawn")
+    with ctx.Pool(8) as pool:
+        pool.map(_commit_one, [(str(tmp_path), i) for i in range(8)])
+
+    commits = list(Repo(str(tmp_path)).get_walker())
+    assert len(commits) == 8
