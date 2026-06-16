@@ -8,6 +8,8 @@ never stored.
 
 from dataclasses import dataclass
 
+from markdown_it import MarkdownIt
+
 
 @dataclass(frozen=True)
 class Chunk:
@@ -21,6 +23,36 @@ class Chunk:
 DEFAULT_TARGET = 1400
 DEFAULT_HARD_MAX = 2000
 DEFAULT_MIN = 200
+
+_MD = MarkdownIt()  # default preset: headings, fences, tables, lists
+
+
+@dataclass(frozen=True)
+class _Heading:
+    open_line: int  # 0-based source line where the heading starts
+    body_line: int  # first line after the heading (map[1])
+    level: int  # 1..6
+    text: str
+
+
+def _extract_headings(text: str) -> list[_Heading]:
+    """Headings in source order. Code-fence ``#`` lines are not headings (markdown-it
+    never emits heading_open inside a fence), so no manual exclusion is needed."""
+    tokens = _MD.parse(text)
+    out: list[_Heading] = []
+    for i, tok in enumerate(tokens):
+        if tok.type != "heading_open" or tok.map is None:
+            continue
+        inline = tokens[i + 1]
+        out.append(
+            _Heading(
+                open_line=tok.map[0],
+                body_line=tok.map[1],
+                level=int(tok.tag[1]),
+                text=inline.content.strip(),
+            )
+        )
+    return out
 
 
 def embedded_text(chunk: Chunk) -> str:
