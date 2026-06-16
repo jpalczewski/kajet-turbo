@@ -1,6 +1,9 @@
+import pytest
+
 from kajet_turbo.chunking import (
     DEFAULT_HARD_MAX,
     Chunk,
+    _blocks,
     _build_sections,
     _common_prefix,
     _extract_headings,
@@ -8,6 +11,7 @@ from kajet_turbo.chunking import (
     _merge_small,
     _Section,
     _split_body,
+    _split_oversized_block,
     chunk_markdown,
     embedded_text,
 )
@@ -156,3 +160,109 @@ def test_chunk_markdown_unicode_diacritics_preserved():
     chunks = chunk_markdown(text, title="Zażółć")
     assert chunks[0].content.strip() == "gęślą jaźń źrebię"
     assert chunks[0].header_path == ["# Zażółć"]
+
+
+# --- fix #1: tilde (~~~) code fences are fences too ---
+
+
+def test_blocks_tilde_fence_with_blank_line_stays_atomic():
+    body = "~~~py\nx = 1\n\ny = 2\n~~~"
+    assert _blocks(body) == [body]
+
+
+def test_split_body_tilde_fence_with_blank_line_stays_atomic():
+    fence = "~~~py\nx = 1\n\ny = 2\n~~~"
+    body = ("p " * 1000).strip() + "\n\n" + fence
+    pieces = _split_body(body, hard_max=2000)
+    # the tilde fence (containing a blank line) must not be split mid-fence
+    assert any(p.strip() == fence for p in pieces)
+
+
+def test_split_oversized_tilde_fence_is_line_split():
+    fence = "~~~\n" + ("code line here\n" * 400) + "~~~"
+    assert len(fence) > DEFAULT_HARD_MAX
+    pieces = _split_oversized_block(fence, DEFAULT_HARD_MAX)
+    assert len(pieces) > 1
+    assert all(len(p) <= DEFAULT_HARD_MAX for p in pieces)
+    # line-split, not sentence-split: first piece keeps the opener, last the closer
+    assert pieces[0].startswith("~~~")
+    assert pieces[-1].rstrip().endswith("~~~")
+
+
+def test_tilde_does_not_close_backtick_fence_and_vice_versa():
+    # a ``` fence whose body contains a ~~~ line must stay a single block
+    body = "```\n~~~ not a closer\nstill code\n```"
+    assert _blocks(body) == [body]
+
+
+# --- fix #2: char_start/char_end are section provenance, not content slices ---
+
+
+def test_char_span_sub_split_pieces_share_section_span():
+    big = ("para " * 500).strip()  # one oversized paragraph -> sub-split
+    text = f"# T\n\n## Big\n\n{big}\n"
+    chunks = chunk_markdown(text, title="T")
+    big_chunks = [c for c in chunks if c.header_path == ["# T", "## Big"]]
+    assert len(big_chunks) > 1
+    spans = {(c.char_start, c.char_end) for c in big_chunks}
+    # all sub-split pieces share the one originating section span (provenance)
+    assert len(spans) == 1
+    start, end = next(iter(spans))
+    # content is NOT necessarily reconstructable from the span slice
+    assert text[start:end] != big_chunks[0].content
+
+
+def test_char_span_merged_section_covers_first_start_to_last_end():
+    secs = [
+        _Section(["# T", "## A"], "short a", 10, 20),
+        _Section(["# T", "## B"], "short b", 20, 33),
+    ]
+    merged = _merge_small(secs, target=1400, min_size=200)
+    assert len(merged) == 1
+    # span covers first.start .. last.end; content does not equal the slice
+    assert (merged[0].char_start, merged[0].char_end) == (10, 33)
+
+
+# --- fix #4: validation of size parameters ---
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"min_size": -1},
+        {"target": 3000, "hard_max": 2000},  # target > hard_max
+        {"min_size": 500, "target": 300},  # min_size > target
+    ],
+)
+def test_chunk_markdown_invalid_sizes_raise_value_error(kwargs):
+    with pytest.raises(ValueError):
+        chunk_markdown("# T\n\nbody\n", title="T", **kwargs)
+
+
+# --- fix #5: missing-branch coverage ---
+
+
+def test_split_body_flushes_buffer_before_oversized_block():
+    # a small block followed by an oversized block: the small one must be flushed first
+    small = "small para"
+    big = ("Zdanie pierwsze. " * 200).strip()  # > hard_max
+    body = small + "\n\n" + big
+    pieces = _split_body(body, hard_max=2000)
+    assert pieces[0] == small
+    assert all(len(p) <= 2000 for p in pieces)
+
+
+def test_explicit_h1_plus_matching_title_not_double_injected():
+    text = "# Title\n\nintro\n"
+    secs = _build_sections(text, title="Title")
+    # the explicit H1 already heads the path; the passed title must not be re-prepended
+    assert secs[0].header_path == ["# Title"]
+
+
+def test_merge_boundary_combined_equals_target_still_merges():
+    # combined == target exactly must still merge (<=, not <)
+    a = "a" * 100
+    b = "b" * 100  # combined content = 100 + 100 = 200 == target
+    secs = [_Section(["# T"], a, 0, 100), _Section(["# T"], b, 100, 200)]
+    merged = _merge_small(secs, target=200, min_size=200)
+    assert len(merged) == 1

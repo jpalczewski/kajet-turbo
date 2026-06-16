@@ -11,7 +11,12 @@ from dataclasses import dataclass
 
 from markdown_it import MarkdownIt
 
+# Intentionally crude: splits on every ". " etc., so it also breaks on abbreviations
+# ("e.g. ") and decimals ("3.14 "). That's acceptable here because the only contract on
+# the resulting pieces is that each fits hard_max — semantic sentence accuracy is not needed.
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
+
+_FENCE_MARKERS = ("```", "~~~")
 
 
 @dataclass(frozen=True)
@@ -19,6 +24,10 @@ class Chunk:
     ordinal: int
     header_path: list[str]
     content: str
+    # Source span of the originating section(s) — provenance for locating/highlighting the
+    # chunk in the original note. NOT a slice that reconstructs content: text[char_start:
+    # char_end] != content in general (content drops heading lines, and after merge or
+    # sub-split the span covers more than the piece).
     char_start: int
     char_end: int
 
@@ -130,6 +139,8 @@ def _merge_small(sections: list[_Section], *, target: int, min_size: int) -> lis
     for sec in sections:
         if merged:
             prev = merged[-1]
+            # `target` is a merge ceiling, not a split target: a standalone section between
+            # `target` and `hard_max` is emitted whole; only merges must stay under it.
             combined = len(prev.content) + len(sec.content)
             if combined <= target and (len(prev.content) < min_size or len(sec.content) < min_size):
                 prev.content = prev.content.rstrip("\n") + "\n\n" + sec.content.lstrip("\n")
@@ -146,7 +157,7 @@ def _blocks(body: str) -> list[str]:
     lines = body.splitlines()
     blocks: list[str] = []
     buf: list[str] = []
-    in_fence = False
+    fence_marker: str | None = None  # the marker char run that opened the current fence
 
     def flush() -> None:
         if buf:
@@ -154,17 +165,19 @@ def _blocks(body: str) -> list[str]:
             buf.clear()
 
     for line in lines:
-        if line.lstrip().startswith("```"):
-            if in_fence:
-                buf.append(line)
+        stripped = line.lstrip()
+        # Inside a fence only a line starting with the *same* marker closes it, so a ~~~
+        # line inside a ``` fence (or vice-versa) is just code, not a delimiter.
+        if fence_marker is not None:
+            buf.append(line)
+            if stripped.startswith(fence_marker):
                 flush()
-                in_fence = False
-            else:
-                flush()
-                in_fence = True
-                buf.append(line)
+                fence_marker = None
             continue
-        if in_fence:
+        opener = next((m for m in _FENCE_MARKERS if stripped.startswith(m)), None)
+        if opener is not None:
+            flush()
+            fence_marker = opener
             buf.append(line)
         elif line.strip() == "":
             flush()
@@ -175,12 +188,13 @@ def _blocks(body: str) -> list[str]:
 
 
 def _split_oversized_block(block: str, hard_max: int) -> list[str]:
-    """A single block bigger than hard_max: paragraphs split on sentences, anything
-    else (e.g. a huge fence) split on line boundaries. Always yields pieces <= hard_max."""
-    units = (
-        _SENTENCE_RE.split(block) if not block.lstrip().startswith("```") else block.splitlines()
-    )
-    sep = " " if not block.lstrip().startswith("```") else "\n"
+    """A single block bigger than hard_max. A fence (``` or ~~~) that itself exceeds
+    hard_max can't stay atomic, so it is split on line boundaries (the first piece keeps
+    the opening marker, the last keeps the closer); a paragraph is split on sentences.
+    Always yields pieces <= hard_max."""
+    is_fence = block.lstrip().startswith(_FENCE_MARKERS)
+    units = block.splitlines() if is_fence else _SENTENCE_RE.split(block)
+    sep = "\n" if is_fence else " "
     pieces: list[str] = []
     cur = ""
     for unit in units:
@@ -199,6 +213,9 @@ def _split_oversized_block(block: str, hard_max: int) -> list[str]:
 
 
 def _split_body(body: str, *, hard_max: int) -> list[str]:
+    """Pack blocks into pieces <= hard_max. A fence is kept atomic only when it fits under
+    hard_max; an oversized fence is line-split via _split_oversized_block (first piece keeps
+    the opening marker, last the closer)."""
     if len(body) <= hard_max:
         return [body]
     pieces: list[str] = []
@@ -229,7 +246,17 @@ def chunk_markdown(
     hard_max: int = DEFAULT_HARD_MAX,
     min_size: int = DEFAULT_MIN,
 ) -> list[Chunk]:
-    """Split markdown into header-breadcrumb chunks. Pure and deterministic."""
+    """Split markdown into header-breadcrumb chunks. Pure and deterministic.
+
+    char_start/char_end on each chunk mark the source span of the originating section(s)
+    (provenance for highlighting); they do NOT necessarily satisfy
+    text[char_start:char_end] == content, e.g. after merge or sub-split.
+    """
+    if not 0 <= min_size <= target <= hard_max:
+        raise ValueError(
+            f"sizes must satisfy 0 <= min_size <= target <= hard_max, got "
+            f"min_size={min_size}, target={target}, hard_max={hard_max}"
+        )
     if not text.strip():
         return []
     sections = _build_sections(text, title)
