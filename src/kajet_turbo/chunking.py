@@ -6,9 +6,12 @@ chunks; the breadcrumb is recombined with the body only at embed time (``embedde
 never stored.
 """
 
+import re
 from dataclasses import dataclass
 
 from markdown_it import MarkdownIt
+
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 
 @dataclass(frozen=True)
@@ -135,6 +138,85 @@ def _merge_small(sections: list[_Section], *, target: int, min_size: int) -> lis
                 continue
         merged.append(_Section(list(sec.header_path), sec.content, sec.char_start, sec.char_end))
     return merged
+
+
+def _blocks(body: str) -> list[str]:
+    """Split body into blocks: fenced code blocks stay atomic; runs of non-blank lines
+    are paragraphs; blank lines separate."""
+    lines = body.splitlines()
+    blocks: list[str] = []
+    buf: list[str] = []
+    in_fence = False
+
+    def flush() -> None:
+        if buf:
+            blocks.append("\n".join(buf))
+            buf.clear()
+
+    for line in lines:
+        if line.lstrip().startswith("```"):
+            if in_fence:
+                buf.append(line)
+                flush()
+                in_fence = False
+            else:
+                flush()
+                in_fence = True
+                buf.append(line)
+            continue
+        if in_fence:
+            buf.append(line)
+        elif line.strip() == "":
+            flush()
+        else:
+            buf.append(line)
+    flush()
+    return blocks
+
+
+def _split_oversized_block(block: str, hard_max: int) -> list[str]:
+    """A single block bigger than hard_max: paragraphs split on sentences, anything
+    else (e.g. a huge fence) split on line boundaries. Always yields pieces <= hard_max."""
+    units = _SENTENCE_RE.split(block) if not block.lstrip().startswith("```") else block.splitlines()
+    sep = " " if not block.lstrip().startswith("```") else "\n"
+    pieces: list[str] = []
+    cur = ""
+    for unit in units:
+        candidate = unit if not cur else cur + sep + unit
+        if len(candidate) <= hard_max or not cur:
+            cur = candidate
+        else:
+            pieces.append(cur)
+            cur = unit
+        while len(cur) > hard_max:  # a single unit longer than hard_max: hard cut
+            pieces.append(cur[:hard_max])
+            cur = cur[hard_max:]
+    if cur:
+        pieces.append(cur)
+    return pieces
+
+
+def _split_body(body: str, *, hard_max: int) -> list[str]:
+    if len(body) <= hard_max:
+        return [body]
+    pieces: list[str] = []
+    cur = ""
+    for block in _blocks(body):
+        if len(block) > hard_max:
+            if cur:
+                pieces.append(cur)
+                cur = ""
+            pieces.extend(_split_oversized_block(block, hard_max))
+            continue
+        candidate = block if not cur else cur + "\n\n" + block
+        if len(candidate) <= hard_max:
+            cur = candidate
+        else:
+            pieces.append(cur)
+            cur = block
+    if cur:
+        pieces.append(cur)
+    return pieces
 
 
 def embedded_text(chunk: Chunk) -> str:

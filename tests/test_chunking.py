@@ -6,6 +6,7 @@ from kajet_turbo.chunking import (
     _Heading,
     _merge_small,
     _Section,
+    _split_body,
     embedded_text,
 )
 
@@ -91,3 +92,32 @@ def test_merge_small_keeps_large_sections_separate():
     secs = [_Section(["# T", "## A"], big, 0, 300), _Section(["# T", "## B"], big, 300, 600)]
     merged = _merge_small(secs, target=1400, min_size=200)
     assert len(merged) == 2  # neither is below min_size
+
+
+def test_split_body_under_limit_is_one_piece():
+    assert _split_body("small body", hard_max=2000) == ["small body"]
+
+
+def test_split_body_splits_at_blank_line_boundaries():
+    body = ("a" * 1500) + "\n\n" + ("b" * 1500)
+    pieces = _split_body(body, hard_max=2000)
+    assert len(pieces) == 2
+    assert all(len(p) <= 2000 for p in pieces)
+    assert pieces[0].strip() == "a" * 1500
+
+
+def test_split_body_keeps_fence_atomic():
+    fence = "```py\n" + "x = 1\n" * 3 + "```"
+    # paragraph alone fits hard_max, but paragraph + fence exceeds it, forcing a split;
+    # the fence must then land in its own piece rather than be broken apart.
+    body = ("p " * 1000).strip() + "\n\n" + fence
+    pieces = _split_body(body, hard_max=2000)
+    # the fence stays in a single piece, never broken across pieces
+    assert any(p.strip() == fence for p in pieces)
+
+
+def test_split_body_oversized_paragraph_splits_on_sentences():
+    body = ("Zdanie pierwsze. " * 200).strip()  # > hard_max, no blank lines
+    pieces = _split_body(body, hard_max=2000)
+    assert len(pieces) > 1
+    assert all(len(p) <= 2000 for p in pieces)
