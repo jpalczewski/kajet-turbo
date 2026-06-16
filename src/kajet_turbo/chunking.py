@@ -55,6 +55,61 @@ def _extract_headings(text: str) -> list[_Heading]:
     return out
 
 
+@dataclass
+class _Section:
+    header_path: list[str]
+    content: str
+    char_start: int
+    char_end: int
+
+
+def _line_offsets(text: str) -> list[int]:
+    """offsets[i] = char index where source line i begins; offsets[len(lines)] = len(text)."""
+    offsets = [0]
+    for line in text.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+    return offsets
+
+
+def _label(level: int, text: str) -> str:
+    return f"{'#' * level} {text}"
+
+
+def _build_sections(text: str, title: str | None) -> list[_Section]:
+    headings = _extract_headings(text)
+    offsets = _line_offsets(text)
+    n_lines = len(offsets) - 1
+    title_entry = _label(1, title) if title else None
+
+    def path_with_title(stack_labels: list[str]) -> list[str]:
+        if title_entry and not (stack_labels and stack_labels[0].startswith("# ")):
+            return [title_entry, *stack_labels]
+        return list(stack_labels)
+
+    sections: list[_Section] = []
+
+    # Preamble: content before the first heading (or the whole doc if no headings).
+    first_body_start = headings[0].open_line if headings else n_lines
+    if first_body_start > 0:
+        cs, ce = offsets[0], offsets[first_body_start]
+        body = text[cs:ce]
+        if body.strip():
+            sections.append(_Section(path_with_title([]), body, cs, ce))
+
+    # One section per heading: body spans from the heading's body_line to the next heading.
+    stack: list[tuple[int, str]] = []  # (level, label)
+    for idx, h in enumerate(headings):
+        while stack and stack[-1][0] >= h.level:
+            stack.pop()
+        stack.append((h.level, _label(h.level, h.text)))
+        body_end_line = headings[idx + 1].open_line if idx + 1 < len(headings) else n_lines
+        cs, ce = offsets[h.body_line], offsets[body_end_line]
+        body = text[cs:ce]
+        sections.append(_Section(path_with_title([lbl for _, lbl in stack]), body, cs, ce))
+
+    return sections
+
+
 def embedded_text(chunk: Chunk) -> str:
     """The exact text sent to the embedder: breadcrumb lines, blank line, then body."""
     if not chunk.header_path:

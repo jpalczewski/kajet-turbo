@@ -1,5 +1,6 @@
 from kajet_turbo.chunking import (
     Chunk,
+    _build_sections,
     _extract_headings,
     _Heading,
     embedded_text,
@@ -34,3 +35,31 @@ def test_extract_headings_ignores_hash_inside_code_fence():
 
 def test_extract_headings_empty_when_none():
     assert _extract_headings("just a paragraph\nsecond line\n") == []
+
+
+def test_build_sections_header_path_stack():
+    text = "# Title\n\nintro\n\n## A\n\nbody a\n\n### A1\n\ndeep\n\n## B\n\nbody b\n"
+    secs = _build_sections(text, title=None)
+    paths = [s.header_path for s in secs]
+    assert paths == [
+        ["# Title"],  # preamble belongs under the H1 title
+        ["# Title", "## A"],
+        ["# Title", "## A", "### A1"],
+        ["# Title", "## B"],
+    ]
+    assert secs[1].content.strip() == "body a"
+    # char offsets map back to the original text
+    assert text[secs[1].char_start : secs[1].char_end] == secs[1].content
+
+
+def test_build_sections_injects_passed_title_when_no_h1():
+    text = "## Only H2\n\nbody\n"
+    secs = _build_sections(text, title="Frontmatter Title")
+    assert secs[0].header_path == ["# Frontmatter Title", "## Only H2"]
+
+
+def test_build_sections_preamble_only_no_headings():
+    secs = _build_sections("just text\nmore text\n", title="T")
+    assert len(secs) == 1
+    assert secs[0].header_path == ["# T"]
+    assert secs[0].content.strip() == "just text\nmore text"
