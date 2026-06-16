@@ -1,8 +1,11 @@
 from kajet_turbo.chunking import (
     Chunk,
     _build_sections,
+    _common_prefix,
     _extract_headings,
     _Heading,
+    _merge_small,
+    _Section,
     embedded_text,
 )
 
@@ -63,3 +66,28 @@ def test_build_sections_preamble_only_no_headings():
     assert len(secs) == 1
     assert secs[0].header_path == ["# T"]
     assert secs[0].content.strip() == "just text\nmore text"
+
+
+def test_common_prefix():
+    assert _common_prefix(["# T", "## A"], ["# T", "## B"]) == ["# T"]
+    assert _common_prefix(["# T"], ["# T", "## A"]) == ["# T"]
+    assert _common_prefix(["# X"], ["# Y"]) == []
+
+
+def test_merge_small_combines_below_min_under_common_path():
+    secs = [
+        _Section(["# T", "## A"], "short a", 0, 7),
+        _Section(["# T", "## B"], "short b", 7, 14),
+    ]
+    merged = _merge_small(secs, target=1400, min_size=200)
+    assert len(merged) == 1
+    assert merged[0].header_path == ["# T"]
+    assert merged[0].content == "short a\n\nshort b"
+    assert (merged[0].char_start, merged[0].char_end) == (0, 14)
+
+
+def test_merge_small_keeps_large_sections_separate():
+    big = "x" * 300
+    secs = [_Section(["# T", "## A"], big, 0, 300), _Section(["# T", "## B"], big, 300, 600)]
+    merged = _merge_small(secs, target=1400, min_size=200)
+    assert len(merged) == 2  # neither is below min_size

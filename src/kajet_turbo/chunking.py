@@ -110,6 +110,33 @@ def _build_sections(text: str, title: str | None) -> list[_Section]:
     return sections
 
 
+def _common_prefix(a: list[str], b: list[str]) -> list[str]:
+    out: list[str] = []
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        out.append(x)
+    return out
+
+
+def _merge_small(sections: list[_Section], *, target: int, min_size: int) -> list[_Section]:
+    """Greedily fold an adjacent section into the previous one when either is below
+    ``min_size`` and the combined body still fits ``target``. The merged header_path
+    drops to the longest common prefix of the two."""
+    merged: list[_Section] = []
+    for sec in sections:
+        if merged:
+            prev = merged[-1]
+            combined = len(prev.content) + len(sec.content)
+            if combined <= target and (len(prev.content) < min_size or len(sec.content) < min_size):
+                prev.content = prev.content.rstrip("\n") + "\n\n" + sec.content.lstrip("\n")
+                prev.header_path = _common_prefix(prev.header_path, sec.header_path)
+                prev.char_end = sec.char_end
+                continue
+        merged.append(_Section(list(sec.header_path), sec.content, sec.char_start, sec.char_end))
+    return merged
+
+
 def embedded_text(chunk: Chunk) -> str:
     """The exact text sent to the embedder: breadcrumb lines, blank line, then body."""
     if not chunk.header_path:
