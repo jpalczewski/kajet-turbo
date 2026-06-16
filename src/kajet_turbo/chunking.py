@@ -115,7 +115,7 @@ def _build_sections(text: str, title: str | None) -> list[_Section]:
 
 def _common_prefix(a: list[str], b: list[str]) -> list[str]:
     out: list[str] = []
-    for x, y in zip(a, b):
+    for x, y in zip(a, b, strict=False):  # prefix of possibly-different-length paths
         if x != y:
             break
         out.append(x)
@@ -177,7 +177,9 @@ def _blocks(body: str) -> list[str]:
 def _split_oversized_block(block: str, hard_max: int) -> list[str]:
     """A single block bigger than hard_max: paragraphs split on sentences, anything
     else (e.g. a huge fence) split on line boundaries. Always yields pieces <= hard_max."""
-    units = _SENTENCE_RE.split(block) if not block.lstrip().startswith("```") else block.splitlines()
+    units = (
+        _SENTENCE_RE.split(block) if not block.lstrip().startswith("```") else block.splitlines()
+    )
     sep = " " if not block.lstrip().startswith("```") else "\n"
     pieces: list[str] = []
     cur = ""
