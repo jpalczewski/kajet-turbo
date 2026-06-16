@@ -219,6 +219,43 @@ def _split_body(body: str, *, hard_max: int) -> list[str]:
     return pieces
 
 
+def chunk_markdown(
+    text: str,
+    title: str | None = None,
+    *,
+    target: int = DEFAULT_TARGET,
+    hard_max: int = DEFAULT_HARD_MAX,
+    min_size: int = DEFAULT_MIN,
+) -> list[Chunk]:
+    """Split markdown into header-breadcrumb chunks. Pure and deterministic."""
+    if not text.strip():
+        return []
+    sections = _build_sections(text, title)
+    sections = _merge_small(sections, target=target, min_size=min_size)
+
+    chunks: list[Chunk] = []
+    ordinal = 0
+    for sec in sections:
+        body = sec.content.strip("\n")
+        if not body.strip():
+            continue
+        pieces = _split_body(body, hard_max=hard_max)
+        for piece in pieces:
+            if not piece.strip():
+                continue
+            chunks.append(
+                Chunk(
+                    ordinal=ordinal,
+                    header_path=list(sec.header_path),
+                    content=piece,
+                    char_start=sec.char_start,
+                    char_end=sec.char_end,
+                )
+            )
+            ordinal += 1
+    return chunks
+
+
 def embedded_text(chunk: Chunk) -> str:
     """The exact text sent to the embedder: breadcrumb lines, blank line, then body."""
     if not chunk.header_path:

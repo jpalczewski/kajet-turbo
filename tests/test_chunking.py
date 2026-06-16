@@ -1,4 +1,5 @@
 from kajet_turbo.chunking import (
+    DEFAULT_HARD_MAX,
     Chunk,
     _build_sections,
     _common_prefix,
@@ -7,6 +8,7 @@ from kajet_turbo.chunking import (
     _merge_small,
     _Section,
     _split_body,
+    chunk_markdown,
     embedded_text,
 )
 
@@ -121,3 +123,34 @@ def test_split_body_oversized_paragraph_splits_on_sentences():
     pieces = _split_body(body, hard_max=2000)
     assert len(pieces) > 1
     assert all(len(p) <= 2000 for p in pieces)
+
+
+def test_chunk_markdown_ordinals_and_paths():
+    # Explicit ``# Title`` H1: the "intro" preamble belongs to the H1 section (no separate
+    # preamble chunk), so this yields 3 chunks: [# Title], [# Title, ## A], [# Title, ## B].
+    text = "# Title\n\nintro\n\n## A\n\nbody a\n\n## B\n\nbody b\n"
+    chunks = chunk_markdown(text, title="Title", min_size=0)  # min_size=0 disables merge
+    assert [c.ordinal for c in chunks] == [0, 1, 2]
+    assert chunks[0].header_path == ["# Title"]
+    assert chunks[1].header_path == ["# Title", "## A"]
+
+
+def test_chunk_markdown_oversized_section_yields_multiple_chunks():
+    big = ("para " * 500).strip()  # one oversized paragraph
+    text = f"# T\n\n## Big\n\n{big}\n"
+    chunks = chunk_markdown(text, title="T")
+    big_chunks = [c for c in chunks if c.header_path == ["# T", "## Big"]]
+    assert len(big_chunks) > 1
+    assert all(len(c.content) <= DEFAULT_HARD_MAX for c in chunks)
+
+
+def test_chunk_markdown_empty_text_is_empty():
+    assert chunk_markdown("", title="T") == []
+    assert chunk_markdown("   \n\n  \n", title="T") == []
+
+
+def test_chunk_markdown_unicode_diacritics_preserved():
+    text = "# Zażółć\n\ngęślą jaźń źrebię\n"
+    chunks = chunk_markdown(text, title="Zażółć")
+    assert chunks[0].content.strip() == "gęślą jaźń źrebię"
+    assert chunks[0].header_path == ["# Zażółć"]
