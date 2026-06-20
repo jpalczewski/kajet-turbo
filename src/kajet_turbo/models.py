@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, ForeignKey, Index, Text
+from sqlalchemy import Column, ForeignKey, Index, LargeBinary, Text
 from sqlmodel import Field, SQLModel
 
 
@@ -170,3 +170,33 @@ class OAuthPendingAuthorization(SQLModel, table=True):
     client_json: str = Field(sa_column=Column(Text, nullable=False))
     params_json: str = Field(sa_column=Column(Text, nullable=False))
     expires_at: float
+
+
+class EmbeddingCache(SQLModel, table=True):
+    """Content-addressed cache of chunk embeddings, shared across users on the same
+    ``(backend, model)``. Key = sha256 of the exact embedded text + backend + model;
+    value is a float32 vector blob. Content-addressed ⇒ immutable, no invalidation."""
+
+    __tablename__ = "embedding_cache"
+
+    content_hash: str = Field(primary_key=True)
+    backend: str = Field(primary_key=True)
+    model: str = Field(primary_key=True)
+    dim: int
+    embedding: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    created_at: str
+    last_used_at: str
+
+
+class UserEmbeddingConfig(SQLModel, table=True):
+    """Per-user embedding backend selection + sealed API key (write-only over the API)."""
+
+    __tablename__ = "user_embedding_config"
+
+    user_id: str = Field(
+        sa_column=Column(Text, ForeignKey("users.id"), primary_key=True, nullable=False)
+    )
+    backend_id: str | None = Field(default=None, sa_column=Column(Text))
+    api_key_enc: bytes | None = Field(default=None, sa_column=Column(LargeBinary))
+    created_at: str
+    updated_at: str
