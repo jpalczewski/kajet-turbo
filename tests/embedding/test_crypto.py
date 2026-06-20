@@ -30,3 +30,10 @@ def test_different_secret_cannot_decrypt():
 def test_empty_secret_raises():
     with pytest.raises(ValueError):
         KeyCipher("")
+
+
+def test_key_is_stable_across_instances():
+    # Tokens must survive process restarts: the same secret must always derive the
+    # same key (fixed salt). A random per-instance salt would break this.
+    token = KeyCipher("server-secret").encrypt("persisted")
+    assert KeyCipher("server-secret").decrypt(token) == "persisted"
