@@ -36,6 +36,40 @@ def _app(database, monkeypatch, *, user_id="u1", probe_dim=3, probe_error=None):
     return TestClient(app), svc
 
 
+def test_create_with_asyncio_probe_offloads_to_thread(database, monkeypatch):
+    # Regression: the real probe runs asyncio.run(); the create route is async, so calling
+    # the service inline would hit "asyncio.run() cannot be called from a running event loop".
+    # The route must offload via run_sync. A probe that itself uses asyncio.run reproduces it.
+    import asyncio
+
+    with Session(database.engine) as s:
+        s.add(User(id="u1", email="u@e.com", created_at="2026-01-01"))
+        s.commit()
+
+    def asyncio_probe(base_url, model, api_key):
+        async def _run() -> int:
+            return 7
+
+        return asyncio.run(_run())
+
+    svc = EmbeddingProfileService(
+        EmbeddingProfileRepository(database.engine),
+        cipher_factory=lambda: KeyCipher("server-secret"),
+        probe_dim=asyncio_probe,
+    )
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_embedding_profile_service] = lambda: svc
+    monkeypatch.setattr("kajet_turbo.api.embedding.get_session_user", lambda _r: {"id": "u1"})
+    client = TestClient(app)
+    r = client.post(
+        "/api/me/embedding-profiles",
+        json={"name": "P", "base_url": "http://h/v1", "model": "m", "api_key": "k"},
+    )
+    assert r.status_code == 201
+    assert r.json()["dim"] == 7
+
+
 def test_list_requires_auth(database, monkeypatch):
     client, _ = _app(database, monkeypatch, user_id=None)
     assert client.get("/api/me/embedding-profiles").status_code == 401

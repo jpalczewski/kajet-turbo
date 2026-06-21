@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import EmbeddingProfilesResponse
+from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_embedding_profile_service, get_session_user
 from kajet_turbo.log import logged_route
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
@@ -35,7 +36,10 @@ async def api_create_embedding_profile(
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
     try:
-        result = svc.create_profile(
+        # Offload to a worker thread: create_profile runs a probe embed via asyncio.run,
+        # which cannot be called from this async route's running event loop.
+        result = await run_sync(
+            svc.create_profile,
             user["id"],
             name=body.get("name", ""),
             base_url=body.get("base_url", ""),
@@ -62,7 +66,9 @@ async def api_update_embedding_profile(
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
     try:
-        result = svc.update_profile(
+        # Offload to a worker thread (probe embed uses asyncio.run — see create above).
+        result = await run_sync(
+            svc.update_profile,
             user["id"],
             profile_id,
             name=body.get("name", ""),
