@@ -50,11 +50,12 @@
 <style lang="scss">
   @use '$lib/styles/variables' as v;
   @use '$lib/styles/breakpoints' as bp;
+  @use '$lib/styles/effects' as fx;
 
   .modal {
     width: min(420px, calc(100vw - 32px));
     padding: 0;
-    border: 1px solid v.$border;
+    border: 1px solid v.$border-accent;
     border-radius: v.$radius-lg;
     background: v.$bg-raised;
     color: v.$text-primary;
@@ -82,6 +83,7 @@
     margin: 0;
     font-family: v.$font-mono;
     font-size: 1rem;
+    @include fx.text-glow(v.$violet, 0.3);
   }
 
   .modal__body {

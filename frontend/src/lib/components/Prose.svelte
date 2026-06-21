@@ -65,13 +65,13 @@
     }
 
     :global(a) {
-      color: v.$accent;
+      color: v.$blue;
       text-decoration: underline;
       text-underline-offset: 3px;
     }
 
     :global(a:hover) {
-      color: v.$accent-hover;
+      color: v.$blue-bright;
     }
 
     // Wikilinks: distinct from external links (dotted underline, cursor pointer).

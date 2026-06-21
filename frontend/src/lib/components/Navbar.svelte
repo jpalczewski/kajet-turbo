@@ -36,6 +36,7 @@
 <style lang="scss">
   @use '$lib/styles/variables' as v;
   @use '$lib/styles/breakpoints' as bp;
+  @use '$lib/styles/effects' as fx;
 
   .navbar {
     display: flex;
@@ -70,6 +71,7 @@
     -webkit-text-fill-color: transparent;
     background-clip: text;
     transition: filter 0.15s;
+    @include fx.text-glow(v.$accent, 0.35);
     &:hover {
       filter: brightness(1.2);
     }
@@ -106,6 +108,7 @@
       color: v.$accent;
       background: rgba(240, 184, 0, 0.08);
       border: 1px solid rgba(240, 184, 0, 0.15);
+      @include fx.glow(v.$accent, 0.25);
     }
   }
 </style>

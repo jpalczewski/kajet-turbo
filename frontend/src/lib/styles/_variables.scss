@@ -1,19 +1,24 @@
-$bg-deep: #080808;
-$bg-surface: #111111;
-$bg-raised: #1a1a1a;
-$text-primary: #f0e8c8;
-$text-secondary: #9a8e6e;
-$text-muted: #504838;
-$border: #252018;
-$border-accent: #c89b14;
+$bg-deep: #0b0912;
+$bg-surface: #110d1c;
+$bg-raised: #1a1430;
+$text-primary: #ece8f5;
+$text-secondary: #9a8fc0;
+$text-muted: #5f5680;
+$border: #241d3a;
+$border-accent: #6a4fb0;
 $accent: #f0b800;
-$accent-hover: #ffd000;
+$accent-hover: #ffc833;
 $accent-dark: #9a7800;
-$accent-light: #ffe566;
-$error: #ff4d4d;
+$accent-light: #ffe08a;
+$error: #ff4d6b;
 
-$gradient-accent: linear-gradient(135deg, #ffd000 0%, #f0b800 40%, #c87800 100%);
-$gradient-warm: linear-gradient(180deg, #1a1200 0%, #080808 100%);
+$violet: #9d5cff;
+$violet-bright: #b478ff;
+$blue: #3d8bff;
+$blue-bright: #6fa8ff;
+
+$gradient-accent: linear-gradient(135deg, #ffc833 0%, #f0b800 35%, #9d5cff 100%);
+$gradient-warm: linear-gradient(180deg, #160f2e 0%, #0b0912 60%);
 
 $space-xs: 4px;
 $space-sm: 8px;
@@ -28,7 +33,8 @@ $radius-lg: 4px;
 $radius-xl: 5px;
 
 $font-sans: system-ui, sans-serif;
-$font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace;
+$font-mono:
+  'JetBrains Mono Variable', ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace;
 
 $bp-mobile: 768px;
 $bp-tablet: 1024px;
