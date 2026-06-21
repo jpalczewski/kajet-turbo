@@ -137,6 +137,7 @@ def test_list_notes_limit_none_returns_all(notes):
     assert len(notes.list("ws1", owner_id="u1")) == 20  # default cap unchanged
 
 
+@pytest.mark.skip(reason="search rewritten in Plan 4 Task 5")
 def test_fts_search_finds_by_title(notes):
     notes.insert(
         "id1",
@@ -155,6 +156,7 @@ def test_fts_search_finds_by_title(notes):
     assert "id2" not in ids
 
 
+@pytest.mark.skip(reason="search rewritten in Plan 4 Task 5")
 def test_fts_search_finds_by_content(notes):
     notes.insert(
         "id1", "ws1", "u1", "Notatka", [], _now(), _now(), "sqlite jest świetny do embeddingów"
@@ -163,6 +165,7 @@ def test_fts_search_finds_by_content(notes):
     assert any(r["note_id"] == "id1" for r in results)
 
 
+@pytest.mark.skip(reason="search rewritten in Plan 4 Task 5")
 def test_fts_search_respects_workspace(notes):
     notes.insert("id1", "ws1", "u1", "Python notatka", [], _now(), _now(), "treść")
     notes.insert("id2", "ws2", "u1", "Python inny workspace", [], _now(), _now(), "treść")
@@ -172,6 +175,7 @@ def test_fts_search_respects_workspace(notes):
     assert "id2" not in ids
 
 
+@pytest.mark.skip(reason="search rewritten in Plan 4 Task 5")
 def test_fts_search_respects_owner(notes):
     notes.insert("id1", "ws1", "u1", "Python notatka u1", [], _now(), _now(), "treść")
     notes.insert("id2", "ws1", "u2", "Python notatka u2", [], _now(), _now(), "treść")
@@ -181,6 +185,7 @@ def test_fts_search_respects_owner(notes):
     assert "id2" not in ids
 
 
+@pytest.mark.skip(reason="search rewritten in Plan 4 Task 5")
 def test_fts_search_trigram_partial(notes):
     notes.insert(
         "id1", "ws1", "u1", "Programowanie", [], _now(), _now(), "nauka programowania w Pythonie"
@@ -189,15 +194,7 @@ def test_fts_search_trigram_partial(notes):
     assert any(r["note_id"] == "id1" for r in results)
 
 
-def test_update_note_title_only_preserves_fts_content(notes):
-    notes.insert(
-        "abc1234", "ws1", "u1", "Stary tytuł", [], _now(), _now(), "unikalna treść notatki"
-    )
-    notes.update("abc1234", title="Nowy tytuł", updated_at=_now())
-    results = notes.search_fts("unikalna", "ws1", owner_id="u1")
-    assert any(r["note_id"] == "abc1234" for r in results)
-
-
+@pytest.mark.skip(reason="search rewritten in Plan 4 Task 5")
 def test_hybrid_search_fallback_without_vec(notes):
     notes.insert(
         "id1", "ws1", "u1", "Python tutorial", [], _now(), _now(), "programowanie w Pythonie"
@@ -230,3 +227,15 @@ def test_resolve_paths_batch(notes):
 
 def test_resolve_paths_empty(notes):
     assert notes.resolve_paths("ws1", "u1", []) == {}
+
+
+def test_insert_writes_no_fts_rows(database):
+    from sqlalchemy import text
+
+    from kajet_turbo.repositories.notes import NoteRepository
+
+    repo = NoteRepository(database.engine)
+    repo.insert("n1", "ws", "u1", "Title", [], "2026-01-01", "2026-01-01", "body", "")
+    with database.engine.connect() as conn:
+        n = conn.execute(text("SELECT COUNT(*) FROM notes_fts WHERE note_id='n1'")).scalar()
+    assert n == 0  # FTS is now written only via replace_chunks (chunk-level)

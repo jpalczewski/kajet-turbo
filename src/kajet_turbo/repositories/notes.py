@@ -62,16 +62,6 @@ class NoteRepository:
         folder: str = "",
     ) -> None:
         with Session(self._engine) as session:
-            result = session.execute(  # ty: ignore[deprecated] - raw SQL
-                text(
-                    "INSERT INTO notes_fts (note_id, workspace, title, content)"
-                    " VALUES (:note_id, :workspace, :title, :content)"
-                ),
-                {"note_id": note_id, "workspace": workspace, "title": title, "content": content},
-            )
-            # SQLite DML always yields a CursorResult; needed for `lastrowid`.
-            assert isinstance(result, CursorResult)
-            fts_rowid = result.lastrowid
             note = Note(
                 id=note_id,
                 workspace=workspace,
@@ -81,7 +71,6 @@ class NoteRepository:
                 tags=json.dumps(tags),
                 created_at=created_at,
                 updated_at=updated_at,
-                fts_rowid=fts_rowid,
             )
             session.add(note)
             session.commit()
@@ -279,41 +268,12 @@ class NoteRepository:
 
             new_title = title if title is not None else note.title
             new_tags = tags if tags is not None else json.loads(note.tags or "[]")
-            fts_rowid = note.fts_rowid
-            workspace = note.workspace
 
             note.title = new_title
             note.tags = json.dumps(new_tags)
             note.updated_at = updated_at
             if folder is not None:
                 note.folder = folder
-
-            if title is not None or content is not None:
-                old_fts = session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text("SELECT content FROM notes_fts WHERE rowid = :rowid"),
-                    {"rowid": fts_rowid},
-                ).fetchone()
-                old_content = old_fts.content if old_fts else ""
-                new_content = content if content is not None else old_content
-
-                session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text("DELETE FROM notes_fts WHERE rowid = :rowid"), {"rowid": fts_rowid}
-                )
-                result = session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text(
-                        "INSERT INTO notes_fts (note_id, workspace, title, content)"
-                        " VALUES (:note_id, :workspace, :title, :content)"
-                    ),
-                    {
-                        "note_id": note_id,
-                        "workspace": workspace,
-                        "title": new_title,
-                        "content": new_content,
-                    },
-                )
-                # SQLite DML always yields a CursorResult; needed for `lastrowid`.
-                assert isinstance(result, CursorResult)
-                note.fts_rowid = result.lastrowid
 
             session.add(note)
             session.commit()
@@ -324,11 +284,6 @@ class NoteRepository:
             if owner_id is not None:
                 q = q.where(Note.owner_id == owner_id)
             note = session.exec(q).first()
-            if note and note.fts_rowid:
-                session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text("DELETE FROM notes_fts WHERE rowid = :rowid"),
-                    {"rowid": note.fts_rowid},
-                )
             if note:
                 session.delete(note)
             session.commit()
@@ -693,12 +648,8 @@ class NoteRepository:
     def delete_workspace_notes(self, workspace: str, owner_id: str) -> None:
         with Session(self._engine) as session:
             session.execute(  # ty: ignore[deprecated] - raw SQL
-                text(
-                    "DELETE FROM notes_fts WHERE rowid IN"
-                    " (SELECT fts_rowid FROM notes WHERE workspace = :workspace"
-                    "  AND owner_id = :owner_id AND fts_rowid IS NOT NULL)"
-                ),
-                {"workspace": workspace, "owner_id": owner_id},
+                text("DELETE FROM notes_fts WHERE workspace = :workspace"),
+                {"workspace": workspace},
             )
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("DELETE FROM notes WHERE workspace = :workspace AND owner_id = :owner_id"),
