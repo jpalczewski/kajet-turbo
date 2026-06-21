@@ -35,12 +35,14 @@
 
 <style lang="scss">
   @use '$lib/styles/variables' as v;
+  @use '$lib/styles/breakpoints' as bp;
 
   .navbar {
     display: flex;
     align-items: center;
     gap: v.$space-md;
-    padding: 0 v.$space-lg;
+    padding: 0 max(v.$space-lg, env(safe-area-inset-right)) 0
+      max(v.$space-lg, env(safe-area-inset-left));
     height: 48px;
     border-bottom: 1px solid v.$border;
     background: rgba(8, 8, 8, 0.95);
@@ -48,6 +50,12 @@
     position: sticky;
     top: 0;
     z-index: 50;
+
+    @include bp.mobile {
+      gap: v.$space-sm;
+      padding: 0 max(v.$space-md, env(safe-area-inset-right)) 0
+        max(v.$space-md, env(safe-area-inset-left));
+    }
   }
 
   .navbar__logo {
@@ -73,6 +81,12 @@
     gap: v.$space-md;
     margin-right: auto;
     margin-left: v.$space-md;
+
+    @include bp.mobile {
+      gap: v.$space-sm;
+      margin-left: v.$space-sm;
+      min-width: 0;
+    }
   }
 
   .navbar__link {

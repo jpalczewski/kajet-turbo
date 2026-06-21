@@ -1,0 +1,31 @@
+@use 'variables' as v;
+
+// Single source of truth for responsive boundaries. Usage:
+//   @use '$lib/styles/breakpoints' as bp;
+//   @include bp.mobile { ... }
+
+@mixin mobile {
+  @media (max-width: #{v.$bp-mobile - 1px}) {
+    @content;
+  }
+}
+
+@mixin tablet-down {
+  @media (max-width: #{v.$bp-tablet - 1px}) {
+    @content;
+  }
+}
+
+// Apply hover affordances only on devices that actually hover (not touch),
+// so taps on phones don't get stuck in a hover state.
+@mixin hover {
+  @media (hover: hover) {
+    @content;
+  }
+}
+
+@mixin touch {
+  @media (hover: none) {
+    @content;
+  }
+}

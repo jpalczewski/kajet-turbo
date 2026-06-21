@@ -12,14 +12,17 @@
     tagsPath,
     workspaceSettingsPath,
   } from '$lib/routes';
+  import { activePane } from '$lib/explorerView';
   import ExplorerModeToggle from './ExplorerModeToggle.svelte';
   import FolderTree from './FolderTree.svelte';
   import TagTree from './TagTree.svelte';
   import NotesList from './NotesList.svelte';
   import NotePreview from './NotePreview.svelte';
+  import MobileFolderNav from './MobileFolderNav.svelte';
 
   let { data } = $props();
   let slug = $derived(data.slug);
+  let pane = $derived(activePane({ noteSelected: data.noteSelected }));
 
   async function handleCreateFolder(path: string): Promise<void> {
     try {
@@ -59,7 +62,7 @@
   }
 </script>
 
-<div class="explorer">
+<div class="explorer" class:explorer--preview={pane === 'preview'}>
   <aside class="explorer__sidebar">
     <ExplorerModeToggle {slug} mode={data.mode} />
     <div class="explorer__tree">
@@ -83,6 +86,12 @@
   </aside>
 
   <section class="explorer__list">
+    <MobileFolderNav
+      {slug}
+      mode={data.mode}
+      folderPath={data.folderPath}
+      folders={data.tree.folders}
+    />
     {#if data.mode === 'tags'}
       <div class="tag-list-header">
         <span class="tag-list-title">{data.tagPath ? '#' + data.tagPath : 'Wybierz tag'}</span>
@@ -114,17 +123,19 @@
   </section>
 
   <section class="explorer__preview">
+    <a class="explorer__back" href={notesPath(slug, data.folderPath)}>‹ Wstecz</a>
     <NotePreview note={data.note} {slug} links={data.links} onmoved={handleMoveNote} />
   </section>
 </div>
 
 <style lang="scss">
   @use '$lib/styles/variables' as v;
+  @use '$lib/styles/breakpoints' as bp;
 
   .explorer {
     display: grid;
     grid-template-columns: 200px 280px 1fr;
-    height: calc(100vh - 48px);
+    height: calc(100dvh - 48px);
     overflow: hidden;
     border: 1px solid v.$border;
     border-radius: v.$radius-lg;
@@ -193,5 +204,51 @@
     font-size: 0.68rem;
     color: v.$text-muted;
     cursor: pointer;
+  }
+
+  .explorer__back {
+    display: none;
+  }
+
+  @include bp.mobile {
+    .explorer {
+      display: block;
+      height: calc(100dvh - 48px);
+      margin: 0;
+      border: none;
+      border-radius: 0;
+      overflow-y: auto;
+    }
+
+    .explorer__sidebar {
+      display: none;
+    }
+
+    .explorer__list,
+    .explorer__preview {
+      height: 100%;
+    }
+
+    // Mobile shows exactly one pane: list by default, preview when selected.
+    .explorer__preview {
+      display: none;
+    }
+    .explorer--preview .explorer__list {
+      display: none;
+    }
+    .explorer--preview .explorer__preview {
+      display: flex;
+    }
+
+    .explorer__back {
+      display: block;
+      flex-shrink: 0;
+      padding: 10px 12px;
+      border-bottom: 1px solid v.$border;
+      font-family: v.$font-mono;
+      font-size: 0.8rem;
+      color: v.$accent-dark;
+      text-decoration: none;
+    }
   }
 </style>
