@@ -123,6 +123,9 @@ class NoteRepository:
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("DELETE FROM note_chunks WHERE note_id = :nid"), {"nid": note_id}
             )
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("DELETE FROM notes_fts WHERE note_id = :nid"), {"nid": note_id}
+            )
 
             for i, chunk in enumerate(chunks):
                 chunk_id = generate(size=12)
@@ -166,6 +169,21 @@ class NoteRepository:
                             "cid": chunk_id,
                         },
                     )
+                session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(
+                        "INSERT INTO notes_fts"
+                        " (chunk_id, note_id, workspace, title, header_path, content)"
+                        " VALUES (:cid, :nid, :ws, :title, :hp, :content)"
+                    ),
+                    {
+                        "cid": chunk_id,
+                        "nid": note_id,
+                        "ws": workspace,
+                        "title": title,
+                        "hp": " ".join(chunk.header_path),
+                        "content": chunk.content,
+                    },
+                )
 
             state = "indexed" if embeddings is not None else "stale"
             session.execute(  # ty: ignore[deprecated] - raw SQL
