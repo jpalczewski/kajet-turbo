@@ -86,6 +86,109 @@ class NoteRepository:
             session.add(note)
             session.commit()
 
+    def replace_chunks(
+        self,
+        note_id: str,
+        workspace: str,
+        owner_id: str,
+        title: str,
+        chunks: builtins.list,  # list[kajet_turbo.chunking.Chunk]
+        embeddings: builtins.list[builtins.list[float]] | None,
+        dim: int | None,
+    ) -> None:
+        """Replace all chunks (and vectors) for a note. ``embeddings`` is None (chunks only
+        → stale) or one vector per chunk (→ indexed, vectors into note_chunks_vec_{dim})."""
+        from kajet_turbo.embedding.cache import pack_vector
+
+        if embeddings is not None:
+            if dim is None:
+                raise ValueError("dim is required when embeddings are provided")
+            if len(embeddings) != len(chunks):
+                raise ValueError(
+                    f"embeddings ({len(embeddings)}) must match chunks ({len(chunks)})"
+                )
+        now = datetime.now(UTC).isoformat()
+        with Session(self._engine) as session:
+            old = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "SELECT DISTINCT dim FROM note_chunks WHERE note_id = :nid AND dim IS NOT NULL"
+                ),
+                {"nid": note_id},
+            ).fetchall()
+            for (old_dim,) in old:
+                session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(f"DELETE FROM note_chunks_vec_{int(old_dim)} WHERE note_id = :nid"),
+                    {"nid": note_id},
+                )
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("DELETE FROM note_chunks WHERE note_id = :nid"), {"nid": note_id}
+            )
+
+            for i, chunk in enumerate(chunks):
+                chunk_id = generate(size=12)
+                result = session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(
+                        "INSERT INTO note_chunks"
+                        " (id, note_id, workspace, owner_id, ordinal, header_path, content,"
+                        "  char_start, char_end, dim, created_at)"
+                        " VALUES (:id, :nid, :ws, :owner, :ord, :hp, :content,"
+                        "  :cs, :ce, :dim, :now)"
+                    ),
+                    {
+                        "id": chunk_id,
+                        "nid": note_id,
+                        "ws": workspace,
+                        "owner": owner_id,
+                        "ord": chunk.ordinal,
+                        "hp": json.dumps(chunk.header_path),
+                        "content": chunk.content,
+                        "cs": chunk.char_start,
+                        "ce": chunk.char_end,
+                        "dim": dim if embeddings is not None else None,
+                        "now": now,
+                    },
+                )
+                assert isinstance(result, CursorResult)
+                if embeddings is not None:
+                    assert dim is not None  # validated above; narrows for the table name
+                    session.execute(  # ty: ignore[deprecated] - raw SQL
+                        text(
+                            f"INSERT INTO note_chunks_vec_{int(dim)}"
+                            " (chunk_rowid, embedding, workspace, owner_id, note_id, chunk_id)"
+                            " VALUES (:rowid, :emb, :ws, :owner, :nid, :cid)"
+                        ),
+                        {
+                            "rowid": result.lastrowid,
+                            "emb": pack_vector(embeddings[i]),
+                            "ws": workspace,
+                            "owner": owner_id,
+                            "nid": note_id,
+                            "cid": chunk_id,
+                        },
+                    )
+
+            state = "indexed" if embeddings is not None else "stale"
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("UPDATE notes SET index_state = :s, indexed_at = :at WHERE id = :nid"),
+                {
+                    "s": state,
+                    "at": now if embeddings is not None else None,
+                    "nid": note_id,
+                },
+            )
+            session.commit()
+
+    def get_chunks(self, note_id: str) -> builtins.list[dict]:
+        with Session(self._engine) as session:
+            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "SELECT id, ordinal, header_path, content, char_start, char_end, dim"
+                    " FROM note_chunks WHERE note_id = :nid ORDER BY ordinal"
+                ),
+                {"nid": note_id},
+            ).fetchall()
+        return [dict(r._mapping) for r in rows]
+
     def check_unique(self, workspace: str, owner_id: str, folder: str, title: str) -> bool:
         """Returns True if no note with this (workspace, owner_id, folder, title) exists."""
         with Session(self._engine) as session:
