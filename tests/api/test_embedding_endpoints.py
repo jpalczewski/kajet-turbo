@@ -62,3 +62,28 @@ def test_backends_lists_registry(database, monkeypatch):
     assert {"backends", "default_id", "selected", "has_key"} <= set(body)
     assert {b["backend_id"] for b in body["backends"]} == {"openai-large"}
     assert body["has_key"] is False
+
+
+def test_put_config_requires_auth(database, monkeypatch):
+    client, _ = _app(database, monkeypatch, user_id=None)
+    assert client.put("/api/me/embedding-config", json={"backend_id": None}).status_code == 401
+
+
+def test_put_config_sets_selection_and_keeps_key_secret(database, monkeypatch):
+    client, svc = _app(database, monkeypatch)
+    resp = client.put(
+        "/api/me/embedding-config",
+        json={"backend_id": "openai-large", "api_key": "sk-secret"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {"backend_id": "openai-large", "has_key": True}
+    assert "sk-secret" not in resp.text
+    # selection persisted
+    assert svc.list_backends("u1")["selected"] == "openai-large"
+
+
+def test_put_config_unknown_backend_400(database, monkeypatch):
+    client, _ = _app(database, monkeypatch)
+    resp = client.put("/api/me/embedding-config", json={"backend_id": "ghost"})
+    assert resp.status_code == 400
