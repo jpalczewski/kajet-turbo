@@ -171,24 +171,18 @@ class ChunkPreviewResponse(BaseModel):
     chunks: list[ChunkPreviewItem]
 
 
-class EmbeddingBackendItem(BaseModel):
-    backend_id: str
-    type: str
+class EmbeddingProfileItem(BaseModel):
+    id: str
+    name: str
+    base_url: str
     model: str
     dim: int
-    base_url: str
-
-
-class EmbeddingBackendsResponse(BaseModel):
-    backends: list[EmbeddingBackendItem]
-    default_id: str | None
-    selected: str | None
+    is_active: bool
     has_key: bool
 
 
-class EmbeddingConfigResponse(BaseModel):
-    backend_id: str | None
-    has_key: bool
+class EmbeddingProfilesResponse(BaseModel):
+    profiles: list[EmbeddingProfileItem]
 
 
 class TagNode(BaseModel):
