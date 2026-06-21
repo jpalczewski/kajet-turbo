@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import text
 
+from kajet_turbo.chunking import Chunk
 from kajet_turbo.db import Database
 from kajet_turbo.repositories.notes import NoteRepository
 
@@ -137,69 +138,64 @@ def test_list_notes_limit_none_returns_all(notes):
     assert len(notes.list("ws1", owner_id="u1")) == 20  # default cap unchanged
 
 
-@pytest.mark.skip(reason="search rewritten in Plan 4 Task 5")
-def test_fts_search_finds_by_title(notes):
-    notes.insert(
-        "id1",
-        "ws1",
-        "u1",
-        "Python async programming",
-        ["python"],
-        _now(),
-        _now(),
-        "tutorial o asyncio",
+def _index(notes, note_id, workspace, owner_id, title, content):
+    """Create a note row and a single FTS-indexed chunk for it (insert writes no FTS)."""
+    notes.insert(note_id, workspace, owner_id, title, [], _now(), _now(), content)
+    notes.replace_chunks(
+        note_id,
+        workspace,
+        owner_id,
+        title,
+        [Chunk(0, [f"# {title}"], content, 0, len(content))],
+        None,
+        None,
     )
-    notes.insert("id2", "ws1", "u1", "JavaScript basics", ["js"], _now(), _now(), "podstawy JS")
+
+
+def test_fts_search_finds_by_title(notes):
+    # FTS now indexes the chunk's header_path (the title-derived "# ..." breadcrumb).
+    _index(notes, "id1", "ws1", "u1", "Python async programming", "tutorial o asyncio")
+    _index(notes, "id2", "ws1", "u1", "JavaScript basics", "podstawy JS")
     results = notes.search_fts("async", "ws1", owner_id="u1")
     ids = [r["note_id"] for r in results]
     assert "id1" in ids
     assert "id2" not in ids
 
 
-@pytest.mark.skip(reason="search rewritten in Plan 4 Task 5")
 def test_fts_search_finds_by_content(notes):
-    notes.insert(
-        "id1", "ws1", "u1", "Notatka", [], _now(), _now(), "sqlite jest świetny do embeddingów"
-    )
+    _index(notes, "id1", "ws1", "u1", "Notatka", "sqlite jest świetny do embeddingów")
     results = notes.search_fts("embedding", "ws1", owner_id="u1")
     assert any(r["note_id"] == "id1" for r in results)
+    assert all("content" in r for r in results)
 
 
-@pytest.mark.skip(reason="search rewritten in Plan 4 Task 5")
 def test_fts_search_respects_workspace(notes):
-    notes.insert("id1", "ws1", "u1", "Python notatka", [], _now(), _now(), "treść")
-    notes.insert("id2", "ws2", "u1", "Python inny workspace", [], _now(), _now(), "treść")
-    results = notes.search_fts("Python", "ws1", owner_id="u1")
+    _index(notes, "id1", "ws1", "u1", "Python notatka", "treść o pythonie")
+    _index(notes, "id2", "ws2", "u1", "Python inny workspace", "treść o pythonie")
+    results = notes.search_fts("python", "ws1", owner_id="u1")
     ids = [r["note_id"] for r in results]
     assert "id1" in ids
     assert "id2" not in ids
 
 
-@pytest.mark.skip(reason="search rewritten in Plan 4 Task 5")
 def test_fts_search_respects_owner(notes):
-    notes.insert("id1", "ws1", "u1", "Python notatka u1", [], _now(), _now(), "treść")
-    notes.insert("id2", "ws1", "u2", "Python notatka u2", [], _now(), _now(), "treść")
-    results = notes.search_fts("Python", "ws1", owner_id="u1")
+    _index(notes, "id1", "ws1", "u1", "Python notatka u1", "treść o pythonie")
+    _index(notes, "id2", "ws1", "u2", "Python notatka u2", "treść o pythonie")
+    results = notes.search_fts("python", "ws1", owner_id="u1")
     ids = [r["note_id"] for r in results]
     assert "id1" in ids
     assert "id2" not in ids
 
 
-@pytest.mark.skip(reason="search rewritten in Plan 4 Task 5")
 def test_fts_search_trigram_partial(notes):
-    notes.insert(
-        "id1", "ws1", "u1", "Programowanie", [], _now(), _now(), "nauka programowania w Pythonie"
-    )
+    _index(notes, "id1", "ws1", "u1", "Programowanie", "nauka programowania w Pythonie")
     results = notes.search_fts("gram", "ws1", owner_id="u1")
     assert any(r["note_id"] == "id1" for r in results)
 
 
-@pytest.mark.skip(reason="search rewritten in Plan 4 Task 5")
 def test_hybrid_search_fallback_without_vec(notes):
-    notes.insert(
-        "id1", "ws1", "u1", "Python tutorial", [], _now(), _now(), "programowanie w Pythonie"
-    )
-    results = notes.hybrid_search("Python", "ws1", owner_id="u1")
+    _index(notes, "id1", "ws1", "u1", "Python tutorial", "programowanie w Pythonie")
+    results = notes.hybrid_search("python", "ws1", owner_id="u1", embedding=None)
     assert any(r["note_id"] == "id1" for r in results)
 
 

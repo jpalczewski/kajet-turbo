@@ -624,6 +624,22 @@ class NoteRepository:
             ).fetchall()
         return [row[0] for row in rows]
 
+    _CHUNK_SELECT = (
+        " c.note_id AS note_id, n.title AS title, n.folder AS folder,"
+        " c.header_path AS header_path, c.content AS content"
+    )
+
+    @staticmethod
+    def _chunk_row(m, score):
+        return {
+            "note_id": m["note_id"],
+            "title": m["title"],
+            "folder": m["folder"],
+            "header_path": json.loads(m["header_path"]),
+            "content": m["content"],
+            "score": score,
+        }
+
     def search_fts(
         self, query: str, workspace: str, owner_id: str, limit: int = 50
     ) -> builtins.list[dict]:
@@ -631,19 +647,41 @@ class NoteRepository:
             with Session(self._engine) as session:
                 rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                     text(
-                        "SELECT n.id AS note_id, n.workspace, n.owner_id,"
-                        " n.title, n.tags, n.created_at, n.updated_at"
-                        " FROM notes_fts"
-                        " JOIN notes n ON n.fts_rowid = notes_fts.rowid"
-                        " WHERE notes_fts MATCH :query"
-                        "  AND n.workspace = :workspace AND n.owner_id = :owner_id"
+                        f"SELECT f.chunk_id AS chunk_id,{self._CHUNK_SELECT},"
+                        " bm25(notes_fts) AS rank"
+                        " FROM notes_fts f"
+                        " JOIN note_chunks c ON c.id = f.chunk_id"
+                        " JOIN notes n ON n.id = c.note_id"
+                        " WHERE notes_fts MATCH :q AND f.workspace = :ws AND n.owner_id = :o"
                         " ORDER BY rank LIMIT :limit"
                     ),
-                    {"query": query, "workspace": workspace, "owner_id": owner_id, "limit": limit},
+                    {"q": query, "ws": workspace, "o": owner_id, "limit": limit},
                 ).fetchall()
         except Exception:
             return []
-        return [{**dict(r._mapping), "tags": json.loads(r.tags or "[]")} for r in rows]
+        return [
+            {"chunk_id": r._mapping["chunk_id"], **self._chunk_row(r._mapping, None)} for r in rows
+        ]
+
+    def search_chunks_vec(
+        self, embedding: bytes, workspace: str, owner_id: str, dim: int, k: int = 50
+    ) -> builtins.list[dict]:
+        with Session(self._engine) as session:
+            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    f"SELECT v.chunk_id AS chunk_id,{self._CHUNK_SELECT}, v.distance AS distance"
+                    f" FROM note_chunks_vec_{int(dim)} v"
+                    " JOIN note_chunks c ON c.id = v.chunk_id"
+                    " JOIN notes n ON n.id = c.note_id"
+                    " WHERE v.embedding MATCH :emb AND k = :k AND v.workspace = :ws"
+                    "  AND n.owner_id = :o"
+                    " ORDER BY v.distance"
+                ),
+                {"emb": embedding, "k": k, "ws": workspace, "o": owner_id},
+            ).fetchall()
+        return [
+            {"chunk_id": r._mapping["chunk_id"], **self._chunk_row(r._mapping, None)} for r in rows
+        ]
 
     def delete_workspace_notes(self, workspace: str, owner_id: str) -> None:
         params = {"workspace": workspace, "owner_id": owner_id}
@@ -693,10 +731,41 @@ class NoteRepository:
         query: str,
         workspace: str,
         owner_id: str,
+        embedding: bytes | None = None,
+        dim: int | None = None,
         limit: int = 10,
+        per_note_cap: int = 3,
     ) -> builtins.list[dict]:
-        # Note-level FTS only. Chunk-level vector fusion arrives in Plan 4.
-        return self.search_fts(query, workspace, owner_id, limit=50)[:limit]
+        fts = self.search_fts(query, workspace, owner_id, limit=50)
+        if embedding is None or dim is None:
+            ranked = fts
+        else:
+            vec = self.search_chunks_vec(embedding, workspace, owner_id, dim=dim, k=50)
+            scores: dict[str, float] = {}
+            by_id: dict[str, dict] = {}
+            for rank, hit in enumerate(fts):
+                cid = hit["chunk_id"]
+                scores[cid] = scores.get(cid, 0.0) + 1.0 / (60 + rank)
+                by_id[cid] = hit
+            for rank, hit in enumerate(vec):
+                cid = hit["chunk_id"]
+                scores[cid] = scores.get(cid, 0.0) + 1.0 / (60 + rank)
+                by_id.setdefault(cid, hit)
+            ranked = [
+                {**by_id[cid], "score": s}
+                for cid, s in sorted(scores.items(), key=lambda x: x[1], reverse=True)
+            ]
+        capped: builtins.list[dict] = []
+        per_note: dict[str, int] = {}
+        for hit in ranked:
+            nid = str(hit["note_id"])
+            if per_note.get(nid, 0) >= per_note_cap:
+                continue
+            per_note[nid] = per_note.get(nid, 0) + 1
+            capped.append(hit)
+            if len(capped) >= limit:
+                break
+        return [{k: v for k, v in h.items() if k != "chunk_id"} for h in capped]
 
     def workspace_stats(self, owner_id: str, workspaces: builtins.list[str]) -> dict[str, dict]:
         if not workspaces:
