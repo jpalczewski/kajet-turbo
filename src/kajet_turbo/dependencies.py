@@ -6,7 +6,7 @@ from kajet_turbo.auth import KajetOAuthProvider, create_auth
 from kajet_turbo.cache import WorkspaceCache, cache_enabled
 from kajet_turbo.db import Database
 from kajet_turbo.embedding import pooled_embedder_factory
-from kajet_turbo.embedding.cache import EmbeddingCacheRepository
+from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbeddingCache
 from kajet_turbo.embedding.resolver import BackendResolver, resolver_from_env
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
@@ -41,10 +41,15 @@ note_indexer = NoteIndexer(
     build_embedder=pooled_embedder_factory(),
 )
 
+_query_cache = QueryEmbeddingCache()
+
 note_service = NoteService(
     note_repo,
     cache=WorkspaceCache() if cache_enabled() else None,
     indexer=note_indexer,
+    query_resolver=lambda user_id: _backend_resolver().resolve_backend(user_id),
+    build_embedder=pooled_embedder_factory(),
+    query_cache=_query_cache,
 )
 workspace_service = WorkspaceService(workspace_repo, note_repo)
 

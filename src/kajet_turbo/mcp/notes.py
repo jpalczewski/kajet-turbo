@@ -277,8 +277,10 @@ def register_notes(
         workspace: str = "active",
         limit: int = 10,
     ) -> str:
-        """Szuka notatek. workspace='active' (domyślnie) lub 'all'.
-        Zwraca JSON array — pusty [] gdy brak wyników. Błąd: {"error": "..."}."""
+        """Szuka notatek (chunk-level hybrid: FTS + semantic). workspace='active'
+        (domyślnie) lub 'all'. Zwraca JSON array fragmentów (chunków), każdy:
+        {"note_id", "title", "folder", "header_path", "content", "score"}.
+        Pusty [] gdy brak wyników. Błąd: {"error": "..."}."""
         try:
             owner_id, active_ws, _ = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:

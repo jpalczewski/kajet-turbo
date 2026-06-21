@@ -738,7 +738,9 @@ class NoteRepository:
     ) -> builtins.list[dict]:
         fts = self.search_fts(query, workspace, owner_id, limit=50)
         if embedding is None or dim is None:
-            ranked = fts
+            # Positional RRF-style scores so the public output always carries a numeric
+            # score, even in FTS-only mode (no vector backend available).
+            ranked = [{**hit, "score": 1.0 / (60 + rank)} for rank, hit in enumerate(fts)]
         else:
             vec = self.search_chunks_vec(embedding, workspace, owner_id, dim=dim, k=50)
             scores: dict[str, float] = {}

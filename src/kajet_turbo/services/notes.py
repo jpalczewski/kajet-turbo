@@ -1,5 +1,6 @@
 # `builtins.list` is used in annotations because the public `list()` method
 # below shadows the `list` builtin within the class body.
+import asyncio
 import builtins
 import json
 import time
@@ -11,6 +12,7 @@ import frontmatter
 from nanoid import generate
 
 from kajet_turbo.cache import WorkspaceCache
+from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.log import logger
 from kajet_turbo.note_edit import apply_edit
 from kajet_turbo.repositories.git import GitError, GitRepository
@@ -47,10 +49,16 @@ class NoteService:
         note_repo: NoteRepository,
         cache: WorkspaceCache | None = None,
         indexer=None,
+        query_resolver=None,
+        build_embedder=None,
+        query_cache=None,
     ) -> None:
         self._repo = note_repo
         self._cache = cache
         self._indexer = indexer
+        self._query_resolver = query_resolver
+        self._build_embedder = build_embedder
+        self._query_cache = query_cache
 
     def _index(self, note_id: str, ws_name: str, owner_id: str, title: str, content: str) -> None:
         # Chunks + FTS are the reliable search backbone (written by replace_chunks inside
@@ -650,10 +658,26 @@ class NoteService:
             cached = self._cache.get(key)
             if cached is not None:
                 return cached
+        embedding = None
+        dim = None
+        if self._query_resolver is not None:
+            try:
+                cfg = self._query_resolver(owner_id)
+            except Exception:
+                cfg = None
+            if cfg is not None and cfg.api_key is not None:
+                try:
+                    vec = self._embed_query(cfg, query)
+                    embedding = pack_vector(vec)
+                    dim = cfg.dim
+                except Exception:
+                    logger.warning("search_embed_failed", backend=cfg.backend_id)
         per_ws_limit = limit * 3 if len(workspaces) > 1 else limit
         results = []
         for ws in workspaces:
-            hits = self._repo.hybrid_search(query, ws, owner_id, limit=per_ws_limit)
+            hits = self._repo.hybrid_search(
+                query, ws, owner_id, embedding=embedding, dim=dim, limit=per_ws_limit
+            )
             results.extend(hits)
         results = results[:limit]
         if self._cache is not None and key is not None:
@@ -662,6 +686,19 @@ class NoteService:
             "search_performed", query_len=len(query), results=len(results), ws_count=len(workspaces)
         )
         return results
+
+    def _embed_query(self, cfg, query: str) -> builtins.list[float]:
+        if self._query_cache is not None:
+            cached = self._query_cache.get(query, cfg.backend_id, cfg.model)
+            if cached is not None:
+                return cached
+        # Only reached when search() resolved a backend, which is wired together with
+        # build_embedder in the DI container; the None default is for cache-only test doubles.
+        embedder = self._build_embedder(cfg)  # ty: ignore[call-non-callable] - optional DI seam
+        vec = asyncio.run(embedder.embed_query(query))
+        if self._query_cache is not None:
+            self._query_cache.put(query, cfg.backend_id, cfg.model, vec)
+        return vec
 
     def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
         start = time.monotonic()
