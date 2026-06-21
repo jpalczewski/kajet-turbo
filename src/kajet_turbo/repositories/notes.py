@@ -715,3 +715,25 @@ class NoteRepository:
                 workspace: {"file_count": file_count, "last_updated": last_updated}
                 for workspace, file_count, last_updated in rows
             }
+
+    def get_index_meta(self, owner_id: str) -> dict | None:
+        with Session(self._engine) as session:
+            row = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("SELECT backend, model, dim FROM index_meta WHERE owner_id = :o"),
+                {"o": owner_id},
+            ).fetchone()
+        return dict(row._mapping) if row else None
+
+    def upsert_index_meta(self, owner_id: str, backend: str, model: str, dim: int) -> None:
+        now = datetime.now(UTC).isoformat()
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "INSERT INTO index_meta (owner_id, backend, model, dim, updated_at)"
+                    " VALUES (:o, :b, :m, :d, :now)"
+                    " ON CONFLICT (owner_id) DO UPDATE SET"
+                    "  backend = :b, model = :m, dim = :d, updated_at = :now"
+                ),
+                {"o": owner_id, "b": backend, "m": model, "d": dim, "now": now},
+            )
+            session.commit()
