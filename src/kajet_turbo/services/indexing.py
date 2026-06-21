@@ -47,7 +47,9 @@ class NoteIndexer:
             # build). That must not lose the chunks: degrade to stale, write chunks anyway.
             logger.warning("index_resolve_failed", note_id=note_id)
             cfg = None
-        if cfg is None or cfg.api_key is None:
+        # No active profile → FTS-only (stale). A keyless profile (api_key is None) is a
+        # valid local/no-auth endpoint and DOES embed — the adapter omits the auth header.
+        if cfg is None:
             self._repo.replace_chunks(note_id, workspace, owner_id, title, chunks, None, None)
             return
 
@@ -111,7 +113,7 @@ class NoteIndexer:
         # fan-out. Best-effort: if no backend resolves, each note still indexes FTS-only.
         try:
             cfg = self._resolve_backend(owner_id)
-            if cfg is not None and cfg.api_key is not None:
+            if cfg is not None:  # keyless profiles embed too (adapter omits the auth header)
                 self._repo.ensure_vec_table(cfg.dim)
         except Exception:
             logger.warning("reindex_prepare_vec_failed", owner_id=owner_id)

@@ -679,7 +679,8 @@ class NoteService:
                 cfg = self._query_resolver(owner_id)
             except Exception:
                 cfg = None
-        embeddable = cfg is not None and cfg.api_key is not None
+        # An active profile (even keyless — a local/no-auth endpoint) drives vector search.
+        embeddable = cfg is not None
         backend_key = (cfg.backend_id, cfg.dim) if embeddable else None
 
         key = None

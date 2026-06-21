@@ -109,16 +109,19 @@ def test_index_note_no_backend_writes_chunks_stale(database):
     assert emb.calls == []
 
 
-def test_index_note_no_key_writes_chunks_stale(database):
+def test_index_note_keyless_profile_embeds(database):
+    # A keyless profile is a valid local/no-auth endpoint: it MUST still embed (the adapter
+    # omits the Authorization header), not silently degrade to FTS-only.
     _note(database)
     cfg = EmbedderConfig(
         backend_id="fake", type="fake", model="fake-m", dim=3, base_url="http://x", api_key=None
     )
-    indexer, _repo, emb = _indexer(database, cfg=cfg)
+    indexer, repo, emb = _indexer(database, cfg=cfg)
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
+    assert len(repo.get_chunks("n1")) >= 1
     with Session(database.engine) as session:
-        assert session.get(Note, "n1").index_state == "stale"
-    assert emb.calls == []
+        assert session.get(Note, "n1").index_state == "indexed"
+    assert len(emb.calls) == 1  # embedder was called despite no api_key
 
 
 def test_index_note_embedder_error_degrades_to_stale(database):
