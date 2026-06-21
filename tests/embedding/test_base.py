@@ -14,6 +14,18 @@ def test_embedder_config_defaults():
     assert cfg.api_key is None
 
 
+def test_api_key_excluded_from_repr():
+    cfg = EmbedderConfig(
+        backend_id="x",
+        type="openai",
+        model="m",
+        dim=8,
+        base_url="http://h/v1",
+        api_key="sk-secret",
+    )
+    assert "sk-secret" not in repr(cfg)
+
+
 def test_conforming_class_satisfies_protocol():
     class Fake:
         name = "fake"

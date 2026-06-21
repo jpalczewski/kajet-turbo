@@ -1,7 +1,7 @@
 """Embedder port: the contract every backend adapter implements, plus the resolved
 backend config that binds a registry definition to a user's API key."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 
@@ -14,7 +14,9 @@ class EmbedderConfig:
     base_url: str
     query_prefix: str = ""
     passage_prefix: str = ""
-    api_key: str | None = None  # resolved per-user (or instance fallback); None → cannot embed
+    # resolved per-user (or instance fallback); None → cannot embed.
+    # repr=False so a plaintext key never leaks via logs or tracebacks.
+    api_key: str | None = field(default=None, repr=False)
 
 
 @runtime_checkable
