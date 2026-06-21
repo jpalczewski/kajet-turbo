@@ -1,19 +1,27 @@
 <script lang="ts">
+  import type { TagNode } from '$lib/api';
   import { notesPath, workspaceSettingsPath } from '$lib/routes';
   import { breadcrumbCrumbs } from '$lib/breadcrumb';
   import { childFolders } from './tree';
   import ExplorerModeToggle from './ExplorerModeToggle.svelte';
+  import TagTree from './TagTree.svelte';
 
   let {
     slug,
     mode,
     folderPath,
     folders,
+    tags,
+    currentTag,
+    includeDescendants,
   }: {
     slug: string;
     mode: 'files' | 'tags';
     folderPath: string;
     folders: string[];
+    tags: TagNode[];
+    currentTag: string;
+    includeDescendants: boolean;
   } = $props();
 
   const crumbs = $derived(breadcrumbCrumbs(folderPath));
@@ -45,6 +53,10 @@
         {/each}
       </ul>
     {/if}
+  {:else if mode === 'tags'}
+    <div class="tag-tree-wrap">
+      <TagTree {tags} {currentTag} {includeDescendants} {slug} />
+    </div>
   {/if}
 
   <a class="settings" href={workspaceSettingsPath(slug)}>⚙ Ustawienia</a>
@@ -109,6 +121,10 @@
     &__chevron {
       color: v.$text-muted;
     }
+  }
+
+  .tag-tree-wrap {
+    border-top: 1px solid v.$border;
   }
 
   .settings {
