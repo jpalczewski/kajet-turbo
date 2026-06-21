@@ -62,6 +62,36 @@ class NoteIndexer:
         self._repo.replace_chunks(note_id, workspace, owner_id, title, chunks, embeddings, cfg.dim)
         self._repo.upsert_index_meta(owner_id, cfg.backend_id, cfg.model, cfg.dim)
 
+    def preview(self, title: str, content: str, owner_id: str) -> list[dict]:
+        """Live re-chunk of ``content`` with per-chunk 'embedded?' flags (a content-cache
+        hash lookup against the owner's resolved backend; no network, no stored rows). When
+        no backend resolves, every chunk reports embedded=False."""
+        chunks = chunk_markdown(content, title=title)
+        if not chunks:
+            return []
+        texts = [embedded_text(c) for c in chunks]
+        hashes = [content_hash(t) for t in texts]
+        cached: dict[str, list[float]] = {}
+        try:
+            cfg = self._resolve_backend(owner_id)
+        except Exception:
+            cfg = None
+        if cfg is not None:
+            cached = self._cache.get_many(hashes, cfg.backend_id, cfg.model)
+        return [
+            {
+                "ordinal": c.ordinal,
+                "header_path": list(c.header_path),
+                "content": c.content,
+                "embedded_text": texts[i],
+                "char_start": c.char_start,
+                "char_end": c.char_end,
+                "char_count": len(c.content),
+                "embedded": hashes[i] in cached,
+            }
+            for i, c in enumerate(chunks)
+        ]
+
     def index_many(self, workspace: str, owner_id: str, notes: list[dict]) -> None:
         """Reindex a batch of notes. Chunking (pure CPU) parallelizes across threads under
         free-threading; each note is embedded best-effort. A single note's failure is

@@ -152,6 +152,25 @@ class DeleteNoteResponse(BaseModel):
     ok: bool
 
 
+class ChunkPreviewItem(BaseModel):
+    ordinal: int
+    header_path: list[str]
+    content: str
+    embedded_text: str
+    char_start: int
+    char_end: int
+    char_count: int
+    embedded: bool
+
+
+class ChunkPreviewResponse(BaseModel):
+    note_id: str
+    title: str
+    index_state: str
+    chunk_count: int
+    chunks: list[ChunkPreviewItem]
+
+
 class TagNode(BaseModel):
     path: str
     name: str

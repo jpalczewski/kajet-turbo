@@ -280,6 +280,25 @@ class NoteService:
             "content": note_data["content"],
         }
 
+    def preview_chunks(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
+        """Live chunk preview for a note (reads current file content; never stored rows)."""
+        note = self._repo.get(note_id, owner_id=owner_id)
+        if note is None:
+            return None
+        data = self.get_with_content(note_id, owner_id, ws_path)
+        if data is None:
+            return None
+        chunks = (
+            self._indexer.preview(note.title, data["content"], owner_id) if self._indexer else []
+        )
+        return {
+            "note_id": note.id,
+            "title": note.title,
+            "index_state": note.index_state,
+            "chunk_count": len(chunks),
+            "chunks": chunks,
+        }
+
     def update(
         self,
         note_id: str,

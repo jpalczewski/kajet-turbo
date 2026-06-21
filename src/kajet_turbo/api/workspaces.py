@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import (
+    ChunkPreviewResponse,
     CreateFolderResponse,
     CreateNoteResponse,
     CreateWorkspaceResponse,
@@ -494,6 +495,27 @@ def api_get_note_markdown(
             "content": note["content"],
         }
     )
+
+
+@router.get("/api/workspaces/{name}/notes/{note_id}/chunks", response_model=ChunkPreviewResponse)
+@logged_route
+def api_get_note_chunks(
+    name: str,
+    note_id: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    ws_path = ws_service.workspace_path(user["id"], name)
+    preview = note_service.preview_chunks(note_id, owner_id=user["id"], ws_path=ws_path)
+    if preview is None:
+        return JSONResponse({"error": "Notatka nie istnieje."}, status_code=404)
+    return JSONResponse(preview)
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/links", response_model=LinksResponse)
