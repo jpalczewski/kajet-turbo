@@ -1,0 +1,37 @@
+// Subtle CRT scanline overlay. Apply once to the app shell (body); draws a fixed
+// full-viewport ::after layer that never intercepts pointer events.
+@mixin scanlines {
+  position: relative;
+
+  &::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.08) 0,
+      rgba(0, 0, 0, 0.08) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+}
+
+// Chromatic aberration — large headings / logo ONLY (never body or UI text).
+@mixin aberration($offset: 1px) {
+  text-shadow:
+    #{-$offset} 0 rgba(157, 92, 255, 0.55),
+    #{$offset} 0 rgba(61, 139, 255, 0.55);
+}
+
+// Soft box glow for accents / active states.
+@mixin glow($glow-color, $strength: 0.45) {
+  box-shadow: 0 0 10px rgba($glow-color, $strength);
+}
+
+// Soft text glow for headings / logo / links.
+@mixin text-glow($glow-color, $strength: 0.5) {
+  text-shadow: 0 0 8px rgba($glow-color, $strength);
+}
