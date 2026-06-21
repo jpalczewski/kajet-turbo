@@ -36,6 +36,7 @@ export const load: PageLoad = async ({ params, url, fetch, depends }) => {
       tagPath,
       includeDescendants,
       notes,
+      noteSelected: false,
       // file-mode fields kept so the page's data shape stays consistent
       tree: { folders: [], entries: [] },
       folderPath: '',
@@ -122,6 +123,7 @@ export const load: PageLoad = async ({ params, url, fetch, depends }) => {
     tree,
     folderPath,
     noteId,
+    noteSelected: !isFolder,
     slug,
     note,
     links,
