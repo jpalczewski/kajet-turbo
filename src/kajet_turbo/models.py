@@ -189,18 +189,25 @@ class EmbeddingCache(SQLModel, table=True):
     last_used_at: str
 
 
-class UserEmbeddingConfig(SQLModel, table=True):
-    """Per-user embedding backend selection + sealed API key (write-only over the API)."""
+class EmbeddingProfile(SQLModel, table=True):
+    """A user-owned embedding backend profile. The active one (``is_active``) drives
+    embedding + search. ``dim`` is auto-detected by a probe embed at save; ``api_key_enc``
+    is the sealed key (write-only over the API)."""
 
-    __tablename__ = "user_embedding_config"
+    __tablename__ = "embedding_profiles"
 
-    user_id: str = Field(
-        sa_column=Column(Text, ForeignKey("users.id"), primary_key=True, nullable=False)
-    )
-    backend_id: str | None = Field(default=None, sa_column=Column(Text))
+    id: str = Field(primary_key=True)
+    user_id: str = Field(sa_column=Column(Text, ForeignKey("users.id"), nullable=False))
+    name: str
+    base_url: str
+    model: str
     api_key_enc: bytes | None = Field(default=None, sa_column=Column(LargeBinary))
+    dim: int
+    is_active: bool = Field(default=False)
     created_at: str
     updated_at: str
+
+    __table_args__ = (Index("ix_embedding_profiles_user", "user_id"),)
 
 
 class NoteChunk(SQLModel, table=True):

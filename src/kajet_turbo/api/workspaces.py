@@ -18,6 +18,7 @@ from kajet_turbo.api.schemas import (
     NoteHtmlResponse,
     NoteMarkdownResponse,
     NotesListResponse,
+    ReindexResponse,
     RestoreVersionResponse,
     TagsResponse,
     UpdateNoteResponse,
@@ -150,6 +151,24 @@ def api_list_notes(
             size_bytes = 0
         enriched.append({**note, "size_bytes": size_bytes})
     return JSONResponse({"notes": enriched})
+
+
+@router.post("/api/workspaces/{name}/reindex", response_model=ReindexResponse)
+@logged_route
+def api_reindex_workspace(
+    name: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    ws_path = ws_service.workspace_path(user["id"], name)
+    result = note_service.reindex(name, owner_id=user["id"], ws_path=ws_path)
+    return JSONResponse(result)
 
 
 @router.get("/api/workspaces/{name}/tags", response_model=TagsResponse)

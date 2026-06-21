@@ -1,49 +1,30 @@
-"""resolve_backend(user_id): the single place that decides which embedding backend a
-user gets. Picks the user's backend_id (or the instance default) from the registry and
-binds the resolved API key (per-user sealed key → instance fallback → none)."""
+"""resolve_backend(user_id): resolves the user's ACTIVE embedding profile into an
+EmbedderConfig. The cache/index identity (backend_id) is the profile's base_url, so two
+profiles pointing at the same endpoint+model reuse cached embeddings. No active profile
+(or no profile) → None → callers degrade to FTS-only."""
 
-import os
-
-from sqlalchemy import Engine
+from collections.abc import Callable
 
 from kajet_turbo.embedding.base import EmbedderConfig
-from kajet_turbo.embedding.crypto import KeyCipher, cipher_from_env
-from kajet_turbo.embedding.registry import Registry, load_registry
-from kajet_turbo.repositories.embedding_config import EmbeddingConfigRepository
+from kajet_turbo.embedding.crypto import KeyCipher
+from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 
 
-class BackendResolver:
-    def __init__(
-        self,
-        registry: Registry,
-        config_repo: EmbeddingConfigRepository,
-        cipher: KeyCipher,
-        *,
-        instance_fallback_key: str | None = None,
-    ):
-        self._registry = registry
-        self._config_repo = config_repo
-        self._cipher = cipher
-        self._fallback_key = instance_fallback_key
+class ProfileResolver:
+    def __init__(self, repo: EmbeddingProfileRepository, cipher_factory: Callable[[], KeyCipher]):
+        self._repo = repo
+        self._cipher_factory = cipher_factory  # lazy: SECRET_KEY only needed to decrypt a key
 
     def resolve_backend(self, user_id: str) -> EmbedderConfig | None:
-        user_cfg = self._config_repo.get(user_id)
-        backend_id = user_cfg.backend_id if user_cfg else None
-        definition = self._registry.get(backend_id)
-        if definition is None:
+        p = self._repo.get_active(user_id)
+        if p is None:
             return None
-        api_key: str | None = None
-        if user_cfg and user_cfg.api_key_enc:
-            api_key = self._cipher.decrypt(user_cfg.api_key_enc)
-        if api_key is None:
-            api_key = self._fallback_key
-        return definition.to_config(api_key)
-
-
-def resolver_from_env(engine: Engine) -> BackendResolver:
-    return BackendResolver(
-        registry=load_registry(),
-        config_repo=EmbeddingConfigRepository(engine),
-        cipher=cipher_from_env(),
-        instance_fallback_key=os.getenv("EMBEDDING_API_KEY"),
-    )
+        api_key = self._cipher_factory().decrypt(p.api_key_enc) if p.api_key_enc else None
+        return EmbedderConfig(
+            backend_id=p.base_url,  # cache/index identity = endpoint
+            type="openai",
+            model=p.model,
+            dim=p.dim,
+            base_url=p.base_url,
+            api_key=api_key,
+        )

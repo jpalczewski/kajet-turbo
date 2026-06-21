@@ -44,24 +44,18 @@ export interface DeleteNoteResponse {
   ok: boolean;
 }
 
-export interface EmbeddingBackendItem {
-  backend_id: string;
-  type: string;
+export interface EmbeddingProfileItem {
+  id: string;
+  name: string;
+  base_url: string;
   model: string;
   dim: number;
-  base_url: string;
-}
-
-export interface EmbeddingBackendsResponse {
-  backends: EmbeddingBackendItem[];
-  default_id: string | null;
-  selected: string | null;
+  is_active: boolean;
   has_key: boolean;
 }
 
-export interface EmbeddingConfigResponse {
-  backend_id: string | null;
-  has_key: boolean;
+export interface EmbeddingProfilesResponse {
+  profiles: EmbeddingProfileItem[];
 }
 
 export type ValidationErrorCtx = { [key: string]: unknown };
@@ -163,6 +157,11 @@ export interface OkResponse {
 
 export interface PendingInfoResponse {
   client_name: string;
+}
+
+export interface ReindexResponse {
+  message: string;
+  count: number;
 }
 
 export interface RestoreVersionResponse {
@@ -564,6 +563,49 @@ export const getApiCreateNoteApiWorkspacesNameNotesPostUrl = (name: string,) => 
 export const apiCreateNoteApiWorkspacesNameNotesPost = async (name: string, options?: RequestInit): Promise<apiCreateNoteApiWorkspacesNameNotesPostResponse> => {
 
   return customFetch<apiCreateNoteApiWorkspacesNameNotesPostResponse>(getApiCreateNoteApiWorkspacesNameNotesPostUrl(name),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse200 = {
+  data: ReindexResponse
+  status: 200
+}
+
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponseSuccess = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponse200) & {
+  headers: Headers;
+};
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponseError = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponse422) & {
+  headers: Headers;
+};
+
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponseSuccess | apiReindexWorkspaceApiWorkspacesNameReindexPostResponseError)
+
+export const getApiReindexWorkspaceApiWorkspacesNameReindexPostUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/reindex`
+}
+
+/**
+ * @summary Api Reindex Workspace
+ */
+export const apiReindexWorkspaceApiWorkspacesNameReindexPost = async (name: string, options?: RequestInit): Promise<apiReindexWorkspaceApiWorkspacesNameReindexPostResponse> => {
+
+  return customFetch<apiReindexWorkspaceApiWorkspacesNameReindexPostResponse>(getApiReindexWorkspaceApiWorkspacesNameReindexPostUrl(name),
   {
     ...options,
     method: 'POST'
@@ -1166,32 +1208,32 @@ export const apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestoreP
 
 
 
-export type apiEmbeddingBackendsApiEmbeddingBackendsGetResponse200 = {
-  data: EmbeddingBackendsResponse
+export type apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponse200 = {
+  data: EmbeddingProfilesResponse
   status: 200
 }
 
-export type apiEmbeddingBackendsApiEmbeddingBackendsGetResponseSuccess = (apiEmbeddingBackendsApiEmbeddingBackendsGetResponse200) & {
+export type apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponseSuccess = (apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponse200) & {
   headers: Headers;
 };
 ;
 
-export type apiEmbeddingBackendsApiEmbeddingBackendsGetResponse = (apiEmbeddingBackendsApiEmbeddingBackendsGetResponseSuccess)
+export type apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponse = (apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponseSuccess)
 
-export const getApiEmbeddingBackendsApiEmbeddingBackendsGetUrl = () => {
-
-
+export const getApiListEmbeddingProfilesApiMeEmbeddingProfilesGetUrl = () => {
 
 
-  return `/api/embedding/backends`
+
+
+  return `/api/me/embedding-profiles`
 }
 
 /**
- * @summary Api Embedding Backends
+ * @summary Api List Embedding Profiles
  */
-export const apiEmbeddingBackendsApiEmbeddingBackendsGet = async ( options?: RequestInit): Promise<apiEmbeddingBackendsApiEmbeddingBackendsGetResponse> => {
+export const apiListEmbeddingProfilesApiMeEmbeddingProfilesGet = async ( options?: RequestInit): Promise<apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponse> => {
 
-  return customFetch<apiEmbeddingBackendsApiEmbeddingBackendsGetResponse>(getApiEmbeddingBackendsApiEmbeddingBackendsGetUrl(),
+  return customFetch<apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponse>(getApiListEmbeddingProfilesApiMeEmbeddingProfilesGetUrl(),
   {
     ...options,
     method: 'GET'
@@ -1202,35 +1244,164 @@ export const apiEmbeddingBackendsApiEmbeddingBackendsGet = async ( options?: Req
 
 
 
-export type apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponse200 = {
-  data: EmbeddingConfigResponse
+export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse200 = {
+  data: unknown
   status: 200
 }
 
-export type apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponseSuccess = (apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponse200) & {
+export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse200) & {
   headers: Headers;
 };
 ;
 
-export type apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponse = (apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponseSuccess)
+export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess)
 
-export const getApiSetEmbeddingConfigApiMeEmbeddingConfigPutUrl = () => {
-
-
+export const getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl = () => {
 
 
-  return `/api/me/embedding-config`
+
+
+  return `/api/me/embedding-profiles`
 }
 
 /**
- * @summary Api Set Embedding Config
+ * @summary Api Create Embedding Profile
  */
-export const apiSetEmbeddingConfigApiMeEmbeddingConfigPut = async ( options?: RequestInit): Promise<apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponse> => {
+export const apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost = async ( options?: RequestInit): Promise<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse> => {
 
-  return customFetch<apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponse>(getApiSetEmbeddingConfigApiMeEmbeddingConfigPutUrl(),
+  return customFetch<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse>(getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseSuccess = (apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse200) & {
+  headers: Headers;
+};
+export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseError = (apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse422) & {
+  headers: Headers;
+};
+
+export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse = (apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseSuccess | apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseError)
+
+export const getApiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutUrl = (profileId: string,) => {
+
+
+
+
+  return `/api/me/embedding-profiles/${profileId}`
+}
+
+/**
+ * @summary Api Update Embedding Profile
+ */
+export const apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPut = async (profileId: string, options?: RequestInit): Promise<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse> => {
+
+  return customFetch<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse>(getApiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutUrl(profileId),
   {
     ...options,
     method: 'PUT'
+
+
+  }
+);}
+
+
+
+export type apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponseSuccess = (apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponse200) & {
+  headers: Headers;
+};
+export type apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponseError = (apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponse = (apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponseSuccess | apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponseError)
+
+export const getApiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteUrl = (profileId: string,) => {
+
+
+
+
+  return `/api/me/embedding-profiles/${profileId}`
+}
+
+/**
+ * @summary Api Delete Embedding Profile
+ */
+export const apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDelete = async (profileId: string, options?: RequestInit): Promise<apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponse> => {
+
+  return customFetch<apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponse>(getApiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteUrl(profileId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseSuccess = (apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse200) & {
+  headers: Headers;
+};
+export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseError = (apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse422) & {
+  headers: Headers;
+};
+
+export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse = (apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseSuccess | apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseError)
+
+export const getApiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostUrl = (profileId: string,) => {
+
+
+
+
+  return `/api/me/embedding-profiles/${profileId}/activate`
+}
+
+/**
+ * @summary Api Activate Embedding Profile
+ */
+export const apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePost = async (profileId: string, options?: RequestInit): Promise<apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse> => {
+
+  return customFetch<apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse>(getApiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostUrl(profileId),
+  {
+    ...options,
+    method: 'POST'
 
 
   }

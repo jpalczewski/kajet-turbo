@@ -12,6 +12,7 @@ from alembic import command
 from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.metadata
     ClientAuthorization,
     EmbeddingCache,
+    EmbeddingProfile,
     IndexMeta,
     Note,
     NoteChunk,
@@ -25,7 +26,6 @@ from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.m
     OAuthRegisteredClient,
     Tag,
     User,
-    UserEmbeddingConfig,
     UserSession,
     WorkspaceAccess,
 )

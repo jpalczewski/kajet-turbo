@@ -30,6 +30,20 @@ def _ok(request):
     return httpx.Response(200, json={"data": data})
 
 
+def test_dim_zero_skips_check_for_probe():
+    # Probe mode: dim=0 means "unknown — call the embedder to discover the dimension".
+    # The dim guard must NOT fire (it always would, since len(vec) != 0), so the probe
+    # can read the returned vector length. Regression for the create/update-profile path.
+    cfg = EmbedderConfig(backend_id="b", type="openai", model="m", dim=0, base_url="http://h/v1")
+    client = httpx.AsyncClient(transport=httpx.MockTransport(_ok))
+    emb = OpenAICompatEmbedder(cfg, client)
+    try:
+        vec = asyncio.run(emb.embed_query("probe"))
+    finally:
+        asyncio.run(client.aclose())
+    assert len(vec) == 3  # probe would read this to set the profile's dim
+
+
 def test_embed_documents_prefixes_and_parses():
     captured = {}
 
@@ -114,6 +128,30 @@ def test_dim_mismatch_raises():
             asyncio.run(emb.embed_query("x"))
     finally:
         asyncio.run(client.aclose())
+
+
+def test_no_auth_header_when_api_key_none():
+    captured = {}
+
+    def handler(request):
+        captured["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3]}]})
+
+    cfg = EmbedderConfig(
+        backend_id="b",
+        type="openai",
+        model="m",
+        dim=3,
+        base_url="http://h/v1",
+        api_key=None,
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    emb = OpenAICompatEmbedder(cfg, client)
+    try:
+        asyncio.run(emb.embed_query("x"))
+    finally:
+        asyncio.run(client.aclose())
+    assert captured["auth"] is None
 
 
 def test_empty_documents_makes_no_request():
