@@ -1,4 +1,5 @@
 <script lang="ts">
+  import '@fontsource-variable/jetbrains-mono';
   import { page } from '$app/state';
   import Navbar from '$lib/components/Navbar.svelte';
   import '$lib/styles/global.scss';
