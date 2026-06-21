@@ -71,6 +71,24 @@ def test_index_note_embeds_and_marks_indexed(database):
     assert len(emb.calls) == 1
 
 
+def test_index_note_resolver_error_degrades_to_stale(database):
+    # resolve_backend raising (e.g. SECRET_KEY unset → cipher refuses) must not lose chunks.
+    _note(database)
+    repo = NoteRepository(database.engine)
+    cache = EmbeddingCacheRepository(database.engine)
+
+    def _boom(owner_id):
+        raise ValueError("SECRET_KEY must be set")
+
+    indexer = NoteIndexer(
+        repo=repo, cache=cache, resolve_backend=_boom, build_embedder=lambda c: _FakeEmbedder()
+    )
+    indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
+    assert len(repo.get_chunks("n1")) >= 1
+    with Session(database.engine) as session:
+        assert session.get(Note, "n1").index_state == "stale"
+
+
 def test_index_note_uses_cache_to_skip_embedding(database):
     _note(database)
     indexer, _repo, emb = _indexer(database, cfg=_cfg())

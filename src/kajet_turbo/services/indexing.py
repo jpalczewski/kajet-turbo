@@ -40,7 +40,13 @@ class NoteIndexer:
             self._repo.replace_chunks(note_id, workspace, owner_id, title, [], None, None)
             return
 
-        cfg = self._resolve_backend(owner_id)
+        try:
+            cfg = self._resolve_backend(owner_id)
+        except Exception:
+            # Resolving the backend can fail (e.g. SECRET_KEY unset → cipher refuses to
+            # build). That must not lose the chunks: degrade to stale, write chunks anyway.
+            logger.warning("index_resolve_failed", note_id=note_id)
+            cfg = None
         if cfg is None or cfg.api_key is None:
             self._repo.replace_chunks(note_id, workspace, owner_id, title, chunks, None, None)
             return
