@@ -707,6 +707,16 @@ class NoteService:
             resolved = self._repo.resolve_paths(ws_name, owner_id, pairs)
             if resolved:
                 self._repo.replace_links(note["id"], ws_name, owner_id, set(resolved.values()))
+        if self._indexer is not None:
+            try:
+                index_payload = [
+                    {"id": n["id"], "title": n["title"] or "", "content": n["content"] or ""}
+                    for n in notes
+                    if n["id"]
+                ]
+                self._indexer.index_many(ws_name, owner_id, index_payload)
+            except Exception:
+                logger.warning("reindex_chunk_index_failed", ws=ws_name)
         if self._cache is not None:
             self._cache.bump(ws_name, owner_id)
         logger.info(

@@ -56,6 +56,28 @@ class NoteIndexer:
         self._repo.replace_chunks(note_id, workspace, owner_id, title, chunks, embeddings, cfg.dim)
         self._repo.upsert_index_meta(owner_id, cfg.backend_id, cfg.model, cfg.dim)
 
+    def index_many(self, workspace: str, owner_id: str, notes: list[dict]) -> None:
+        """Reindex a batch of notes. Chunking (pure CPU) parallelizes across threads under
+        free-threading; each note is embedded best-effort. A single note's failure is
+        logged and skipped — it never aborts the batch. ``notes`` items need ``id``,
+        ``title``, ``content``."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _one(note: dict) -> None:
+            try:
+                self.index_note(
+                    note["id"],
+                    workspace,
+                    owner_id,
+                    note.get("title") or "",
+                    note.get("content") or "",
+                )
+            except Exception:
+                logger.warning("reindex_note_failed", note_id=note.get("id"))
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(_one, notes))
+
     def clear_note(self, note_id: str) -> None:
         """Drop a note's chunks + vectors (best-effort). Used before deleting the note row."""
         self._repo.replace_chunks(note_id, "", "", "", [], None, None)
