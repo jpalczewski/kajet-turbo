@@ -1,0 +1,68 @@
+"""OpenAI-compatible embeddings adapter (POST {base_url}/embeddings).
+
+One code path for OpenAI and any compatible gateway via ``base_url``. Async httpx
+(network I/O — never ``run_sync``). Inputs are prefixed (passage/query), batched, and
+char-truncated as a coarse token-limit guard before the request. The injected
+``AsyncClient`` keeps the adapter testable with ``httpx.MockTransport``.
+"""
+
+import httpx
+
+from kajet_turbo.embedding.base import EmbedderConfig
+
+_BATCH = 100
+# Coarse truncate guard, comfortably under typical 8k-token limits. MUST stay >= the
+# chunker's hard_max (kajet_turbo.chunking.DEFAULT_HARD_MAX) so a normal chunk + its
+# breadcrumb prefix is never silently truncated before embedding.
+_MAX_CHARS = 8000
+
+
+class OpenAICompatEmbedder:
+    def __init__(self, config: EmbedderConfig, client: httpx.AsyncClient):
+        self._config = config
+        self._client = client
+
+    @property
+    def name(self) -> str:
+        return self._config.backend_id
+
+    @property
+    def dim(self) -> int:
+        return self._config.dim
+
+    @property
+    def query_prefix(self) -> str:
+        return self._config.query_prefix
+
+    @property
+    def passage_prefix(self) -> str:
+        return self._config.passage_prefix
+
+    async def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return await self._embed([self.passage_prefix + t for t in texts])
+
+    async def embed_query(self, text: str) -> list[float]:
+        out = await self._embed([self.query_prefix + text])
+        return out[0]
+
+    async def _embed(self, inputs: list[str]) -> list[list[float]]:
+        if not inputs:
+            return []
+        url = f"{self._config.base_url.rstrip('/')}/embeddings"
+        headers = {"Authorization": f"Bearer {self._config.api_key}"}
+        vectors: list[list[float]] = []
+        for start in range(0, len(inputs), _BATCH):
+            batch = [t[:_MAX_CHARS] for t in inputs[start : start + _BATCH]]
+            resp = await self._client.post(
+                url, headers=headers, json={"model": self._config.model, "input": batch}
+            )
+            resp.raise_for_status()
+            data = sorted(resp.json()["data"], key=lambda d: d["index"])
+            for item in data:
+                vec = item["embedding"]
+                if len(vec) != self._config.dim:
+                    raise ValueError(
+                        f"embedder returned dim {len(vec)}, expected {self._config.dim}"
+                    )
+                vectors.append(vec)
+        return vectors

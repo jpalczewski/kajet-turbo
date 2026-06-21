@@ -11,9 +11,11 @@ from starlette.testclient import TestClient
 from kajet_turbo.api.workspaces import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import get_note_service, get_workspace_service
+from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.models import User
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -51,7 +53,13 @@ def api_client_factory(
         database = database_factory(f"api-{len(contexts)}.db")
         note_repository = NoteRepository(database.engine)
         workspace_repository = WorkspaceRepository(database.engine)
-        note_service = NoteService(note_repository)
+        note_indexer = NoteIndexer(
+            note_repository,
+            EmbeddingCacheRepository(database.engine),
+            resolve_backend=lambda owner_id: None,  # FTS-only in tests
+            build_embedder=lambda cfg: None,
+        )
+        note_service = NoteService(note_repository, indexer=note_indexer)
         workspace_service = WorkspaceService(workspace_repository, note_repository)
 
         if user_id is not None:

@@ -1,13 +1,23 @@
+import functools
+
 from starlette.requests import Request
 
 from kajet_turbo.auth import KajetOAuthProvider, create_auth
 from kajet_turbo.cache import WorkspaceCache, cache_enabled
 from kajet_turbo.db import Database
+from kajet_turbo.embedding import pooled_embedder_factory
+from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbeddingCache
+from kajet_turbo.embedding.crypto import cipher_from_env
+from kajet_turbo.embedding.registry import load_registry
+from kajet_turbo.embedding.resolver import BackendResolver, resolver_from_env
+from kajet_turbo.repositories.embedding_config import EmbeddingConfigRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.sessions import SessionRepository
 from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.services.embedding_config import EmbeddingConfigService
+from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -19,8 +29,47 @@ workspace_repo = WorkspaceRepository(db.engine)
 oauth_repo = OAuthRepository(db.engine)
 provider: KajetOAuthProvider = create_auth(oauth_repo)
 
-note_service = NoteService(note_repo, cache=WorkspaceCache() if cache_enabled() else None)
+
+# resolver_from_env builds the key cipher, which requires SECRET_KEY. Resolve it lazily
+# so importing this module (done at app startup and in tests) never hard-requires
+# SECRET_KEY — it's only needed when a note is actually indexed against a sealed key.
+@functools.cache
+def _backend_resolver() -> BackendResolver:
+    return resolver_from_env(db.engine)
+
+
+note_indexer = NoteIndexer(
+    repo=note_repo,
+    cache=EmbeddingCacheRepository(db.engine),
+    resolve_backend=lambda user_id: _backend_resolver().resolve_backend(user_id),
+    build_embedder=pooled_embedder_factory(),
+)
+
+_query_cache = QueryEmbeddingCache()
+
+note_service = NoteService(
+    note_repo,
+    cache=WorkspaceCache() if cache_enabled() else None,
+    indexer=note_indexer,
+    query_resolver=lambda user_id: _backend_resolver().resolve_backend(user_id),
+    build_embedder=pooled_embedder_factory(),
+    query_cache=_query_cache,
+)
 workspace_service = WorkspaceService(workspace_repo, note_repo)
+
+# Instance backend registry is parsed from env once at import; an empty env yields an
+# empty registry (no hard dependency at import). The cipher is resolved lazily via
+# cipher_from_env so SECRET_KEY is only required when a key is actually written.
+_embedding_registry = load_registry()
+embedding_config_service = EmbeddingConfigService(
+    _embedding_registry,
+    EmbeddingConfigRepository(db.engine),
+    cipher_from_env,
+)
+
+
+def get_embedding_config_service() -> EmbeddingConfigService:
+    return embedding_config_service
 
 
 def get_note_repo() -> NoteRepository:

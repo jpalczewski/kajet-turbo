@@ -5,6 +5,25 @@
  * OpenAPI spec version: 0.1.0
  */
 import { customFetch } from './fetcher';
+export interface ChunkPreviewItem {
+  ordinal: number;
+  header_path: string[];
+  content: string;
+  embedded_text: string;
+  char_start: number;
+  char_end: number;
+  char_count: number;
+  embedded: boolean;
+}
+
+export interface ChunkPreviewResponse {
+  note_id: string;
+  title: string;
+  index_state: string;
+  chunk_count: number;
+  chunks: ChunkPreviewItem[];
+}
+
 export interface ConsentResponse {
   redirect_uri: string;
 }
@@ -23,6 +42,26 @@ export interface CreateWorkspaceResponse {
 
 export interface DeleteNoteResponse {
   ok: boolean;
+}
+
+export interface EmbeddingBackendItem {
+  backend_id: string;
+  type: string;
+  model: string;
+  dim: number;
+  base_url: string;
+}
+
+export interface EmbeddingBackendsResponse {
+  backends: EmbeddingBackendItem[];
+  default_id: string | null;
+  selected: string | null;
+  has_key: boolean;
+}
+
+export interface EmbeddingConfigResponse {
+  backend_id: string | null;
+  has_key: boolean;
 }
 
 export type ValidationErrorCtx = { [key: string]: unknown };
@@ -898,6 +937,51 @@ export const apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGet = async (
 
 
 
+export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse200 = {
+  data: ChunkPreviewResponse
+  status: 200
+}
+
+export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponseSuccess = (apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse200) & {
+  headers: Headers;
+};
+export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponseError = (apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse = (apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponseSuccess | apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponseError)
+
+export const getApiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetUrl = (name: string,
+    noteId: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}/chunks`
+}
+
+/**
+ * @summary Api Get Note Chunks
+ */
+export const apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGet = async (name: string,
+    noteId: string, options?: RequestInit): Promise<apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse> => {
+
+  return customFetch<apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse>(getApiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetUrl(name,noteId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse200 = {
   data: LinksResponse
   status: 200
@@ -1075,6 +1159,78 @@ export const apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestoreP
   {
     ...options,
     method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiEmbeddingBackendsApiEmbeddingBackendsGetResponse200 = {
+  data: EmbeddingBackendsResponse
+  status: 200
+}
+
+export type apiEmbeddingBackendsApiEmbeddingBackendsGetResponseSuccess = (apiEmbeddingBackendsApiEmbeddingBackendsGetResponse200) & {
+  headers: Headers;
+};
+;
+
+export type apiEmbeddingBackendsApiEmbeddingBackendsGetResponse = (apiEmbeddingBackendsApiEmbeddingBackendsGetResponseSuccess)
+
+export const getApiEmbeddingBackendsApiEmbeddingBackendsGetUrl = () => {
+
+
+
+
+  return `/api/embedding/backends`
+}
+
+/**
+ * @summary Api Embedding Backends
+ */
+export const apiEmbeddingBackendsApiEmbeddingBackendsGet = async ( options?: RequestInit): Promise<apiEmbeddingBackendsApiEmbeddingBackendsGetResponse> => {
+
+  return customFetch<apiEmbeddingBackendsApiEmbeddingBackendsGetResponse>(getApiEmbeddingBackendsApiEmbeddingBackendsGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponse200 = {
+  data: EmbeddingConfigResponse
+  status: 200
+}
+
+export type apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponseSuccess = (apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponse200) & {
+  headers: Headers;
+};
+;
+
+export type apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponse = (apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponseSuccess)
+
+export const getApiSetEmbeddingConfigApiMeEmbeddingConfigPutUrl = () => {
+
+
+
+
+  return `/api/me/embedding-config`
+}
+
+/**
+ * @summary Api Set Embedding Config
+ */
+export const apiSetEmbeddingConfigApiMeEmbeddingConfigPut = async ( options?: RequestInit): Promise<apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponse> => {
+
+  return customFetch<apiSetEmbeddingConfigApiMeEmbeddingConfigPutResponse>(getApiSetEmbeddingConfigApiMeEmbeddingConfigPutUrl(),
+  {
+    ...options,
+    method: 'PUT'
 
 
   }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, ForeignKey, Index, Text
+from sqlalchemy import Column, ForeignKey, Index, LargeBinary, Text
 from sqlmodel import Field, SQLModel
 
 
@@ -43,7 +43,8 @@ class Note(SQLModel, table=True):
     tags: str | None = Field(default=None, sa_column=Column(Text))
     created_at: str
     updated_at: str
-    fts_rowid: int | None = None
+    index_state: str = Field(default="stale")  # 'stale' | 'indexed'
+    indexed_at: str | None = None
 
 
 class NoteLink(SQLModel, table=True):
@@ -170,3 +171,70 @@ class OAuthPendingAuthorization(SQLModel, table=True):
     client_json: str = Field(sa_column=Column(Text, nullable=False))
     params_json: str = Field(sa_column=Column(Text, nullable=False))
     expires_at: float
+
+
+class EmbeddingCache(SQLModel, table=True):
+    """Content-addressed cache of chunk embeddings, shared across users on the same
+    ``(backend, model)``. Key = sha256 of the exact embedded text + backend + model;
+    value is a float32 vector blob. Content-addressed ⇒ immutable, no invalidation."""
+
+    __tablename__ = "embedding_cache"
+
+    content_hash: str = Field(primary_key=True)
+    backend: str = Field(primary_key=True)
+    model: str = Field(primary_key=True)
+    dim: int
+    embedding: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    created_at: str
+    last_used_at: str
+
+
+class UserEmbeddingConfig(SQLModel, table=True):
+    """Per-user embedding backend selection + sealed API key (write-only over the API)."""
+
+    __tablename__ = "user_embedding_config"
+
+    user_id: str = Field(
+        sa_column=Column(Text, ForeignKey("users.id"), primary_key=True, nullable=False)
+    )
+    backend_id: str | None = Field(default=None, sa_column=Column(Text))
+    api_key_enc: bytes | None = Field(default=None, sa_column=Column(LargeBinary))
+    created_at: str
+    updated_at: str
+
+
+class NoteChunk(SQLModel, table=True):
+    """One structure-aware chunk of a note. ``chunk_rowid`` is the integer key linking
+    to the ``note_chunks_vec_{dim}`` row; ``content`` is the raw chunk body (the embedded
+    text = breadcrumb + content is recomputed in flight, never stored). ``dim`` records
+    which dim-sharded vec table holds this chunk's vector (NULL until embedded)."""
+
+    __tablename__ = "note_chunks"
+
+    chunk_rowid: int | None = Field(default=None, primary_key=True)
+    id: str
+    note_id: str = Field(sa_column=Column(Text, ForeignKey("notes.id"), nullable=False))
+    workspace: str
+    owner_id: str
+    ordinal: int
+    header_path: str  # JSON list, e.g. '["# Title","## Section"]'
+    content: str = Field(sa_column=Column(Text))
+    char_start: int
+    char_end: int
+    dim: int | None = None
+    created_at: str
+
+    __table_args__ = (Index("ix_note_chunks_note", "note_id"),)
+
+
+class IndexMeta(SQLModel, table=True):
+    """Per-user active embedding-index identity. Drives drift detection / per-user
+    reindex on backend switch (the rebuild itself lands in Plan 5)."""
+
+    __tablename__ = "index_meta"
+
+    owner_id: str = Field(primary_key=True)
+    backend: str
+    model: str
+    dim: int
+    updated_at: str

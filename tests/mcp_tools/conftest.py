@@ -7,10 +7,12 @@ from fastmcp import FastMCP
 
 from kajet_turbo.auth import create_auth
 from kajet_turbo.db import Database
+from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.mcp import build_mcp
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -32,8 +34,14 @@ def mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestCo
     workspace_repository = WorkspaceRepository(database.engine)
     oauth_repository = OAuthRepository(database.engine)
     provider = create_auth(oauth_repository)
+    indexer = NoteIndexer(
+        note_repository,
+        EmbeddingCacheRepository(database.engine),
+        resolve_backend=lambda o: None,
+        build_embedder=lambda c: None,
+    )
     server = build_mcp(
-        NoteService(note_repository),
+        NoteService(note_repository, indexer=indexer),
         WorkspaceService(workspace_repository, note_repository),
         oauth_repository,
         provider,

@@ -1,5 +1,6 @@
 # `builtins.list` is used in annotations because the public `list()` method
 # below shadows the `list` builtin within the class body.
+import asyncio
 import builtins
 import json
 import time
@@ -11,6 +12,7 @@ import frontmatter
 from nanoid import generate
 
 from kajet_turbo.cache import WorkspaceCache
+from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.log import logger
 from kajet_turbo.note_edit import apply_edit
 from kajet_turbo.repositories.git import GitError, GitRepository
@@ -42,9 +44,34 @@ class _ConfirmationRequired(Exception):
 
 
 class NoteService:
-    def __init__(self, note_repo: NoteRepository, cache: WorkspaceCache | None = None) -> None:
+    def __init__(
+        self,
+        note_repo: NoteRepository,
+        cache: WorkspaceCache | None = None,
+        indexer=None,
+        query_resolver=None,
+        build_embedder=None,
+        query_cache=None,
+    ) -> None:
         self._repo = note_repo
         self._cache = cache
+        self._indexer = indexer
+        self._query_resolver = query_resolver
+        self._build_embedder = build_embedder
+        self._query_cache = query_cache
+
+    def _index(self, note_id: str, ws_name: str, owner_id: str, title: str, content: str) -> None:
+        # Chunks + FTS are the reliable search backbone (written by replace_chunks inside
+        # index_note); a real DB write error surfaces. Network embedding is best-effort and
+        # is swallowed *inside* index_note, never here.
+        if self._indexer is None:
+            return
+        self._indexer.index_note(note_id, ws_name, owner_id, title, content)
+
+    def _clear_index(self, note_id: str) -> None:
+        if self._indexer is None:
+            return
+        self._indexer.clear_note(note_id)
 
     def _validate_wikilinks(self, ws_name: str, owner_id: str, content: str) -> set[str]:
         """Resolve every wikilink in ``content``; raise if any points to a missing note.
@@ -181,6 +208,7 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
+        self._index(note_id, ws_name, user_id, title, content)
         return {"note_id": note_id}
 
     def _resolve_link_notes(
@@ -250,6 +278,25 @@ class NoteService:
             "created_at": note.created_at,
             "updated_at": note.updated_at,
             "content": note_data["content"],
+        }
+
+    def preview_chunks(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
+        """Live chunk preview for a note (reads current file content; never stored rows)."""
+        note = self._repo.get(note_id, owner_id=owner_id)
+        if note is None:
+            return None
+        data = self.get_with_content(note_id, owner_id, ws_path)
+        if data is None:
+            return None
+        chunks = (
+            self._indexer.preview(note.title, data["content"], owner_id) if self._indexer else []
+        )
+        return {
+            "note_id": note.id,
+            "title": note.title,
+            "index_state": note.index_state,
+            "chunk_count": len(chunks),
+            "chunks": chunks,
         }
 
     def update(
@@ -361,6 +408,7 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_updated", note_id=note_id, folder=new_folder)
+        self._index(note_id, note.workspace, owner_id, new_title, new_content)
         return {"note_id": note_id}
 
     def move(self, note_id: str, owner_id: str, ws_path: str, folder: str) -> dict:
@@ -573,6 +621,7 @@ class NoteService:
             relative = str(Path(filepath).relative_to(ws_path))
             GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
         self._repo.delete_note_tags(note_id, note.workspace, owner_id)
+        self._clear_index(note_id)
         self._repo.delete(note_id, owner_id=owner_id)
         self._repo.delete_links_from(note_id)
         self._repo.delete_links_to(note_id)
@@ -621,17 +670,40 @@ class NoteService:
         owner_id: str,
         limit: int = 10,
     ) -> builtins.list[dict]:
+        # Resolve the backend identity up front so it is part of the cache key: a config
+        # change (backend switch / key add) must not keep serving the old backend's ranking
+        # from cache. resolve is a cheap indexed read, fine to run on cache hits too.
+        cfg = None
+        if self._query_resolver is not None:
+            try:
+                cfg = self._query_resolver(owner_id)
+            except Exception:
+                cfg = None
+        embeddable = cfg is not None and cfg.api_key is not None
+        backend_key = (cfg.backend_id, cfg.dim) if embeddable else None
+
         key = None
         if self._cache is not None:
             epochs = tuple(self._cache.epoch(ws, owner_id) for ws in workspaces)
-            key = ("search", owner_id, tuple(workspaces), epochs, query, limit)
+            key = ("search", owner_id, tuple(workspaces), epochs, query, limit, backend_key)
             cached = self._cache.get(key)
             if cached is not None:
                 return cached
+        embedding = None
+        dim = None
+        if embeddable:
+            try:
+                vec = self._embed_query(cfg, query)
+                embedding = pack_vector(vec)
+                dim = cfg.dim
+            except Exception:
+                logger.warning("search_embed_failed", backend=cfg.backend_id)
         per_ws_limit = limit * 3 if len(workspaces) > 1 else limit
         results = []
         for ws in workspaces:
-            hits = self._repo.hybrid_search(query, ws, owner_id, limit=per_ws_limit)
+            hits = self._repo.hybrid_search(
+                query, ws, owner_id, embedding=embedding, dim=dim, limit=per_ws_limit
+            )
             results.extend(hits)
         results = results[:limit]
         if self._cache is not None and key is not None:
@@ -640,6 +712,19 @@ class NoteService:
             "search_performed", query_len=len(query), results=len(results), ws_count=len(workspaces)
         )
         return results
+
+    def _embed_query(self, cfg, query: str) -> builtins.list[float]:
+        if self._query_cache is not None:
+            cached = self._query_cache.get(query, cfg.backend_id, cfg.model)
+            if cached is not None:
+                return cached
+        # Only reached when search() resolved a backend, which is wired together with
+        # build_embedder in the DI container; the None default is for cache-only test doubles.
+        embedder = self._build_embedder(cfg)  # ty: ignore[call-non-callable] - optional DI seam
+        vec = asyncio.run(embedder.embed_query(query))
+        if self._query_cache is not None:
+            self._query_cache.put(query, cfg.backend_id, cfg.model, vec)
+        return vec
 
     def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
         start = time.monotonic()
@@ -682,6 +767,16 @@ class NoteService:
             resolved = self._repo.resolve_paths(ws_name, owner_id, pairs)
             if resolved:
                 self._repo.replace_links(note["id"], ws_name, owner_id, set(resolved.values()))
+        if self._indexer is not None:
+            try:
+                index_payload = [
+                    {"id": n["id"], "title": n["title"] or "", "content": n["content"] or ""}
+                    for n in notes
+                    if n["id"]
+                ]
+                self._indexer.index_many(ws_name, owner_id, index_payload)
+            except Exception:
+                logger.warning("reindex_chunk_index_failed", ws=ws_name)
         if self._cache is not None:
             self._cache.bump(ws_name, owner_id)
         logger.info(

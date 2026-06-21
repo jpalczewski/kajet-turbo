@@ -30,7 +30,7 @@ class FakeRepo:
     def __init__(self) -> None:
         self.calls = 0
 
-    def hybrid_search(self, query, ws, owner_id, limit):
+    def hybrid_search(self, query, ws, owner_id, embedding=None, dim=None, limit=10):
         self.calls += 1
         return [{"note_id": "n1", "title": "t"}]
 

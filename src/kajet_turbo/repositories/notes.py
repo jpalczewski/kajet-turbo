@@ -9,6 +9,7 @@ from nanoid import generate
 from sqlalchemy import CursorResult, Engine, delete, text
 from sqlmodel import Session, col, func, select
 
+from kajet_turbo.log import logger
 from kajet_turbo.models import Note, NoteLink, NoteTag, Tag
 from kajet_turbo.tags import ancestors
 
@@ -28,6 +29,27 @@ class NoteRepository:
     def __init__(self, engine: Engine):
         self._engine = engine
 
+    def ensure_vec_table(self, dim: int) -> None:
+        """Lazily create the dim-sharded vec0 table for this dimension. ``dim`` MUST be a
+        positive int — it is interpolated into DDL, so a non-int is rejected to keep the
+        statement injection-proof."""
+        if not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0:
+            raise ValueError(f"dim must be a positive int, got {dim!r}")
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    f"CREATE VIRTUAL TABLE IF NOT EXISTS note_chunks_vec_{dim} USING vec0("
+                    " chunk_rowid INTEGER PRIMARY KEY,"
+                    f" embedding float[{dim}],"
+                    " workspace TEXT partition key,"
+                    " owner_id TEXT,"
+                    " note_id TEXT,"
+                    " chunk_id TEXT"
+                    ")"
+                )
+            )
+            session.commit()
+
     def insert(
         self,
         note_id: str,
@@ -41,16 +63,6 @@ class NoteRepository:
         folder: str = "",
     ) -> None:
         with Session(self._engine) as session:
-            result = session.execute(  # ty: ignore[deprecated] - raw SQL
-                text(
-                    "INSERT INTO notes_fts (note_id, workspace, title, content)"
-                    " VALUES (:note_id, :workspace, :title, :content)"
-                ),
-                {"note_id": note_id, "workspace": workspace, "title": title, "content": content},
-            )
-            # SQLite DML always yields a CursorResult; needed for `lastrowid`.
-            assert isinstance(result, CursorResult)
-            fts_rowid = result.lastrowid
             note = Note(
                 id=note_id,
                 workspace=workspace,
@@ -60,10 +72,130 @@ class NoteRepository:
                 tags=json.dumps(tags),
                 created_at=created_at,
                 updated_at=updated_at,
-                fts_rowid=fts_rowid,
             )
             session.add(note)
             session.commit()
+
+    def replace_chunks(
+        self,
+        note_id: str,
+        workspace: str,
+        owner_id: str,
+        title: str,
+        chunks: builtins.list,  # list[kajet_turbo.chunking.Chunk]
+        embeddings: builtins.list[builtins.list[float]] | None,
+        dim: int | None,
+    ) -> None:
+        """Replace all chunks (and vectors) for a note. ``embeddings`` is None (chunks only
+        → stale) or one vector per chunk (→ indexed, vectors into note_chunks_vec_{dim})."""
+        from kajet_turbo.embedding.cache import pack_vector
+
+        if embeddings is not None:
+            if dim is None:
+                raise ValueError("dim is required when embeddings are provided")
+            if len(embeddings) != len(chunks):
+                raise ValueError(
+                    f"embeddings ({len(embeddings)}) must match chunks ({len(chunks)})"
+                )
+        now = datetime.now(UTC).isoformat()
+        with Session(self._engine) as session:
+            old = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "SELECT DISTINCT dim FROM note_chunks WHERE note_id = :nid AND dim IS NOT NULL"
+                ),
+                {"nid": note_id},
+            ).fetchall()
+            for (old_dim,) in old:
+                session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(f"DELETE FROM note_chunks_vec_{int(old_dim)} WHERE note_id = :nid"),
+                    {"nid": note_id},
+                )
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("DELETE FROM note_chunks WHERE note_id = :nid"), {"nid": note_id}
+            )
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("DELETE FROM notes_fts WHERE note_id = :nid"), {"nid": note_id}
+            )
+
+            for i, chunk in enumerate(chunks):
+                chunk_id = generate(size=12)
+                result = session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(
+                        "INSERT INTO note_chunks"
+                        " (id, note_id, workspace, owner_id, ordinal, header_path, content,"
+                        "  char_start, char_end, dim, created_at)"
+                        " VALUES (:id, :nid, :ws, :owner, :ord, :hp, :content,"
+                        "  :cs, :ce, :dim, :now)"
+                    ),
+                    {
+                        "id": chunk_id,
+                        "nid": note_id,
+                        "ws": workspace,
+                        "owner": owner_id,
+                        "ord": chunk.ordinal,
+                        "hp": json.dumps(chunk.header_path),
+                        "content": chunk.content,
+                        "cs": chunk.char_start,
+                        "ce": chunk.char_end,
+                        "dim": dim if embeddings is not None else None,
+                        "now": now,
+                    },
+                )
+                assert isinstance(result, CursorResult)
+                if embeddings is not None:
+                    assert dim is not None  # validated above; narrows for the table name
+                    session.execute(  # ty: ignore[deprecated] - raw SQL
+                        text(
+                            f"INSERT INTO note_chunks_vec_{int(dim)}"
+                            " (chunk_rowid, embedding, workspace, owner_id, note_id, chunk_id)"
+                            " VALUES (:rowid, :emb, :ws, :owner, :nid, :cid)"
+                        ),
+                        {
+                            "rowid": result.lastrowid,
+                            "emb": pack_vector(embeddings[i]),
+                            "ws": workspace,
+                            "owner": owner_id,
+                            "nid": note_id,
+                            "cid": chunk_id,
+                        },
+                    )
+                session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(
+                        "INSERT INTO notes_fts"
+                        " (chunk_id, note_id, workspace, title, header_path, content)"
+                        " VALUES (:cid, :nid, :ws, :title, :hp, :content)"
+                    ),
+                    {
+                        "cid": chunk_id,
+                        "nid": note_id,
+                        "ws": workspace,
+                        "title": title,
+                        "hp": " ".join(chunk.header_path),
+                        "content": chunk.content,
+                    },
+                )
+
+            state = "indexed" if embeddings is not None else "stale"
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("UPDATE notes SET index_state = :s, indexed_at = :at WHERE id = :nid"),
+                {
+                    "s": state,
+                    "at": now if embeddings is not None else None,
+                    "nid": note_id,
+                },
+            )
+            session.commit()
+
+    def get_chunks(self, note_id: str) -> builtins.list[dict]:
+        with Session(self._engine) as session:
+            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "SELECT id, ordinal, header_path, content, char_start, char_end, dim"
+                    " FROM note_chunks WHERE note_id = :nid ORDER BY ordinal"
+                ),
+                {"nid": note_id},
+            ).fetchall()
+        return [dict(r._mapping) for r in rows]
 
     def check_unique(self, workspace: str, owner_id: str, folder: str, title: str) -> bool:
         """Returns True if no note with this (workspace, owner_id, folder, title) exists."""
@@ -137,41 +269,12 @@ class NoteRepository:
 
             new_title = title if title is not None else note.title
             new_tags = tags if tags is not None else json.loads(note.tags or "[]")
-            fts_rowid = note.fts_rowid
-            workspace = note.workspace
 
             note.title = new_title
             note.tags = json.dumps(new_tags)
             note.updated_at = updated_at
             if folder is not None:
                 note.folder = folder
-
-            if title is not None or content is not None:
-                old_fts = session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text("SELECT content FROM notes_fts WHERE rowid = :rowid"),
-                    {"rowid": fts_rowid},
-                ).fetchone()
-                old_content = old_fts.content if old_fts else ""
-                new_content = content if content is not None else old_content
-
-                session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text("DELETE FROM notes_fts WHERE rowid = :rowid"), {"rowid": fts_rowid}
-                )
-                result = session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text(
-                        "INSERT INTO notes_fts (note_id, workspace, title, content)"
-                        " VALUES (:note_id, :workspace, :title, :content)"
-                    ),
-                    {
-                        "note_id": note_id,
-                        "workspace": workspace,
-                        "title": new_title,
-                        "content": new_content,
-                    },
-                )
-                # SQLite DML always yields a CursorResult; needed for `lastrowid`.
-                assert isinstance(result, CursorResult)
-                note.fts_rowid = result.lastrowid
 
             session.add(note)
             session.commit()
@@ -182,11 +285,6 @@ class NoteRepository:
             if owner_id is not None:
                 q = q.where(Note.owner_id == owner_id)
             note = session.exec(q).first()
-            if note and note.fts_rowid:
-                session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text("DELETE FROM notes_fts WHERE rowid = :rowid"),
-                    {"rowid": note.fts_rowid},
-                )
             if note:
                 session.delete(note)
             session.commit()
@@ -527,6 +625,22 @@ class NoteRepository:
             ).fetchall()
         return [row[0] for row in rows]
 
+    _CHUNK_SELECT = (
+        " c.note_id AS note_id, n.title AS title, n.folder AS folder,"
+        " c.header_path AS header_path, c.content AS content"
+    )
+
+    @staticmethod
+    def _chunk_row(m, score):
+        return {
+            "note_id": m["note_id"],
+            "title": m["title"],
+            "folder": m["folder"],
+            "header_path": json.loads(m["header_path"]),
+            "content": m["content"],
+            "score": score,
+        }
+
     def search_fts(
         self, query: str, workspace: str, owner_id: str, limit: int = 50
     ) -> builtins.list[dict]:
@@ -534,69 +648,95 @@ class NoteRepository:
             with Session(self._engine) as session:
                 rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                     text(
-                        "SELECT n.id AS note_id, n.workspace, n.owner_id,"
-                        " n.title, n.tags, n.created_at, n.updated_at"
-                        " FROM notes_fts"
-                        " JOIN notes n ON n.fts_rowid = notes_fts.rowid"
-                        " WHERE notes_fts MATCH :query"
-                        "  AND n.workspace = :workspace AND n.owner_id = :owner_id"
+                        f"SELECT f.chunk_id AS chunk_id,{self._CHUNK_SELECT},"
+                        " bm25(notes_fts) AS rank"
+                        " FROM notes_fts f"
+                        " JOIN note_chunks c ON c.id = f.chunk_id"
+                        " JOIN notes n ON n.id = c.note_id"
+                        " WHERE notes_fts MATCH :q AND f.workspace = :ws AND n.owner_id = :o"
                         " ORDER BY rank LIMIT :limit"
                     ),
-                    {"query": query, "workspace": workspace, "owner_id": owner_id, "limit": limit},
+                    {"q": query, "ws": workspace, "o": owner_id, "limit": limit},
                 ).fetchall()
         except Exception:
+            # FTS5 MATCH raises on malformed user query syntax (the common, expected case);
+            # log so a genuine DB/table error isn't indistinguishable from "no results".
+            logger.warning("search_fts_failed", workspace=workspace)
             return []
-        return [{**dict(r._mapping), "tags": json.loads(r.tags or "[]")} for r in rows]
+        return [
+            {"chunk_id": r._mapping["chunk_id"], **self._chunk_row(r._mapping, None)} for r in rows
+        ]
+
+    def search_chunks_vec(
+        self, embedding: bytes, workspace: str, owner_id: str, dim: int, k: int = 50
+    ) -> builtins.list[dict]:
+        try:
+            with Session(self._engine) as session:
+                rows = session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(
+                        f"SELECT v.chunk_id AS chunk_id,{self._CHUNK_SELECT},"
+                        " v.distance AS distance"
+                        f" FROM note_chunks_vec_{int(dim)} v"
+                        " JOIN note_chunks c ON c.id = v.chunk_id"
+                        " JOIN notes n ON n.id = c.note_id"
+                        " WHERE v.embedding MATCH :emb AND k = :k AND v.workspace = :ws"
+                        "  AND n.owner_id = :o"
+                        " ORDER BY v.distance"
+                    ),
+                    {"emb": embedding, "k": k, "ws": workspace, "o": owner_id},
+                ).fetchall()
+        except Exception:
+            # The dim-sharded vec table is created lazily at index time; if the user has a
+            # backend configured but nothing embedded at this dim yet, the table is absent —
+            # degrade to FTS-only rather than crashing the search.
+            logger.warning("search_chunks_vec_failed", workspace=workspace, dim=dim)
+            return []
+        return [
+            {"chunk_id": r._mapping["chunk_id"], **self._chunk_row(r._mapping, None)} for r in rows
+        ]
 
     def delete_workspace_notes(self, workspace: str, owner_id: str) -> None:
+        params = {"workspace": workspace, "owner_id": owner_id}
         with Session(self._engine) as session:
+            # Clear this owner's chunk vectors (per dim present), then chunk-FTS and chunks,
+            # BEFORE deleting the note rows — note_chunks has an FK to notes.id with no
+            # cascade. FTS/vec are scoped via note_chunks (FTS has no owner_id column), so a
+            # shared workspace only loses the deleting owner's rows.
+            dims = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "SELECT DISTINCT dim FROM note_chunks"
+                    " WHERE workspace = :workspace AND owner_id = :owner_id AND dim IS NOT NULL"
+                ),
+                params,
+            ).fetchall()
+            for (dim,) in dims:
+                session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(
+                        f"DELETE FROM note_chunks_vec_{int(dim)}"
+                        " WHERE workspace = :workspace AND owner_id = :owner_id"
+                    ),
+                    params,
+                )
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
-                    "DELETE FROM notes_fts WHERE rowid IN"
-                    " (SELECT fts_rowid FROM notes WHERE workspace = :workspace"
-                    "  AND owner_id = :owner_id AND fts_rowid IS NOT NULL)"
+                    "DELETE FROM notes_fts WHERE chunk_id IN ("
+                    " SELECT id FROM note_chunks"
+                    " WHERE workspace = :workspace AND owner_id = :owner_id"
+                    ")"
                 ),
-                {"workspace": workspace, "owner_id": owner_id},
+                params,
+            )
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "DELETE FROM note_chunks WHERE workspace = :workspace AND owner_id = :owner_id"
+                ),
+                params,
             )
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("DELETE FROM notes WHERE workspace = :workspace AND owner_id = :owner_id"),
-                {"workspace": workspace, "owner_id": owner_id},
+                params,
             )
             session.commit()
-
-    def insert_vec(self, note_id: str, note_rowid: int, workspace: str, embedding: bytes) -> None:
-        with Session(self._engine) as session:
-            session.execute(  # ty: ignore[deprecated] - raw SQL
-                text(
-                    "INSERT INTO notes_vec (note_rowid, embedding, workspace, note_id)"
-                    " VALUES (:note_rowid, :embedding, :workspace, :note_id)"
-                ),
-                {
-                    "note_rowid": note_rowid,
-                    "embedding": embedding,
-                    "workspace": workspace,
-                    "note_id": note_id,
-                },
-            )
-            session.commit()
-
-    def search_vec(
-        self, embedding: bytes, workspace: str, owner_id: str, k: int = 20
-    ) -> builtins.list[dict]:
-        with Session(self._engine) as session:
-            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
-                text(
-                    "SELECT n.id AS note_id, n.workspace, n.owner_id,"
-                    " n.title, n.tags, n.created_at, n.updated_at, v.distance"
-                    " FROM notes_vec v"
-                    " JOIN notes n ON n.id = v.note_id"
-                    " WHERE v.embedding MATCH :embedding AND k = :k AND v.workspace = :workspace"
-                    "  AND n.owner_id = :owner_id"
-                    " ORDER BY v.distance"
-                ),
-                {"embedding": embedding, "k": k, "workspace": workspace, "owner_id": owner_id},
-            ).fetchall()
-        return [{**dict(r._mapping), "tags": json.loads(r.tags or "[]")} for r in rows]
 
     def hybrid_search(
         self,
@@ -604,30 +744,42 @@ class NoteRepository:
         workspace: str,
         owner_id: str,
         embedding: bytes | None = None,
+        dim: int | None = None,
         limit: int = 10,
+        per_note_cap: int = 3,
     ) -> builtins.list[dict]:
-        fts_results = self.search_fts(query, workspace, owner_id, limit=50)
-        if embedding is None:
-            return fts_results[:limit]
-
-        vec_results = self.search_vec(embedding, workspace, owner_id, k=50)
-        scores: dict[str, float] = {}
-        for rank, note in enumerate(fts_results):
-            scores[note["note_id"]] = scores.get(note["note_id"], 0) + 1 / (60 + rank)
-        for rank, note in enumerate(vec_results):
-            scores[note["note_id"]] = scores.get(note["note_id"], 0) + 1 / (60 + rank)
-
-        all_notes = {n["note_id"]: n for n in fts_results + vec_results}
-        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:limit]
-        return [all_notes[note_id] for note_id, _ in ranked if note_id in all_notes]
-
-    def has_vec_index(self, workspace: str) -> bool:
-        with Session(self._engine) as session:
-            count = session.execute(  # ty: ignore[deprecated] - raw SQL
-                text("SELECT COUNT(*) FROM notes_vec WHERE workspace = :workspace"),
-                {"workspace": workspace},
-            ).scalar()
-        return (count or 0) > 0
+        fts = self.search_fts(query, workspace, owner_id, limit=50)
+        if embedding is None or dim is None:
+            # Positional RRF-style scores so the public output always carries a numeric
+            # score, even in FTS-only mode (no vector backend available).
+            ranked = [{**hit, "score": 1.0 / (60 + rank)} for rank, hit in enumerate(fts)]
+        else:
+            vec = self.search_chunks_vec(embedding, workspace, owner_id, dim=dim, k=50)
+            scores: dict[str, float] = {}
+            by_id: dict[str, dict] = {}
+            for rank, hit in enumerate(fts):
+                cid = hit["chunk_id"]
+                scores[cid] = scores.get(cid, 0.0) + 1.0 / (60 + rank)
+                by_id[cid] = hit
+            for rank, hit in enumerate(vec):
+                cid = hit["chunk_id"]
+                scores[cid] = scores.get(cid, 0.0) + 1.0 / (60 + rank)
+                by_id.setdefault(cid, hit)
+            ranked = [
+                {**by_id[cid], "score": s}
+                for cid, s in sorted(scores.items(), key=lambda x: x[1], reverse=True)
+            ]
+        capped: builtins.list[dict] = []
+        per_note: dict[str, int] = {}
+        for hit in ranked:
+            nid = str(hit["note_id"])
+            if per_note.get(nid, 0) >= per_note_cap:
+                continue
+            per_note[nid] = per_note.get(nid, 0) + 1
+            capped.append(hit)
+            if len(capped) >= limit:
+                break
+        return [{k: v for k, v in h.items() if k != "chunk_id"} for h in capped]
 
     def workspace_stats(self, owner_id: str, workspaces: builtins.list[str]) -> dict[str, dict]:
         if not workspaces:
@@ -646,3 +798,25 @@ class NoteRepository:
                 workspace: {"file_count": file_count, "last_updated": last_updated}
                 for workspace, file_count, last_updated in rows
             }
+
+    def get_index_meta(self, owner_id: str) -> dict | None:
+        with Session(self._engine) as session:
+            row = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("SELECT backend, model, dim FROM index_meta WHERE owner_id = :o"),
+                {"o": owner_id},
+            ).fetchone()
+        return dict(row._mapping) if row else None
+
+    def upsert_index_meta(self, owner_id: str, backend: str, model: str, dim: int) -> None:
+        now = datetime.now(UTC).isoformat()
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "INSERT INTO index_meta (owner_id, backend, model, dim, updated_at)"
+                    " VALUES (:o, :b, :m, :d, :now)"
+                    " ON CONFLICT (owner_id) DO UPDATE SET"
+                    "  backend = :b, model = :m, dim = :d, updated_at = :now"
+                ),
+                {"o": owner_id, "b": backend, "m": model, "d": dim, "now": now},
+            )
+            session.commit()

@@ -1,9 +1,9 @@
-import struct
 from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import text
 
+from kajet_turbo.chunking import Chunk
 from kajet_turbo.db import Database
 from kajet_turbo.repositories.notes import NoteRepository
 
@@ -36,7 +36,6 @@ def test_schema_creates_virtual_tables(db):
     with db.engine.connect() as conn:
         names = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master")).fetchall()}
     assert any(n.startswith("notes_fts") for n in names)
-    assert any(n.startswith("notes_vec") for n in names)
 
 
 def test_vec_version_loaded(db):
@@ -139,18 +138,24 @@ def test_list_notes_limit_none_returns_all(notes):
     assert len(notes.list("ws1", owner_id="u1")) == 20  # default cap unchanged
 
 
-def test_fts_search_finds_by_title(notes):
-    notes.insert(
-        "id1",
-        "ws1",
-        "u1",
-        "Python async programming",
-        ["python"],
-        _now(),
-        _now(),
-        "tutorial o asyncio",
+def _index(notes, note_id, workspace, owner_id, title, content):
+    """Create a note row and a single FTS-indexed chunk for it (insert writes no FTS)."""
+    notes.insert(note_id, workspace, owner_id, title, [], _now(), _now(), content)
+    notes.replace_chunks(
+        note_id,
+        workspace,
+        owner_id,
+        title,
+        [Chunk(0, [f"# {title}"], content, 0, len(content))],
+        None,
+        None,
     )
-    notes.insert("id2", "ws1", "u1", "JavaScript basics", ["js"], _now(), _now(), "podstawy JS")
+
+
+def test_fts_search_finds_by_title(notes):
+    # FTS now indexes the chunk's header_path (the title-derived "# ..." breadcrumb).
+    _index(notes, "id1", "ws1", "u1", "Python async programming", "tutorial o asyncio")
+    _index(notes, "id2", "ws1", "u1", "JavaScript basics", "podstawy JS")
     results = notes.search_fts("async", "ws1", owner_id="u1")
     ids = [r["note_id"] for r in results]
     assert "id1" in ids
@@ -158,89 +163,39 @@ def test_fts_search_finds_by_title(notes):
 
 
 def test_fts_search_finds_by_content(notes):
-    notes.insert(
-        "id1", "ws1", "u1", "Notatka", [], _now(), _now(), "sqlite jest świetny do embeddingów"
-    )
+    _index(notes, "id1", "ws1", "u1", "Notatka", "sqlite jest świetny do embeddingów")
     results = notes.search_fts("embedding", "ws1", owner_id="u1")
     assert any(r["note_id"] == "id1" for r in results)
+    assert all("content" in r for r in results)
 
 
 def test_fts_search_respects_workspace(notes):
-    notes.insert("id1", "ws1", "u1", "Python notatka", [], _now(), _now(), "treść")
-    notes.insert("id2", "ws2", "u1", "Python inny workspace", [], _now(), _now(), "treść")
-    results = notes.search_fts("Python", "ws1", owner_id="u1")
+    _index(notes, "id1", "ws1", "u1", "Python notatka", "treść o pythonie")
+    _index(notes, "id2", "ws2", "u1", "Python inny workspace", "treść o pythonie")
+    results = notes.search_fts("python", "ws1", owner_id="u1")
     ids = [r["note_id"] for r in results]
     assert "id1" in ids
     assert "id2" not in ids
 
 
 def test_fts_search_respects_owner(notes):
-    notes.insert("id1", "ws1", "u1", "Python notatka u1", [], _now(), _now(), "treść")
-    notes.insert("id2", "ws1", "u2", "Python notatka u2", [], _now(), _now(), "treść")
-    results = notes.search_fts("Python", "ws1", owner_id="u1")
+    _index(notes, "id1", "ws1", "u1", "Python notatka u1", "treść o pythonie")
+    _index(notes, "id2", "ws1", "u2", "Python notatka u2", "treść o pythonie")
+    results = notes.search_fts("python", "ws1", owner_id="u1")
     ids = [r["note_id"] for r in results]
     assert "id1" in ids
     assert "id2" not in ids
 
 
 def test_fts_search_trigram_partial(notes):
-    notes.insert(
-        "id1", "ws1", "u1", "Programowanie", [], _now(), _now(), "nauka programowania w Pythonie"
-    )
+    _index(notes, "id1", "ws1", "u1", "Programowanie", "nauka programowania w Pythonie")
     results = notes.search_fts("gram", "ws1", owner_id="u1")
     assert any(r["note_id"] == "id1" for r in results)
 
 
-def test_update_note_title_only_preserves_fts_content(notes):
-    notes.insert(
-        "abc1234", "ws1", "u1", "Stary tytuł", [], _now(), _now(), "unikalna treść notatki"
-    )
-    notes.update("abc1234", title="Nowy tytuł", updated_at=_now())
-    results = notes.search_fts("unikalna", "ws1", owner_id="u1")
-    assert any(r["note_id"] == "abc1234" for r in results)
-
-
-def _fake_embedding(val: float, dim: int = 4) -> bytes:
-    return struct.pack(f"{dim}f", *[val] * dim)
-
-
-@pytest.fixture
-def db_small_dim(database_factory):
-    return database_factory("test-vec.db", embedding_dim=4)
-
-
-def test_insert_vec_and_search(db_small_dim):
-    repo = NoteRepository(db_small_dim.engine)
-    repo.insert("id1", "ws1", "u1", "Notatka A", [], _now(), _now(), "treść A")
-    repo.insert("id2", "ws1", "u1", "Notatka B", [], _now(), _now(), "treść B")
-
-    with db_small_dim.engine.connect() as conn:
-        row1 = conn.execute(text("SELECT rowid FROM notes WHERE id='id1'")).fetchone()
-        row2 = conn.execute(text("SELECT rowid FROM notes WHERE id='id2'")).fetchone()
-
-    repo.insert_vec("id1", row1[0], "ws1", _fake_embedding(0.1))
-    repo.insert_vec("id2", row2[0], "ws1", _fake_embedding(0.9))
-
-    results = repo.search_vec(_fake_embedding(0.1), "ws1", owner_id="u1", k=2)
-    assert results[0]["note_id"] == "id1"
-
-
 def test_hybrid_search_fallback_without_vec(notes):
-    notes.insert(
-        "id1", "ws1", "u1", "Python tutorial", [], _now(), _now(), "programowanie w Pythonie"
-    )
-    results = notes.hybrid_search("Python", "ws1", owner_id="u1")
-    assert any(r["note_id"] == "id1" for r in results)
-
-
-def test_hybrid_search_with_vec(db_small_dim):
-    repo = NoteRepository(db_small_dim.engine)
-    repo.insert("id1", "ws1", "u1", "Notatka wektorowa", [], _now(), _now(), "treść z wektorem")
-    with db_small_dim.engine.connect() as conn:
-        row = conn.execute(text("SELECT rowid FROM notes WHERE id='id1'")).fetchone()
-    repo.insert_vec("id1", row[0], "ws1", _fake_embedding(0.5))
-
-    results = repo.hybrid_search("wektorowa", "ws1", owner_id="u1", embedding=_fake_embedding(0.5))
+    _index(notes, "id1", "ws1", "u1", "Python tutorial", "programowanie w Pythonie")
+    results = notes.hybrid_search("python", "ws1", owner_id="u1", embedding=None)
     assert any(r["note_id"] == "id1" for r in results)
 
 
@@ -268,3 +223,15 @@ def test_resolve_paths_batch(notes):
 
 def test_resolve_paths_empty(notes):
     assert notes.resolve_paths("ws1", "u1", []) == {}
+
+
+def test_insert_writes_no_fts_rows(database):
+    from sqlalchemy import text
+
+    from kajet_turbo.repositories.notes import NoteRepository
+
+    repo = NoteRepository(database.engine)
+    repo.insert("n1", "ws", "u1", "Title", [], "2026-01-01", "2026-01-01", "body", "")
+    with database.engine.connect() as conn:
+        n = conn.execute(text("SELECT COUNT(*) FROM notes_fts WHERE note_id='n1'")).scalar()
+    assert n == 0  # FTS is now written only via replace_chunks (chunk-level)

@@ -11,7 +11,10 @@ from sqlmodel import Session, create_engine
 from alembic import command
 from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.metadata
     ClientAuthorization,
+    EmbeddingCache,
+    IndexMeta,
     Note,
+    NoteChunk,
     NoteLink,
     NoteTag,
     OAuthAccessToken,
@@ -22,6 +25,7 @@ from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.m
     OAuthRegisteredClient,
     Tag,
     User,
+    UserEmbeddingConfig,
     UserSession,
     WorkspaceAccess,
 )
@@ -69,21 +73,13 @@ class Database:
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-                    note_id   UNINDEXED,
-                    workspace UNINDEXED,
+                    chunk_id    UNINDEXED,
+                    note_id     UNINDEXED,
+                    workspace   UNINDEXED,
                     title,
+                    header_path,
                     content,
                     tokenize='trigram'
-                )
-            """)
-            )
-            session.execute(  # ty: ignore[deprecated] - raw SQL
-                text(f"""
-                CREATE VIRTUAL TABLE IF NOT EXISTS notes_vec USING vec0(
-                    note_rowid INTEGER PRIMARY KEY,
-                    embedding  float[{self.embedding_dim}],
-                    workspace  TEXT partition key,
-                    note_id    TEXT
                 )
             """)
             )

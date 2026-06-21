@@ -9,7 +9,7 @@ from kajet_turbo import models as _models  # noqa: F401 — registers models in 
 
 target_metadata = SQLModel.metadata
 
-VIRTUAL_TABLE_PREFIXES = ("notes_fts", "notes_vec")
+VIRTUAL_TABLE_PREFIXES = ("notes_fts", "note_chunks_vec")
 
 
 def include_object(obj, name, type_, reflected, compare_to):

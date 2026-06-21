@@ -4,7 +4,14 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MoveNoteDialog from '$lib/components/MoveNoteDialog.svelte';
   import Prose from '$lib/components/Prose.svelte';
-  import { noteEditPath, noteHistoryPath, notePath, notesPath, tagsPath } from '$lib/routes';
+  import {
+    noteChunksPath,
+    noteEditPath,
+    noteHistoryPath,
+    notePath,
+    notesPath,
+    tagsPath,
+  } from '$lib/routes';
   import { formatDate } from '$lib/utils/format';
 
   const slug = $derived(page.params.slug as string);
@@ -38,6 +45,8 @@
       <a href={noteHistoryPath(slug, note.note_id)} class="note-header__history-link">Historia</a>
       ·
       <a href={noteEditPath(slug, note.note_id)} class="note-header__history-link">Edytuj</a>
+      ·
+      <a href={noteChunksPath(slug, note.note_id)} class="note-header__history-link">Chunki</a>
       ·
       <MoveNoteDialog
         {slug}
