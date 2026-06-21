@@ -42,3 +42,6 @@ export const noteHistoryPath = (slug: string, id: string) =>
 
 export const noteChunksPath = (slug: string, id: string) =>
   resolve('/(protected)/workspace/[slug]/note/[id]/chunks', { slug, id });
+
+export const workspaceSettingsPath = (slug: string) =>
+  resolve('/(protected)/workspace/[slug]/settings', { slug });

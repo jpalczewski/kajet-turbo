@@ -27,7 +27,6 @@
 
 <main class="page">
   <h1>Ustawienia — {page.params.slug}</h1>
-  <p class="hint">Ustawienia workspace'u — do implementacji.</p>
 
   <section class="reindex">
     <h2>Indeks wyszukiwania</h2>

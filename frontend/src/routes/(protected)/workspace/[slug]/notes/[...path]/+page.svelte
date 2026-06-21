@@ -5,7 +5,13 @@
     apiCreateNoteApiWorkspacesNameNotesPost,
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
-  import { noteEditPath, noteInTreePath, notesPath, tagsPath } from '$lib/routes';
+  import {
+    noteEditPath,
+    noteInTreePath,
+    notesPath,
+    tagsPath,
+    workspaceSettingsPath,
+  } from '$lib/routes';
   import ExplorerModeToggle from './ExplorerModeToggle.svelte';
   import FolderTree from './FolderTree.svelte';
   import TagTree from './TagTree.svelte';
@@ -56,21 +62,24 @@
 <div class="explorer">
   <aside class="explorer__sidebar">
     <ExplorerModeToggle {slug} mode={data.mode} />
-    {#if data.mode === 'tags'}
-      <TagTree
-        tags={data.tags}
-        currentTag={data.tagPath}
-        includeDescendants={data.includeDescendants}
-        {slug}
-      />
-    {:else}
-      <FolderTree
-        folders={data.tree.folders}
-        currentFolder={data.folderPath}
-        {slug}
-        onCreateFolder={handleCreateFolder}
-      />
-    {/if}
+    <div class="explorer__tree">
+      {#if data.mode === 'tags'}
+        <TagTree
+          tags={data.tags}
+          currentTag={data.tagPath}
+          includeDescendants={data.includeDescendants}
+          {slug}
+        />
+      {:else}
+        <FolderTree
+          folders={data.tree.folders}
+          currentFolder={data.folderPath}
+          {slug}
+          onCreateFolder={handleCreateFolder}
+        />
+      {/if}
+    </div>
+    <a class="explorer__settings" href={workspaceSettingsPath(slug)}>⚙ Ustawienia</a>
   </aside>
 
   <section class="explorer__list">
@@ -127,6 +136,27 @@
       border-right: 1px solid v.$border;
       overflow: hidden;
       padding-top: v.$space-sm;
+      display: flex;
+      flex-direction: column;
+    }
+
+    &__tree {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    &__settings {
+      flex-shrink: 0;
+      border-top: 1px solid v.$border;
+      padding: 10px 12px;
+      font-family: v.$font-mono;
+      font-size: 0.72rem;
+      color: v.$text-muted;
+      text-decoration: none;
+      &:hover {
+        color: v.$accent;
+      }
     }
 
     &__list {
