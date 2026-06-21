@@ -53,20 +53,17 @@ class NoteService:
         self._indexer = indexer
 
     def _index(self, note_id: str, ws_name: str, owner_id: str, title: str, content: str) -> None:
+        # Chunks + FTS are the reliable search backbone (written by replace_chunks inside
+        # index_note); a real DB write error surfaces. Network embedding is best-effort and
+        # is swallowed *inside* index_note, never here.
         if self._indexer is None:
             return
-        try:
-            self._indexer.index_note(note_id, ws_name, owner_id, title, content)
-        except Exception:
-            logger.warning("note_index_failed", note_id=note_id)
+        self._indexer.index_note(note_id, ws_name, owner_id, title, content)
 
     def _clear_index(self, note_id: str) -> None:
         if self._indexer is None:
             return
-        try:
-            self._indexer.clear_note(note_id)
-        except Exception:
-            logger.warning("note_clear_index_failed", note_id=note_id)
+        self._indexer.clear_note(note_id)
 
     def _validate_wikilinks(self, ws_name: str, owner_id: str, content: str) -> set[str]:
         """Resolve every wikilink in ``content``; raise if any points to a missing note.

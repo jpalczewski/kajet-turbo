@@ -24,18 +24,43 @@ def test_save_triggers_indexing(database, git_workspace_factory):
     assert "body" in indexer.indexed[0][2]
 
 
-def test_save_succeeds_even_if_indexer_raises(database, git_workspace_factory):
-    class _Boom:
+def test_save_writes_fts_via_indexer(database, git_workspace_factory):
+    from sqlalchemy import text
+
+    from kajet_turbo.embedding.cache import EmbeddingCacheRepository
+    from kajet_turbo.services.indexing import NoteIndexer
+
+    repo = NoteRepository(database.engine)
+    indexer = NoteIndexer(
+        repo,
+        EmbeddingCacheRepository(database.engine),
+        resolve_backend=lambda o: None,
+        build_embedder=lambda c: None,
+    )
+    service = NoteService(repo, indexer=indexer)
+    ws = git_workspace_factory("ws")
+    service.save("u1", "ws", str(ws), "Title", "# Title\n\nsearchable body\n", tags=[])
+    with database.engine.connect() as conn:
+        n = conn.execute(
+            text("SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH 'searchable'")
+        ).scalar()
+    assert n >= 1
+
+
+def test_save_surfaces_chunk_write_failure(database, git_workspace_factory):
+    import pytest
+
+    class _BadIndexer:
         def index_note(self, *a, **k):
-            raise RuntimeError("indexing blew up")
+            raise RuntimeError("DB exploded")
 
         def clear_note(self, *a, **k):
-            raise RuntimeError("clear blew up")
+            pass
 
-    service = NoteService(NoteRepository(database.engine), indexer=_Boom())
+    service = NoteService(NoteRepository(database.engine), indexer=_BadIndexer())
     ws = git_workspace_factory("ws")
-    result = service.save("u1", "ws", str(ws), "Title", "# Title\n\nbody\n", tags=[])
-    assert "note_id" in result
+    with pytest.raises(RuntimeError):
+        service.save("u1", "ws", str(ws), "Title", "# Title\n\nbody\n", tags=[])
 
 
 def test_update_reindexes_with_new_content(database, git_workspace_factory):
