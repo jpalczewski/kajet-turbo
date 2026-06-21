@@ -1,5 +1,6 @@
 <script lang="ts">
   import { notesPath, workspacesPath } from '$lib/routes';
+  import { breadcrumbCrumbs } from '$lib/breadcrumb';
 
   let {
     slug,
@@ -7,16 +8,16 @@
     current = '',
   }: { slug: string; folder?: string | null; current?: string } = $props();
 
-  const segments = $derived(folder ? folder.split('/') : []);
+  const crumbs = $derived(breadcrumbCrumbs(folder ?? ''));
 </script>
 
 <nav class="breadcrumb">
   <a href={workspacesPath()} class="breadcrumb__link">Workspaces</a>
   <span class="breadcrumb__sep">/</span>
   <a href={notesPath(slug)} class="breadcrumb__link">{slug}</a>
-  {#each segments as segment, i (`${i}/${segment}`)}
+  {#each crumbs as crumb (crumb.folder)}
     <span class="breadcrumb__sep">/</span>
-    <span class="breadcrumb__folder">{segment}</span>
+    <span class="breadcrumb__folder">{crumb.label}</span>
   {/each}
   {#if current}
     <span class="breadcrumb__sep">/</span>
