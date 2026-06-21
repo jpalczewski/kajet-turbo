@@ -22,3 +22,10 @@ export function buildTree(paths: string[]): TreeNode[] {
 export function ancestors(folder: string): string[] {
   return folder ? folder.split('/').map((_, i, arr) => arr.slice(0, i + 1).join('/')) : [];
 }
+
+/** Immediate child folder paths of `parent` ('' = root), sorted. */
+export function childFolders(folders: string[], parent: string): string[] {
+  const prefix = parent ? `${parent}/` : '';
+  const depth = parent ? parent.split('/').length : 0;
+  return folders.filter((f) => f.startsWith(prefix) && f.split('/').length === depth + 1).sort();
+}
