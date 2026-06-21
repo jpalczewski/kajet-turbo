@@ -9,6 +9,7 @@ from nanoid import generate
 from sqlalchemy import CursorResult, Engine, delete, text
 from sqlmodel import Session, col, func, select
 
+from kajet_turbo.log import logger
 from kajet_turbo.models import Note, NoteLink, NoteTag, Tag
 from kajet_turbo.tags import ancestors
 
@@ -658,6 +659,9 @@ class NoteRepository:
                     {"q": query, "ws": workspace, "o": owner_id, "limit": limit},
                 ).fetchall()
         except Exception:
+            # FTS5 MATCH raises on malformed user query syntax (the common, expected case);
+            # log so a genuine DB/table error isn't indistinguishable from "no results".
+            logger.warning("search_fts_failed", workspace=workspace)
             return []
         return [
             {"chunk_id": r._mapping["chunk_id"], **self._chunk_row(r._mapping, None)} for r in rows
@@ -666,19 +670,27 @@ class NoteRepository:
     def search_chunks_vec(
         self, embedding: bytes, workspace: str, owner_id: str, dim: int, k: int = 50
     ) -> builtins.list[dict]:
-        with Session(self._engine) as session:
-            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
-                text(
-                    f"SELECT v.chunk_id AS chunk_id,{self._CHUNK_SELECT}, v.distance AS distance"
-                    f" FROM note_chunks_vec_{int(dim)} v"
-                    " JOIN note_chunks c ON c.id = v.chunk_id"
-                    " JOIN notes n ON n.id = c.note_id"
-                    " WHERE v.embedding MATCH :emb AND k = :k AND v.workspace = :ws"
-                    "  AND n.owner_id = :o"
-                    " ORDER BY v.distance"
-                ),
-                {"emb": embedding, "k": k, "ws": workspace, "o": owner_id},
-            ).fetchall()
+        try:
+            with Session(self._engine) as session:
+                rows = session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(
+                        f"SELECT v.chunk_id AS chunk_id,{self._CHUNK_SELECT},"
+                        " v.distance AS distance"
+                        f" FROM note_chunks_vec_{int(dim)} v"
+                        " JOIN note_chunks c ON c.id = v.chunk_id"
+                        " JOIN notes n ON n.id = c.note_id"
+                        " WHERE v.embedding MATCH :emb AND k = :k AND v.workspace = :ws"
+                        "  AND n.owner_id = :o"
+                        " ORDER BY v.distance"
+                    ),
+                    {"emb": embedding, "k": k, "ws": workspace, "o": owner_id},
+                ).fetchall()
+        except Exception:
+            # The dim-sharded vec table is created lazily at index time; if the user has a
+            # backend configured but nothing embedded at this dim yet, the table is absent —
+            # degrade to FTS-only rather than crashing the search.
+            logger.warning("search_chunks_vec_failed", workspace=workspace, dim=dim)
+            return []
         return [
             {"chunk_id": r._mapping["chunk_id"], **self._chunk_row(r._mapping, None)} for r in rows
         ]

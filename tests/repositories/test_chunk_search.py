@@ -105,6 +105,13 @@ def test_search_chunks_vec_knn(database):
     assert hits[0]["header_path"] == ["# Fruit"]
 
 
+def test_search_chunks_vec_missing_table_degrades(database):
+    # A backend configured before any indexing at its dim → no vec table yet. Must return []
+    # (degrade to FTS) instead of raising "no such table".
+    repo = NoteRepository(database.engine)
+    assert repo.search_chunks_vec(pack_vector([1.0, 0.0]), "ws", "u1", dim=999, k=10) == []
+
+
 def test_hybrid_search_caps_chunks_per_note(database):
     repo = NoteRepository(database.engine)
     with Session(database.engine) as session:

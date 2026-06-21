@@ -11,7 +11,10 @@ import httpx
 from kajet_turbo.embedding.base import EmbedderConfig
 
 _BATCH = 100
-_MAX_CHARS = 8000  # coarse truncate guard, comfortably under typical 8k-token limits
+# Coarse truncate guard, comfortably under typical 8k-token limits. MUST stay >= the
+# chunker's hard_max (kajet_turbo.chunking.DEFAULT_HARD_MAX) so a normal chunk + its
+# breadcrumb prefix is never silently truncated before embedding.
+_MAX_CHARS = 8000
 
 
 class OpenAICompatEmbedder:

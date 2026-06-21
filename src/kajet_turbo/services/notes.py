@@ -670,27 +670,34 @@ class NoteService:
         owner_id: str,
         limit: int = 10,
     ) -> builtins.list[dict]:
-        key = None
-        if self._cache is not None:
-            epochs = tuple(self._cache.epoch(ws, owner_id) for ws in workspaces)
-            key = ("search", owner_id, tuple(workspaces), epochs, query, limit)
-            cached = self._cache.get(key)
-            if cached is not None:
-                return cached
-        embedding = None
-        dim = None
+        # Resolve the backend identity up front so it is part of the cache key: a config
+        # change (backend switch / key add) must not keep serving the old backend's ranking
+        # from cache. resolve is a cheap indexed read, fine to run on cache hits too.
+        cfg = None
         if self._query_resolver is not None:
             try:
                 cfg = self._query_resolver(owner_id)
             except Exception:
                 cfg = None
-            if cfg is not None and cfg.api_key is not None:
-                try:
-                    vec = self._embed_query(cfg, query)
-                    embedding = pack_vector(vec)
-                    dim = cfg.dim
-                except Exception:
-                    logger.warning("search_embed_failed", backend=cfg.backend_id)
+        embeddable = cfg is not None and cfg.api_key is not None
+        backend_key = (cfg.backend_id, cfg.dim) if embeddable else None
+
+        key = None
+        if self._cache is not None:
+            epochs = tuple(self._cache.epoch(ws, owner_id) for ws in workspaces)
+            key = ("search", owner_id, tuple(workspaces), epochs, query, limit, backend_key)
+            cached = self._cache.get(key)
+            if cached is not None:
+                return cached
+        embedding = None
+        dim = None
+        if embeddable:
+            try:
+                vec = self._embed_query(cfg, query)
+                embedding = pack_vector(vec)
+                dim = cfg.dim
+            except Exception:
+                logger.warning("search_embed_failed", backend=cfg.backend_id)
         per_ws_limit = limit * 3 if len(workspaces) > 1 else limit
         results = []
         for ws in workspaces:

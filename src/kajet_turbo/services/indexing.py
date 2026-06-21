@@ -60,6 +60,11 @@ class NoteIndexer:
 
         self._repo.ensure_vec_table(cfg.dim)
         self._repo.replace_chunks(note_id, workspace, owner_id, title, chunks, embeddings, cfg.dim)
+        # Records the user's active (backend, model, dim). If the user later switches to a
+        # different-dim backend, notes that are never re-written keep vectors only in the old
+        # dim shard and silently fall back to FTS-only at search time. Detecting that drift
+        # here and reindexing into the new shard is a planned follow-up (backend-switch
+        # reindex); for now a manual reindex_workspace after a switch repopulates them.
         self._repo.upsert_index_meta(owner_id, cfg.backend_id, cfg.model, cfg.dim)
 
     def preview(self, title: str, content: str, owner_id: str) -> list[dict]:
@@ -86,6 +91,8 @@ class NoteIndexer:
                 "embedded_text": texts[i],
                 "char_start": c.char_start,
                 "char_end": c.char_end,
+                # body length — the metric the chunk-size thresholds are tuned against;
+                # the embedded text (breadcrumb + body) is exposed separately as embedded_text.
                 "char_count": len(c.content),
                 "embedded": hashes[i] in cached,
             }
@@ -98,6 +105,16 @@ class NoteIndexer:
         logged and skipped — it never aborts the batch. ``notes`` items need ``id``,
         ``title``, ``content``."""
         from concurrent.futures import ThreadPoolExecutor
+
+        # Pre-create the owner's dim-sharded vec table once (idempotent) so the worker
+        # threads don't race the CREATE-VIRTUAL-TABLE-IF-NOT-EXISTS existence check during
+        # fan-out. Best-effort: if no backend resolves, each note still indexes FTS-only.
+        try:
+            cfg = self._resolve_backend(owner_id)
+            if cfg is not None and cfg.api_key is not None:
+                self._repo.ensure_vec_table(cfg.dim)
+        except Exception:
+            logger.warning("reindex_prepare_vec_failed", owner_id=owner_id)
 
         def _one(note: dict) -> None:
             try:
