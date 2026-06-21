@@ -1,11 +1,11 @@
 import type { PageLoad } from './$types';
 import { loadApi } from '$lib/api/load';
-import { apiEmbeddingBackendsApiEmbeddingBackendsGet } from '$lib/api';
+import { apiListEmbeddingProfilesApiMeEmbeddingProfilesGet } from '$lib/api';
 
 export const load: PageLoad = async () => {
   const res = await loadApi(
-    apiEmbeddingBackendsApiEmbeddingBackendsGet(),
+    apiListEmbeddingProfilesApiMeEmbeddingProfilesGet(),
     'Nie znaleziono ustawień.',
   );
-  return { embedding: res.data };
+  return { profiles: res.data.profiles };
 };
