@@ -116,6 +116,30 @@ def test_dim_mismatch_raises():
         asyncio.run(client.aclose())
 
 
+def test_no_auth_header_when_api_key_none():
+    captured = {}
+
+    def handler(request):
+        captured["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3]}]})
+
+    cfg = EmbedderConfig(
+        backend_id="b",
+        type="openai",
+        model="m",
+        dim=3,
+        base_url="http://h/v1",
+        api_key=None,
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    emb = OpenAICompatEmbedder(cfg, client)
+    try:
+        asyncio.run(emb.embed_query("x"))
+    finally:
+        asyncio.run(client.aclose())
+    assert captured["auth"] is None
+
+
 def test_empty_documents_makes_no_request():
     def handler(request):  # pragma: no cover - must never be called
         raise AssertionError("no HTTP call expected for empty input")

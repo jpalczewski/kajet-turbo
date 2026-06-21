@@ -49,7 +49,9 @@ class OpenAICompatEmbedder:
         if not inputs:
             return []
         url = f"{self._config.base_url.rstrip('/')}/embeddings"
-        headers = {"Authorization": f"Bearer {self._config.api_key}"}
+        headers = {}
+        if self._config.api_key is not None:
+            headers["Authorization"] = f"Bearer {self._config.api_key}"
         vectors: list[list[float]] = []
         for start in range(0, len(inputs), _BATCH):
             batch = [t[:_MAX_CHARS] for t in inputs[start : start + _BATCH]]
