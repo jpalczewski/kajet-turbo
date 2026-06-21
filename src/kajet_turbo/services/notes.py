@@ -42,9 +42,31 @@ class _ConfirmationRequired(Exception):
 
 
 class NoteService:
-    def __init__(self, note_repo: NoteRepository, cache: WorkspaceCache | None = None) -> None:
+    def __init__(
+        self,
+        note_repo: NoteRepository,
+        cache: WorkspaceCache | None = None,
+        indexer=None,
+    ) -> None:
         self._repo = note_repo
         self._cache = cache
+        self._indexer = indexer
+
+    def _index(self, note_id: str, ws_name: str, owner_id: str, title: str, content: str) -> None:
+        if self._indexer is None:
+            return
+        try:
+            self._indexer.index_note(note_id, ws_name, owner_id, title, content)
+        except Exception:
+            logger.warning("note_index_failed", note_id=note_id)
+
+    def _clear_index(self, note_id: str) -> None:
+        if self._indexer is None:
+            return
+        try:
+            self._indexer.clear_note(note_id)
+        except Exception:
+            logger.warning("note_clear_index_failed", note_id=note_id)
 
     def _validate_wikilinks(self, ws_name: str, owner_id: str, content: str) -> set[str]:
         """Resolve every wikilink in ``content``; raise if any points to a missing note.
@@ -181,6 +203,7 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
+        self._index(note_id, ws_name, user_id, title, content)
         return {"note_id": note_id}
 
     def _resolve_link_notes(
@@ -361,6 +384,7 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_updated", note_id=note_id, folder=new_folder)
+        self._index(note_id, note.workspace, owner_id, new_title, new_content)
         return {"note_id": note_id}
 
     def move(self, note_id: str, owner_id: str, ws_path: str, folder: str) -> dict:
@@ -573,6 +597,7 @@ class NoteService:
             relative = str(Path(filepath).relative_to(ws_path))
             GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
         self._repo.delete_note_tags(note_id, note.workspace, owner_id)
+        self._clear_index(note_id)
         self._repo.delete(note_id, owner_id=owner_id)
         self._repo.delete_links_from(note_id)
         self._repo.delete_links_to(note_id)
