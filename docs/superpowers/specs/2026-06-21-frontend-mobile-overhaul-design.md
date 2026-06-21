@@ -5,7 +5,7 @@
 
 ## Overview
 
-Przebudowa frontendu tak, by był w pełni używalny na mobile (priorytet: iPhone/Safari), z **pełnym CRUD** na telefonie — nie tylko czytaniem. Trzy osie, prowadzone w kolejności „fundament najpierw":
+Przebudowa frontendu tak, by był w pełni używalny na mobile (priorytet: iPhone/Safari), z **pełnym CRUD** na telefonie — nie tylko czytaniem. Trzy osie:
 
 1. **Separacja logiki od UI** — czysta, testowalna logika w modułach `*.ts`; `.svelte` cienkie i deklaratywne.
 2. **Testy jednostkowe** — `vitest` na wydzieloną logikę.
@@ -13,7 +13,7 @@ Przebudowa frontendu tak, by był w pełni używalny na mobile (priorytet: iPhon
 
 Stan wyjściowy: SvelteKit 5 (runes), `adapter-static`, motyw black&gold, **zero media queries** w aplikacji. Rdzeń to sztywny 3-kolumnowy explorer (`grid-template-columns: 200px 280px 1fr; height: calc(100vh - 48px)`), który na ~390px daje poziomy scroll i chowa 2 z 3 paneli. Logika jest częściowo wydzielona (`tree.ts`, `tagTree.ts`, `tags.ts`, `format.ts`, `routes.ts`), brak testów frontendowych.
 
-Projekt dzielimy na **dwa specy/plany**: **Spec A (fundament)** i **Spec B (mobile UI)**. Ten dokument opisuje wspólną architekturę i zakres obu; do implementacji wchodzi najpierw Spec A.
+**Strategia: szybki działający mobile przed czystością warstw.** Zamiast najpierw budować cały fundament (testy + ekstrakcja), a dopiero potem UI, prowadzimy **interleave**: wchodzimy od razu w największy ból (responsywny explorer), a logikę wydzielamy *just-in-time* pod komponenty, których i tak dotykamy — z testami od razu przy ekstrakcji. Telefon staje się używalny po pierwszej-drugiej fazie, nie na końcu. Sekwencja w §6.
 
 ---
 
@@ -31,14 +31,17 @@ Nowe — wydzielone z komponentów:
 - `breadcrumb.ts` — segmenty breadcrumb ze ścieżki (logika z `Breadcrumb.svelte`).
 - `noteLinks.ts` — parsowanie/grupowanie linków (logika z `NoteLinksPanel.svelte`).
 - `tagEditor.ts` — derywacje z `TagEditor.svelte`: `computeCandidates(tags, suggestions)` i `computeOptions(query, candidates, tags)` (dziś jako `$derived.by` inline). To realna logika warta testów (normalizacja, dedup, opcja „create").
-- `validation.ts` — reguły walidacji: tytuł notatki, ścieżka folderu, nazwa workspace.
-- `explorerView.ts` — `activePane(params) -> 'tree' | 'list' | 'preview'` na potrzeby drill-down na mobile.
+- `explorerView.ts` — `activePane(loadData) -> 'tree' | 'list' | 'preview'` na potrzeby drill-down na mobile. **Uwaga:** funkcja czyta wynik `load` (`noteId`, `folderPath`, `mode`), nie surowe `params` — bo to backend (`ls`) rozstrzyga, czy ostatni segment URL-a to folder czy notatka.
+
+`validation.ts` **wycięte ze Spec** — dziś nie ma walidacji po stronie klienta (backend waliduje, front pokazuje błąd), więc to byłby nowy feature, nie ekstrakcja. Dodamy lekką walidację (np. pusty tytuł) ad hoc tylko jeśli realnie zaboli.
 
 ### 1b. `commands/` — cienkie akcje API
 
 Opakowują wywołania orval + `apiErrorMessage` + `jsonBody`. Dziś logika ta jest zduplikowana inline w `notes/[...path]/+page.svelte` (`handleCreateFolder`, `handleCreateNote`, `handleMoveNote`) i w `MoveNoteDialog.svelte` (`moveNote`).
 
-`$lib/commands/notes.ts`: `createNote`, `createFolder`, `moveNote` — zwracają znormalizowany wynik lub rzucają znormalizowany błąd. **Nawigacja (`goto`/`invalidate`) zostaje w komponencie** — to koncern UI, nie command. Commands są cienkie; testy opcjonalne (poza zakresem „logika"), wartość = dedup + czyste komponenty.
+`$lib/commands/notes.ts`: `createNote`, `createFolder`, `moveNote` — zwracają znormalizowany wynik lub rzucają znormalizowany błąd. **Nawigacja (`goto`/`invalidate`) zostaje w komponencie** — to koncern UI, nie command. Commands są cienkie; testy opcjonalne (poza zakresem „logika"), wartość = dedup boilerplate'u (`jsonBody` + status-check + `apiErrorMessage`) + czyste komponenty.
+
+**Minimalnie, bez ceremonii** — to garść funkcji, nie warstwa z abstrakcją. Jeśli w praktyce okaże się, że dają tylko narzut, zwijamy je z powrotem do kolokowanych helperów. Robimy je tylko przy komponentach, które i tak ruszamy (interleave).
 
 ### 1c. Prezentacja (`.svelte`)
 
@@ -83,7 +86,11 @@ Ekstrakcja tylko tam, gdzie ≥2 realne użycia lub wyraźna potrzeba mobile. Ka
 
 Wybrany model nawigacji mobilnej: **drill-down** (wariant A). Na desktopie ≥768px bez zmian — grid 3-kolumnowy (drzewo | lista | podgląd). Na mobile `PaneStack` pokazuje **jeden panel na ekran**, pełna szerokość; „w głąb" (folder → lista → notatka) i „wstecz" w górę hierarchii.
 
-Kluczowa właściwość: nawigacja siedzi już w URL-ach (`notes/[...path]`, `note/[id]`), więc to **kompozycja responsywna, nie nowy stan**. `explorerView.activePane(params)` wybiera widoczny panel; te same komponenty (`FolderTree`/`TagTree`, `NotesList`, `NotePreview`) renderują się raz — desktop składa je obok siebie, mobile pokazuje aktywny. Breadcrumb/„wstecz" wynika z `breadcrumb.ts`.
+Kluczowa właściwość: depth siedzi już w URL-u — `notes/<folder>` (ostatni segment = folder) vs `notes/<folder>/<noteId>` (ostatni segment = notatka), rozstrzygane w `load`. Więc to **kompozycja responsywna, nie nowy stan**. `explorerView.activePane(loadData)` wybiera widoczny panel; te same komponenty (`NotesList`, `NotePreview`) renderują się raz — desktop składa je obok siebie, mobile pokazuje aktywny. Breadcrumb/„wstecz" wynika z `breadcrumb.ts`.
+
+### Centralny problem projektowy mobile: scalenie drzewo+lista
+
+Na desktopie **drzewo folderów** (`FolderTree`, rekurencyjne, zawsze całe) i **lista notatek** (`NotesList`, płaska, bieżący folder) to dwa osobne panele obok siebie. Na mobile ekran pojedynczego folderu musi pokazać **i podfoldery, i notatki naraz** — inaczej nie da się zejść w głąb. To nie jest „pokaż 1 z 3 paneli", tylko **mobilny widok folderu** = (podfoldery jako wiersze nawigacyjne „w głąb") + (notatki jako wiersze otwierające podgląd). `activePane` rozróżnia tylko poziom (folder vs notatka); sam mobilny widok folderu to nowy, mały komponent kompozytowy nad istniejącymi danymi `tree`/`notes`. **To najtrudniejsza decyzja UX tej przebudowy** — rozstrzygamy ją w fazie explorera, na makietach w companionie.
 
 Dialogi (`MoveNoteDialog`, `TagEditor`) przechodzą na `Modal`/Sheet → na mobile bottom-sheet.
 
@@ -93,26 +100,23 @@ Dialogi (`MoveNoteDialog`, `TagEditor`) przechodzą na `Modal`/Sheet → na mobi
 
 - `vitest` w środowisku **node** (czyste funkcje, bez jsdom). `vitest.config.ts` (lub przez vite config). Skrypt `test` w `package.json`; dopięty do weryfikacji (skill `check` / `bun run test`).
 - `*.test.ts` **kolokowane** przy modułach logiki (idiomatyczne dla vite).
-- Cele: wszystkie moduły z §1a (`tree`, `tagTree`, `breadcrumb`, `noteLinks`, `tagEditor`, `validation`, `explorerView`, `format`, builders w `routes`).
+- Cele: wszystkie moduły z §1a (`tree`, `tagTree`, `breadcrumb`, `noteLinks`, `tagEditor`, `explorerView`, `format`, builders w `routes`).
 - Komponenty `.svelte` bez testów (zgodnie z decyzją). Jeśli w przyszłości komponenty — wtedy jsdom + Testing Library (poza zakresem).
 
 **Trade-off:** kolokacja vs katalog `tests/`, node vs jsdom. Pure logic → node, szybko, bez DOM.
 
 ---
 
-## 6. Dekompozycja i sekwencja
+## 6. Sekwencja (interleave, ból-najpierw)
 
-### Spec A — Fundament (wchodzi pierwszy do planu)
-1. **Tooling:** `vitest` + skrypt; `_breakpoints.scss` + `$bp-*`; globalne mobile-fixy (`100dvh`, `viewport-fit`, safe-area, hover-gating). Bez zmian wizualnych poza fixami.
-2. **Wydzielenie logiki:** przeniesienie czystych funkcji z komponentów do `*.ts` (§1a) + `commands/` (§1b); komponenty bez zmian behawioralnych.
-3. **Testy:** pokrycie `vitest` modułów z §1a.
+Jeden spec, fazy uporządkowane wg bólu mobile. Logika wydzielana *just-in-time* pod komponenty danej fazy, testy `vitest` od razu przy ekstrakcji. Każda faza niezależnie wdrażalna i daje widoczną poprawę na telefonie.
 
-### Spec B — Mobile UI (osobny brainstorm/plan później)
-4. **Prymitywy** (§3): `Modal/Sheet`, `Field`, `Button`, `IconButton`, `Chip`, `ListRow`; refactor istniejących komponentów na nie.
-5. **Responsywny explorer** (§4): `PaneStack` drill-down; navbar mobile; dialogi → sheety.
-6. **Przejścia per-route:** `settings` (367 LOC), `note/[id]/edit`, `history`, `chunks`, `workspaces`.
+- **Faza 0 — Tani unblock (mała).** `vitest` + skrypt (włącza JIT-testy). `_breakpoints.scss` + `$bp-*`. Globalne mobile-fixy: `100dvh`, `viewport-fit=cover`, `env(safe-area-inset-*)`, hover-gating. Navbar responsywny (chrome dotyka każdego ekranu). Po tej fazie aplikacja przestaje być ucięta paskiem Safari.
+- **Faza 1 — Responsywny explorer (największy ból).** `PaneStack` + drill-down; mobilny widok folderu scalający podfoldery+notatki (§4). JIT: `explorerView.ts` (+ testy), `breadcrumb.ts` (+ testy) pod „wstecz". `MoveNoteDialog` → `Modal`/Sheet (przenoszenie to core CRUD na mobile). Po tej fazie explorer jest używalny na iPhonie.
+- **Faza 2 — Prymitywy przy okazji.** `Modal`, `Field`, `Button` (scalenie dwóch systemów), `IconButton`, `Chip`, `ListRow` — ekstrahowane wtedy, gdy dotykamy komponentu, który ich potrzebuje. `TagEditor` → `tagEditor.ts` (+ testy) + `Chip`, touch-friendly. `commands/notes.ts` przy refaktorze tworzenia/przenoszenia.
+- **Faza 3 — Pozostałe route per-ekran.** Mobilne przejścia: `settings` (367 LOC), `note/[id]/edit`, `history`, `chunks`, `workspaces`. JIT: `noteLinks.ts` (+ testy) przy `NoteLinksPanel`.
 
-Każda faza niezależnie wdrażalna. Po akceptacji tego speca przechodzimy do `writing-plans` dla **Spec A**.
+Po akceptacji tego speca przechodzimy do `writing-plans` — plan rozpisze Fazy 0–1 szczegółowo (reszta jako kolejne kamienie milowe).
 
 ---
 
