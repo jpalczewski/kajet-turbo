@@ -1,4 +1,5 @@
 @use 'variables' as v;
+@use 'effects' as fx;
 
 .btn-primary {
   padding: 10px 16px;
@@ -19,7 +20,7 @@
 
   &:hover:not(:disabled) {
     filter: brightness(1.15);
-    box-shadow: 0 0 12px rgba(240, 184, 0, 0.35);
+    @include fx.glow(v.$accent, 0.4);
   }
   &:disabled {
     opacity: 0.4;
@@ -44,7 +45,7 @@
   letter-spacing: 0.03em;
 
   &:hover {
-    border-color: v.$accent-dark;
+    border-color: v.$violet;
     color: v.$text-secondary;
   }
   &--small {
@@ -77,6 +78,7 @@
     &:hover:not(:disabled) {
       background: v.$accent;
       border-color: v.$accent;
+      @include fx.glow(v.$accent, 0.35);
     }
     &:disabled {
       opacity: 0.5;
@@ -90,7 +92,7 @@
 
     &:hover {
       color: v.$text-primary;
-      background: rgba(255, 255, 255, 0.04);
+      background: rgba(157, 92, 255, 0.1);
     }
   }
 
