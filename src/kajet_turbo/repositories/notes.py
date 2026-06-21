@@ -646,14 +646,45 @@ class NoteRepository:
         return [{**dict(r._mapping), "tags": json.loads(r.tags or "[]")} for r in rows]
 
     def delete_workspace_notes(self, workspace: str, owner_id: str) -> None:
+        params = {"workspace": workspace, "owner_id": owner_id}
         with Session(self._engine) as session:
+            # Clear this owner's chunk vectors (per dim present), then chunk-FTS and chunks,
+            # BEFORE deleting the note rows — note_chunks has an FK to notes.id with no
+            # cascade. FTS/vec are scoped via note_chunks (FTS has no owner_id column), so a
+            # shared workspace only loses the deleting owner's rows.
+            dims = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "SELECT DISTINCT dim FROM note_chunks"
+                    " WHERE workspace = :workspace AND owner_id = :owner_id AND dim IS NOT NULL"
+                ),
+                params,
+            ).fetchall()
+            for (dim,) in dims:
+                session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(
+                        f"DELETE FROM note_chunks_vec_{int(dim)}"
+                        " WHERE workspace = :workspace AND owner_id = :owner_id"
+                    ),
+                    params,
+                )
             session.execute(  # ty: ignore[deprecated] - raw SQL
-                text("DELETE FROM notes_fts WHERE workspace = :workspace"),
-                {"workspace": workspace},
+                text(
+                    "DELETE FROM notes_fts WHERE chunk_id IN ("
+                    " SELECT id FROM note_chunks"
+                    " WHERE workspace = :workspace AND owner_id = :owner_id"
+                    ")"
+                ),
+                params,
+            )
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "DELETE FROM note_chunks WHERE workspace = :workspace AND owner_id = :owner_id"
+                ),
+                params,
             )
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("DELETE FROM notes WHERE workspace = :workspace AND owner_id = :owner_id"),
-                {"workspace": workspace, "owner_id": owner_id},
+                params,
             )
             session.commit()
 
