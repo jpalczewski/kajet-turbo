@@ -1,4 +1,5 @@
 @use 'variables' as v;
+@use 'effects' as fx;
 
 *,
 *::before,
@@ -15,6 +16,7 @@ body {
   color: v.$text-primary;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  @include fx.scanlines;
 }
 
 p {
