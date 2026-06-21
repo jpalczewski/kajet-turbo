@@ -18,6 +18,7 @@
   import TagTree from './TagTree.svelte';
   import NotesList from './NotesList.svelte';
   import NotePreview from './NotePreview.svelte';
+  import MobileFolderNav from './MobileFolderNav.svelte';
 
   let { data } = $props();
   let slug = $derived(data.slug);
@@ -85,6 +86,12 @@
   </aside>
 
   <section class="explorer__list">
+    <MobileFolderNav
+      {slug}
+      mode={data.mode}
+      folderPath={data.folderPath}
+      folders={data.tree.folders}
+    />
     {#if data.mode === 'tags'}
       <div class="tag-list-header">
         <span class="tag-list-title">{data.tagPath ? '#' + data.tagPath : 'Wybierz tag'}</span>
