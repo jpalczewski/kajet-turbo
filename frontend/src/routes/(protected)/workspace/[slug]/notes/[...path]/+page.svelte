@@ -124,7 +124,7 @@
   .explorer {
     display: grid;
     grid-template-columns: 200px 280px 1fr;
-    height: calc(100vh - 48px);
+    height: calc(100dvh - 48px);
     overflow: hidden;
     border: 1px solid v.$border;
     border-radius: v.$radius-lg;
