@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { SvelteSet } from 'svelte/reactivity';
   import { normalizeTag } from '$lib/tags';
+  import { computeCandidates, computeOptions, type TagOption } from '$lib/tagEditor';
 
   let {
     tags = $bindable<string[]>([]),
@@ -14,34 +14,9 @@
   let activeIndex = $state(-1);
   let focused = $state(false);
 
-  type Option = { value: string; isCreate: boolean };
+  let candidates = $derived(computeCandidates(tags, suggestions));
 
-  // Normalized, deduped suggestion paths that aren't already applied.
-  let candidates = $derived.by(() => {
-    const seen = new SvelteSet<string>(tags);
-    const out: string[] = [];
-    for (const raw of suggestions) {
-      const n = normalizeTag(raw);
-      if (n && !seen.has(n)) {
-        seen.add(n);
-        out.push(n);
-      }
-    }
-    return out;
-  });
-
-  let options = $derived.by<Option[]>(() => {
-    const normalizedQuery = normalizeTag(query);
-    const needle = normalizedQuery ?? '';
-    const matches = needle ? candidates.filter((c) => c.includes(needle)).slice(0, 8) : [];
-    const opts: Option[] = matches.map((value) => ({ value, isCreate: false }));
-    // Offer a "create" option when the query yields a fresh, valid path that
-    // isn't already applied and isn't an exact existing suggestion match.
-    if (normalizedQuery && !tags.includes(normalizedQuery) && !matches.includes(normalizedQuery)) {
-      opts.push({ value: normalizedQuery, isCreate: true });
-    }
-    return opts;
-  });
+  let options = $derived(computeOptions(query, candidates, tags));
 
   let showDropdown = $derived(focused && query.trim().length > 0 && options.length > 0);
 
@@ -56,7 +31,7 @@
     tags = tags.filter((t) => t !== tag);
   }
 
-  function selectOption(opt: Option) {
+  function selectOption(opt: TagOption) {
     addTag(opt.value);
   }
 
@@ -150,6 +125,7 @@
 
 <style lang="scss">
   @use '$lib/styles/variables' as v;
+  @use '$lib/styles/breakpoints' as bp;
 
   .tag-editor {
     position: relative;
@@ -197,8 +173,11 @@
     border: none;
     color: v.$text-muted;
     cursor: pointer;
-    &:hover {
-      color: v.$accent;
+
+    @include bp.hover {
+      &:hover {
+        color: v.$accent;
+      }
     }
   }
 
@@ -216,12 +195,17 @@
     background: v.$bg-raised;
     border: 1px solid v.$border;
     border-radius: v.$radius-md;
+
     &::placeholder {
       color: v.$text-muted;
     }
     &:focus {
       outline: none;
       border-color: v.$accent-dark;
+    }
+
+    @include bp.mobile {
+      min-height: 44px;
     }
   }
 
@@ -252,10 +236,21 @@
     border: none;
     color: v.$text-muted;
     cursor: pointer;
-    &:hover,
+
     &.active {
       background: v.$bg-raised;
       color: v.$accent;
+    }
+
+    @include bp.hover {
+      &:hover {
+        background: v.$bg-raised;
+        color: v.$accent;
+      }
+    }
+
+    @include bp.mobile {
+      min-height: 44px;
     }
   }
 </style>

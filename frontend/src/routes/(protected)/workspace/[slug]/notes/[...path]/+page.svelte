@@ -91,6 +91,9 @@
       mode={data.mode}
       folderPath={data.folderPath}
       folders={data.tree.folders}
+      tags={data.tags}
+      currentTag={data.tagPath}
+      includeDescendants={data.includeDescendants}
     />
     {#if data.mode === 'tags'}
       <div class="tag-list-header">
