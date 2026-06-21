@@ -73,9 +73,11 @@ class Database:
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-                    note_id   UNINDEXED,
-                    workspace UNINDEXED,
+                    chunk_id    UNINDEXED,
+                    note_id     UNINDEXED,
+                    workspace   UNINDEXED,
                     title,
+                    header_path,
                     content,
                     tokenize='trigram'
                 )

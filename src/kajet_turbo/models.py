@@ -43,7 +43,6 @@ class Note(SQLModel, table=True):
     tags: str | None = Field(default=None, sa_column=Column(Text))
     created_at: str
     updated_at: str
-    fts_rowid: int | None = None
     index_state: str = Field(default="stale")  # 'stale' | 'indexed'
     indexed_at: str | None = None
 
