@@ -62,7 +62,10 @@ class OpenAICompatEmbedder:
             data = sorted(resp.json()["data"], key=lambda d: d["index"])
             for item in data:
                 vec = item["embedding"]
-                if len(vec) != self._config.dim:
+                # dim <= 0 means "unknown" (probe mode: we're calling the embedder precisely
+                # to discover its dimension), so skip the guard. Resolved profiles always
+                # carry a probed dim > 0, so normal indexing/query still validates.
+                if self._config.dim > 0 and len(vec) != self._config.dim:
                     raise ValueError(
                         f"embedder returned dim {len(vec)}, expected {self._config.dim}"
                     )
