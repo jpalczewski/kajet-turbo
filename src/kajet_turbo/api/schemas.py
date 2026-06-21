@@ -185,6 +185,11 @@ class EmbeddingProfilesResponse(BaseModel):
     profiles: list[EmbeddingProfileItem]
 
 
+class ReindexResponse(BaseModel):
+    message: str
+    count: int
+
+
 class TagNode(BaseModel):
     path: str
     name: str

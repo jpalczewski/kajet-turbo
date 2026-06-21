@@ -5,10 +5,8 @@ profiles pointing at the same endpoint+model reuse cached embeddings. No active 
 
 from collections.abc import Callable
 
-from sqlalchemy import Engine
-
 from kajet_turbo.embedding.base import EmbedderConfig
-from kajet_turbo.embedding.crypto import KeyCipher, cipher_from_env
+from kajet_turbo.embedding.crypto import KeyCipher
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 
 
@@ -30,9 +28,3 @@ class ProfileResolver:
             base_url=p.base_url,
             api_key=api_key,
         )
-
-
-def resolver_from_env(engine: Engine) -> ProfileResolver:
-    # cipher_from_env is passed lazily (called only when a key is decrypted), so importing
-    # this / building the resolver never hard-requires SECRET_KEY.
-    return ProfileResolver(EmbeddingProfileRepository(engine), cipher_from_env)
