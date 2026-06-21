@@ -28,6 +28,27 @@ class NoteRepository:
     def __init__(self, engine: Engine):
         self._engine = engine
 
+    def ensure_vec_table(self, dim: int) -> None:
+        """Lazily create the dim-sharded vec0 table for this dimension. ``dim`` MUST be a
+        positive int — it is interpolated into DDL, so a non-int is rejected to keep the
+        statement injection-proof."""
+        if not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0:
+            raise ValueError(f"dim must be a positive int, got {dim!r}")
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    f"CREATE VIRTUAL TABLE IF NOT EXISTS note_chunks_vec_{dim} USING vec0("
+                    " chunk_rowid INTEGER PRIMARY KEY,"
+                    f" embedding float[{dim}],"
+                    " workspace TEXT partition key,"
+                    " owner_id TEXT,"
+                    " note_id TEXT,"
+                    " chunk_id TEXT"
+                    ")"
+                )
+            )
+            session.commit()
+
     def insert(
         self,
         note_id: str,
