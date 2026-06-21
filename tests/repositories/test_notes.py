@@ -1,4 +1,3 @@
-import struct
 from datetime import UTC, datetime
 
 import pytest
@@ -36,7 +35,6 @@ def test_schema_creates_virtual_tables(db):
     with db.engine.connect() as conn:
         names = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master")).fetchall()}
     assert any(n.startswith("notes_fts") for n in names)
-    assert any(n.startswith("notes_vec") for n in names)
 
 
 def test_vec_version_loaded(db):
@@ -200,47 +198,11 @@ def test_update_note_title_only_preserves_fts_content(notes):
     assert any(r["note_id"] == "abc1234" for r in results)
 
 
-def _fake_embedding(val: float, dim: int = 4) -> bytes:
-    return struct.pack(f"{dim}f", *[val] * dim)
-
-
-@pytest.fixture
-def db_small_dim(database_factory):
-    return database_factory("test-vec.db", embedding_dim=4)
-
-
-def test_insert_vec_and_search(db_small_dim):
-    repo = NoteRepository(db_small_dim.engine)
-    repo.insert("id1", "ws1", "u1", "Notatka A", [], _now(), _now(), "treść A")
-    repo.insert("id2", "ws1", "u1", "Notatka B", [], _now(), _now(), "treść B")
-
-    with db_small_dim.engine.connect() as conn:
-        row1 = conn.execute(text("SELECT rowid FROM notes WHERE id='id1'")).fetchone()
-        row2 = conn.execute(text("SELECT rowid FROM notes WHERE id='id2'")).fetchone()
-
-    repo.insert_vec("id1", row1[0], "ws1", _fake_embedding(0.1))
-    repo.insert_vec("id2", row2[0], "ws1", _fake_embedding(0.9))
-
-    results = repo.search_vec(_fake_embedding(0.1), "ws1", owner_id="u1", k=2)
-    assert results[0]["note_id"] == "id1"
-
-
 def test_hybrid_search_fallback_without_vec(notes):
     notes.insert(
         "id1", "ws1", "u1", "Python tutorial", [], _now(), _now(), "programowanie w Pythonie"
     )
     results = notes.hybrid_search("Python", "ws1", owner_id="u1")
-    assert any(r["note_id"] == "id1" for r in results)
-
-
-def test_hybrid_search_with_vec(db_small_dim):
-    repo = NoteRepository(db_small_dim.engine)
-    repo.insert("id1", "ws1", "u1", "Notatka wektorowa", [], _now(), _now(), "treść z wektorem")
-    with db_small_dim.engine.connect() as conn:
-        row = conn.execute(text("SELECT rowid FROM notes WHERE id='id1'")).fetchone()
-    repo.insert_vec("id1", row[0], "ws1", _fake_embedding(0.5))
-
-    results = repo.hybrid_search("wektorowa", "ws1", owner_id="u1", embedding=_fake_embedding(0.5))
     assert any(r["note_id"] == "id1" for r in results)
 
 

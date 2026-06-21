@@ -12,7 +12,9 @@ from alembic import command
 from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.metadata
     ClientAuthorization,
     EmbeddingCache,
+    IndexMeta,
     Note,
+    NoteChunk,
     NoteLink,
     NoteTag,
     OAuthAccessToken,
@@ -76,16 +78,6 @@ class Database:
                     title,
                     content,
                     tokenize='trigram'
-                )
-            """)
-            )
-            session.execute(  # ty: ignore[deprecated] - raw SQL
-                text(f"""
-                CREATE VIRTUAL TABLE IF NOT EXISTS notes_vec USING vec0(
-                    note_rowid INTEGER PRIMARY KEY,
-                    embedding  float[{self.embedding_dim}],
-                    workspace  TEXT partition key,
-                    note_id    TEXT
                 )
             """)
             )

@@ -564,70 +564,15 @@ class NoteRepository:
             )
             session.commit()
 
-    def insert_vec(self, note_id: str, note_rowid: int, workspace: str, embedding: bytes) -> None:
-        with Session(self._engine) as session:
-            session.execute(  # ty: ignore[deprecated] - raw SQL
-                text(
-                    "INSERT INTO notes_vec (note_rowid, embedding, workspace, note_id)"
-                    " VALUES (:note_rowid, :embedding, :workspace, :note_id)"
-                ),
-                {
-                    "note_rowid": note_rowid,
-                    "embedding": embedding,
-                    "workspace": workspace,
-                    "note_id": note_id,
-                },
-            )
-            session.commit()
-
-    def search_vec(
-        self, embedding: bytes, workspace: str, owner_id: str, k: int = 20
-    ) -> builtins.list[dict]:
-        with Session(self._engine) as session:
-            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
-                text(
-                    "SELECT n.id AS note_id, n.workspace, n.owner_id,"
-                    " n.title, n.tags, n.created_at, n.updated_at, v.distance"
-                    " FROM notes_vec v"
-                    " JOIN notes n ON n.id = v.note_id"
-                    " WHERE v.embedding MATCH :embedding AND k = :k AND v.workspace = :workspace"
-                    "  AND n.owner_id = :owner_id"
-                    " ORDER BY v.distance"
-                ),
-                {"embedding": embedding, "k": k, "workspace": workspace, "owner_id": owner_id},
-            ).fetchall()
-        return [{**dict(r._mapping), "tags": json.loads(r.tags or "[]")} for r in rows]
-
     def hybrid_search(
         self,
         query: str,
         workspace: str,
         owner_id: str,
-        embedding: bytes | None = None,
         limit: int = 10,
     ) -> builtins.list[dict]:
-        fts_results = self.search_fts(query, workspace, owner_id, limit=50)
-        if embedding is None:
-            return fts_results[:limit]
-
-        vec_results = self.search_vec(embedding, workspace, owner_id, k=50)
-        scores: dict[str, float] = {}
-        for rank, note in enumerate(fts_results):
-            scores[note["note_id"]] = scores.get(note["note_id"], 0) + 1 / (60 + rank)
-        for rank, note in enumerate(vec_results):
-            scores[note["note_id"]] = scores.get(note["note_id"], 0) + 1 / (60 + rank)
-
-        all_notes = {n["note_id"]: n for n in fts_results + vec_results}
-        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:limit]
-        return [all_notes[note_id] for note_id, _ in ranked if note_id in all_notes]
-
-    def has_vec_index(self, workspace: str) -> bool:
-        with Session(self._engine) as session:
-            count = session.execute(  # ty: ignore[deprecated] - raw SQL
-                text("SELECT COUNT(*) FROM notes_vec WHERE workspace = :workspace"),
-                {"workspace": workspace},
-            ).scalar()
-        return (count or 0) > 0
+        # Note-level FTS only. Chunk-level vector fusion arrives in Plan 4.
+        return self.search_fts(query, workspace, owner_id, limit=50)[:limit]
 
     def workspace_stats(self, owner_id: str, workspaces: builtins.list[str]) -> dict[str, dict]:
         if not workspaces:
