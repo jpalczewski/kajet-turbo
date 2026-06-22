@@ -20,6 +20,14 @@
   let loading = $state(false);
   let error = $state('');
 
+  // Drop the cached chunks when the note changes, so a different note never
+  // shows the previously loaded note's chunks (the component instance is reused).
+  $effect(() => {
+    void noteId;
+    chunks = null;
+    error = '';
+  });
+
   // Lazy-load chunks the first time the user switches to the chunks view.
   $effect(() => {
     if (mode === 'chunks' && chunks === null && !loading) {
