@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { LinksResponse, NoteHtmlResponse } from '$lib/api';
-  import MoveNoteDialog from '$lib/components/MoveNoteDialog.svelte';
-  import Prose from '$lib/components/Prose.svelte';
-  import { noteHistoryPath, notePath } from '$lib/routes';
-  import NoteLinksPanel from './NoteLinksPanel.svelte';
+  import NoteActions from '$lib/components/note/NoteActions.svelte';
+  import NoteBody from '$lib/components/note/NoteBody.svelte';
+  import NoteMeta from '$lib/components/note/NoteMeta.svelte';
+  import NoteModeToggle from '$lib/components/note/NoteModeToggle.svelte';
+  import { processHeadings } from '$lib/outline';
 
   let {
     note,
@@ -16,29 +17,37 @@
     links: LinksResponse;
     onmoved: (folder: string) => void | Promise<void>;
   } = $props();
+
+  let mode = $state<'content' | 'chunks'>('content');
+
+  // Reset to the content view whenever the selected note changes.
+  $effect(() => {
+    void note?.note_id;
+    mode = 'content';
+  });
+
+  const processed = $derived(note ? processHeadings(note.content_html) : { html: '', outline: [] });
 </script>
 
 <div class="preview">
   {#if note}
     <div class="preview__header">
       <span class="preview__path">{note.folder ? note.folder + '/' : ''}{note.title}</span>
-      <div class="preview__actions">
-        <MoveNoteDialog {slug} noteId={note.note_id} currentFolder={note.folder} {onmoved} />
-        <a href={noteHistoryPath(slug, note.note_id)} class="preview__action-link" title="Historia"
-          >Historia</a
-        >
-        <a
-          href={notePath(slug, note.note_id)}
-          class="preview__action-link preview__action-link--primary"
-          title="Otwórz pełny widok">↗</a
-        >
-      </div>
+      <NoteModeToggle {mode} onchange={(m) => (mode = m)} />
+      <NoteActions {slug} noteId={note.note_id} folder={note.folder} variant="preview" {onmoved} />
     </div>
     <div class="preview__main">
-      <NoteLinksPanel {slug} backlinks={links.backlinks} outlinks={links.outlinks} />
       <div class="preview__body">
-        <Prose html={note.content_html} />
+        <NoteBody {slug} noteId={note.note_id} html={processed.html} {mode} />
       </div>
+      <NoteMeta
+        {slug}
+        tags={note.tags}
+        outline={processed.outline}
+        backlinks={links.backlinks}
+        outlinks={links.outlinks}
+        showOutline={mode === 'content'}
+      />
     </div>
   {:else}
     <div class="preview__empty">
@@ -74,32 +83,6 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       flex: 1;
-    }
-
-    &__actions {
-      display: flex;
-      align-items: center;
-      gap: v.$space-sm;
-      flex-shrink: 0;
-    }
-
-    &__action-link {
-      font-family: v.$font-mono;
-      font-size: 0.72rem;
-      color: v.$text-muted;
-      text-decoration: none;
-      white-space: nowrap;
-      &:hover {
-        color: v.$text-primary;
-      }
-
-      &--primary {
-        color: v.$accent-dark;
-        font-size: 0.8rem;
-        &:hover {
-          color: v.$accent;
-        }
-      }
     }
 
     &__main {
