@@ -16,5 +16,5 @@ export const load: PageLoad = async ({ params }) => {
       'Notatka nie istnieje.',
     ),
   ]);
-  return { note: note.data, backlinks: links.data.backlinks };
+  return { note: note.data, backlinks: links.data.backlinks, outlinks: links.data.outlinks };
 };
