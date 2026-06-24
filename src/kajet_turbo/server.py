@@ -10,6 +10,7 @@ from fastmcp.utilities.lifespan import combine_lifespans
 from kajet_turbo.api import api_router
 from kajet_turbo.auth import hash_password
 from kajet_turbo.dependencies import (
+    active_workspace_repo,
     db,
     note_service,
     oauth_repo,
@@ -86,7 +87,7 @@ class _MCPPathFix:
 
 
 def _new_mcp_app() -> Any:
-    mcp = build_mcp(note_service, workspace_service, oauth_repo, provider)
+    mcp = build_mcp(note_service, workspace_service, oauth_repo, active_workspace_repo, provider)
     return mcp.http_app(path="/")
 
 

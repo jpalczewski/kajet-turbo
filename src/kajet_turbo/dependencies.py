@@ -12,6 +12,7 @@ from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbeddingCache
 from kajet_turbo.embedding.crypto import cipher_from_env
 from kajet_turbo.embedding.resolver import ProfileResolver
+from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
@@ -28,6 +29,7 @@ note_repo = NoteRepository(db.engine)
 user_repo = UserRepository(db.engine)
 session_repo = SessionRepository(db.engine)
 workspace_repo = WorkspaceRepository(db.engine)
+active_workspace_repo = ActiveWorkspaceRepository(db.engine)
 oauth_repo = OAuthRepository(db.engine)
 provider: KajetOAuthProvider = create_auth(oauth_repo)
 
@@ -108,6 +110,10 @@ def get_session_repo() -> SessionRepository:
 
 def get_workspace_repo() -> WorkspaceRepository:
     return workspace_repo
+
+
+def get_active_workspace_repo() -> ActiveWorkspaceRepository:
+    return active_workspace_repo
 
 
 def get_oauth_repo() -> OAuthRepository:

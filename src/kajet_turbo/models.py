@@ -32,6 +32,24 @@ class WorkspaceAccess(SQLModel, table=True):
     role: str = Field(default="owner")
 
 
+class ActiveWorkspace(SQLModel, table=True):
+    """Per-user active workspace, persisted so it survives MCP session churn.
+
+    The claude.ai/mobile connector opens a fresh MCP session per tool call, so
+    the in-memory session state (ctx.set_state) is lost between activate_workspace
+    and the next tool call. Keying by the stable user id is the only thing that
+    survives. Authenticated users only — anonymous sessions have no stable id.
+    """
+
+    __tablename__ = "active_workspaces"
+
+    user_id: str = Field(
+        sa_column=Column(Text, ForeignKey("users.id"), primary_key=True, nullable=False)
+    )
+    workspace: str
+    updated_at: str
+
+
 class Note(SQLModel, table=True):
     __tablename__ = "notes"
 
