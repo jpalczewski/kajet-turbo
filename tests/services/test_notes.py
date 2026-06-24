@@ -2,7 +2,18 @@ from unittest.mock import patch
 
 import pytest
 
+from kajet_turbo import perf
 from kajet_turbo.repositories.git import GitRepository
+
+
+def test_save_perf_span_records_phases(service, workspace):
+    with perf.perf_span() as span:
+        service.save("u1", "ws", str(workspace), "Perf", "# Head\n\nbody text", [])
+    # FTS-only test indexer => no embedding HTTP, but git/db/chunk phases are recorded.
+    assert span.fields["git_ms"] > 0
+    assert "git_lock_wait_ms" in span.fields
+    assert "db_ms" in span.fields
+    assert span.fields["chunks"] >= 1
 
 
 def test_save_creates_file_and_db_record(service, workspace):

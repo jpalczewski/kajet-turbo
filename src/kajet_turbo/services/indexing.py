@@ -16,6 +16,7 @@ from kajet_turbo.chunking import chunk_markdown, embedded_text
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
 from kajet_turbo.log import logger
+from kajet_turbo.perf import incr, timed
 from kajet_turbo.repositories.notes import NoteRepository
 
 
@@ -35,10 +36,12 @@ class NoteIndexer:
     def index_note(
         self, note_id: str, workspace: str, owner_id: str, title: str, content: str
     ) -> None:
-        chunks = chunk_markdown(content, title=title)
+        with timed("chunk_ms"):
+            chunks = chunk_markdown(content, title=title)
         if not chunks:
             self._repo.replace_chunks(note_id, workspace, owner_id, title, [], None, None)
             return
+        incr("chunks", len(chunks))
 
         try:
             cfg = self._resolve_backend(owner_id)
@@ -144,6 +147,8 @@ class NoteIndexer:
         cached = self._cache.get_many(hashes, cfg.backend_id, cfg.model)
 
         miss_idx = [i for i, h in enumerate(hashes) if h not in cached]
+        incr("embed_cache_hits", len(hashes) - len(miss_idx))
+        incr("embed_cache_misses", len(miss_idx))
         if miss_idx:
             embedder = self._build_embedder(cfg)
             miss_vectors = asyncio.run(

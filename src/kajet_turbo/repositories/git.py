@@ -11,6 +11,8 @@ from dulwich.object_store import tree_lookup_path
 from dulwich.objects import Blob, Commit
 from dulwich.repo import Repo
 
+from kajet_turbo.perf import record
+
 COMMITTER = b"Kajet <bot@kajet.app>"
 
 _REPO_LOCKS: dict[str, threading.Lock] = {}
@@ -65,9 +67,19 @@ def _cross_process_lock(workspace_path: str):
 
 @contextlib.contextmanager
 def _workspace_lock(workspace_path: str):
-    """One thread per process (cheap, no flock spin) + one process globally."""
+    """One thread per process (cheap, no flock spin) + one process globally.
+
+    Centrally feeds the perf span: time spent acquiring the lock vs. time holding it
+    doing git work — so e.g. edit_note's per-backlink commit loop shows its lock cost.
+    """
+    t0 = time.monotonic()
     with _repo_lock(workspace_path), _cross_process_lock(workspace_path):
-        yield
+        record("git_lock_wait_ms", (time.monotonic() - t0) * 1000)
+        t1 = time.monotonic()
+        try:
+            yield
+        finally:
+            record("git_ms", (time.monotonic() - t1) * 1000)
 
 
 class GitRepository:

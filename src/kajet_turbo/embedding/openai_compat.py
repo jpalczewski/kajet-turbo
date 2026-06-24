@@ -6,9 +6,13 @@ char-truncated as a coarse token-limit guard before the request. The injected
 ``AsyncClient`` keeps the adapter testable with ``httpx.MockTransport``.
 """
 
+import time
+
 import httpx
+from loguru import logger
 
 from kajet_turbo.embedding.base import EmbedderConfig
+from kajet_turbo.perf import incr, record
 
 _BATCH = 100
 # Coarse truncate guard, comfortably under typical 8k-token limits. MUST stay >= the
@@ -53,11 +57,17 @@ class OpenAICompatEmbedder:
         if self._config.api_key is not None:
             headers["Authorization"] = f"Bearer {self._config.api_key}"
         vectors: list[list[float]] = []
+        truncated = 0
         for start in range(0, len(inputs), _BATCH):
-            batch = [t[:_MAX_CHARS] for t in inputs[start : start + _BATCH]]
+            raw = inputs[start : start + _BATCH]
+            batch = [t[:_MAX_CHARS] for t in raw]
+            truncated += sum(1 for t in raw if len(t) > _MAX_CHARS)
+            _t0 = time.monotonic()
             resp = await self._client.post(
                 url, headers=headers, json={"model": self._config.model, "input": batch}
             )
+            record("embed_http_ms", (time.monotonic() - _t0) * 1000)
+            incr("embed_batches")
             resp.raise_for_status()
             data = sorted(resp.json()["data"], key=lambda d: d["index"])
             for item in data:
@@ -70,4 +80,6 @@ class OpenAICompatEmbedder:
                         f"embedder returned dim {len(vec)}, expected {self._config.dim}"
                     )
                 vectors.append(vec)
+        if truncated:
+            logger.warning("embed_truncated", count=truncated, max_chars=_MAX_CHARS)
         return vectors

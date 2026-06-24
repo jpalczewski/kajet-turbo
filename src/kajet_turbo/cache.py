@@ -15,6 +15,8 @@ from collections.abc import Callable
 
 from cachetools import TTLCache
 
+from kajet_turbo.perf import incr
+
 
 def cache_enabled() -> bool:
     return os.getenv("KAJET_CACHE", "1") != "0"
@@ -40,7 +42,9 @@ class WorkspaceCache:
 
     def get(self, key: tuple):
         with self._lock:
-            return self._cache.get(key)
+            value = self._cache.get(key)
+        incr("ws_cache_hit" if value is not None else "ws_cache_miss")
+        return value
 
     def put(self, key: tuple, value) -> None:
         with self._lock:

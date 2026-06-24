@@ -22,6 +22,8 @@ import anyio.to_thread
 from anyio import CapacityLimiter
 from loguru import logger
 
+from kajet_turbo.perf import record
+
 _LIMIT = 10
 _limiters: dict[Any, CapacityLimiter] = {}
 _limiters_guard = threading.Lock()
@@ -46,21 +48,27 @@ def _db_limiter() -> CapacityLimiter:
 
 
 async def run_sync[**P, T](fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> T:
-    if not _SLOW_SYNC_MS:
-        return await anyio.to_thread.run_sync(partial(fn, *args, **kwargs), limiter=_db_limiter())
     limiter = _db_limiter()
+    call = partial(fn, *args, **kwargs)
     start = time.monotonic()
-    try:
-        return await anyio.to_thread.run_sync(partial(fn, *args, **kwargs), limiter=limiter)
-    finally:
-        elapsed_ms = (time.monotonic() - start) * 1000
-        if elapsed_ms >= _SLOW_SYNC_MS:
-            # borrowed == _LIMIT alongside a long duration points at pool/limiter
-            # saturation (work queued); low borrowed points at a genuinely slow op.
-            logger.warning(
-                "slow_sync",
-                op=getattr(fn, "__qualname__", repr(fn)),
-                duration_ms=round(elapsed_ms),
-                borrowed=limiter.borrowed_tokens,
-                limit=_LIMIT,
-            )
+    # Hold our limiter manually so we can measure time spent queued for a slot, then run
+    # the thread on anyio's default pool. The manual `async with` still caps DB
+    # concurrency at _LIMIT — the perf span attributes the wait to the current op.
+    async with limiter:
+        wait_ms = (time.monotonic() - start) * 1000
+        if wait_ms >= 1:
+            record("db_pool_wait_ms", wait_ms)
+        try:
+            return await anyio.to_thread.run_sync(call)
+        finally:
+            elapsed_ms = (time.monotonic() - start) * 1000
+            if _SLOW_SYNC_MS and elapsed_ms >= _SLOW_SYNC_MS:
+                # borrowed == _LIMIT alongside a long duration points at pool/limiter
+                # saturation (work queued); low borrowed points at a genuinely slow op.
+                logger.warning(
+                    "slow_sync",
+                    op=getattr(fn, "__qualname__", repr(fn)),
+                    duration_ms=round(elapsed_ms),
+                    borrowed=limiter.borrowed_tokens,
+                    limit=_LIMIT,
+                )

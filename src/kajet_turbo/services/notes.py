@@ -17,6 +17,7 @@ from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.log import logger
 from kajet_turbo.note_edit import apply_edit
+from kajet_turbo.perf import timed
 from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.tags import extract_inline_tags, normalize
@@ -207,9 +208,10 @@ class NoteService:
         except GitError:
             Path(filepath).unlink(missing_ok=True)
             raise
-        self._repo.insert(note_id, ws_name, user_id, title, tags, now, now, content, folder)
-        self._repo.replace_links(note_id, ws_name, user_id, target_ids)
-        self._sync_tags(note_id, ws_name, user_id, tags, content)
+        with timed("db_ms"):
+            self._repo.insert(note_id, ws_name, user_id, title, tags, now, now, content, folder)
+            self._repo.replace_links(note_id, ws_name, user_id, target_ids)
+            self._sync_tags(note_id, ws_name, user_id, tags, content)
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
@@ -395,17 +397,18 @@ class NoteService:
             )
             raise
 
-        self._repo.update(
-            note_id,
-            owner_id=owner_id,
-            title=new_title,
-            content=new_content,
-            tags=new_tags,
-            updated_at=now,
-            folder=new_folder,
-        )
-        self._repo.replace_links(note_id, note.workspace, owner_id, target_ids)
-        self._sync_tags(note_id, note.workspace, owner_id, new_tags, new_content)
+        with timed("db_ms"):
+            self._repo.update(
+                note_id,
+                owner_id=owner_id,
+                title=new_title,
+                content=new_content,
+                tags=new_tags,
+                updated_at=now,
+                folder=new_folder,
+            )
+            self._repo.replace_links(note_id, note.workspace, owner_id, target_ids)
+            self._sync_tags(note_id, note.workspace, owner_id, new_tags, new_content)
         if old_path != new_path:
             self._rewrite_backlinks(
                 note_id, owner_id, ws_path, note.folder, note.title, new_folder, new_title

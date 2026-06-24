@@ -9,6 +9,8 @@ from functools import wraps
 
 from loguru import logger
 
+from kajet_turbo.perf import perf_span
+
 
 def _json_sink(message) -> None:
     r = message.record
@@ -126,12 +128,15 @@ def logged_tool(fn):
                 if val:
                     bind[key] = val
         start = time.monotonic()
-        with logger.contextualize(**bind):
+        with logger.contextualize(**bind), perf_span() as span:
             try:
                 result = await fn(*args, **kwargs)
                 duration_ms = round((time.monotonic() - start) * 1000)
                 level = "warning" if _SLOW_TOOL_MS and duration_ms >= _SLOW_TOOL_MS else "info"
-                logger.log(level.upper(), fn.__name__, tool=fn.__name__, duration_ms=duration_ms)
+                extra = dict(span.fields) if span else {}
+                logger.log(
+                    level.upper(), fn.__name__, tool=fn.__name__, duration_ms=duration_ms, **extra
+                )
                 return result
             except Exception:
                 logger.exception(
