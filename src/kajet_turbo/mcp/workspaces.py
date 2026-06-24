@@ -54,6 +54,7 @@ async def get_active_workspace(
     if name:
         owner_id: str = await ctx.get_state("active_owner_id")
         real_user_id: str | None = await ctx.get_state("active_user_id")
+        logger.debug("active_workspace_resolved", source="session", ws=name)
         return owner_id, name, workspace_service.workspace_path(real_user_id, name)
 
     user_id, _ = await run_sync(_resolve_user)
@@ -65,8 +66,12 @@ async def get_active_workspace(
             await ctx.set_state("active_workspace", db_name)
             await ctx.set_state("active_user_id", user_id)
             await ctx.set_state("active_owner_id", user_id)
+            # Signals the connector opened a fresh session (no in-session state) but
+            # we recovered via the per-user store. A high rate here = session churn.
+            logger.info("active_workspace_resolved", source="db_fallback", ws=db_name)
             return user_id, db_name, workspace_service.workspace_path(user_id, db_name)
 
+    logger.info("active_workspace_miss", authenticated=user_id is not None)
     raise RuntimeError("Wywołaj activate_workspace() najpierw.")
 
 
