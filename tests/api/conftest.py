@@ -14,6 +14,7 @@ from kajet_turbo.dependencies import get_note_service, get_workspace_service
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.models import User
 from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
@@ -60,7 +61,9 @@ def api_client_factory(
             build_embedder=lambda cfg: None,
         )
         note_service = NoteService(note_repository, indexer=note_indexer)
-        workspace_service = WorkspaceService(workspace_repository, note_repository)
+        workspace_service = WorkspaceService(
+            workspace_repository, note_repository, WorkspaceMetaRepository(database.engine)
+        )
 
         if user_id is not None:
             with Session(database.engine) as session:

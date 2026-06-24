@@ -13,6 +13,7 @@ from kajet_turbo.mcp import build_mcp
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
+from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
@@ -48,7 +49,9 @@ def mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestCo
     )
     server = build_mcp(
         NoteService(note_repository, indexer=indexer),
-        WorkspaceService(workspace_repository, note_repository),
+        WorkspaceService(
+            workspace_repository, note_repository, WorkspaceMetaRepository(database.engine)
+        ),
         oauth_repository,
         active_workspace_repository,
         provider,

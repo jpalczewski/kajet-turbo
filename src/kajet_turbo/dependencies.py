@@ -18,6 +18,7 @@ from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.sessions import SessionRepository
 from kajet_turbo.repositories.users import UserRepository
+from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
 from kajet_turbo.services.indexing import NoteIndexer
@@ -81,7 +82,8 @@ note_service = NoteService(
     build_embedder=pooled_embedder_factory(),
     query_cache=_query_cache,
 )
-workspace_service = WorkspaceService(workspace_repo, note_repo)
+workspace_meta_repo = WorkspaceMetaRepository(db.engine)
+workspace_service = WorkspaceService(workspace_repo, note_repo, workspace_meta_repo)
 
 
 def get_embedding_profile_service() -> EmbeddingProfileService:
