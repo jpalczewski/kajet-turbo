@@ -226,6 +226,16 @@ class NoteRepository:
             )
             return session.exec(q).first()
 
+    def list_under_folder(self, workspace: str, owner_id: str, prefix: str) -> builtins.list[Note]:
+        """All notes whose folder is ``prefix`` or a descendant of it."""
+        with Session(self._engine) as session:
+            q = select(Note).where(
+                Note.workspace == workspace,
+                Note.owner_id == owner_id,
+                (col(Note.folder) == prefix) | col(Note.folder).startswith(prefix + "/"),
+            )
+            return list(session.exec(q).all())
+
     def resolve_paths(
         self,
         workspace: str,

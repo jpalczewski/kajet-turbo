@@ -54,6 +54,74 @@ def list_workspace_folders(workspace_path: str) -> list[str]:
     return sorted(folders)
 
 
+def _is_empty_dir(path: Path) -> bool:
+    """A directory with no entries at all. A folder holding only ``.gitkeep`` is
+    NOT empty — that file marks an intentionally-kept empty folder."""
+    return path.is_dir() and not any(path.iterdir())
+
+
+def prune_empty_parents(ws_path: str, folder: str) -> list[str]:
+    """Remove now-empty ancestor dirs of ``folder`` bottom-up, stopping at the first
+    non-empty dir (which includes any folder containing ``.gitkeep``) or the root.
+    Git does not track directories, so this is a pure filesystem op. Returns the
+    folder paths removed."""
+    root = Path(ws_path).resolve()
+    removed: list[str] = []
+    current = folder
+    while current:
+        target = root / current
+        if not _is_empty_dir(target):
+            break
+        target.rmdir()
+        removed.append(current)
+        current = str(Path(current).parent) if "/" in current else ""
+    return removed
+
+
+def prune_all_empty_dirs(ws_path: str) -> list[str]:
+    """Remove every completely-empty directory in the workspace, bottom-up so
+    emptied parents cascade. Skips hidden dirs (e.g. ``.git``) and keeps folders
+    holding a ``.gitkeep``. Returns the folder paths removed."""
+    root = Path(ws_path).resolve()
+    if not root.is_dir():
+        return []
+    removed: list[str] = []
+    for dirpath, _dirnames, _filenames in os.walk(root, topdown=False):
+        path = Path(dirpath)
+        if path == root:
+            continue
+        rel = path.relative_to(root)
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        if _is_empty_dir(path):
+            path.rmdir()
+            removed.append("/".join(rel.parts))
+    return removed
+
+
+def remove_empty_tree(ws_path: str, folder: str) -> list[str]:
+    """After a folder move, make the source vanish: remove ``folder``'s now-empty
+    subtree bottom-up, then its emptied parents. Only touches empty dirs (a leftover
+    file keeps its dir). Returns the folder paths removed."""
+    root = Path(ws_path).resolve()
+    removed: list[str] = []
+    if folder:
+        sub = root / Path(*folder.split("/"))
+        if sub.is_dir():
+            dirs = sorted(
+                (p for p in sub.rglob("*") if p.is_dir()),
+                key=lambda p: len(p.parts),
+                reverse=True,
+            )
+            for path in [*dirs, sub]:
+                if _is_empty_dir(path):
+                    path.rmdir()
+                    removed.append("/".join(path.relative_to(root).parts))
+    parent = folder.rsplit("/", 1)[0] if "/" in folder else ""
+    removed.extend(prune_empty_parents(ws_path, parent))
+    return removed
+
+
 def workspace_path(name: str, workspaces_dir: str | None = None, user_id: str | None = None) -> str:
     """Returns the filesystem path for a workspace directory."""
     base = Path(workspaces_dir or os.getenv("WORKSPACES_DIR", "/workspaces"))

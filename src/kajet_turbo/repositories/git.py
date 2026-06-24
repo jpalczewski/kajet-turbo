@@ -141,6 +141,30 @@ class GitRepository:
                     new_full.rename(old_full)
                 raise GitError(str(e)) from e
 
+    def commit_moves(self, removed_rels: list[str], added_rels: list[str], message: str) -> None:
+        """Record a set of moved files in a single commit: drop ``removed_rels`` from the
+        index and add ``added_rels``. The caller has already done the filesystem moves
+        (folder move uses a temp dir), so this only reconciles git state."""
+        if not removed_rels and not added_rels:
+            return
+        with _workspace_lock(self._workspace_path):
+            try:
+                if removed_rels:
+                    # cached=True: drop from the index only. The caller already moved the
+                    # files on disk; a working-tree rm would, on a case-insensitive FS,
+                    # delete the just-created destination (old/new paths share an inode).
+                    porcelain.rm(self._workspace_path, paths=list(removed_rels), cached=True)
+                if added_rels:
+                    porcelain.add(self._workspace_path, paths=list(added_rels))
+                porcelain.commit(
+                    self._workspace_path,
+                    message=message.encode(),
+                    author=COMMITTER,
+                    committer=COMMITTER,
+                )
+            except Exception as e:
+                raise GitError(str(e)) from e
+
     def last_commit_time(self) -> int | None:
         try:
             repo = Repo(self._workspace_path)

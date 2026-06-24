@@ -231,6 +231,69 @@ def register_notes(
 
     @mcp.tool()
     @logged_tool
+    async def move_folder(src: str, dst: str, ctx: Context) -> str:
+        """Przenosi/scala folder (z notatkami i podfolderami) w aktywnym workspace.
+        Jeśli dst istnieje, foldery są scalane. Przy kolizji nazw notatek nic nie jest
+        przenoszone i zwracana jest lista kolizji.
+        Sukces: {"moved": N, "src": "...", "dst": "..."}.
+        Kolizja: {"error": "...", "conflicts": [{"title": "...", "folder": "..."}]}."""
+        try:
+            owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        try:
+            result = await run_sync(
+                note_service.move_folder,
+                src,
+                dst,
+                owner_id=owner_id,
+                ws_path=ws_path,
+                workspace=ws_name,
+            )
+        except (ValueError, FileNotFoundError, FileExistsError, GitError) as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(result, ensure_ascii=False)
+
+    @mcp.tool()
+    @logged_tool
+    async def rename_folder(folder: str, new_name: str, ctx: Context) -> str:
+        """Zmienia nazwę folderu (w obrębie tego samego rodzica). new_name to sama nazwa
+        liścia, bez ścieżki. Pozwala m.in. zmienić wielkość liter na case-sensitive FS.
+        Sukces: {"moved": N, "src": "...", "dst": "..."}."""
+        parent = folder.rsplit("/", 1)[0] if "/" in folder.strip("/") else ""
+        dst = f"{parent}/{new_name}" if parent else new_name
+        try:
+            owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        try:
+            result = await run_sync(
+                note_service.move_folder,
+                folder,
+                dst,
+                owner_id=owner_id,
+                ws_path=ws_path,
+                workspace=ws_name,
+            )
+        except (ValueError, FileNotFoundError, FileExistsError, GitError) as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(result, ensure_ascii=False)
+
+    @mcp.tool()
+    @logged_tool
+    async def prune_empty_folders(ctx: Context) -> str:
+        """Usuwa puste katalogi (osierocone po przenoszeniu notatek). Foldery z .gitkeep
+        są zachowane. Sukces: {"pruned": [...], "count": N}."""
+        try:
+            _, _, ws_path = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(
+            await run_sync(note_service.prune_empty_folders, ws_path), ensure_ascii=False
+        )
+
+    @mcp.tool()
+    @logged_tool
     async def delete_note(note_id: str, ctx: Context) -> str:
         """Usuwa notatkę. Sukces: {"message": "..."}. Błąd: {"error": "..."}."""
         try:
