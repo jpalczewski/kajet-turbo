@@ -101,21 +101,45 @@ def logged_route(fn):
 _SLOW_TOOL_MS = float(os.getenv("SLOW_TOOL_MS", "2000"))
 
 
+def _tool_ctx(args, kwargs):
+    """Find the FastMCP Context among a tool's arguments (duck-typed)."""
+    for value in (*args, *kwargs.values()):
+        if hasattr(value, "session_id") and hasattr(value, "request_id"):
+            return value
+    return None
+
+
 def logged_tool(fn):
     @wraps(fn)
     async def wrapper(*args, **kwargs):
+        # Bind from the live tool context: the FastMCP session task captures the
+        # middleware contextvars at session-init time, so without this, tool logs
+        # would carry the initialize request's ids instead of this call's session.
+        ctx = _tool_ctx(args, kwargs)
+        bind: dict[str, str] = {}
+        if ctx is not None:
+            for key in ("session_id", "request_id"):
+                try:
+                    val = getattr(ctx, key)
+                except Exception:
+                    continue
+                if val:
+                    bind[key] = val
         start = time.monotonic()
-        try:
-            result = await fn(*args, **kwargs)
-            duration_ms = round((time.monotonic() - start) * 1000)
-            level = "warning" if _SLOW_TOOL_MS and duration_ms >= _SLOW_TOOL_MS else "info"
-            logger.log(level.upper(), fn.__name__, tool=fn.__name__, duration_ms=duration_ms)
-            return result
-        except Exception:
-            logger.exception(
-                fn.__name__, tool=fn.__name__, duration_ms=round((time.monotonic() - start) * 1000)
-            )
-            raise
+        with logger.contextualize(**bind):
+            try:
+                result = await fn(*args, **kwargs)
+                duration_ms = round((time.monotonic() - start) * 1000)
+                level = "warning" if _SLOW_TOOL_MS and duration_ms >= _SLOW_TOOL_MS else "info"
+                logger.log(level.upper(), fn.__name__, tool=fn.__name__, duration_ms=duration_ms)
+                return result
+            except Exception:
+                logger.exception(
+                    fn.__name__,
+                    tool=fn.__name__,
+                    duration_ms=round((time.monotonic() - start) * 1000),
+                )
+                raise
 
     return wrapper
 
