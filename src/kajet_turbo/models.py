@@ -50,6 +50,24 @@ class ActiveWorkspace(SQLModel, table=True):
     updated_at: str
 
 
+class WorkspaceMeta(SQLModel, table=True):
+    """Extensible per-workspace metadata. The on-disk git repo is the source of
+    truth for existence and WorkspaceAccess for access; this row is the source of
+    truth for metadata (description, folder, tags, and future fields). Keyed by
+    (user_id, workspace), mirroring WorkspaceAccess."""
+
+    __tablename__ = "workspace_meta"
+
+    user_id: str = Field(
+        sa_column=Column(Text, ForeignKey("users.id"), primary_key=True, nullable=False)
+    )
+    workspace: str = Field(primary_key=True)
+    description: str = Field(default="", sa_column=Column(Text))
+    folder: str = Field(default="")
+    tags: str | None = Field(default=None, sa_column=Column(Text))
+    updated_at: str
+
+
 class Note(SQLModel, table=True):
     __tablename__ = "notes"
 
