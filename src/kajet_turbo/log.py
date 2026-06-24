@@ -96,15 +96,20 @@ def logged_route(fn):
         return sync_wrapper
 
 
+# Tools slower than this log at WARNING for easy alerting/profiling. Tune via
+# SLOW_TOOL_MS; set 0 to always log tool completions at INFO.
+_SLOW_TOOL_MS = float(os.getenv("SLOW_TOOL_MS", "2000"))
+
+
 def logged_tool(fn):
     @wraps(fn)
     async def wrapper(*args, **kwargs):
         start = time.monotonic()
         try:
             result = await fn(*args, **kwargs)
-            logger.info(
-                fn.__name__, tool=fn.__name__, duration_ms=round((time.monotonic() - start) * 1000)
-            )
+            duration_ms = round((time.monotonic() - start) * 1000)
+            level = "warning" if _SLOW_TOOL_MS and duration_ms >= _SLOW_TOOL_MS else "info"
+            logger.log(level.upper(), fn.__name__, tool=fn.__name__, duration_ms=duration_ms)
             return result
         except Exception:
             logger.exception(
@@ -131,6 +136,10 @@ class LoggingMiddleware:
         request = Request(scope)
         request_id = str(uuid.uuid4())[:8]
         user_id = _extract_user_id(request)
+        # Mcp-Session-Id lets us correlate every line of an MCP request to its
+        # session — without it, diagnosing "state not held across calls" means
+        # hand-correlating timestamps. None for non-MCP (web/API) requests.
+        session_id = request.headers.get("mcp-session-id")
         start = time.monotonic()
         logged = False
 
@@ -147,15 +156,28 @@ class LoggingMiddleware:
                 )
             await send(message)
 
-        with logger.contextualize(request_id=request_id, user_id=user_id):
+        with logger.contextualize(request_id=request_id, user_id=user_id, session_id=session_id):
             await self._app(scope, receive, send_wrapper)
 
 
 def _extract_user_id(request) -> str | None:
-    from kajet_turbo.dependencies import session_repo
+    """Best-effort user identity for logs. Web/API uses the session cookie; MCP
+    uses the OAuth bearer token (resolved token -> client -> user_id). Never
+    raises — logging must not break a request."""
+    from kajet_turbo.dependencies import oauth_repo, session_repo
 
-    token = request.cookies.get("kajet_session", "")
-    if not token:
-        return None
-    user = session_repo.get_user(token)
-    return user["email"] if user else None
+    cookie = request.cookies.get("kajet_session", "")
+    if cookie:
+        user = session_repo.get_user(cookie)
+        if user:
+            return user["email"]
+
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        try:
+            row = oauth_repo.get_access_token(auth[7:].strip())
+            if row:
+                return oauth_repo.get_user_id_by_client(row["client_id"])
+        except Exception:
+            return None
+    return None

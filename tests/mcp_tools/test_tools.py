@@ -406,3 +406,79 @@ async def test_edit_note_overwrite_confirm_applies(workspaces_dir, mcp_server):
         )
         assert res.get("requires_confirmation") is None
         assert res["note_id"] == note_id
+
+
+# --- dual-key active workspace: survives the connector's per-call session churn ---
+
+
+async def test_dual_session_fallback_authenticated(authed_workspaces_dir, authed_mcp_server):
+    """activate_workspace in one session, save_note in a fresh session, no re-activate.
+
+    Mirrors the claude.ai connector opening a new MCP session per tool call: the
+    authenticated user's active workspace is recovered from the DB fallback.
+    """
+    mcp, _ = authed_mcp_server
+    async with Client(mcp) as client_a:
+        await client_a.call_tool("activate_workspace", {"name": "test-ws"})
+
+    async with Client(mcp) as client_b:
+        save_result = await client_b.call_tool(
+            "save_note", {"title": "Recovered note", "content": "body"}
+        )
+    payload = json.loads(save_result.content[0].text)
+    assert "error" not in payload
+    assert len(payload["note_id"]) > 0
+
+
+async def test_anon_no_cross_session_persistence(workspaces_dir, mcp_server):
+    """Unauthenticated sessions get no cross-session persistence (IDOR-safe)."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client_a:
+        await client_a.call_tool("activate_workspace", {"name": "test-ws"})
+
+    async with Client(mcp) as client_b:
+        save_result = await client_b.call_tool(
+            "save_note", {"title": "Should fail", "content": "body"}
+        )
+    payload = json.loads(save_result.content[0].text)
+    assert "activate_workspace" in payload["error"]
+
+
+async def test_fallback_writes_to_user_scoped_path(authed_workspaces_dir, authed_mcp_server):
+    """After DB fallback, the note lands under the user-scoped path WORKSPACES_DIR/u1/test-ws."""
+    mcp, _ = authed_mcp_server
+    async with Client(mcp) as client_a:
+        await client_a.call_tool("activate_workspace", {"name": "test-ws"})
+    async with Client(mcp) as client_b:
+        await client_b.call_tool("save_note", {"title": "Scoped note", "content": "body"})
+
+    ws_path = authed_workspaces_dir / "u1" / "test-ws"
+    files = [p for p in ws_path.rglob("*.md") if ".git" not in str(p)]
+    assert len(files) == 1
+
+
+async def test_search_all_scope_after_fallback(authed_workspaces_dir, authed_mcp_server):
+    """search_notes(workspace='all') works after fallback — guards the notes.py
+    active_user_id read that rehydration must satisfy."""
+    mcp, _ = authed_mcp_server
+    async with Client(mcp) as client_a:
+        await client_a.call_tool("activate_workspace", {"name": "test-ws"})
+    async with Client(mcp) as client_b:
+        search_result = await client_b.call_tool(
+            "search_notes", {"query": "anything", "workspace": "all"}
+        )
+    payload = json.loads(search_result.content[0].text)
+    assert isinstance(payload, list)  # not an {"error": ...} dict
+
+
+async def test_same_session_fast_path_unchanged(authed_workspaces_dir, authed_mcp_server):
+    """Single-session activate+save still works (Claude Code path, no DB needed on read)."""
+    mcp, _ = authed_mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        save_result = await client.call_tool(
+            "save_note", {"title": "Same session", "content": "body"}
+        )
+    payload = json.loads(save_result.content[0].text)
+    assert "error" not in payload
+    assert len(payload["note_id"]) > 0
