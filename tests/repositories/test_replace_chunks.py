@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import text as _text
 from sqlmodel import Session
 
-from kajet_turbo.chunking import Chunk
+from kajet_turbo.markdown import Chunk
 from kajet_turbo.models import Note
 from kajet_turbo.repositories.notes import NoteRepository
 

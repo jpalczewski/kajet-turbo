@@ -16,17 +16,18 @@ from nanoid import generate
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.log import logger
-from kajet_turbo.note_edit import apply_edit
-from kajet_turbo.perf import timed
-from kajet_turbo.repositories.git import GitError, GitRepository
-from kajet_turbo.repositories.notes import NoteRepository
-from kajet_turbo.tags import extract_inline_tags, normalize
-from kajet_turbo.wikilinks import (
+from kajet_turbo.markdown import (
     BrokenWikilinkError,
+    apply_edit,
+    extract_inline_tags,
     extract_wikilinks,
+    normalize,
     rewrite_wikilink_target,
     split_target,
 )
+from kajet_turbo.perf import timed
+from kajet_turbo.repositories.git import GitError, GitRepository
+from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.workspace import (
     InvalidFolderError,
     list_workspace_folders,

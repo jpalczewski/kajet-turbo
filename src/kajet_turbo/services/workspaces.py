@@ -1,7 +1,7 @@
 import json
 from datetime import UTC, datetime
 
-from kajet_turbo import tags as tagutil
+from kajet_turbo.markdown import tags as tagutil
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository

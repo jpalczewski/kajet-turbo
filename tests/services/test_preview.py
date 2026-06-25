@@ -1,6 +1,6 @@
-from kajet_turbo.chunking import chunk_markdown, embedded_text
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
+from kajet_turbo.markdown import chunk_markdown, embedded_text
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.indexing import NoteIndexer
 

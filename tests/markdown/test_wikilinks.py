@@ -1,4 +1,4 @@
-from kajet_turbo.wikilinks import (
+from kajet_turbo.markdown import (
     BrokenWikilinkError,
     extract_wikilinks,
     render_markdown,
@@ -106,7 +106,7 @@ def test_broken_wikilink_error_message_lists_targets():
 
 
 def test_rewrite_target_simple():
-    from kajet_turbo.wikilinks import rewrite_wikilink_target
+    from kajet_turbo.markdown import rewrite_wikilink_target
 
     body, changed = rewrite_wikilink_target("see [[Old/T]]", ("Old", "T"), "New/T")
     assert changed
@@ -114,7 +114,7 @@ def test_rewrite_target_simple():
 
 
 def test_rewrite_target_preserves_alias():
-    from kajet_turbo.wikilinks import rewrite_wikilink_target
+    from kajet_turbo.markdown import rewrite_wikilink_target
 
     body, changed = rewrite_wikilink_target("[[Old/T|label]]", ("Old", "T"), "New/T")
     assert changed
@@ -122,7 +122,7 @@ def test_rewrite_target_preserves_alias():
 
 
 def test_rewrite_target_no_match_unchanged():
-    from kajet_turbo.wikilinks import rewrite_wikilink_target
+    from kajet_turbo.markdown import rewrite_wikilink_target
 
     body, changed = rewrite_wikilink_target("[[Other]]", ("Old", "T"), "New/T")
     assert not changed
@@ -130,7 +130,7 @@ def test_rewrite_target_no_match_unchanged():
 
 
 def test_rewrite_target_to_root():
-    from kajet_turbo.wikilinks import rewrite_wikilink_target
+    from kajet_turbo.markdown import rewrite_wikilink_target
 
     body, changed = rewrite_wikilink_target("[[Old/T|x]]", ("Old", "T"), "T")
     assert changed

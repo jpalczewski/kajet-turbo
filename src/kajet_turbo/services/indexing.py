@@ -12,10 +12,10 @@ error ⇒ chunks are still written, vectors skipped, the note marked ``index_sta
 import asyncio
 from collections.abc import Callable
 
-from kajet_turbo.chunking import chunk_markdown, embedded_text
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
 from kajet_turbo.log import logger
+from kajet_turbo.markdown import chunk_markdown, embedded_text
 from kajet_turbo.perf import incr, timed
 from kajet_turbo.repositories.notes import NoteRepository
 

@@ -28,9 +28,9 @@ from kajet_turbo.api.schemas import (
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
 from kajet_turbo.log import logged_route, logger
+from kajet_turbo.markdown import BrokenWikilinkError, LinkResolver, render_markdown
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
-from kajet_turbo.wikilinks import BrokenWikilinkError, LinkResolver, render_markdown
 from kajet_turbo.workspace import InvalidFolderError, note_filepath
 
 _ALLOWED_TAGS = [

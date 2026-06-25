@@ -359,7 +359,7 @@ def test_save_with_valid_wikilink_succeeds(service, workspace):
 
 
 def test_save_with_broken_wikilink_rejected_and_no_file(service, workspace):
-    from kajet_turbo.wikilinks import BrokenWikilinkError
+    from kajet_turbo.markdown import BrokenWikilinkError
 
     with pytest.raises(BrokenWikilinkError) as exc:
         service.save("u1", "ws", str(workspace), "Source", "see [[Ghost]] and [[A/Nope]]", [])
@@ -374,7 +374,7 @@ def test_save_wikilink_in_code_is_not_validated(service, workspace):
 
 
 def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, workspace):
-    from kajet_turbo.wikilinks import BrokenWikilinkError
+    from kajet_turbo.markdown import BrokenWikilinkError
 
     result = service.save("u1", "ws", str(workspace), "Note", "original", [])
     note_id = result["note_id"]
@@ -385,7 +385,7 @@ def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, worksp
 
 
 def test_update_append_mode_validates_after_apply_edit(service, workspace):
-    from kajet_turbo.wikilinks import BrokenWikilinkError
+    from kajet_turbo.markdown import BrokenWikilinkError
 
     result = service.save("u1", "ws", str(workspace), "Note", "body", [])
     note_id = result["note_id"]

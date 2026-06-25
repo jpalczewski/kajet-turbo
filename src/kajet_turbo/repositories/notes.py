@@ -10,8 +10,8 @@ from sqlalchemy import CursorResult, Engine, delete, text
 from sqlmodel import Session, col, func, select
 
 from kajet_turbo.log import logger
+from kajet_turbo.markdown import ancestors
 from kajet_turbo.models import Note, NoteLink, NoteTag, Tag
-from kajet_turbo.tags import ancestors
 
 _NUM_SPLIT = re.compile(r"(\d+)")
 
@@ -82,7 +82,7 @@ class NoteRepository:
         workspace: str,
         owner_id: str,
         title: str,
-        chunks: builtins.list,  # list[kajet_turbo.chunking.Chunk]
+        chunks: builtins.list,  # list[kajet_turbo.markdown.Chunk]
         embeddings: builtins.list[builtins.list[float]] | None,
         dim: int | None,
     ) -> None:

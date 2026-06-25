@@ -16,7 +16,7 @@ from kajet_turbo.perf import incr, record
 
 _BATCH = 100
 # Coarse truncate guard, comfortably under typical 8k-token limits. MUST stay >= the
-# chunker's hard_max (kajet_turbo.chunking.DEFAULT_HARD_MAX) so a normal chunk + its
+# chunker's hard_max (kajet_turbo.markdown.DEFAULT_HARD_MAX) so a normal chunk + its
 # breadcrumb prefix is never silently truncated before embedding.
 _MAX_CHARS = 8000
 

@@ -1,8 +1,7 @@
 import pytest
 
-from kajet_turbo.chunking import (
-    DEFAULT_HARD_MAX,
-    Chunk,
+from kajet_turbo.markdown import DEFAULT_HARD_MAX, Chunk, chunk_markdown, embedded_text
+from kajet_turbo.markdown.chunking import (
     _blocks,
     _build_sections,
     _common_prefix,
@@ -12,8 +11,6 @@ from kajet_turbo.chunking import (
     _Section,
     _split_body,
     _split_oversized_block,
-    chunk_markdown,
-    embedded_text,
 )
 
 

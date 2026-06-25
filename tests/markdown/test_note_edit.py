@@ -1,6 +1,6 @@
 import pytest
 
-from kajet_turbo.note_edit import (
+from kajet_turbo.markdown import (
     AnchorAmbiguousError,
     AnchorNotFoundError,
     HeadingAmbiguousError,

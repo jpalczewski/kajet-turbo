@@ -1,4 +1,4 @@
-from kajet_turbo.tags import ancestors, extract_inline_tags, normalize, segments
+from kajet_turbo.markdown import ancestors, extract_inline_tags, normalize, segments
 
 
 def test_normalize_strips_hash_and_lowercases():

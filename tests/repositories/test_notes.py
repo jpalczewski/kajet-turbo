@@ -3,8 +3,8 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import text
 
-from kajet_turbo.chunking import Chunk
 from kajet_turbo.db import Database
+from kajet_turbo.markdown import Chunk
 from kajet_turbo.repositories.notes import NoteRepository
 
 
