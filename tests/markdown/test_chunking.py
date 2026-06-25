@@ -1,12 +1,12 @@
 import pytest
 
 from kajet_turbo.markdown import DEFAULT_HARD_MAX, Chunk, chunk_markdown, embedded_text
+from kajet_turbo.markdown._tokens import Heading, iter_headings
 from kajet_turbo.markdown.chunking import (
+    _MD,
     _blocks,
     _build_sections,
     _common_prefix,
-    _extract_headings,
-    _Heading,
     _merge_small,
     _Section,
     _split_body,
@@ -28,22 +28,22 @@ def test_embedded_text_no_header_path_is_just_content():
 
 def test_extract_headings_levels_text_and_lines():
     text = "# Title\n\nintro\n\n## Section A\n\nbody\n\n### Deep\n"
-    hs = _extract_headings(text)
+    hs = list(iter_headings(_MD.parse(text)))
     assert hs == [
-        _Heading(open_line=0, body_line=1, level=1, text="Title"),
-        _Heading(open_line=4, body_line=5, level=2, text="Section A"),
-        _Heading(open_line=8, body_line=9, level=3, text="Deep"),
+        Heading(level=1, text="Title", open_line=0, body_line=1),
+        Heading(level=2, text="Section A", open_line=4, body_line=5),
+        Heading(level=3, text="Deep", open_line=8, body_line=9),
     ]
 
 
 def test_extract_headings_ignores_hash_inside_code_fence():
     text = "# Real\n\n```\n# not a heading\n```\n"
-    hs = _extract_headings(text)
+    hs = list(iter_headings(_MD.parse(text)))
     assert [h.text for h in hs] == ["Real"]
 
 
 def test_extract_headings_empty_when_none():
-    assert _extract_headings("just a paragraph\nsecond line\n") == []
+    assert list(iter_headings(_MD.parse("just a paragraph\nsecond line\n"))) == []
 
 
 def test_build_sections_header_path_stack():

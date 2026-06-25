@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from markdown_it import MarkdownIt
 
-from kajet_turbo.markdown._tokens import line_offsets
+from kajet_turbo.markdown._tokens import iter_headings, line_offsets
 
 # Intentionally crude: splits on every ". " etc., so it also breaks on abbreviations
 # ("e.g. ") and decimals ("3.14 "). That's acceptable here because the only contract on
@@ -41,34 +41,6 @@ DEFAULT_MIN = 200
 _MD = MarkdownIt()  # default preset: headings, fences, tables, lists
 
 
-@dataclass(frozen=True)
-class _Heading:
-    open_line: int  # 0-based source line where the heading starts
-    body_line: int  # first line after the heading (map[1])
-    level: int  # 1..6
-    text: str
-
-
-def _extract_headings(text: str) -> list[_Heading]:
-    """Headings in source order. Code-fence ``#`` lines are not headings (markdown-it
-    never emits heading_open inside a fence), so no manual exclusion is needed."""
-    tokens = _MD.parse(text)
-    out: list[_Heading] = []
-    for i, tok in enumerate(tokens):
-        if tok.type != "heading_open" or tok.map is None:
-            continue
-        inline = tokens[i + 1]
-        out.append(
-            _Heading(
-                open_line=tok.map[0],
-                body_line=tok.map[1],
-                level=int(tok.tag[1]),
-                text=inline.content.strip(),
-            )
-        )
-    return out
-
-
 @dataclass
 class _Section:
     header_path: list[str]
@@ -82,7 +54,7 @@ def _label(level: int, text: str) -> str:
 
 
 def _build_sections(text: str, title: str | None) -> list[_Section]:
-    headings = _extract_headings(text)
+    headings = list(iter_headings(_MD.parse(text)))
     offsets = line_offsets(text)
     n_lines = len(offsets) - 1
     title_entry = _label(1, title) if title else None

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from markdown_it import MarkdownIt
 
-from kajet_turbo.markdown._tokens import line_offsets
+from kajet_turbo.markdown._tokens import iter_headings, line_offsets
 
 # CommonMark parser (no GFM extensions — matches the Rust pulldown_cmark `Options::empty()`).
 # Config-only and never mutated: `parse()` builds a fresh StateCore per call, so this shared
@@ -72,13 +72,8 @@ def parse_sections(markdown: str) -> list[Section]:
         return offsets[line] if line < len(offsets) else doc_len
 
     raw: list[tuple[int, int, int, str]] = []  # (level, heading_start, heading_end, heading_text)
-    for i, token in enumerate(tokens):
-        if token.type != "heading_open" or token.level != 0 or token.map is None:
-            continue
-        level = int(token.tag[1])
-        heading_text = tokens[i + 1].content.strip() if i + 1 < len(tokens) else ""
-        start_line, end_line = token.map
-        raw.append((level, line_offset(start_line), line_offset(end_line), heading_text))
+    for h in iter_headings(tokens, top_level_only=True):
+        raw.append((h.level, line_offset(h.open_line), line_offset(h.body_line), h.text))
 
     sections: list[Section] = []
     for i, (level, h_start, h_end, h_text) in enumerate(raw):

@@ -1,7 +1,13 @@
 import pytest
 from markdown_it import MarkdownIt
 
-from kajet_turbo.markdown._tokens import extract_meta, line_offsets, walk_tokens
+from kajet_turbo.markdown._tokens import (
+    Heading,
+    extract_meta,
+    iter_headings,
+    line_offsets,
+    walk_tokens,
+)
 
 
 @pytest.mark.parametrize(
@@ -75,3 +81,23 @@ def test_extract_meta_ignores_code_spans():
 
     md.inline.ruler.before("link", "at_token", rule)
     assert list(extract_meta(md, "`@x`", "at_token")) == []
+
+
+def test_iter_headings_basic_levels_text_and_lines():
+    md = MarkdownIt("commonmark")
+    tokens = md.parse("# Title\n\nintro\n\n## Sub\n\nbody")
+    headings = list(iter_headings(tokens))
+    assert headings == [
+        Heading(level=1, text="Title", open_line=0, body_line=1),
+        Heading(level=2, text="Sub", open_line=4, body_line=5),
+    ]
+
+
+def test_iter_headings_top_level_only_skips_nested():
+    md = MarkdownIt("commonmark")
+    # heading inside a blockquote has token.level != 0
+    tokens = md.parse("# Top\n\n> # Nested\n")
+    all_h = [h.text for h in iter_headings(tokens)]
+    top_h = [h.text for h in iter_headings(tokens, top_level_only=True)]
+    assert "Nested" in all_h
+    assert top_h == ["Top"]

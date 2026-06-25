@@ -2,12 +2,42 @@
 
 import re
 from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
 _NEWLINE_RE = re.compile(r"\r\n?|\n")
+
+
+@dataclass(frozen=True, slots=True)
+class Heading:
+    level: int  # 1..6
+    text: str
+    open_line: int  # token.map[0], 0-based source line where the heading starts
+    body_line: int  # token.map[1], first line after the heading
+
+
+def iter_headings(tokens: list[Token], *, top_level_only: bool = False) -> Iterator[Heading]:
+    """Yield one Heading per ``heading_open`` token with a non-None ``.map``.
+
+    Operates on an already-parsed token stream so each caller keeps its own MarkdownIt
+    preset. When ``top_level_only`` is set, headings nested in a blockquote/list
+    (``token.level != 0``) are skipped.
+    """
+    for i, tok in enumerate(tokens):
+        if tok.type != "heading_open" or tok.map is None:
+            continue
+        if top_level_only and tok.level != 0:
+            continue
+        inline = tokens[i + 1]
+        yield Heading(
+            level=int(tok.tag[1]),
+            text=inline.content.strip(),
+            open_line=tok.map[0],
+            body_line=tok.map[1],
+        )
 
 
 def line_offsets(text: str) -> list[int]:
