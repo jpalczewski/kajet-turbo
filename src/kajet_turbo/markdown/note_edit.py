@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 from markdown_it import MarkdownIt
 
+from kajet_turbo.markdown._tokens import line_offsets
+
 # CommonMark parser (no GFM extensions — matches the Rust pulldown_cmark `Options::empty()`).
 # Config-only and never mutated: `parse()` builds a fresh StateCore per call, so this shared
 # instance is safe to use concurrently under free-threaded Python.
@@ -63,17 +65,11 @@ def parse_sections(markdown: str) -> list[Section]:
     """
     tokens = _MD.parse(markdown)
 
-    # Char offset where each line starts, counted by '\n' in the original string (so offsets
-    # index `markdown` verbatim). line_offset(n) past the last line yields len for the EOF case.
-    line_starts = [0]
-    pos = markdown.find("\n")
-    while pos != -1:
-        line_starts.append(pos + 1)
-        pos = markdown.find("\n", pos + 1)
+    offsets = line_offsets(markdown)
     doc_len = len(markdown)
 
     def line_offset(line: int) -> int:
-        return line_starts[line] if line < len(line_starts) else doc_len
+        return offsets[line] if line < len(offsets) else doc_len
 
     raw: list[tuple[int, int, int, str]] = []  # (level, heading_start, heading_end, heading_text)
     for i, token in enumerate(tokens):

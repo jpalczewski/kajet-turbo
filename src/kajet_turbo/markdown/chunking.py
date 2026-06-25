@@ -11,6 +11,8 @@ from dataclasses import dataclass
 
 from markdown_it import MarkdownIt
 
+from kajet_turbo.markdown._tokens import line_offsets
+
 # Intentionally crude: splits on every ". " etc., so it also breaks on abbreviations
 # ("e.g. ") and decimals ("3.14 "). That's acceptable here because the only contract on
 # the resulting pieces is that each fits hard_max — semantic sentence accuracy is not needed.
@@ -75,21 +77,13 @@ class _Section:
     char_end: int
 
 
-def _line_offsets(text: str) -> list[int]:
-    """offsets[i] = char index where source line i begins; offsets[len(lines)] = len(text)."""
-    offsets = [0]
-    for line in text.splitlines(keepends=True):
-        offsets.append(offsets[-1] + len(line))
-    return offsets
-
-
 def _label(level: int, text: str) -> str:
     return f"{'#' * level} {text}"
 
 
 def _build_sections(text: str, title: str | None) -> list[_Section]:
     headings = _extract_headings(text)
-    offsets = _line_offsets(text)
+    offsets = line_offsets(text)
     n_lines = len(offsets) - 1
     title_entry = _label(1, title) if title else None
 

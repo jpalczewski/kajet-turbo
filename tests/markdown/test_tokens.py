@@ -1,6 +1,38 @@
+import pytest
 from markdown_it import MarkdownIt
 
-from kajet_turbo.markdown._tokens import extract_meta, walk_tokens
+from kajet_turbo.markdown._tokens import extract_meta, line_offsets, walk_tokens
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("", [0]),
+        ("abc", [0, 3]),
+        ("a\nb\nc", [0, 2, 4, 5]),
+        ("a\nb\nc\n", [0, 2, 4, 6]),  # trailing LF: no duplicate tail
+        ("a\r\nb", [0, 3, 4]),  # CRLF is one break
+        ("a\rb", [0, 2, 3]),  # bare CR IS a break (markdown-it normalizes it)
+        ("a\x0bb", [0, 3]),  # vertical tab is NOT a break (len("a\x0bb") == 3)
+        ("a\u2028b", [0, 3]),  # U+2028 is NOT a break (len == 3)
+    ],
+)
+def test_line_offsets_matches_markdown_it_semantics(text, expected):
+    assert line_offsets(text) == expected
+
+
+def test_line_offsets_aligns_with_token_map():
+    from markdown_it import MarkdownIt
+
+    text = "# h\r\n\r\nbody"
+    md = MarkdownIt("commonmark")
+    offsets = line_offsets(text)
+    for tok in md.parse(text):
+        if tok.map is not None:
+            start_line, end_line = tok.map
+            # offsets must be indexable at both map endpoints
+            assert 0 <= start_line < len(offsets)
+            assert 0 <= end_line < len(offsets)
 
 
 def test_walk_tokens_descends_into_inline_children():
