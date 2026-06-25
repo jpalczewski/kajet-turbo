@@ -20,7 +20,8 @@ def test_ensure_is_idempotent(database: Database):
     uid = _user(database)
     repo.set(uid, "ws", description="keep")
     repo.ensure(uid, "ws")  # must not clobber
-    assert repo.get(uid, "ws")["description"] == "keep"
+    row = repo.get(uid, "ws")
+    assert row is not None and row["description"] == "keep"
 
 
 def test_set_partial_preserves_other_fields(database: Database):
@@ -36,7 +37,8 @@ def test_set_can_clear_tags(database: Database):
     uid = _user(database)
     repo.set(uid, "ws", tags='["a"]')
     repo.set(uid, "ws", tags="[]")
-    assert repo.get(uid, "ws")["tags"] == []
+    row = repo.get(uid, "ws")
+    assert row is not None and row["tags"] == []
 
 
 def test_get_many_returns_only_existing(database: Database):
