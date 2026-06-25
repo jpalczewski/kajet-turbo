@@ -187,10 +187,20 @@ export interface UpdateNoteResponse {
   note_id: string;
 }
 
+export interface UpdateWorkspaceResponse {
+  name: string;
+  description: string;
+  folder: string;
+  tags: string[];
+}
+
 export interface WorkspaceInfo {
   name: string;
   file_count: number;
   last_commit_at: number | null;
+  description?: string;
+  folder?: string;
+  tags?: string[];
 }
 
 export interface WorkspacesListResponse {
@@ -471,6 +481,49 @@ export const apiCreateWorkspaceApiWorkspacesPost = async ( options?: RequestInit
   {
     ...options,
     method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiUpdateWorkspaceApiWorkspacesNamePatchResponse200 = {
+  data: UpdateWorkspaceResponse
+  status: 200
+}
+
+export type apiUpdateWorkspaceApiWorkspacesNamePatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiUpdateWorkspaceApiWorkspacesNamePatchResponseSuccess = (apiUpdateWorkspaceApiWorkspacesNamePatchResponse200) & {
+  headers: Headers;
+};
+export type apiUpdateWorkspaceApiWorkspacesNamePatchResponseError = (apiUpdateWorkspaceApiWorkspacesNamePatchResponse422) & {
+  headers: Headers;
+};
+
+export type apiUpdateWorkspaceApiWorkspacesNamePatchResponse = (apiUpdateWorkspaceApiWorkspacesNamePatchResponseSuccess | apiUpdateWorkspaceApiWorkspacesNamePatchResponseError)
+
+export const getApiUpdateWorkspaceApiWorkspacesNamePatchUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}`
+}
+
+/**
+ * @summary Api Update Workspace
+ */
+export const apiUpdateWorkspaceApiWorkspacesNamePatch = async (name: string, options?: RequestInit): Promise<apiUpdateWorkspaceApiWorkspacesNamePatchResponse> => {
+
+  return customFetch<apiUpdateWorkspaceApiWorkspacesNamePatchResponse>(getApiUpdateWorkspaceApiWorkspacesNamePatchUrl(name),
+  {
+    ...options,
+    method: 'PATCH'
 
 
   }

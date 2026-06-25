@@ -4,6 +4,7 @@
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
 
   let name = $state('');
+  let description = $state('');
   let error = $state('');
   let creating = $state(false);
 
@@ -14,8 +15,11 @@
     creating = true;
     error = '';
     try {
-      await apiCreateWorkspaceApiWorkspacesPost(jsonBody({ name: trimmed }));
+      await apiCreateWorkspaceApiWorkspacesPost(
+        jsonBody({ name: trimmed, description: description.trim() || undefined }),
+      );
       name = '';
+      description = '';
       await invalidate('app:workspaces');
     } catch (e) {
       error = apiErrorMessage(e, 'Błąd sieci. Spróbuj ponownie.');
@@ -40,6 +44,14 @@
       {creating ? '…' : '+ Nowy'}
     </button>
   </div>
+  <input
+    type="text"
+    class="create-form__desc"
+    bind:value={description}
+    placeholder="Opis (opcjonalny)"
+    autocomplete="off"
+    disabled={creating}
+  />
 </form>
 
 <style lang="scss">
@@ -91,6 +103,36 @@
       width: auto;
       padding: 9px 18px;
       white-space: nowrap;
+    }
+
+    &__desc {
+      margin-top: v.$space-xs;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 7px 12px;
+      background: v.$bg-surface;
+      border: 1px solid v.$border;
+      border-radius: v.$radius-md;
+      color: v.$text-primary;
+      font-size: 0.82rem;
+      font-family: v.$font-mono;
+      transition:
+        border-color 0.15s,
+        box-shadow 0.15s;
+
+      &:focus {
+        outline: none;
+        border-color: v.$accent;
+        box-shadow: 0 0 0 2px rgba(240, 184, 0, 0.12);
+      }
+
+      &::placeholder {
+        color: v.$text-muted;
+      }
+
+      &:disabled {
+        opacity: 0.5;
+      }
     }
   }
 </style>
