@@ -54,6 +54,9 @@ def setup_logging() -> None:
     logging.getLogger("uvicorn.access").setLevel(uvicorn_access_level)
     sql_level = logging.DEBUG if os.getenv("LOG_SQL") else logging.WARNING
     logging.getLogger("sqlalchemy.engine").setLevel(sql_level)
+    # markdown-it-py emits per-token parser internals at DEBUG ("entering reference: ...")
+    # that flood the logs with zero diagnostic value; pin it above DEBUG unconditionally.
+    logging.getLogger("markdown_it").setLevel(logging.INFO)
     # FastMCP uses stdlib logging with propagate=False and its own RichHandler.
     # Replace it with our InterceptHandler so FastMCP logs flow through loguru → JSONL.
     fastmcp_log = logging.getLogger("fastmcp")
