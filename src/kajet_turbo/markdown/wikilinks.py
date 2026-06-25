@@ -27,7 +27,7 @@ from kajet_turbo.markdown._tokens import extract_meta
 from kajet_turbo.workspace import normalize_folder
 
 # (folder, title) -> note_id | None
-LinkResolver = Callable[[str, str], str | None]
+type LinkResolver = Callable[[str, str], str | None]
 
 
 class BrokenWikilinkError(ValueError):

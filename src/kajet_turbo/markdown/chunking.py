@@ -21,7 +21,7 @@ _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 _FENCE_MARKERS = ("```", "~~~")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Chunk:
     ordinal: int
     header_path: list[str]
@@ -41,7 +41,7 @@ DEFAULT_MIN = 200
 _MD = MarkdownIt()  # default preset: headings, fences, tables, lists
 
 
-@dataclass
+@dataclass(slots=True)
 class _Section:
     header_path: list[str]
     content: str

@@ -38,7 +38,7 @@ class AnchorAmbiguousError(ValueError):
     """Raised when ``old_text`` occurs more than once in the body."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Section:
     """A markdown section delimited by its heading.
 
