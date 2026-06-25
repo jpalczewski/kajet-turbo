@@ -37,3 +37,18 @@ async def test_update_workspace_rejects_bad_tag(authed_workspaces_dir, authed_mc
             "update_workspace", {"name": "test-ws", "tags": ["bad tag"]}
         )
     assert "error" in json.loads(result.content[0].text)
+
+
+async def test_create_workspace_description_appears_in_list(
+    authed_workspaces_dir, authed_mcp_server
+):
+    mcp = authed_mcp_server.server
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "create_workspace",
+            {"name": "docs-ws", "description": "Dokumentacja projektowa"},
+        )
+        listed = json.loads((await client.call_tool("list_workspaces")).content[0].text)
+    ws = next((w for w in listed if w["name"] == "docs-ws"), None)
+    assert ws is not None
+    assert ws["description"] == "Dokumentacja projektowa"

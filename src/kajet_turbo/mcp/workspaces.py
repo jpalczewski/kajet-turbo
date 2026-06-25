@@ -152,6 +152,8 @@ def register_workspaces(
         user_id, err = await run_sync(_resolve_user)
         if err:
             return err
+        if user_id is None:
+            return json.dumps({"error": "Wymagane zalogowanie."})
         available = await run_sync(workspace_service.list_accessible, user_id)
         if name not in available:
             return json.dumps(
@@ -160,8 +162,6 @@ def register_workspaces(
                     "available": available,
                 }
             )
-        if user_id is None:
-            return json.dumps({"error": "Wymagane zalogowanie."})
         try:
             await run_sync(
                 workspace_service.set_meta, user_id, name, description=description, tags=tags
