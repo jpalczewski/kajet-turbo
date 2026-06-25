@@ -9,9 +9,10 @@ fenced/indented code blocks is ignored automatically (same trick as wikilinks).
 import re
 from collections.abc import Iterator
 
-from markdown_it import MarkdownIt
 from markdown_it.rules_inline import StateInline
 from markdown_it.token import Token
+
+from kajet_turbo.markdown._parser import content_md
 
 # A normalized path is one or more segments of word chars / hyphen, slash-separated.
 # ``\w`` is Unicode-aware for str patterns, so diacritics ("zażółć") are valid.
@@ -84,7 +85,7 @@ def _inline_tag_rule(state: StateInline, silent: bool) -> bool:
 
 # Parse-only instance (no render rule): used solely to tokenize for extraction,
 # so the rendering pipeline in wikilinks.py is unaffected. Same base config.
-_TAG_MD = MarkdownIt("commonmark").enable(["table", "strikethrough"])
+_TAG_MD = content_md()
 _TAG_MD.inline.ruler.before("link", "inline_tag", _inline_tag_rule)
 
 

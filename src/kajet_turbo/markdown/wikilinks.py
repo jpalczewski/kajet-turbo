@@ -22,6 +22,7 @@ from markdown_it.common.utils import escapeHtml
 from markdown_it.rules_inline import StateInline
 from markdown_it.token import Token
 
+from kajet_turbo.markdown._parser import content_md
 from kajet_turbo.workspace import normalize_folder
 
 # (folder, title) -> note_id | None
@@ -84,7 +85,7 @@ def wikilink_plugin(md: MarkdownIt) -> None:
 # Config-only shared instance. CommonMark + GFM tables/strikethrough (matches the previous
 # mistune render surface; linkify is intentionally left off — bare URLs were never autolinked).
 # `parse()`/`render()` build fresh per-call state, so this is safe to share concurrently.
-_MD = MarkdownIt("commonmark").enable(["table", "strikethrough"])
+_MD = content_md()
 _MD.use(wikilink_plugin)
 
 
