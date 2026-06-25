@@ -7,12 +7,11 @@ fenced/indented code blocks is ignored automatically (same trick as wikilinks).
 """
 
 import re
-from collections.abc import Iterator
 
 from markdown_it.rules_inline import StateInline
-from markdown_it.token import Token
 
 from kajet_turbo.markdown._parser import content_md
+from kajet_turbo.markdown._tokens import extract_meta
 
 # A normalized path is one or more segments of word chars / hyphen, slash-separated.
 # ``\w`` is Unicode-aware for str patterns, so diacritics ("zażółć") are valid.
@@ -89,17 +88,10 @@ _TAG_MD = content_md()
 _TAG_MD.inline.ruler.before("link", "inline_tag", _inline_tag_rule)
 
 
-def _walk(tokens: list[Token]) -> Iterator[Token]:
-    for token in tokens:
-        yield token
-        if token.children:
-            yield from _walk(token.children)
-
-
 def extract_inline_tags(body: str) -> set[str]:
     """Return the set of normalized tag paths from ``#hashtags`` in ``body``.
 
     Tags inside code spans / fenced / indented code blocks are excluded because the
     inline rule never fires there (those become non-inline-parsed code tokens).
     """
-    return {token.meta["tag"] for token in _walk(_TAG_MD.parse(body)) if token.type == "inline_tag"}
+    return {meta["tag"] for meta in extract_meta(_TAG_MD, body, "inline_tag")}

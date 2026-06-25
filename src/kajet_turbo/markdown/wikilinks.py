@@ -14,7 +14,7 @@ the service and API/MCP layers surface ``{"error": ...}`` to the caller.
 """
 
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from urllib.parse import quote
 
 from markdown_it import MarkdownIt
@@ -23,6 +23,7 @@ from markdown_it.rules_inline import StateInline
 from markdown_it.token import Token
 
 from kajet_turbo.markdown._parser import content_md
+from kajet_turbo.markdown._tokens import extract_meta
 from kajet_turbo.workspace import normalize_folder
 
 # (folder, title) -> note_id | None
@@ -100,20 +101,9 @@ def split_target(target: str) -> tuple[str, str]:
     return normalize_folder(folder_part), title.strip()
 
 
-def _walk(tokens: list[Token]) -> Iterator[Token]:
-    for token in tokens:
-        yield token
-        if token.children:
-            yield from _walk(token.children)
-
-
 def extract_wikilinks(body: str) -> list[tuple[str, str | None]]:
     """Return ``[(target, alias)]`` for every wikilink in ``body`` (code spans/blocks excluded)."""
-    return [
-        (token.meta["target"], token.meta["alias"])
-        for token in _walk(_MD.parse(body))
-        if token.type == "wikilink"
-    ]
+    return [(meta["target"], meta["alias"]) for meta in extract_meta(_MD, body, "wikilink")]
 
 
 def render_markdown(
