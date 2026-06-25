@@ -14,6 +14,11 @@ from kajet_turbo.markdown import (
     replace_section,
     replace_text,
 )
+from kajet_turbo.markdown.note_edit import (
+    _ensure_nl,
+    _locate_unique,
+    _splice_block,
+)
 
 # -- parse_sections / find_section_by_heading --
 
@@ -252,3 +257,33 @@ def test_polish_content_append_to_section():
     content = "# Główne tematy\n\nTreść.\n\n## Współpraca\n\nSzczegóły.\n"
     result = append_content(content, "Nowa treść.", "## Współpraca")
     assert "Szczegóły." in result and "Nowa treść." in result
+
+
+# -- private helpers --
+
+
+def test_ensure_nl():
+    assert _ensure_nl("a") == "a\n"
+    assert _ensure_nl("a\n") == "a\n"
+    assert _ensure_nl("") == "\n"
+
+
+def test_locate_unique_ok_and_errors():
+    assert _locate_unique("hello world", "world") == 6
+    with pytest.raises(AnchorNotFoundError):
+        _locate_unique("hello", "zzz")
+    with pytest.raises(AnchorAmbiguousError):
+        _locate_unique("a a a", "a")
+
+
+def test_splice_block_adds_surrounding_newlines_and_separator():
+    assert _splice_block("head", "body", "rest") == "head\nbody\n\nrest"
+
+
+def test_splice_block_empty_inserted_does_not_add_blank_line():
+    # prefix already ends with \n; empty insert must NOT introduce an extra blank line
+    assert _splice_block("head\n", "", "rest") == "head\n\nrest"
+
+
+def test_splice_block_empty_remainder_has_no_trailing_separator():
+    assert _splice_block("head", "body", "") == "head\nbody\n"

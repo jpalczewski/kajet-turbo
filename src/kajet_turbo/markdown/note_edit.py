@@ -137,54 +137,64 @@ def _format_ambiguous(content: str, needle: str, positions: list[int]) -> str:
     return "\n".join(lines)
 
 
-def append_content(content: str, new_text: str, heading: str | None) -> str:
-    """Append ``new_text`` at end of body, or at the end of ``heading``'s section."""
-    if heading is None:
-        result = content
-        if not result.endswith("\n"):
-            result += "\n"
-        result += new_text
-        if not result.endswith("\n"):
-            result += "\n"
-        return result
+def _ensure_nl(s: str) -> str:
+    """Return ``s`` guaranteed to end with a newline."""
+    return s if s.endswith("\n") else s + "\n"
 
-    section = find_section_by_heading(parse_sections(content), heading)
-    body = content[section.body_start : section.body_end]
-    content_end = section.body_start + len(body.rstrip())
-    result = content[:content_end]
-    if not result.endswith("\n"):
-        result += "\n"
-    result += new_text
-    if not result.endswith("\n"):
-        result += "\n"
-    remainder = content[section.body_end :]
+
+def _locate_unique(content: str, needle: str) -> int:
+    """Return the start index of the single occurrence of ``needle`` in ``content``.
+
+    Raises ``AnchorNotFoundError`` on no match, ``AnchorAmbiguousError`` on 2+ matches.
+    """
+    positions = _find_all(content, needle)
+    if not positions:
+        raise AnchorNotFoundError("Tekst nie znaleziony.")
+    if len(positions) > 1:
+        raise AnchorAmbiguousError(_format_ambiguous(content, needle, positions))
+    return positions[0]
+
+
+def _splice_block(prefix: str, inserted: str, remainder: str) -> str:
+    """Assemble ``prefix`` + ``inserted`` + ``remainder`` with newline normalization.
+
+    Guarantees a newline after ``prefix`` and after ``inserted`` (applied to the running
+    result, so an empty ``inserted`` adds no spurious blank line), and a blank-line
+    separator before a non-empty ``remainder``.
+    """
+    result = _ensure_nl(prefix)
+    result += inserted
+    result = _ensure_nl(result)
     if remainder:
         result += "\n"
     result += remainder
     return result
 
 
+def append_content(content: str, new_text: str, heading: str | None) -> str:
+    """Append ``new_text`` at end of body, or at the end of ``heading``'s section."""
+    if heading is None:
+        return _splice_block(content, new_text, "")
+
+    section = find_section_by_heading(parse_sections(content), heading)
+    body = content[section.body_start : section.body_end]
+    content_end = section.body_start + len(body.rstrip())
+    return _splice_block(content[:content_end], new_text, content[section.body_end :])
+
+
 def prepend_content(content: str, new_text: str, heading: str | None) -> str:
     """Prepend ``new_text`` at the start of body, or right after ``heading``'s line."""
     if heading is None:
-        result = new_text
-        if not result.endswith("\n"):
-            result += "\n"
+        result = _ensure_nl(new_text)
         body_trimmed = content.lstrip("\n")
         if body_trimmed:
-            result += body_trimmed
-            if not result.endswith("\n"):
-                result += "\n"
+            result = _ensure_nl(result + body_trimmed)
         return result
 
     section = find_section_by_heading(parse_sections(content), heading)
     insert_pos = section.heading_end
-    result = content[:insert_pos]
-    if not result.endswith("\n"):
-        result += "\n"
-    result += new_text
-    if not result.endswith("\n"):
-        result += "\n"
+    result = _ensure_nl(content[:insert_pos])
+    result = _ensure_nl(result + new_text)
     result += content[insert_pos:]
     return result
 
@@ -206,38 +216,18 @@ def replace_section(content: str, heading: str, new_text: str) -> str:
         ):
             body_only = new_text[nl + 1 :]
 
-    result = content[: section.heading_end]
-    if not result.endswith("\n"):
-        result += "\n"
-    result += body_only
-    if not result.endswith("\n"):
-        result += "\n"
-    remainder = content[section.body_end :]
-    if remainder:
-        result += "\n"
-    result += remainder
-    return result
+    return _splice_block(content[: section.heading_end], body_only, content[section.body_end :])
 
 
 def replace_text(content: str, old: str, new: str) -> str:
     """Replace an exact, unique occurrence of ``old`` with ``new``. Errors on 0 or 2+ matches."""
-    positions = _find_all(content, old)
-    if not positions:
-        raise AnchorNotFoundError("Tekst nie znaleziony.")
-    if len(positions) > 1:
-        raise AnchorAmbiguousError(_format_ambiguous(content, old, positions))
-    pos = positions[0]
+    pos = _locate_unique(content, old)
     return content[:pos] + new + content[pos + len(old) :]
 
 
 def insert_after(content: str, anchor: str, new_text: str) -> str:
     """Insert ``new_text`` immediately after a unique ``anchor``. Errors on 0 or 2+ matches."""
-    positions = _find_all(content, anchor)
-    if not positions:
-        raise AnchorNotFoundError("Tekst nie znaleziony.")
-    if len(positions) > 1:
-        raise AnchorAmbiguousError(_format_ambiguous(content, anchor, positions))
-    pos = positions[0] + len(anchor)
+    pos = _locate_unique(content, anchor) + len(anchor)
     result = content[:pos]
     if not result.endswith("\n") and not new_text.startswith("\n"):
         result += "\n"
