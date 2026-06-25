@@ -87,12 +87,13 @@ def register_workspaces(
     @mcp.tool()
     @logged_tool
     async def list_workspaces(ctx: Context) -> str:
-        """Zwraca listę workspace'ów dostępnych dla tego użytkownika.
-        Odpowiedź: JSON array stringów."""
+        """Zwraca workspace'y dostępne dla użytkownika wraz z metadanymi.
+        Odpowiedź: JSON array obiektów {name, description, folder, tags}.
+        Użyj `description`, by wybrać właściwy workspace przed activate_workspace()."""
         user_id, err = await run_sync(_resolve_user)
         if err:
             return err
-        return json.dumps(await run_sync(workspace_service.list_accessible, user_id))
+        return json.dumps(await run_sync(workspace_service.list_meta, user_id))
 
     @mcp.tool()
     @logged_tool
@@ -124,14 +125,47 @@ def register_workspaces(
 
     @mcp.tool()
     @logged_tool
-    async def create_workspace(name: str, ctx: Context) -> str:
+    async def create_workspace(name: str, ctx: Context, description: str = "") -> str:
         """Tworzy nowy workspace z repozytorium git.
+        `description` (opcjonalnie) opisuje do czego workspace służy.
         Sukces: {"message": "..."}. Błąd: {"error": "..."}."""
         user_id, err = await run_sync(_resolve_user)
         if err:
             return err
         try:
-            await run_sync(workspace_service.create, name, user_id)
+            await run_sync(workspace_service.create, name, user_id, description=description)
         except (ValueError, FileExistsError) as e:
             return json.dumps({"error": str(e)})
         return json.dumps({"message": f"Workspace '{name}' utworzony."})
+
+    @mcp.tool()
+    @logged_tool
+    async def update_workspace(
+        name: str,
+        ctx: Context,
+        description: str | None = None,
+        tags: list[str] | None = None,
+    ) -> str:
+        """Ustawia metadane workspace'u: opis (do czego służy) i/lub tagi.
+        Foldery ustawiasz z UI, nie tym narzędziem.
+        Sukces: {"message": "..."}. Błąd: {"error": "...", "available": [...]}."""
+        user_id, err = await run_sync(_resolve_user)
+        if err:
+            return err
+        available = await run_sync(workspace_service.list_accessible, user_id)
+        if name not in available:
+            return json.dumps(
+                {
+                    "error": f"Workspace '{name}' nie istnieje lub brak dostępu.",
+                    "available": available,
+                }
+            )
+        if user_id is None:
+            return json.dumps({"error": "Wymagane zalogowanie."})
+        try:
+            await run_sync(
+                workspace_service.set_meta, user_id, name, description=description, tags=tags
+            )
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps({"message": f"Workspace '{name}' zaktualizowany."})

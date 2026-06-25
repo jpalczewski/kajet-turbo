@@ -9,7 +9,10 @@ async def test_list_workspaces(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         result = await client.call_tool("list_workspaces")
-    assert "test-ws" in result.content[0].text
+    import json
+
+    names = [w["name"] for w in json.loads(result.content[0].text)]
+    assert "test-ws" in names
 
 
 async def test_activate_workspace(workspaces_dir, mcp_server):
