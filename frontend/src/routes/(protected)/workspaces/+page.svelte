@@ -334,8 +334,28 @@
       opacity: 0;
       transition: opacity 0.15s;
 
-      .ws-card:hover & {
+      // Reveal on pointer hover (fine pointer / mouse)
+      @media (hover: hover) {
+        .ws-card:hover & {
+          opacity: 1;
+        }
+      }
+
+      // Reveal on keyboard focus: card focus-within or button focus-visible
+      .ws-card:focus-within & {
         opacity: 1;
+      }
+
+      &:focus-visible {
+        opacity: 1;
+        outline: 2px solid v.$accent;
+        outline-offset: 2px;
+        border-radius: v.$radius-sm;
+      }
+
+      // Always visible on touch / coarse-pointer devices where hover never fires
+      @media (hover: none) {
+        opacity: 0.5;
       }
     }
 
