@@ -7,6 +7,7 @@
   import { formatUnixDate } from '$lib/utils/format';
   import { groupWorkspaces } from '$lib/utils/groupWorkspaces';
   import CreateWorkspaceForm from './CreateWorkspaceForm.svelte';
+  import WorkspaceRemote from './WorkspaceRemote.svelte';
 
   let workspaces = $derived(page.data.workspaces ?? []);
   let groups = $derived(groupWorkspaces(workspaces));
@@ -158,6 +159,8 @@
             {:else}
               <button class="ws-card__edit-btn" onclick={() => startEdit(ws)}>edit</button>
             {/if}
+
+            <WorkspaceRemote name={ws.name} keys={page.data.keys ?? []} />
           </li>
         {/each}
       </ul>

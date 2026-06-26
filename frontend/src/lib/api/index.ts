@@ -226,6 +226,19 @@ export interface WorkspaceInfo {
   tags?: string[];
 }
 
+export interface WorkspaceRemoteView {
+  origin_url: string;
+  ssh_key_id: string;
+  enabled: boolean;
+  dirty_at?: string | null;
+  pushed_at?: string | null;
+  last_error?: string | null;
+}
+
+export interface WorkspaceRemoteResponse {
+  remote: WorkspaceRemoteView | null;
+}
+
 export interface WorkspacesListResponse {
   workspaces: WorkspaceInfo[];
 }
@@ -1636,6 +1649,178 @@ export const apiDeleteSshKeyApiMeSshKeysKeyIdDelete = async (keyId: string, opti
   {
     ...options,
     method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse200 = {
+  data: WorkspaceRemoteResponse
+  status: 200
+}
+
+export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseSuccess = (apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse200) & {
+  headers: Headers;
+};
+export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseError = (apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse = (apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseSuccess | apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseError)
+
+export const getApiGetWorkspaceRemoteApiWorkspacesNameRemoteGetUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/remote`
+}
+
+/**
+ * @summary Api Get Workspace Remote
+ */
+export const apiGetWorkspaceRemoteApiWorkspacesNameRemoteGet = async (name: string, options?: RequestInit): Promise<apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse> => {
+
+  return customFetch<apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse>(getApiGetWorkspaceRemoteApiWorkspacesNameRemoteGetUrl(name),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseSuccess = (apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse200) & {
+  headers: Headers;
+};
+export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseError = (apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse422) & {
+  headers: Headers;
+};
+
+export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse = (apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseSuccess | apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseError)
+
+export const getApiSetWorkspaceRemoteApiWorkspacesNameRemotePutUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/remote`
+}
+
+/**
+ * @summary Api Set Workspace Remote
+ */
+export const apiSetWorkspaceRemoteApiWorkspacesNameRemotePut = async (name: string, options?: RequestInit): Promise<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse> => {
+
+  return customFetch<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse>(getApiSetWorkspaceRemoteApiWorkspacesNameRemotePutUrl(name),
+  {
+    ...options,
+    method: 'PUT'
+
+
+  }
+);}
+
+
+
+export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseSuccess = (apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse200) & {
+  headers: Headers;
+};
+export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseError = (apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse = (apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseSuccess | apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseError)
+
+export const getApiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/remote`
+}
+
+/**
+ * @summary Api Delete Workspace Remote
+ */
+export const apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDelete = async (name: string, options?: RequestInit): Promise<apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse> => {
+
+  return customFetch<apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse>(getApiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteUrl(name),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseSuccess = (apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse200) & {
+  headers: Headers;
+};
+export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseError = (apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse422) & {
+  headers: Headers;
+};
+
+export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse = (apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseSuccess | apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseError)
+
+export const getApiTriggerWorkspacePushApiWorkspacesNameRemotePushPostUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/remote/push`
+}
+
+/**
+ * @summary Api Trigger Workspace Push
+ */
+export const apiTriggerWorkspacePushApiWorkspacesNameRemotePushPost = async (name: string, options?: RequestInit): Promise<apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse> => {
+
+  return customFetch<apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse>(getApiTriggerWorkspacePushApiWorkspacesNameRemotePushPostUrl(name),
+  {
+    ...options,
+    method: 'POST'
 
 
   }
