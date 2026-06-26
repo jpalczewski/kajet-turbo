@@ -21,16 +21,27 @@ def backoff_seconds(attempts: int, base: float = 2.0, cap: float = 300.0) -> flo
 # One atomic statement: pick the single most-overdue runnable row and lock it.
 # Eligible = a pending job whose time has come, OR a running job whose worker died
 # (locked_at older than the stale cutoff). SQLite serializes the write, so two
-# workers never claim the same row — the loser's subquery sees it already running.
+# workers never claim the same row. Additionally, a job is skipped while another
+# RUNNING job shares its (non-NULL) dedup_key — this serializes same-key work (e.g.
+# one push per workspace at a time) and coalesces a burst into one follow-up.
 _CLAIM_SQL = text(
     """
     UPDATE jobs
     SET status='running', locked_by=:worker, locked_at=:now, updated_at=:now
     WHERE id = (
-        SELECT id FROM jobs
-        WHERE (status='pending' AND next_run_at <= :now)
-           OR (status='running' AND locked_at IS NOT NULL AND locked_at < :stale_cutoff)
-        ORDER BY next_run_at
+        SELECT j.id FROM jobs j
+        WHERE (
+            (j.status='pending' AND j.next_run_at <= :now)
+            OR (j.status='running' AND j.locked_at IS NOT NULL AND j.locked_at < :stale_cutoff)
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM jobs r
+            WHERE r.status='running'
+              AND r.dedup_key IS NOT NULL
+              AND r.dedup_key = j.dedup_key
+              AND r.id <> j.id
+        )
+        ORDER BY j.next_run_at
         LIMIT 1
     )
     RETURNING *

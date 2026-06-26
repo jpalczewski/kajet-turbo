@@ -253,3 +253,38 @@ def test_dismiss_deletes_only_terminal_owned_jobs(database: Database):
     assert repo.dismiss(failed, "u2") is False  # not owner
     assert repo.dismiss(failed, "u1") is True
     assert _get(database.engine, failed) is None
+
+
+def test_claim_serializes_same_dedup_key(database: Database):
+    repo = JobRepository(database.engine)
+    # Two distinct jobs that share a dedup_key only become possible across a
+    # running+pending pair: enqueue one, claim it (running), then enqueue a
+    # second pending row directly via a different now (the partial index allows a
+    # new pending row because the first is no longer pending).
+    a = repo.enqueue("push", {"v": 1}, dedup_key="u:ws", now=1000.0)
+    claimed_a = repo.claim("w1", now=1000.0)
+    assert claimed_a is not None and claimed_a.id == a
+    b = repo.enqueue("push", {"v": 2}, dedup_key="u:ws", now=1001.0)
+    assert b != a
+    # b is pending and ready, but a (same dedup_key) is running -> not claimable yet
+    assert repo.claim("w2", now=1002.0) is None
+    # finish a -> b becomes claimable
+    repo.complete(a, now=1003.0)
+    claimed_b = repo.claim("w2", now=1003.0)
+    assert claimed_b is not None and claimed_b.id == b
+
+
+def test_claim_does_not_serialize_distinct_dedup_keys(database: Database):
+    repo = JobRepository(database.engine)
+    repo.enqueue("push", {}, dedup_key="u:ws1", now=1000.0)
+    repo.enqueue("push", {}, dedup_key="u:ws2", now=1000.0)
+    assert repo.claim("w1", now=1000.0) is not None
+    assert repo.claim("w2", now=1000.0) is not None  # different dedup_key -> parallel
+
+
+def test_claim_null_dedup_key_not_serialized(database: Database):
+    repo = JobRepository(database.engine)
+    repo.enqueue("k", {}, now=1000.0)  # dedup_key None
+    repo.enqueue("k", {}, now=1000.0)  # dedup_key None
+    assert repo.claim("w1", now=1000.0) is not None
+    assert repo.claim("w2", now=1000.0) is not None  # NULL dedup never blocks
