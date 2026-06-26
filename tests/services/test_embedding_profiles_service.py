@@ -1,7 +1,7 @@
 import pytest
 from sqlmodel import Session
 
-from kajet_turbo.embedding.crypto import KeyCipher
+from kajet_turbo.crypto import cipher_for
 from kajet_turbo.models import User
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
@@ -23,7 +23,7 @@ def _svc(database, *, dim=3, probe_error=None):
 
     return EmbeddingProfileService(
         EmbeddingProfileRepository(database.engine),
-        cipher_factory=lambda: KeyCipher("server-secret"),
+        cipher_factory=lambda: cipher_for("embedding", secret="server-secret"),
         probe_dim=probe_embed,
     ), _dim_holder
 
@@ -37,7 +37,7 @@ def test_create_probes_dim_and_seals_key(database):
     assert out["has_key"] is True
     assert "sk-x" not in str(out) and "api_key" not in out
     row = EmbeddingProfileRepository(database.engine).get("u1", out["id"])
-    assert KeyCipher("server-secret").decrypt(row.api_key_enc) == "sk-x"
+    assert cipher_for("embedding", secret="server-secret").decrypt(row.api_key_enc) == "sk-x"
 
 
 def test_create_probe_failure_rejects(database):
@@ -66,7 +66,7 @@ def test_update_keeps_key_when_omitted(database):
     p = svc.create_profile("u1", "A", "http://a/v1", "m", "sk-keep")
     svc.update_profile("u1", p["id"], name="A2", base_url="http://a/v1", model="m", api_key=None)
     row = EmbeddingProfileRepository(database.engine).get("u1", p["id"])
-    assert KeyCipher("server-secret").decrypt(row.api_key_enc) == "sk-keep"
+    assert cipher_for("embedding", secret="server-secret").decrypt(row.api_key_enc) == "sk-keep"
 
 
 def test_keyless_profile_create(database):

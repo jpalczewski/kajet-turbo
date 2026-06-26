@@ -1,11 +1,11 @@
 from sqlmodel import Session
 
-from kajet_turbo.embedding.crypto import KeyCipher
+from kajet_turbo.crypto import cipher_for
 from kajet_turbo.embedding.resolver import ProfileResolver
 from kajet_turbo.models import User
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 
-_CIPHER = KeyCipher("server-secret")
+_CIPHER = cipher_for("embedding", secret="server-secret")
 
 
 def _user(database, uid="u1"):

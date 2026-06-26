@@ -5,8 +5,8 @@ profiles pointing at the same endpoint+model reuse cached embeddings. No active 
 
 from collections.abc import Callable
 
+from kajet_turbo.crypto import KeyCipher
 from kajet_turbo.embedding.base import EmbedderConfig
-from kajet_turbo.embedding.crypto import KeyCipher
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 
 

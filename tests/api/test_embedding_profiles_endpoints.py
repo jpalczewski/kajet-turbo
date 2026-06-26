@@ -3,8 +3,8 @@ from sqlmodel import Session
 from starlette.testclient import TestClient
 
 from kajet_turbo.api.embedding import router
+from kajet_turbo.crypto import cipher_for
 from kajet_turbo.dependencies import get_embedding_profile_service
-from kajet_turbo.embedding.crypto import KeyCipher
 from kajet_turbo.models import User
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
@@ -23,7 +23,7 @@ def _app(database, monkeypatch, *, user_id="u1", probe_dim=3, probe_error=None):
 
     svc = EmbeddingProfileService(
         EmbeddingProfileRepository(database.engine),
-        cipher_factory=lambda: KeyCipher("server-secret"),
+        cipher_factory=lambda: cipher_for("embedding", secret="server-secret"),
         probe_dim=probe,
     )
     app = FastAPI()
@@ -54,7 +54,7 @@ def test_create_with_asyncio_probe_offloads_to_thread(database, monkeypatch):
 
     svc = EmbeddingProfileService(
         EmbeddingProfileRepository(database.engine),
-        cipher_factory=lambda: KeyCipher("server-secret"),
+        cipher_factory=lambda: cipher_for("embedding", secret="server-secret"),
         probe_dim=asyncio_probe,
     )
     app = FastAPI()

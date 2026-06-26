@@ -4,7 +4,7 @@ write-only (stored sealed, never returned — only ``has_key``)."""
 
 from collections.abc import Callable
 
-from kajet_turbo.embedding.crypto import KeyCipher
+from kajet_turbo.crypto import KeyCipher
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 
 # probe_dim(base_url, model, api_key) -> int (vector length); raises on connection/auth error.
