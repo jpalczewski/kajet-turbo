@@ -12,7 +12,6 @@ def _row_to_dict(row: WorkspaceMeta) -> dict:
         "description": row.description,
         "folder": row.folder,
         "tags": json.loads(row.tags or "[]"),
-        "settings": row.settings,
     }
 
 

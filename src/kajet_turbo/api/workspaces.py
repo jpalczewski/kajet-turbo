@@ -165,7 +165,7 @@ async def api_update_workspace(
         )
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=422)
-    return JSONResponse({"name": name, **{k: v for k, v in result.items() if k != "settings"}})
+    return JSONResponse({"name": name, **result})
 
 
 @router.get("/api/workspaces/{name}/notes", response_model=NotesListResponse)
