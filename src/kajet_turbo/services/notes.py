@@ -526,9 +526,9 @@ class NoteService:
         if mode == "overwrite":
             new_content = content if content is not None else old_content
         else:
-            if content is None:
+            if content is None and mode not in ("replace_text", "delete_text"):
                 raise ValueError("content jest wymagany dla trybu edycji.")
-            new_content = apply_edit(old_content, mode, content, target_heading, old_text)
+            new_content = apply_edit(old_content, mode, content or "", target_heading, old_text)
 
         # Validate links on the final content (post apply_edit), before any git mutation.
         target_ids, broken_pairs = self._validate_wikilinks(note.workspace, owner_id, new_content)
