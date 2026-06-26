@@ -5,6 +5,16 @@
  * OpenAPI spec version: 0.1.0
  */
 import { customFetch } from './fetcher';
+export interface NoteResult {
+  index: number;
+  note_id?: string | null;
+  error?: string | null;
+}
+
+export interface BatchCreateNotesResponse {
+  results: NoteResult[];
+}
+
 export interface ChunkPreviewItem {
   ordinal: number;
   header_path: string[];
@@ -797,6 +807,49 @@ export const getApiCreateFolderApiWorkspacesNameFoldersPostUrl = (name: string,)
 export const apiCreateFolderApiWorkspacesNameFoldersPost = async (name: string, options?: RequestInit): Promise<apiCreateFolderApiWorkspacesNameFoldersPostResponse> => {
 
   return customFetch<apiCreateFolderApiWorkspacesNameFoldersPostResponse>(getApiCreateFolderApiWorkspacesNameFoldersPostUrl(name),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse200 = {
+  data: BatchCreateNotesResponse
+  status: 200
+}
+
+export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponseSuccess = (apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse200) & {
+  headers: Headers;
+};
+export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponseError = (apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse422) & {
+  headers: Headers;
+};
+
+export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse = (apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponseSuccess | apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponseError)
+
+export const getApiCreateNotesBatchApiWorkspacesNameNotesBatchPostUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/batch`
+}
+
+/**
+ * @summary Api Create Notes Batch
+ */
+export const apiCreateNotesBatchApiWorkspacesNameNotesBatchPost = async (name: string, options?: RequestInit): Promise<apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse> => {
+
+  return customFetch<apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse>(getApiCreateNotesBatchApiWorkspacesNameNotesBatchPostUrl(name),
   {
     ...options,
     method: 'POST'
