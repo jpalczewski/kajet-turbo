@@ -209,3 +209,24 @@ class TagNode(BaseModel):
 
 class TagsResponse(BaseModel):
     tags: list[TagNode]
+
+
+class NoteCreate(BaseModel):
+    title: str
+    content: str = ""
+    tags: list[str] = []
+    folder: str = ""
+
+
+class BatchCreateNotesRequest(BaseModel):
+    notes: list[NoteCreate]
+
+
+class NoteResult(BaseModel):
+    index: int
+    note_id: str | None = None
+    error: str | None = None
+
+
+class BatchCreateNotesResponse(BaseModel):
+    results: list[NoteResult]

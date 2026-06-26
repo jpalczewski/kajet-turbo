@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import (
+    BatchCreateNotesResponse,
     ChunkPreviewResponse,
     CreateFolderResponse,
     CreateNoteResponse,
@@ -29,6 +30,7 @@ from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_note_service, get_session_user, get_workspace_service
 from kajet_turbo.log import logged_route, logger
 from kajet_turbo.markdown import BrokenWikilinkError, LinkResolver, render_markdown
+from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.workspace import InvalidFolderError, note_filepath
@@ -294,7 +296,7 @@ async def api_create_folder(
     request: Request,
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:
-    from kajet_turbo.repositories.git import GitError, GitRepository
+    from kajet_turbo.repositories.git import GitRepository
 
     user = get_session_user(request)
     if not user:
@@ -373,6 +375,37 @@ async def api_create_note(
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
     return JSONResponse(result, status_code=201)
+
+
+@router.post(
+    "/api/workspaces/{name}/notes/batch",
+    response_model=BatchCreateNotesResponse,
+)
+@logged_route
+async def api_create_notes_batch(
+    name: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    notes = body.get("notes")
+    if not isinstance(notes, list) or not notes:
+        return JSONResponse({"error": "notes nie może być puste."}, status_code=422)
+    ws_path = ws_service.workspace_path(user["id"], name)
+    try:
+        results = await run_sync(note_service.save_many, user["id"], name, ws_path, notes)
+    except GitError as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return JSONResponse({"results": results}, status_code=200)
 
 
 @router.patch("/api/workspaces/{name}/notes/{note_id}", response_model=UpdateNoteResponse)
@@ -634,7 +667,6 @@ def api_note_version(
     ws_service: WorkspaceService = Depends(get_workspace_service),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    from kajet_turbo.repositories.git import GitError
 
     user = get_session_user(request)
     if not user:

@@ -425,3 +425,55 @@ def test_links_empty(auth_client):
 def test_links_returns_403_when_no_access(no_access_client):
     resp = no_access_client.get("/api/workspaces/test-ws/notes/abc1234/links")
     assert resp.status_code == 403
+
+
+def test_batch_create_returns_results(auth_client):
+    client, _, _ = auth_client
+    resp = client.post(
+        "/api/workspaces/test-ws/notes/batch",
+        json={
+            "notes": [
+                {"title": "API One", "content": "a"},
+                {"title": "API Two", "content": "b", "folder": "docs"},
+            ]
+        },
+    )
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert [r["index"] for r in results] == [0, 1]
+    assert all(r["note_id"] for r in results)
+
+
+def test_batch_create_best_effort_mixed(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", str(ws_path), "Dup", "x", [])
+    resp = client.post(
+        "/api/workspaces/test-ws/notes/batch",
+        json={"notes": [{"title": "Dup", "content": "x"}, {"title": "OK", "content": "y"}]},
+    )
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert results[0]["error"]
+    assert results[1]["note_id"]
+
+
+def test_batch_create_empty_notes_422(auth_client):
+    client, _, _ = auth_client
+    resp = client.post("/api/workspaces/test-ws/notes/batch", json={"notes": []})
+    assert resp.status_code == 422
+
+
+def test_batch_create_401_when_anon(anon_client):
+    resp = anon_client.post(
+        "/api/workspaces/test-ws/notes/batch",
+        json={"notes": [{"title": "X", "content": "y"}]},
+    )
+    assert resp.status_code == 401
+
+
+def test_batch_create_403_when_no_access(no_access_client):
+    resp = no_access_client.post(
+        "/api/workspaces/test-ws/notes/batch",
+        json={"notes": [{"title": "X", "content": "y"}]},
+    )
+    assert resp.status_code == 403
