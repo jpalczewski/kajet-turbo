@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from fastmcp import Context, FastMCP
 from fastmcp.server.elicitation import AcceptedElicitation
 from mcp.types import ClientCapabilities, ElicitationCapability
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
@@ -12,6 +12,13 @@ from kajet_turbo.mcp.workspaces import get_active_workspace
 from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
+
+
+class NoteInput(BaseModel):
+    title: str
+    content: str
+    tags: list[str] = []
+    folder: str = ""
 
 
 def _client_supports_elicitation(ctx: Context) -> bool:
@@ -89,6 +96,31 @@ def register_notes(
         except (GitError, ValueError) as e:
             return json.dumps({"error": str(e)})
         return json.dumps(result)
+
+    @mcp.tool()
+    @logged_tool
+    async def save_notes(notes: list[NoteInput], ctx: Context) -> str:
+        """Zapisuje wiele notatek naraz (jeden commit, równoległe indeksowanie).
+        Użyj tego narzędzia zawsze, gdy dodajesz 2+ notatek — zamiast wielu wywołań
+        save_note. Best-effort: każda notatka walidowana osobno; wynik to lista
+        [{"index": i, "note_id": "..."} | {"index": i, "error": "..."}] w kolejności
+        wejścia. Wikilinki do notatek z tego samego batcha rozwiązują się niezależnie
+        od kolejności. content z prawdziwymi znakami nowej linii (\\n), nie literalnymi \\\\n."""
+        try:
+            owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        try:
+            results = await run_sync(
+                note_service.save_many,
+                owner_id,
+                ws_name,
+                ws_path,
+                [n.model_dump() for n in notes],
+            )
+        except GitError as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(results, ensure_ascii=False)
 
     @mcp.tool()
     @logged_tool

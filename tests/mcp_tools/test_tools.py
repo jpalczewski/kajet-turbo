@@ -483,3 +483,21 @@ async def test_same_session_fast_path_unchanged(authed_workspaces_dir, authed_mc
     payload = json.loads(save_result.content[0].text)
     assert "error" not in payload
     assert len(payload["note_id"]) > 0
+
+
+async def test_save_notes_tool_batch(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        result = await client.call_tool(
+            "save_notes",
+            {
+                "notes": [
+                    {"title": "Batch M1", "content": "a"},
+                    {"title": "Batch M2", "content": "b", "tags": ["x"]},
+                ]
+            },
+        )
+    out = json.loads(result.content[0].text)
+    assert [r["index"] for r in out] == [0, 1]
+    assert all("note_id" in r for r in out)
