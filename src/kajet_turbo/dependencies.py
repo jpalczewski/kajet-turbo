@@ -85,6 +85,9 @@ note_indexer = NoteIndexer(
 
 _query_cache = QueryEmbeddingCache()
 
+workspace_meta_repo = WorkspaceMetaRepository(db.engine)
+workspace_service = WorkspaceService(workspace_repo, note_repo, workspace_meta_repo)
+
 note_service = NoteService(
     note_repo,
     cache=WorkspaceCache() if cache_enabled() else None,
@@ -92,9 +95,10 @@ note_service = NoteService(
     query_resolver=_profile_resolver.resolve_backend,
     build_embedder=pooled_embedder_factory(),
     query_cache=_query_cache,
+    link_validation_enabled=lambda ws, owner: workspace_service.get_settings(owner, ws)[
+        "validate_links"
+    ],
 )
-workspace_meta_repo = WorkspaceMetaRepository(db.engine)
-workspace_service = WorkspaceService(workspace_repo, note_repo, workspace_meta_repo)
 
 _ssh_key_repo = SshKeyRepository(db.engine)
 ssh_key_service = SshKeyService(_ssh_key_repo, lambda: cipher_for("ssh-key"))
