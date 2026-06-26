@@ -841,3 +841,18 @@ def test_prune_empty_folders_removes_orphans_keeps_gitkeep(service, workspace):
     assert not (workspace / "orphan").exists()
     assert (workspace / "kept").exists()
     assert "orphan" in result["pruned"]
+
+
+def test_validate_wikilinks_accepts_extra_targets(service, workspace):
+    # No note "Target" exists in the DB; supply it via extra_targets.
+    ids = service._validate_wikilinks(
+        "ws", "u1", "see [[Target]]", extra_targets={("", "Target"): "abc1234"}
+    )
+    assert ids == {"abc1234"}
+
+
+def test_validate_wikilinks_without_extra_still_raises(service, workspace):
+    from kajet_turbo.markdown import BrokenWikilinkError
+
+    with pytest.raises(BrokenWikilinkError):
+        service._validate_wikilinks("ws", "u1", "see [[Nope]]")

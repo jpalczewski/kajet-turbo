@@ -80,15 +80,27 @@ class NoteService:
             return
         self._indexer.clear_note(note_id)
 
-    def _validate_wikilinks(self, ws_name: str, owner_id: str, content: str) -> set[str]:
+    def _validate_wikilinks(
+        self,
+        ws_name: str,
+        owner_id: str,
+        content: str,
+        extra_targets: dict[tuple[str, str], str] | None = None,
+    ) -> set[str]:
         """Resolve every wikilink in ``content``; raise if any points to a missing note.
 
+        ``extra_targets`` maps ``(folder, title) -> note_id`` for notes created in the
+        same batch that are not yet persisted, so in-batch links resolve before insert.
         Returns the set of resolved target note_ids (used to persist the link graph).
         """
         pairs = [(target, split_target(target)) for target, _ in extract_wikilinks(content)]
         if not pairs:
             return set()
         resolved = self._repo.resolve_paths(ws_name, owner_id, [pair for _, pair in pairs])
+        if extra_targets:
+            for _, pair in pairs:
+                if pair not in resolved and pair in extra_targets:
+                    resolved[pair] = extra_targets[pair]
         broken = sorted({target for target, pair in pairs if pair not in resolved})
         if broken:
             raise BrokenWikilinkError(broken)
