@@ -394,28 +394,45 @@ class NoteService:
         return [r for r in results if r is not None]
 
     def _resolve_link_notes(
-        self, note_ids: builtins.list[str], owner_id: str
+        self,
+        note_ids: builtins.list[str],
+        owner_id: str,
+        include_meta: bool = False,
     ) -> builtins.list[dict]:
-        """Map note_ids to ``{note_id, title, folder}``, skipping missing/foreign notes."""
+        """Map note_ids to ``{note_id, title, folder}``, skipping missing/foreign notes.
+        With ``include_meta=True`` also includes ``tags`` and ``updated_at``."""
         result = []
         for note_id in note_ids:
             note = self._repo.get(note_id, owner_id=owner_id)
-            if note is not None:
-                result.append({"note_id": note.id, "title": note.title, "folder": note.folder})
+            if note is None:
+                continue
+            entry: dict = {"note_id": note.id, "title": note.title, "folder": note.folder}
+            if include_meta:
+                entry["tags"] = json.loads(note.tags or "[]")
+                entry["updated_at"] = note.updated_at
+            result.append(entry)
         return result
 
-    def backlinks(self, note_id: str, owner_id: str) -> builtins.list[dict]:
+    def backlinks(
+        self, note_id: str, owner_id: str, include_meta: bool = False
+    ) -> builtins.list[dict]:
         """Notes that link to ``note_id``. Orphaned/foreign sources are skipped."""
-        return self._resolve_link_notes(self._repo.backlinks(note_id), owner_id)
+        return self._resolve_link_notes(self._repo.backlinks(note_id), owner_id, include_meta)
 
-    def outlinks(self, note_id: str, owner_id: str) -> builtins.list[dict]:
+    def outlinks(
+        self, note_id: str, owner_id: str, include_meta: bool = False
+    ) -> builtins.list[dict]:
         """Notes that ``note_id`` links to. Orphaned/foreign targets are skipped."""
-        return self._resolve_link_notes(self._repo.outlinks(note_id), owner_id)
+        return self._resolve_link_notes(self._repo.outlinks(note_id), owner_id, include_meta)
 
-    def links(self, note_id: str, owner_id: str) -> dict:
+    def links(self, note_id: str, owner_id: str, include_meta: bool = False) -> dict | None:
+        """Both link directions for ``note_id``. Returns ``None`` if the note doesn't exist
+        for this owner (distinguishes 'no links' from 'note not found')."""
+        if self._repo.get(note_id, owner_id=owner_id) is None:
+            return None
         return {
-            "backlinks": self.backlinks(note_id, owner_id),
-            "outlinks": self.outlinks(note_id, owner_id),
+            "backlinks": self.backlinks(note_id, owner_id, include_meta),
+            "outlinks": self.outlinks(note_id, owner_id, include_meta),
         }
 
     def link_resolver(self, ws_name: str, owner_id: str):

@@ -1171,3 +1171,70 @@ def test_delete_note_clears_dangling_rows(database, workspace):
     assert dangling.exists("u1", "ws") is True
     svc.delete(res["note_id"], "u1", str(workspace))
     assert dangling.exists("u1", "ws") is False
+
+
+def test_links_returns_outlinks_and_backlinks(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "content", [])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target]]", [])["note_id"]
+    result = service.links(tid, "u1")
+    assert result is not None
+    assert result["backlinks"] == [{"note_id": sid, "title": "Source", "folder": ""}]
+    assert result["outlinks"] == []
+
+
+def test_links_outlinks_populated(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "content", [])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target]]", [])["note_id"]
+    result = service.links(sid, "u1")
+    assert result is not None
+    assert result["outlinks"] == [{"note_id": tid, "title": "Target", "folder": ""}]
+    assert result["backlinks"] == []
+
+
+def test_links_empty_when_no_links(service, workspace):
+    nid = service.save("u1", "ws", str(workspace), "Lonely", "no links here", [])["note_id"]
+    result = service.links(nid, "u1")
+    assert result == {"outlinks": [], "backlinks": []}
+
+
+def test_links_returns_none_for_unknown_note(service, workspace):
+    assert service.links("nonexistent-id", "u1") is None
+
+
+def test_links_returns_none_for_wrong_owner(service, workspace):
+    nid = service.save("u1", "ws", str(workspace), "Note", "content", [])["note_id"]
+    assert service.links(nid, "u2") is None
+
+
+def test_links_orphaned_target_skipped(database, workspace):
+    # Create a service with validation disabled to allow orphaned links
+    svc = _make_service_with_validation(database, link_validation_enabled=lambda ws, owner: False)
+    # Create a note that links to a note that doesn't exist in repo (orphaned link)
+    sid = svc.save("u1", "ws", str(workspace), "Source", "[[Orphaned]]", [])["note_id"]
+    result = svc.links(sid, "u1")
+    assert result is not None
+    # Orphaned target (note not found) should be skipped from outlinks
+    assert result["outlinks"] == []
+
+
+def test_links_include_meta_adds_tags_and_updated_at(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", ["work"])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
+    result = service.links(sid, "u1", include_meta=True)
+    assert result is not None
+    entry = result["outlinks"][0]
+    assert entry["note_id"] == tid
+    assert entry["title"] == "Target"
+    assert entry["folder"] == ""
+    assert "tags" in entry
+    assert "updated_at" in entry
+
+
+def test_links_default_excludes_meta(service, workspace):
+    service.save("u1", "ws", str(workspace), "Target", "t", ["work"])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
+    result = service.links(sid, "u1")
+    assert result is not None
+    entry = result["outlinks"][0]
+    assert "tags" not in entry
+    assert "updated_at" not in entry
