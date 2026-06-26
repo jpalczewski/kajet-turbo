@@ -255,9 +255,9 @@ def apply_edit(
         raise ValueError("Tryb 'overwrite' nie używa target_heading.")
     if mode == "replace_section" and not target_heading:
         raise ValueError("Tryb 'replace_section' wymaga target_heading.")
-    if mode in ("replace_text", "insert_after") and not old_text:
+    if mode in ("replace_text", "insert_after", "delete_text") and not old_text:
         raise ValueError(f"Tryb '{mode}' wymaga old_text.")
-    if not content and mode != "replace_text":
+    if not content and mode not in ("replace_text", "delete_text"):
         raise ValueError(f"content nie może być pusty dla trybu '{mode}'.")
 
     if mode == "overwrite":
@@ -271,6 +271,8 @@ def apply_edit(
         return replace_section(body, target_heading, content)  # ty: ignore[invalid-argument-type]
     if mode == "replace_text":
         return replace_text(body, old_text, content)  # ty: ignore[invalid-argument-type]
+    if mode == "delete_text":
+        return replace_text(body, old_text, "")  # ty: ignore[invalid-argument-type]
     if mode == "insert_after":
         return insert_after(body, old_text, content)  # ty: ignore[invalid-argument-type]
     raise ValueError(f"Nieznany tryb edycji: '{mode}'.")

@@ -158,6 +158,37 @@ def test_update_edit_mode_requires_content(service, workspace):
         )
 
 
+def test_update_replace_text_content_none_deletes(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notatka", "Hello world.", [])["note_id"]
+
+    service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        content=None,
+        mode="replace_text",
+        old_text="world",
+    )
+
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note["content"] == "Hello ."
+
+
+def test_update_delete_text_mode(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Lista", "- A\n- B\n- C\n", [])["note_id"]
+
+    service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        mode="delete_text",
+        old_text="- B\n",
+    )
+
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note["content"] == "- A\n- C"
+
+
 def test_update_replace_text_ambiguous_raises(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notatka", "foo bar foo", [])["note_id"]
 

@@ -148,14 +148,21 @@ def register_notes(
         folder: str | None = None,
         mode: Annotated[
             Literal[
-                "overwrite", "append", "prepend", "replace_section", "replace_text", "insert_after"
+                "overwrite",
+                "append",
+                "prepend",
+                "replace_section",
+                "replace_text",
+                "insert_after",
+                "delete_text",
             ],
             Field(
                 description="Tryb edycji pola content: 'overwrite' (podmień całe body, domyślny), "
                 "'append'/'prepend' (dopisz na koniec/początek body lub sekcji target_heading), "
                 "'replace_section' (podmień body sekcji target_heading), "
                 "'replace_text' (exact match: podmień unikalny old_text na content), "
-                "'insert_after' (wstaw content zaraz po unikalnej kotwicy old_text)."
+                "'insert_after' (wstaw content zaraz po unikalnej kotwicy old_text), "
+                "'delete_text' (usuń unikalny old_text — bez podawania content)."
             ),
         ] = "overwrite",
         target_heading: Annotated[
@@ -168,8 +175,9 @@ def register_notes(
         old_text: Annotated[
             str | None,
             Field(
-                description="Dokładny tekst do podmiany (replace_text) lub kotwica, po której "
-                "wstawić content (insert_after). Musi być unikalny w notatce."
+                description="Dokładny tekst do podmiany (replace_text), usunięcia (delete_text) "
+                "lub kotwica, po której wstawić content (insert_after). "
+                "Musi być unikalny w notatce."
             ),
         ] = None,
         confirm: bool = Field(
