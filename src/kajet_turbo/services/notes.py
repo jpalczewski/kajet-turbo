@@ -250,6 +250,7 @@ class NoteService:
         # Phase 1: uniqueness + id assignment. Survivors get an id and register in the
         # batch target map so in-batch wikilinks resolve in Phase 2.
         accepted: set[tuple[str, str]] = set()
+        accepted_paths: set[str] = set()
         batch_targets: dict[tuple[str, str], str] = {}
         survivors: builtins.list[dict] = []
         for index, raw in enumerate(notes):
@@ -273,7 +274,15 @@ class NoteService:
                 continue
             note_id = generate(size=7)
             filepath = note_filepath(ws_path, folder, title)
+            relative = str(Path(filepath).relative_to(ws_path))
+            if relative in accepted_paths:
+                results[index] = {
+                    "index": index,
+                    "error": f"Kolizja nazwy pliku z inną notatką w batchu: '{title}'.",
+                }
+                continue
             accepted.add(key)
+            accepted_paths.add(relative)
             batch_targets[key] = note_id
             survivors.append(
                 {
@@ -284,7 +293,7 @@ class NoteService:
                     "tags": self._normalize_tags(raw.get("tags", []) or []),
                     "folder": folder,
                     "filepath": filepath,
-                    "relative": str(Path(filepath).relative_to(ws_path)),
+                    "relative": relative,
                 }
             )
 
@@ -311,8 +320,9 @@ class NoteService:
                 s["filepath"], s["note_id"], s["title"], s["tags"], now, now, s["content"]
             )
         try:
+            n = len(valid)
             GitRepository(ws_path).commit_files(
-                [s["relative"] for s in valid], f"note: add {len(valid)} notes"
+                [s["relative"] for s in valid], f"note: add {n} note{'' if n == 1 else 's'}"
             )
         except GitError:
             for s in valid:

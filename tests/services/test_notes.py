@@ -971,3 +971,31 @@ def test_save_many_indexes_every_valid_note(service, workspace):
     idx.assert_called_once()
     passed = idx.call_args.args[2]
     assert {n["title"] for n in passed} == {"Idx A", "Idx B"}
+
+
+def test_save_many_filename_collision_dedup(service, workspace):
+    # "A:B" and "A B" both sanitize to "A B.md" (colon is Windows-forbidden).
+    notes = [
+        {"title": "A:B", "content": "first"},
+        {"title": "A B", "content": "second"},
+    ]
+    results = service.save_many("u1", "ws", str(workspace), notes)
+
+    assert "note_id" in results[0]
+    assert "error" in results[1]
+    assert "kolizja" in results[1]["error"].lower()
+
+    # Only one .md file with that name should exist.
+    md_files = [p for p in workspace.rglob("A B.md") if ".git" not in str(p)]
+    assert len(md_files) == 1
+
+    # The surviving file's content must belong to the FIRST note.
+    from kajet_turbo.workspace import read_note_file
+
+    data = read_note_file(str(md_files[0]))
+    assert data["content"].strip() == "first"
+
+    # DB row for the first note exists; no second row for "A B".
+    note = service._repo.get(results[0]["note_id"], owner_id="u1")
+    assert note is not None
+    assert note.title == "A:B"

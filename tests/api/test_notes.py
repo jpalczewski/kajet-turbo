@@ -477,3 +477,19 @@ def test_batch_create_403_when_no_access(no_access_client):
         json={"notes": [{"title": "X", "content": "y"}]},
     )
     assert resp.status_code == 403
+
+
+def test_batch_create_missing_notes_key_returns_422(auth_client):
+    client, _, _ = auth_client
+    resp = client.post("/api/workspaces/test-ws/notes/batch", json={})
+    assert resp.status_code == 422
+
+
+def test_batch_create_malformed_note_missing_title_returns_per_note_error(auth_client):
+    client, _, _ = auth_client
+    resp = client.post(
+        "/api/workspaces/test-ws/notes/batch",
+        json={"notes": [{"content": "no title"}]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["results"][0]["error"]

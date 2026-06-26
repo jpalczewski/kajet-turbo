@@ -16,7 +16,7 @@ from kajet_turbo.services.workspaces import WorkspaceService
 
 class NoteInput(BaseModel):
     title: str
-    content: str
+    content: str = ""
     tags: list[str] = []
     folder: str = ""
 

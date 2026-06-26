@@ -190,9 +190,15 @@ def test_commit_files_creates_single_commit_over_many(git_ws, tmp_path):
 
     git_ws.commit_files(["a.md", "b.md", "c.md"], "note: add 3 notes")
 
-    commits = list(DulwichRepo(str(tmp_path)).get_walker())
+    dulwich_repo = DulwichRepo(str(tmp_path))
+    commits = list(dulwich_repo.get_walker())
     assert len(commits) == 1
     assert b"note: add 3 notes" in commits[0].commit.message
+    tree = dulwich_repo[commits[0].commit.tree]
+    tree_names = {item.path for item in tree.items()}  # ty: ignore[unresolved-attribute] - dulwich Tree
+    assert b"a.md" in tree_names
+    assert b"b.md" in tree_names
+    assert b"c.md" in tree_names
 
 
 def test_commit_files_empty_is_noop(git_ws, tmp_path):
