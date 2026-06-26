@@ -214,3 +214,14 @@ def test_commit_files_raises_on_missing_file(git_ws, tmp_path):
     (tmp_path / "a.md").write_text("# A")
     with pytest.raises(GitError):
         git_ws.commit_files(["a.md", "missing.md"], "note: add")
+
+
+def test_init_defaults_to_main_branch(tmp_path):
+    from kajet_turbo.repositories.git import GitRepository
+    from kajet_turbo.repositories.git_push import current_branch
+
+    ws = tmp_path / "ws"
+    GitRepository.init(str(ws))
+    (ws / "n.md").write_text("x")
+    GitRepository(str(ws)).commit_file("n.md", "note: add")
+    assert current_branch(str(ws)) == b"refs/heads/main"

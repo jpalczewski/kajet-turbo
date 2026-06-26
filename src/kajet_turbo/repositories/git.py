@@ -113,6 +113,10 @@ class GitRepository:
     @classmethod
     def init(cls, path: str) -> GitRepository:
         porcelain.init(path)
+        # dulwich defaults HEAD to refs/heads/master; point it at main before the
+        # first commit so new workspaces use main (matches the default branch on
+        # GitHub/Gitea mirrors). current_branch reads HEAD, so push is unaffected.
+        Repo(path).refs.set_symbolic_ref(b"HEAD", b"refs/heads/main")  # ty: ignore[invalid-argument-type] - Literal[bytes] satisfies Ref type
         return cls(path)
 
     def commit_file(self, relative_path: str, message: str) -> None:
