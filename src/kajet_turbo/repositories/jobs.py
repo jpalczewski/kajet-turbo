@@ -6,7 +6,7 @@ import json
 import time
 
 from nanoid import generate
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
@@ -16,6 +16,26 @@ from kajet_turbo.models import Job
 def backoff_seconds(attempts: int, base: float = 2.0, cap: float = 300.0) -> float:
     """Exponential backoff for the Nth retry (attempts >= 1), capped at ``cap``."""
     return min(cap, base * (2 ** (attempts - 1)))
+
+
+# One atomic statement: pick the single most-overdue runnable row and lock it.
+# Eligible = a pending job whose time has come, OR a running job whose worker died
+# (locked_at older than the stale cutoff). SQLite serializes the write, so two
+# workers never claim the same row — the loser's subquery sees it already running.
+_CLAIM_SQL = text(
+    """
+    UPDATE jobs
+    SET status='running', locked_by=:worker, locked_at=:now, updated_at=:now
+    WHERE id = (
+        SELECT id FROM jobs
+        WHERE (status='pending' AND next_run_at <= :now)
+           OR (status='running' AND locked_at IS NOT NULL AND locked_at < :stale_cutoff)
+        ORDER BY next_run_at
+        LIMIT 1
+    )
+    RETURNING *
+    """
+)
 
 
 class JobRepository:
@@ -90,3 +110,76 @@ class JobRepository:
                     Job.status == "pending",
                 )
             ).scalar_one()
+
+    def claim(
+        self, worker_id: str, *, now: float | None = None, stale_after: float = 300.0
+    ) -> Job | None:
+        now = time.time() if now is None else now
+        with Session(self._engine) as session:
+            row = session.execute(  # ty: ignore[deprecated] - raw SQL
+                _CLAIM_SQL,
+                {"worker": worker_id, "now": now, "stale_cutoff": now - stale_after},
+            ).fetchone()
+            session.commit()
+            return None if row is None else Job(**row._mapping)
+
+    def complete(self, job_id: str, *, now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("UPDATE jobs SET status='done', updated_at=:now WHERE id=:id"),
+                {"now": now, "id": job_id},
+            )
+            session.commit()
+
+    def fail(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        now: float | None = None,
+        base_backoff: float = 2.0,
+        max_backoff: float = 300.0,
+    ) -> None:
+        now = time.time() if now is None else now
+        with Session(self._engine) as session:
+            job = session.get(Job, job_id)
+            if job is None:
+                return
+            job.attempts += 1
+            job.last_error = error
+            job.updated_at = now
+            if job.attempts >= job.max_attempts:
+                job.status = "failed"
+            else:
+                job.status = "pending"
+                job.next_run_at = now + backoff_seconds(job.attempts, base_backoff, max_backoff)
+                job.locked_by = None
+                job.locked_at = None
+            session.add(job)
+            session.commit()
+
+    def fail_terminal(self, job_id: str, error: str, *, now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "UPDATE jobs SET status='failed', last_error=:err, updated_at=:now WHERE id=:id"
+                ),
+                {"err": error, "now": now, "id": job_id},
+            )
+            session.commit()
+
+    def reset_running_to_pending(self, worker_id: str, *, now: float | None = None) -> int:
+        now = time.time() if now is None else now
+        with Session(self._engine) as session:
+            result = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "UPDATE jobs SET status='pending', next_run_at=:now, locked_by=NULL, "
+                    "locked_at=NULL, updated_at=:now "
+                    "WHERE status='running' AND locked_by=:worker"
+                ),
+                {"now": now, "worker": worker_id},
+            )
+            session.commit()
+            return result.rowcount  # ty: ignore[unresolved-attribute] - CursorResult has rowcount; ty loses it through Result[Any]

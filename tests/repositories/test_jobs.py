@@ -1,4 +1,5 @@
 import json
+import threading
 
 import pytest
 from sqlmodel import Session, select
@@ -74,3 +75,107 @@ def test_enqueue_delay_sets_future_next_run_at(database: Database):
 )
 def test_backoff_seconds(attempts, expected):
     assert backoff_seconds(attempts) == expected
+
+
+def test_claim_returns_and_locks_pending(database: Database):
+    repo = JobRepository(database.engine)
+    job_id = repo.enqueue("k", {"x": 1}, now=1000.0)
+    claimed = repo.claim("worker-a", now=1001.0)
+    assert claimed is not None and claimed.id == job_id
+    row = _get(database.engine, job_id)
+    assert row.status == "running"
+    assert row.locked_by == "worker-a"
+    assert row.locked_at == 1001.0
+    # nothing else runnable now
+    assert repo.claim("worker-a", now=1002.0) is None
+
+
+def test_claim_skips_future_next_run_at(database: Database):
+    repo = JobRepository(database.engine)
+    repo.enqueue("k", {}, delay=60.0, now=1000.0)
+    assert repo.claim("worker-a", now=1000.0) is None
+    assert repo.claim("worker-a", now=1061.0) is not None
+
+
+def test_claim_reclaims_stale_running_job(database: Database):
+    repo = JobRepository(database.engine)
+    job_id = repo.enqueue("k", {}, now=1000.0)
+    repo.claim("dead-worker", now=1000.0)  # now running, locked_at=1000
+    # not stale yet
+    assert repo.claim("worker-b", now=1100.0, stale_after=300.0) is None
+    # stale: locked_at 1000 < (1400 - 300)=1100
+    reclaimed = repo.claim("worker-b", now=1400.0, stale_after=300.0)
+    assert reclaimed is not None and reclaimed.id == job_id
+    assert _get(database.engine, job_id).locked_by == "worker-b"
+
+
+def test_claim_no_double_claim_under_concurrency(database: Database):
+    repo = JobRepository(database.engine)
+    repo.enqueue("k", {}, now=1000.0)
+    barrier = threading.Barrier(2)
+    results: list[Job | None] = []
+    lock = threading.Lock()
+
+    def worker(name: str):
+        barrier.wait()
+        got = repo.claim(name, now=1001.0)
+        with lock:
+            results.append(got)
+
+    threads = [threading.Thread(target=worker, args=(f"w{i}",)) for i in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    non_none = [r for r in results if r is not None]
+    assert len(non_none) == 1  # exactly one worker claimed the single job
+
+
+def test_complete_marks_done(database: Database):
+    repo = JobRepository(database.engine)
+    job_id = repo.enqueue("k", {}, now=1000.0)
+    repo.claim("w", now=1000.0)
+    repo.complete(job_id, now=1002.0)
+    assert _get(database.engine, job_id).status == "done"
+
+
+def test_fail_retries_with_backoff_then_terminal(database: Database):
+    repo = JobRepository(database.engine)
+    job_id = repo.enqueue("k", {}, max_attempts=2, now=1000.0)
+    repo.claim("w", now=1000.0)
+    repo.fail(job_id, "boom", now=1000.0)
+    row = _get(database.engine, job_id)
+    assert row.status == "pending"
+    assert row.attempts == 1
+    assert row.next_run_at == 1002.0  # now + backoff(1)=2.0
+    assert row.locked_by is None
+    assert row.last_error == "boom"
+    # second failure reaches max_attempts -> failed
+    repo.claim("w", now=1002.0)
+    repo.fail(job_id, "boom2", now=1002.0)
+    row = _get(database.engine, job_id)
+    assert row.status == "failed"
+    assert row.attempts == 2
+
+
+def test_fail_terminal_fails_immediately(database: Database):
+    repo = JobRepository(database.engine)
+    job_id = repo.enqueue("k", {}, max_attempts=5, now=1000.0)
+    repo.claim("w", now=1000.0)
+    repo.fail_terminal(job_id, "no handler for kind 'k'", now=1001.0)
+    row = _get(database.engine, job_id)
+    assert row.status == "failed"
+    assert row.last_error == "no handler for kind 'k'"
+
+
+def test_reset_running_to_pending_scopes_to_worker(database: Database):
+    repo = JobRepository(database.engine)
+    a = repo.enqueue("k", {}, dedup_key="a", now=1000.0)
+    b = repo.enqueue("k", {}, dedup_key="b", now=1000.0)
+    repo.claim("worker-a", now=1000.0)  # claims one (lowest next_run_at / first)
+    repo.claim("worker-b", now=1000.0)  # claims the other
+    n = repo.reset_running_to_pending("worker-a", now=1100.0)
+    assert n == 1
+    # worker-a's job is pending again; worker-b's is still running
+    statuses = {_get(database.engine, a).status, _get(database.engine, b).status}
+    assert statuses == {"pending", "running"}
