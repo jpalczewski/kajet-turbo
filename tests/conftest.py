@@ -21,6 +21,7 @@ if "DB_PATH" not in os.environ:
 if "MCP_BASE_URL" not in os.environ:
     os.environ["MCP_BASE_URL"] = "http://localhost:8000"
 
+
 from kajet_turbo.db import Database
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.workspace import note_filepath, write_note_file
@@ -93,3 +94,12 @@ def note_file_factory() -> Callable[..., str]:
         return path
 
     return create
+
+
+def ensure_user(engine, user_id: str, email: str = "") -> None:
+    """Create a user if it doesn't exist."""
+    with Session(engine) as session:
+        if session.get(User, user_id) is None:
+            user = User(id=user_id, email=email or f"{user_id}@test.local", created_at="2026-01-01T00:00:00+00:00")
+            session.add(user)
+            session.commit()

@@ -8,7 +8,7 @@ import time
 from nanoid import generate
 from sqlalchemy import Engine, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from kajet_turbo.models import Job
 
@@ -183,3 +183,47 @@ class JobRepository:
             )
             session.commit()
             return result.rowcount  # ty: ignore[unresolved-attribute] - CursorResult has rowcount; ty loses it through Result[Any]
+
+    def list_jobs(
+        self,
+        user_id: str,
+        *,
+        status: str | None = None,
+        kind: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Job]:
+        with Session(self._engine) as session:
+            stmt = select(Job).where(Job.user_id == user_id)
+            if status is not None:
+                stmt = stmt.where(Job.status == status)
+            if kind is not None:
+                stmt = stmt.where(Job.kind == kind)
+            stmt = stmt.order_by(col(Job.created_at).desc()).limit(limit).offset(offset)
+            return list(session.execute(stmt).scalars().all())
+
+    def retry(self, job_id: str, user_id: str, *, now: float | None = None) -> bool:
+        now = time.time() if now is None else now
+        with Session(self._engine) as session:
+            job = session.get(Job, job_id)
+            if job is None or job.user_id != user_id or job.status != "failed":
+                return False
+            job.status = "pending"
+            job.attempts = 0
+            job.next_run_at = now
+            job.last_error = None
+            job.locked_by = None
+            job.locked_at = None
+            job.updated_at = now
+            session.add(job)
+            session.commit()
+            return True
+
+    def dismiss(self, job_id: str, user_id: str) -> bool:
+        with Session(self._engine) as session:
+            job = session.get(Job, job_id)
+            if job is None or job.user_id != user_id or job.status not in ("done", "failed"):
+                return False
+            session.delete(job)
+            session.commit()
+            return True

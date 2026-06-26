@@ -5,11 +5,11 @@ import pytest
 from sqlmodel import Session, select
 
 from kajet_turbo.db import Database
-from kajet_turbo.models import Job
+from kajet_turbo.models import Job, User
 from kajet_turbo.repositories.jobs import JobRepository, backoff_seconds
 
 
-def _get(engine, job_id: str) -> Job:
+def _get(engine, job_id: str) -> Job | None:
     with Session(engine) as session:
         return session.get(Job, job_id)
 
@@ -27,6 +27,19 @@ def _pending(engine, kind: str, dedup_key: str) -> list[Job]:
             .scalars()
             .all()
         )
+
+
+def _ensure_user(engine, user_id: str, email: str = "") -> None:
+    """Create a user if it doesn't exist."""
+    with Session(engine) as session:
+        if session.get(User, user_id) is None:
+            user = User(
+                id=user_id,
+                email=email or f"{user_id}@test.local",
+                created_at="2026-01-01T00:00:00+00:00",
+            )
+            session.add(user)
+            session.commit()
 
 
 def test_enqueue_creates_pending_job(database: Database):
@@ -179,3 +192,64 @@ def test_reset_running_to_pending_scopes_to_worker(database: Database):
     # worker-a's job is pending again; worker-b's is still running
     statuses = {_get(database.engine, a).status, _get(database.engine, b).status}
     assert statuses == {"pending", "running"}
+
+
+def _make_failed(repo: JobRepository, engine, *, user_id: str, now: float = 1000.0) -> str:
+    job_id = repo.enqueue("k", {}, user_id=user_id, dedup_key=None, max_attempts=1, now=now)
+    repo.claim("w", now=now)
+    repo.fail(job_id, "boom", now=now)  # max_attempts=1 -> failed
+    return job_id
+
+
+def test_list_jobs_scoped_to_user_newest_first(database: Database):
+    repo = JobRepository(database.engine)
+    _ensure_user(database.engine, "u1")
+    _ensure_user(database.engine, "u2")
+    repo.enqueue("k", {"n": 1}, user_id="u1", now=1000.0)
+    repo.enqueue("k", {"n": 2}, user_id="u1", now=1001.0)
+    repo.enqueue("k", {"n": 9}, user_id="u2", now=1002.0)
+    jobs = repo.list_jobs("u1")
+    assert [j.user_id for j in jobs] == ["u1", "u1"]
+    assert jobs[0].created_at >= jobs[1].created_at  # newest first
+
+
+def test_list_jobs_filters_status_and_kind(database: Database):
+    repo = JobRepository(database.engine)
+    _ensure_user(database.engine, "u1")
+    repo.enqueue("push", {}, user_id="u1", dedup_key="a", now=1000.0)
+    failed = _make_failed(repo, database.engine, user_id="u1", now=1001.0)
+    assert {j.id for j in repo.list_jobs("u1", status="failed")} == {failed}
+    assert {j.kind for j in repo.list_jobs("u1", kind="push")} == {"push"}
+
+
+def test_list_jobs_pagination(database: Database):
+    repo = JobRepository(database.engine)
+    _ensure_user(database.engine, "u1")
+    for i in range(3):
+        repo.enqueue("k", {"i": i}, user_id="u1", dedup_key=f"d{i}", now=1000.0 + i)
+    page = repo.list_jobs("u1", limit=1, offset=1)
+    assert len(page) == 1
+
+
+def test_retry_rearms_only_failed_owned_jobs(database: Database):
+    repo = JobRepository(database.engine)
+    _ensure_user(database.engine, "u1")
+    _ensure_user(database.engine, "u2")
+    failed = _make_failed(repo, database.engine, user_id="u1", now=1000.0)
+    assert repo.retry(failed, "u2", now=2000.0) is False  # not owner
+    assert repo.retry(failed, "u1", now=2000.0) is True
+    row = _get(database.engine, failed)
+    assert row.status == "pending" and row.attempts == 0 and row.last_error is None
+    assert repo.retry(failed, "u1", now=2000.0) is False  # now pending, not failed
+
+
+def test_dismiss_deletes_only_terminal_owned_jobs(database: Database):
+    repo = JobRepository(database.engine)
+    _ensure_user(database.engine, "u1")
+    _ensure_user(database.engine, "u2")
+    pending = repo.enqueue("k", {}, user_id="u1", dedup_key="p", now=1000.0)
+    assert repo.dismiss(pending, "u1") is False  # not terminal
+    failed = _make_failed(repo, database.engine, user_id="u1", now=1001.0)
+    assert repo.dismiss(failed, "u2") is False  # not owner
+    assert repo.dismiss(failed, "u1") is True
+    assert _get(database.engine, failed) is None
