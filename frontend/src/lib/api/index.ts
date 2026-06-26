@@ -182,6 +182,19 @@ export interface SessionResponse {
   email: string;
 }
 
+export interface SshKeyItem {
+  id: string;
+  name: string;
+  algorithm: string;
+  fingerprint: string;
+  public_key: string;
+  created_at: string;
+}
+
+export interface SshKeysResponse {
+  keys: SshKeyItem[];
+}
+
 export interface TagNode {
   path: string;
   name: string;
@@ -1508,6 +1521,121 @@ export const apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivateP
   {
     ...options,
     method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiListSshKeysApiMeSshKeysGetResponse200 = {
+  data: SshKeysResponse
+  status: 200
+}
+
+export type apiListSshKeysApiMeSshKeysGetResponseSuccess = (apiListSshKeysApiMeSshKeysGetResponse200) & {
+  headers: Headers;
+};
+;
+
+export type apiListSshKeysApiMeSshKeysGetResponse = (apiListSshKeysApiMeSshKeysGetResponseSuccess)
+
+export const getApiListSshKeysApiMeSshKeysGetUrl = () => {
+
+
+
+
+  return `/api/me/ssh-keys`
+}
+
+/**
+ * @summary Api List Ssh Keys
+ */
+export const apiListSshKeysApiMeSshKeysGet = async ( options?: RequestInit): Promise<apiListSshKeysApiMeSshKeysGetResponse> => {
+
+  return customFetch<apiListSshKeysApiMeSshKeysGetResponse>(getApiListSshKeysApiMeSshKeysGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiCreateSshKeyApiMeSshKeysPostResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiCreateSshKeyApiMeSshKeysPostResponseSuccess = (apiCreateSshKeyApiMeSshKeysPostResponse200) & {
+  headers: Headers;
+};
+;
+
+export type apiCreateSshKeyApiMeSshKeysPostResponse = (apiCreateSshKeyApiMeSshKeysPostResponseSuccess)
+
+export const getApiCreateSshKeyApiMeSshKeysPostUrl = () => {
+
+
+
+
+  return `/api/me/ssh-keys`
+}
+
+/**
+ * @summary Api Create Ssh Key
+ */
+export const apiCreateSshKeyApiMeSshKeysPost = async ( options?: RequestInit): Promise<apiCreateSshKeyApiMeSshKeysPostResponse> => {
+
+  return customFetch<apiCreateSshKeyApiMeSshKeysPostResponse>(getApiCreateSshKeyApiMeSshKeysPostUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseSuccess = (apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse200) & {
+  headers: Headers;
+};
+export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseError = (apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse = (apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseSuccess | apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseError)
+
+export const getApiDeleteSshKeyApiMeSshKeysKeyIdDeleteUrl = (keyId: string,) => {
+
+
+
+
+  return `/api/me/ssh-keys/${keyId}`
+}
+
+/**
+ * @summary Api Delete Ssh Key
+ */
+export const apiDeleteSshKeyApiMeSshKeysKeyIdDelete = async (keyId: string, options?: RequestInit): Promise<apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse> => {
+
+  return customFetch<apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse>(getApiDeleteSshKeyApiMeSshKeysKeyIdDeleteUrl(keyId),
+  {
+    ...options,
+    method: 'DELETE'
 
 
   }

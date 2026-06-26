@@ -4,6 +4,9 @@
     apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost,
     apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePost,
     apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDelete,
+    apiListSshKeysApiMeSshKeysGet,
+    apiCreateSshKeyApiMeSshKeysPost,
+    apiDeleteSshKeyApiMeSshKeysKeyIdDelete,
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
 
@@ -76,6 +79,49 @@
     } finally {
       busy = false;
     }
+  }
+
+  // SSH keys section.
+  // svelte-ignore state_referenced_locally
+  let keys = $state(data.keys);
+  let keyName = $state('');
+  let keyAlgorithm = $state('ed25519');
+  let keyError = $state('');
+  let keyBusy = $state(false);
+
+  async function reloadKeys() {
+    const r = await apiListSshKeysApiMeSshKeysGet();
+    if (r.status === 200) keys = r.data.keys;
+  }
+
+  async function createKey(e: SubmitEvent) {
+    e.preventDefault();
+    const n = keyName.trim();
+    if (!n) return;
+    keyBusy = true;
+    keyError = '';
+    try {
+      await apiCreateSshKeyApiMeSshKeysPost(jsonBody({ name: n, algorithm: keyAlgorithm }));
+      keyName = '';
+      await reloadKeys();
+    } catch (err) {
+      keyError = apiErrorMessage(err, 'Nie udało się wygenerować klucza.');
+    } finally {
+      keyBusy = false;
+    }
+  }
+
+  async function deleteKey(id: string) {
+    try {
+      await apiDeleteSshKeyApiMeSshKeysKeyIdDelete(id);
+      await reloadKeys();
+    } catch (err) {
+      keyError = apiErrorMessage(err, 'Nie udało się usunąć klucza.');
+    }
+  }
+
+  async function copyPublicKey(publicKey: string) {
+    await navigator.clipboard.writeText(publicKey);
   }
 </script>
 
@@ -182,6 +228,79 @@
       {busy ? '…' : 'Dodaj profil'}
     </button>
   </form>
+
+  <section class="ssh-section">
+    <h1>Klucze SSH</h1>
+    <p class="hint">Klucze SSH używane do autopush workspace'ów do zdalnych repozytoriów.</p>
+
+    {#if keyError}<p class="profiles__error">{keyError}</p>{/if}
+
+    {#if keys.length === 0}
+      <p class="profiles__empty">Brak kluczy SSH — wygeneruj pierwszy poniżej.</p>
+    {:else}
+      <ul class="profiles">
+        {#each keys as key (key.id)}
+          <li class="profile">
+            <div class="profile__head">
+              <span class="profile__name">{key.name}</span>
+              <span class="profile__badge">{key.algorithm}</span>
+            </div>
+            <dl class="profile__meta">
+              <div>
+                <dt>fingerprint</dt>
+                <dd>{key.fingerprint}</dd>
+              </div>
+            </dl>
+            <div class="profile__actions">
+              <button
+                type="button"
+                class="btn-primary profile__btn"
+                onclick={() => copyPublicKey(key.public_key)}
+              >
+                Kopiuj klucz publiczny
+              </button>
+              <button
+                type="button"
+                class="profile__btn profile__btn--danger"
+                onclick={() => deleteKey(key.id)}
+              >
+                Usuń
+              </button>
+            </div>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+
+    <form onsubmit={createKey} class="add-form">
+      <h2>Nowy klucz</h2>
+
+      <label class="add-form__field">
+        <span>Nazwa klucza</span>
+        <input
+          type="text"
+          bind:value={keyName}
+          placeholder="Nazwa klucza"
+          autocomplete="off"
+          spellcheck="false"
+          disabled={keyBusy}
+        />
+      </label>
+
+      <label class="add-form__field">
+        <span>Algorytm</span>
+        <select bind:value={keyAlgorithm} disabled={keyBusy} class="add-form__select">
+          <option value="ed25519">ed25519</option>
+          <option value="ecdsa-p256">ecdsa-p256</option>
+          <option value="rsa-4096">rsa-4096</option>
+        </select>
+      </label>
+
+      <button type="submit" class="btn-primary add-form__btn" disabled={keyBusy || !keyName.trim()}>
+        {keyBusy ? '…' : 'Generuj'}
+      </button>
+    </form>
+  </section>
 </main>
 
 <style lang="scss">
@@ -363,5 +482,31 @@
       align-self: flex-start;
       padding: 9px 18px;
     }
+
+    &__select {
+      padding: 9px 12px;
+      background: v.$bg-surface;
+      border: 1px solid v.$border;
+      border-radius: v.$radius-md;
+      color: v.$text-primary;
+      font-size: 0.9rem;
+      font-family: v.$font-mono;
+
+      &:focus {
+        outline: none;
+        border-color: v.$accent;
+        box-shadow: 0 0 0 2px rgba(240, 184, 0, 0.12);
+      }
+
+      &:disabled {
+        opacity: 0.5;
+      }
+    }
+  }
+
+  .ssh-section {
+    margin-top: v.$space-2xl;
+    padding-top: v.$space-xl;
+    border-top: 1px solid v.$border;
   }
 </style>
