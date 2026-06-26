@@ -151,6 +151,20 @@ def main() -> None:
         from kajet_turbo.dependencies import push_handler
         from kajet_turbo.worker import register_handler, run_worker
 
+        if os.getenv("KAJET_MIGRATE_BRANCHES_ON_START", "1") == "1":
+            # Bring legacy `master` workspaces onto `main`. Idempotent — a pure
+            # no-op scan once converged. Disable via KAJET_MIGRATE_BRANCHES_ON_START=0
+            # when done (issue #15). A migration failure must not block startup.
+            from kajet_turbo.log import logger
+            from kajet_turbo.maintenance import migrate_workspaces_to_main
+            from kajet_turbo.workspace import WORKSPACES_DIR
+
+            try:
+                migrated = migrate_workspaces_to_main(WORKSPACES_DIR)
+                logger.info("startup_branch_migration", migrated=len(migrated))
+            except Exception as e:
+                logger.warning("startup_branch_migration_failed", error=str(e))
+
         register_handler("push_workspace", push_handler)
         db = Database()
         run_worker(
