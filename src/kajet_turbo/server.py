@@ -148,8 +148,10 @@ def main() -> None:
     role = os.getenv("KAJET_ROLE", "all")
     if role == "worker":
         from kajet_turbo.db import Database
-        from kajet_turbo.worker import run_worker
+        from kajet_turbo.dependencies import push_handler
+        from kajet_turbo.worker import register_handler, run_worker
 
+        register_handler("push_workspace", push_handler)
         db = Database()
         run_worker(
             db.engine,

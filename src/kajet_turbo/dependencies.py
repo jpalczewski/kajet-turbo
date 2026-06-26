@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import os
 
 import httpx
 from starlette.requests import Request
@@ -14,18 +15,24 @@ from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbedding
 from kajet_turbo.embedding.resolver import ProfileResolver
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
+from kajet_turbo.repositories.git import register_post_commit_hook
+from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.sessions import SessionRepository
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
 from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
+from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.push_enqueue import make_enqueue_push_on_commit
+from kajet_turbo.services.push_handler import PushHandler
 from kajet_turbo.services.ssh_keys import SshKeyService
 from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.workspace import WORKSPACES_DIR
 
 db = Database()
 note_repo = NoteRepository(db.engine)
@@ -89,6 +96,22 @@ workspace_service = WorkspaceService(workspace_repo, note_repo, workspace_meta_r
 
 _ssh_key_repo = SshKeyRepository(db.engine)
 ssh_key_service = SshKeyService(_ssh_key_repo, lambda: cipher_for("ssh-key"))
+
+job_repo = JobRepository(db.engine)
+workspace_remote_repo = WorkspaceRemoteRepository(db.engine)
+push_handler = PushHandler(
+    workspace_remote_repo,
+    _ssh_key_repo,
+    lambda: cipher_for("ssh-key"),
+    known_hosts_path=os.getenv("KAJET_KNOWN_HOSTS", "/data/ssh/known_hosts"),
+    key_dir=os.getenv("KAJET_KEY_TMPDIR", "/dev/shm"),
+)
+
+# Enqueue an auto-push after every commit in a workspace that has an enabled remote.
+# Registered at import so it is active in the API/MCP processes that perform commits.
+register_post_commit_hook(
+    make_enqueue_push_on_commit(job_repo, workspace_remote_repo, WORKSPACES_DIR)
+)
 
 
 def get_ssh_key_service() -> SshKeyService:

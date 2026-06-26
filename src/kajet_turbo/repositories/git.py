@@ -3,6 +3,7 @@ import fcntl
 import os
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from dulwich import porcelain
@@ -11,9 +12,28 @@ from dulwich.object_store import tree_lookup_path
 from dulwich.objects import Blob, Commit
 from dulwich.repo import Repo
 
+from kajet_turbo.log import logger
 from kajet_turbo.perf import record
 
 COMMITTER = b"Kajet <bot@kajet.app>"
+
+_post_commit_hooks: list[Callable[[str], None]] = []
+
+
+def register_post_commit_hook(fn: Callable[[str], None]) -> None:
+    """Register a callback fired with the workspace path after each successful
+    commit. Used to enqueue auto-push. Hook exceptions are logged, not propagated —
+    a failing hook must never break the commit."""
+    _post_commit_hooks.append(fn)
+
+
+def _fire_post_commit(workspace_path: str) -> None:
+    for hook in _post_commit_hooks:
+        try:
+            hook(workspace_path)
+        except Exception as e:
+            logger.warning("post_commit_hook_failed", error=str(e))
+
 
 _REPO_LOCKS: dict[str, threading.Lock] = {}
 _REPO_LOCKS_GUARD = threading.Lock()
@@ -109,6 +129,7 @@ class GitRepository:
                 )
             except Exception as e:
                 raise GitError(str(e)) from e
+        _fire_post_commit(self._workspace_path)
 
     def delete_file(self, relative_path: str, message: str) -> None:
         with _workspace_lock(self._workspace_path):
@@ -125,6 +146,7 @@ class GitRepository:
                 raise
             except Exception as e:
                 raise GitError(str(e)) from e
+        _fire_post_commit(self._workspace_path)
 
     def rename_file(self, old_rel: str, new_rel: str, message: str) -> None:
         with _workspace_lock(self._workspace_path):
@@ -152,6 +174,7 @@ class GitRepository:
                     old_full.parent.mkdir(parents=True, exist_ok=True)
                     new_full.rename(old_full)
                 raise GitError(str(e)) from e
+        _fire_post_commit(self._workspace_path)
 
     def commit_moves(self, removed_rels: list[str], added_rels: list[str], message: str) -> None:
         """Record a set of moved files in a single commit: drop ``removed_rels`` from the
@@ -176,6 +199,7 @@ class GitRepository:
                 )
             except Exception as e:
                 raise GitError(str(e)) from e
+        _fire_post_commit(self._workspace_path)
 
     def commit_files(self, relative_paths: list[str], message: str) -> None:
         """Stage and commit multiple files in a single commit (one lock, one ref update).
@@ -201,6 +225,7 @@ class GitRepository:
                 raise
             except Exception as e:
                 raise GitError(str(e)) from e
+        _fire_post_commit(self._workspace_path)
 
     def last_commit_time(self) -> int | None:
         try:
