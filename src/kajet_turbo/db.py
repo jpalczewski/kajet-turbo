@@ -14,6 +14,7 @@ from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.m
     EmbeddingCache,
     EmbeddingProfile,
     IndexMeta,
+    Job,
     Note,
     NoteChunk,
     NoteLink,
