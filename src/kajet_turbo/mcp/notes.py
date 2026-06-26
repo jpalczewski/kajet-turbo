@@ -511,3 +511,36 @@ def register_notes(
             return await run_sync(note_service.set_tags, note_id, owner_id, ws_path, tags, True)
 
         return await _confirm_and_apply(ctx, result, reapply)
+
+    @mcp.tool()
+    @logged_tool
+    async def list_tags(
+        ctx: Context,
+        folder: Annotated[
+            str | None,
+            Field(
+                description="Opcjonalny filtr — licz tylko tagi notatek z tego folderu "
+                "(np. 'Projekty/Klient A'). Brak = cały workspace."
+            ),
+        ] = None,
+        include_subfolders: Annotated[
+            bool,
+            Field(description="Przy podanym folderze: czy wliczać podfoldery (domyślnie tak)."),
+        ] = True,
+    ) -> str:
+        """Zwraca tagi aktywnego workspace z licznikami popularności jako JSON array,
+        posortowane malejąco po liczbie notatek. Każdy element: {path, name, count}.
+        Użyj do rekonesansu istniejących tagów (żeby tagować spójnie) — opcjonalnie
+        zawężając do folderu. Błąd: {"error": "..."}."""
+        try:
+            owner_id, ws_name, _ = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        tags = await run_sync(
+            note_service.tag_counts,
+            ws_name,
+            owner_id=owner_id,
+            folder=folder,
+            include_subfolders=include_subfolders,
+        )
+        return json.dumps(tags, ensure_ascii=False)

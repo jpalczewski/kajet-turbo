@@ -233,7 +233,8 @@ class NoteRepository:
             q = select(Note).where(
                 Note.workspace == workspace,
                 Note.owner_id == owner_id,
-                (col(Note.folder) == prefix) | col(Note.folder).startswith(prefix + "/"),
+                (col(Note.folder) == prefix)
+                | col(Note.folder).startswith(prefix + "/", autoescape=True),
             )
             return list(session.exec(q).all())
 
@@ -595,6 +596,43 @@ class NoteRepository:
                     "descendant_count": len(descendants),
                 }
             )
+        return result
+
+    def tag_counts(
+        self,
+        workspace: str,
+        owner_id: str,
+        folder: str | None = None,
+        include_subfolders: bool = True,
+    ) -> builtins.list[dict]:
+        """Tags with ``count`` (distinct notes carrying exactly that tag), newest-popular
+        first. Optionally scoped to a folder: ``include_subfolders`` toggles between the
+        folder's subtree (prefix match, like :meth:`list_under_folder`) and that folder
+        exactly. Tags with no notes in scope are omitted. One join, aggregated in Python."""
+        with Session(self._engine) as session:
+            q = (
+                select(Tag.path, NoteTag.note_id)
+                .join(NoteTag, col(NoteTag.tag_id) == col(Tag.id))
+                .where(Tag.workspace == workspace, Tag.owner_id == owner_id)
+            )
+            if folder is not None:
+                q = q.join(Note, col(Note.id) == col(NoteTag.note_id))
+                if include_subfolders:
+                    q = q.where(
+                        (col(Note.folder) == folder)
+                        | col(Note.folder).startswith(folder + "/", autoescape=True)
+                    )
+                else:
+                    q = q.where(Note.folder == folder)
+            pairs = session.exec(q).all()
+        counts: dict[str, set[str]] = {}
+        for tag_path, note_id in pairs:
+            counts.setdefault(tag_path, set()).add(note_id)
+        result = [
+            {"path": p, "name": p.rsplit("/", 1)[-1], "count": len(ids)}
+            for p, ids in counts.items()
+        ]
+        result.sort(key=lambda r: (-r["count"], r["path"]))
         return result
 
     def list(
