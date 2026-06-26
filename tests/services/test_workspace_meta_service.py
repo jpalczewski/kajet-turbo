@@ -25,7 +25,12 @@ def test_set_meta_normalizes_folder_and_tags(database: Database):
     uid = _user(database)
     svc._repo.grant_access(uid, "ws")
     out = svc.set_meta(uid, "ws", description="docs", folder="/Praca/Klienci/", tags=["#Work", "x"])
-    assert out == {"description": "docs", "folder": "Praca/Klienci", "tags": ["work", "x"]}
+    assert out == {
+        "description": "docs",
+        "folder": "Praca/Klienci",
+        "tags": ["work", "x"],
+        "settings": None,
+    }
 
 
 def test_set_meta_partial_update(database: Database):
@@ -34,7 +39,7 @@ def test_set_meta_partial_update(database: Database):
     svc._repo.grant_access(uid, "ws")
     svc.set_meta(uid, "ws", description="d", folder="A")
     out = svc.set_meta(uid, "ws", tags=["t"])
-    assert out == {"description": "d", "folder": "A", "tags": ["t"]}
+    assert out == {"description": "d", "folder": "A", "tags": ["t"], "settings": None}
 
 
 def test_list_meta_includes_defaults_for_missing_rows(database: Database):

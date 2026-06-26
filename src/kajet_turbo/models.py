@@ -65,6 +65,8 @@ class WorkspaceMeta(SQLModel, table=True):
     description: str = Field(default="", sa_column=Column(Text))
     folder: str = Field(default="")
     tags: str | None = Field(default=None, sa_column=Column(Text))
+    # JSON blob, None = all defaults
+    settings: str | None = Field(default=None, sa_column=Column(Text))
     updated_at: str
 
 

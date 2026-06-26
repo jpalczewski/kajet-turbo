@@ -12,6 +12,7 @@ def _row_to_dict(row: WorkspaceMeta) -> dict:
         "description": row.description,
         "folder": row.folder,
         "tags": json.loads(row.tags or "[]"),
+        "settings": row.settings,
     }
 
 
@@ -92,3 +93,30 @@ class WorkspaceMetaRepository:
                 )
             ).all()
         return {r.workspace: _row_to_dict(r) for r in rows}
+
+    def get_settings(self, user_id: str, workspace: str) -> str | None:
+        """Raw settings JSON blob (None when unset). Parsing happens in the service."""
+        with Session(self._engine) as session:
+            row = session.exec(
+                select(WorkspaceMeta).where(
+                    WorkspaceMeta.user_id == user_id,
+                    WorkspaceMeta.workspace == workspace,
+                )
+            ).first()
+        return row.settings if row else None
+
+    def set_settings(self, user_id: str, workspace: str, settings_json: str) -> None:
+        now = datetime.now(UTC).isoformat()
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "INSERT INTO workspace_meta"
+                    " (user_id, workspace, description, folder, tags, settings, updated_at)"
+                    " VALUES (:u, :w, '', '', NULL, :s, :now)"
+                    " ON CONFLICT(user_id, workspace) DO UPDATE SET"
+                    "   settings   = :s,"
+                    "   updated_at = :now"
+                ),
+                {"u": user_id, "w": workspace, "s": settings_json, "now": now},
+            )
+            session.commit()
