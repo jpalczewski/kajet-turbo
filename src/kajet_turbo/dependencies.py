@@ -31,6 +31,7 @@ from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.push_enqueue import make_enqueue_push_on_commit
 from kajet_turbo.services.push_handler import PushHandler
 from kajet_turbo.services.ssh_keys import SshKeyService
+from kajet_turbo.services.workspace_remote import WorkspaceRemoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.workspace import WORKSPACES_DIR
 
@@ -112,6 +113,14 @@ push_handler = PushHandler(
 register_post_commit_hook(
     make_enqueue_push_on_commit(job_repo, workspace_remote_repo, WORKSPACES_DIR)
 )
+
+workspace_remote_service = WorkspaceRemoteService(
+    workspace_remote_repo, _ssh_key_repo, job_repo, WORKSPACES_DIR
+)
+
+
+def get_workspace_remote_service() -> WorkspaceRemoteService:
+    return workspace_remote_service
 
 
 def get_ssh_key_service() -> SshKeyService:
