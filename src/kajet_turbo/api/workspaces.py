@@ -681,7 +681,10 @@ def api_note_links(
         return JSONResponse({"error": "Not logged in"}, status_code=401)
     if not ws_service.has_access(user["id"], name):
         return JSONResponse({"error": "Brak dostępu."}, status_code=403)
-    return JSONResponse(note_service.links(note_id, owner_id=user["id"]))
+    result = note_service.links(note_id, owner_id=user["id"])
+    if result is None:
+        return JSONResponse({"error": "Notatka nie istnieje."}, status_code=404)
+    return JSONResponse(result)
 
 
 @router.get("/api/workspaces/{name}/notes/{note_id}/history", response_model=NoteHistoryResponse)

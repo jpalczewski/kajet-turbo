@@ -1,8 +1,10 @@
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import insert, text
 
 from kajet_turbo import perf
+from kajet_turbo.models import NoteLink
 from kajet_turbo.repositories.git import GitRepository
 
 
@@ -1206,15 +1208,32 @@ def test_links_returns_none_for_wrong_owner(service, workspace):
     assert service.links(nid, "u2") is None
 
 
-def test_links_orphaned_target_skipped(database, workspace):
-    # Create a service with validation disabled to allow orphaned links
-    svc = _make_service_with_validation(database, link_validation_enabled=lambda ws, owner: False)
-    # Create a note that links to a note that doesn't exist in repo (orphaned link)
-    sid = svc.save("u1", "ws", str(workspace), "Source", "[[Orphaned]]", [])["note_id"]
-    result = svc.links(sid, "u1")
+def test_links_orphaned_target_skipped(service, database, workspace):
+    # Save source and target, establish a real NoteLink row
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
+    # Bypass FK constraints by directly inserting a stale NoteLink row to a nonexistent target
+    # (simulating a race condition where a target was deleted but link row remains)
+    orphan_id = "orphaned-target-id"
+    engine = database.engine
+
+    with engine.begin() as conn:
+        conn.execute(text("PRAGMA foreign_keys=OFF"))
+        conn.execute(
+            insert(NoteLink).values(
+                source_note_id=sid,
+                target_note_id=orphan_id,
+                workspace="ws",
+                owner_id="u1",
+            )
+        )
+        conn.execute(text("PRAGMA foreign_keys=ON"))
+    # _resolve_link_notes must skip the stale edge (get() returns None for orphan_id)
+    result = service.links(sid, "u1")
     assert result is not None
-    # Orphaned target (note not found) should be skipped from outlinks
-    assert result["outlinks"] == []
+    # Valid link to Target + stale link to orphan should result in one outlink (orphan skipped)
+    assert len(result["outlinks"]) == 1
+    assert result["outlinks"][0]["note_id"] == tid
 
 
 def test_links_include_meta_adds_tags_and_updated_at(service, workspace):
@@ -1227,6 +1246,7 @@ def test_links_include_meta_adds_tags_and_updated_at(service, workspace):
     assert entry["title"] == "Target"
     assert entry["folder"] == ""
     assert "tags" in entry
+    assert entry["tags"] == ["work"]
     assert "updated_at" in entry
 
 

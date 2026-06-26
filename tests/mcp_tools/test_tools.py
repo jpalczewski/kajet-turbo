@@ -570,4 +570,5 @@ async def test_get_note_links_include_meta(workspaces_dir, mcp_server):
         entry = result["outlinks"][0]
         assert entry["note_id"] == target_id
         assert "tags" in entry
+        assert entry["tags"] == ["work"]
         assert "updated_at" in entry
