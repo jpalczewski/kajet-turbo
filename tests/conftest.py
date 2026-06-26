@@ -94,12 +94,3 @@ def note_file_factory() -> Callable[..., str]:
         return path
 
     return create
-
-
-def ensure_user(engine, user_id: str, email: str = "") -> None:
-    """Create a user if it doesn't exist."""
-    with Session(engine) as session:
-        if session.get(User, user_id) is None:
-            user = User(id=user_id, email=email or f"{user_id}@test.local", created_at="2026-01-01T00:00:00+00:00")
-            session.add(user)
-            session.commit()
