@@ -59,6 +59,7 @@ class NoteService:
         query_resolver=None,
         build_embedder=None,
         query_cache=None,
+        link_validation_enabled: Callable[[str, str], bool] | None = None,
     ) -> None:
         self._repo = note_repo
         self._cache = cache
@@ -66,6 +67,14 @@ class NoteService:
         self._query_resolver = query_resolver
         self._build_embedder = build_embedder
         self._query_cache = query_cache
+        # (ws_name, owner_id) -> bool. None => always on (preserves the hard invariant
+        # for call sites that don't wire settings, e.g. most unit tests).
+        self._link_validation_enabled = link_validation_enabled
+
+    def _links_validated(self, ws_name: str, owner_id: str) -> bool:
+        if self._link_validation_enabled is None:
+            return True
+        return self._link_validation_enabled(ws_name, owner_id)
 
     def _index(self, note_id: str, ws_name: str, owner_id: str, title: str, content: str) -> None:
         # Chunks + FTS are the reliable search backbone (written by replace_chunks inside
@@ -102,8 +111,10 @@ class NoteService:
                 if pair not in resolved and pair in extra_targets:
                     resolved[pair] = extra_targets[pair]
         broken = sorted({target for target, pair in pairs if pair not in resolved})
-        if broken:
+        if broken and self._links_validated(ws_name, owner_id):
             raise BrokenWikilinkError(broken)
+        # Validation off: broken links are dropped (no note_links edge); resolved
+        # targets still flow to the graph. Dangling links auto-heal in the renderer.
         return set(resolved.values())
 
     @staticmethod

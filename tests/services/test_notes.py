@@ -999,3 +999,55 @@ def test_save_many_filename_collision_dedup(service, workspace):
     note = service._repo.get(results[0]["note_id"], owner_id="u1")
     assert note is not None
     assert note.title == "A:B"
+
+
+# --- conditional link validation ---
+
+
+def _make_service_with_validation(database, link_validation_enabled=None):
+    """Build a NoteService with optional link_validation_enabled predicate."""
+    from kajet_turbo.embedding.cache import EmbeddingCacheRepository
+    from kajet_turbo.repositories.notes import NoteRepository
+    from kajet_turbo.services.indexing import NoteIndexer
+    from kajet_turbo.services.notes import NoteService
+
+    repo = NoteRepository(database.engine)
+    indexer = NoteIndexer(
+        repo,
+        EmbeddingCacheRepository(database.engine),
+        resolve_backend=lambda owner_id: None,
+        build_embedder=lambda cfg: None,
+    )
+    return NoteService(repo, indexer=indexer, link_validation_enabled=link_validation_enabled)
+
+
+def test_save_with_broken_wikilink_allowed_when_validation_disabled(database, workspace):
+    """Validation disabled: broken [[Ghost]] does not raise; note is persisted."""
+    svc = _make_service_with_validation(database, link_validation_enabled=lambda ws, owner: False)
+    result = svc.save("u1", "ws", str(workspace), "Note A", "see [[Ghost]]", tags=[])
+    assert "note_id" in result
+    assert (workspace / "Note A.md").exists()
+    assert svc._repo.get(result["note_id"], owner_id="u1") is not None
+
+
+def test_disabled_validation_still_links_existing_targets(database, workspace):
+    """Validation disabled: resolved target IS in note_links; broken one is silently dropped."""
+    svc = _make_service_with_validation(database, link_validation_enabled=lambda ws, owner: False)
+    a = svc.save("u1", "ws", str(workspace), "Target", "body", tags=[])
+    b = svc.save("u1", "ws", str(workspace), "Source", "[[Target]] and [[Ghost]]", tags=[])
+    # Resolved target appears as a backlink; broken Ghost is absent.
+    backlinks = svc._repo.backlinks(a["note_id"])
+    assert b["note_id"] in backlinks
+    # Ghost never existed, so no outlink edge for it (no error row either).
+    outlinks = svc._repo.outlinks(b["note_id"])
+    assert a["note_id"] in outlinks
+    assert len(outlinks) == 1
+
+
+def test_save_broken_wikilink_still_rejected_when_enabled_default(database, workspace):
+    """Default (None predicate) keeps hard rejection — guards the existing contract."""
+    from kajet_turbo.markdown import BrokenWikilinkError
+
+    svc = _make_service_with_validation(database)  # no predicate -> always enabled
+    with pytest.raises(BrokenWikilinkError):
+        svc.save("u1", "ws", str(workspace), "Note", "see [[Ghost]]", tags=[])
