@@ -26,6 +26,7 @@ from kajet_turbo.markdown import (
     split_target,
 )
 from kajet_turbo.perf import timed
+from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.workspace import (
@@ -60,6 +61,7 @@ class NoteService:
         build_embedder=None,
         query_cache=None,
         link_validation_enabled: Callable[[str, str], bool] | None = None,
+        dangling_repo: DanglingLinkRepository | None = None,
     ) -> None:
         self._repo = note_repo
         self._cache = cache
@@ -70,6 +72,7 @@ class NoteService:
         # (ws_name, owner_id) -> bool. None => always on (preserves the hard invariant
         # for call sites that don't wire settings, e.g. most unit tests).
         self._link_validation_enabled = link_validation_enabled
+        self._dangling_repo = dangling_repo
 
     def _links_validated(self, ws_name: str, owner_id: str) -> bool:
         if self._link_validation_enabled is None:
@@ -95,27 +98,41 @@ class NoteService:
         owner_id: str,
         content: str,
         extra_targets: dict[tuple[str, str], str] | None = None,
-    ) -> set[str]:
-        """Resolve every wikilink in ``content``; raise if any points to a missing note.
+    ) -> tuple[set[str], builtins.list[tuple[str, str]]]:
+        """Resolve every wikilink in ``content``. Returns ``(resolved_ids, broken_pairs)``.
 
         ``extra_targets`` maps ``(folder, title) -> note_id`` for notes created in the
         same batch that are not yet persisted, so in-batch links resolve before insert.
-        Returns the set of resolved target note_ids (used to persist the link graph).
+        Raises BrokenWikilinkError when validation is on and any link is broken; with
+        validation off, broken (folder, title) pairs are returned for dangling storage.
         """
         pairs = [(target, split_target(target)) for target, _ in extract_wikilinks(content)]
         if not pairs:
-            return set()
+            return set(), []
         resolved = self._repo.resolve_paths(ws_name, owner_id, [pair for _, pair in pairs])
         if extra_targets:
             for _, pair in pairs:
                 if pair not in resolved and pair in extra_targets:
                     resolved[pair] = extra_targets[pair]
-        broken = sorted({target for target, pair in pairs if pair not in resolved})
-        if broken and self._links_validated(ws_name, owner_id):
-            raise BrokenWikilinkError(broken)
+        broken_targets = sorted({target for target, pair in pairs if pair not in resolved})
+        if broken_targets and self._links_validated(ws_name, owner_id):
+            raise BrokenWikilinkError(broken_targets)
         # Validation off: broken links are dropped (no note_links edge); resolved
-        # targets still flow to the graph. Dangling links auto-heal in the renderer.
-        return set(resolved.values())
+        # targets still flow to the graph. Dangling links persist via _write_dangling.
+        broken_pairs = sorted({pair for _, pair in pairs if pair not in resolved})
+        return set(resolved.values()), broken_pairs
+
+    def _write_dangling(
+        self,
+        source_note_id: str,
+        ws_name: str,
+        owner_id: str,
+        broken_pairs: builtins.list[tuple[str, str]],
+    ) -> None:
+        """Persist (or clear) the source note's dangling links. No-op when not wired."""
+        if self._dangling_repo is None:
+            return
+        self._dangling_repo.replace_for_source(source_note_id, ws_name, owner_id, broken_pairs)
 
     @staticmethod
     def _normalize_tags(raw: builtins.list[str]) -> builtins.list[str]:
@@ -221,7 +238,7 @@ class NoteService:
         if not self._repo.check_unique(ws_name, user_id, folder, title):
             raise ValueError(f"Notatka '{title}' już istnieje w folderze '{folder or 'root'}'.")
         tags = self._normalize_tags(tags)
-        target_ids = self._validate_wikilinks(ws_name, user_id, content)
+        target_ids, broken_pairs = self._validate_wikilinks(ws_name, user_id, content)
         note_id = generate(size=7)
         now = datetime.now(UTC).isoformat()
         filepath = note_filepath(ws_path, folder, title)
@@ -236,6 +253,7 @@ class NoteService:
             self._repo.insert(note_id, ws_name, user_id, title, tags, now, now, content, folder)
             self._repo.replace_links(note_id, ws_name, user_id, target_ids)
             self._sync_tags(note_id, ws_name, user_id, tags, content)
+        self._write_dangling(note_id, ws_name, user_id, broken_pairs)
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
@@ -314,7 +332,7 @@ class NoteService:
         valid: builtins.list[dict] = []
         for s in survivors:
             try:
-                s["target_ids"] = self._validate_wikilinks(
+                s["target_ids"], s["broken_pairs"] = self._validate_wikilinks(
                     ws_name, user_id, s["content"], extra_targets=batch_targets
                 )
             except BrokenWikilinkError as e:
@@ -356,6 +374,7 @@ class NoteService:
                 )
                 self._repo.replace_links(s["note_id"], ws_name, user_id, s["target_ids"])
                 self._sync_tags(s["note_id"], ws_name, user_id, s["tags"], s["content"])
+                self._write_dangling(s["note_id"], ws_name, user_id, s["broken_pairs"])
 
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
@@ -512,7 +531,7 @@ class NoteService:
             new_content = apply_edit(old_content, mode, content, target_heading, old_text)
 
         # Validate links on the final content (post apply_edit), before any git mutation.
-        target_ids = self._validate_wikilinks(note.workspace, owner_id, new_content)
+        target_ids, broken_pairs = self._validate_wikilinks(note.workspace, owner_id, new_content)
 
         old_fm_tags = self._normalize_tags(note_data["tags"])
         would_remove = (
@@ -565,6 +584,7 @@ class NoteService:
             )
             self._repo.replace_links(note_id, note.workspace, owner_id, target_ids)
             self._sync_tags(note_id, note.workspace, owner_id, new_tags, new_content)
+        self._write_dangling(note_id, note.workspace, owner_id, broken_pairs)
         if old_path != new_path:
             self._rewrite_backlinks(
                 note_id, owner_id, ws_path, note.folder, note.title, new_folder, new_title

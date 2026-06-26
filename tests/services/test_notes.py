@@ -845,10 +845,11 @@ def test_prune_empty_folders_removes_orphans_keeps_gitkeep(service, workspace):
 
 def test_validate_wikilinks_accepts_extra_targets(service, workspace):
     # No note "Target" exists in the DB; supply it via extra_targets.
-    ids = service._validate_wikilinks(
+    ids, broken = service._validate_wikilinks(
         "ws", "u1", "see [[Target]]", extra_targets={("", "Target"): "abc1234"}
     )
     assert ids == {"abc1234"}
+    assert broken == []
 
 
 def test_validate_wikilinks_without_extra_still_raises(service, workspace):
@@ -1051,3 +1052,80 @@ def test_save_broken_wikilink_still_rejected_when_enabled_default(database, work
     svc = _make_service_with_validation(database)  # no predicate -> always enabled
     with pytest.raises(BrokenWikilinkError):
         svc.save("u1", "ws", str(workspace), "Note", "see [[Ghost]]", tags=[])
+
+
+# --- dangling link writes ---
+
+
+def _make_service_with_dangling(database, link_validation_enabled=None):
+    """Build a NoteService wired with a real DanglingLinkRepository on the same engine."""
+    from kajet_turbo.embedding.cache import EmbeddingCacheRepository
+    from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
+    from kajet_turbo.repositories.notes import NoteRepository
+    from kajet_turbo.services.indexing import NoteIndexer
+    from kajet_turbo.services.notes import NoteService
+
+    repo = NoteRepository(database.engine)
+    indexer = NoteIndexer(
+        repo,
+        EmbeddingCacheRepository(database.engine),
+        resolve_backend=lambda owner_id: None,
+        build_embedder=lambda cfg: None,
+    )
+    dangling = DanglingLinkRepository(database.engine)
+    return (
+        NoteService(
+            repo,
+            indexer=indexer,
+            link_validation_enabled=link_validation_enabled,
+            dangling_repo=dangling,
+        ),
+        dangling,
+    )
+
+
+def test_validation_off_save_writes_dangling_rows(database, workspace):
+    """Broken wikilinks on a validation-off save are persisted in dangling_links."""
+    svc, dangling = _make_service_with_dangling(
+        database, link_validation_enabled=lambda ws, owner: False
+    )
+    res = svc.save("u1", "ws", str(workspace), "Source", "[[Ghost]] and [[Sub/Other]]", tags=[])
+    rows = dangling.list_for_workspace("u1", "ws")
+    assert {(r["target_folder"], r["target_title"]) for r in rows} == {
+        ("", "Ghost"),
+        ("Sub", "Other"),
+    }
+    assert all(r["source_note_id"] == res["note_id"] for r in rows)
+
+
+def test_validation_off_resolved_link_writes_no_dangling(database, workspace):
+    """Fully resolved wikilinks produce zero dangling rows."""
+    svc, dangling = _make_service_with_dangling(
+        database, link_validation_enabled=lambda ws, owner: False
+    )
+    svc.save("u1", "ws", str(workspace), "Target", "body", tags=[])
+    svc.save("u1", "ws", str(workspace), "Source", "[[Target]]", tags=[])
+    assert dangling.exists("u1", "ws") is False
+
+
+def test_resave_replaces_dangling_rows(database, workspace):
+    """update() overwrites the source note's dangling rows, not appends."""
+    svc, dangling = _make_service_with_dangling(
+        database, link_validation_enabled=lambda ws, owner: False
+    )
+    r = svc.save("u1", "ws", str(workspace), "Source", "[[Ghost]]", tags=[])
+    svc.update(
+        r["note_id"], owner_id="u1", ws_path=str(workspace), content="[[Other]]", confirm=True
+    )
+    rows = dangling.list_for_workspace("u1", "ws")
+    assert {(r2["target_folder"], r2["target_title"]) for r2 in rows} == {("", "Other")}
+
+
+def test_validation_on_writes_no_dangling(database, workspace):
+    """Validation-on raises BrokenWikilinkError before any dangling write."""
+    from kajet_turbo.markdown import BrokenWikilinkError
+
+    svc, dangling = _make_service_with_dangling(database)  # no predicate => validation ON
+    with pytest.raises(BrokenWikilinkError):
+        svc.save("u1", "ws", str(workspace), "Source", "[[Ghost]]", tags=[])
+    assert dangling.exists("u1", "ws") is False
