@@ -235,3 +235,29 @@ def test_insert_writes_no_fts_rows(database):
     with database.engine.connect() as conn:
         n = conn.execute(text("SELECT COUNT(*) FROM notes_fts WHERE note_id='n1'")).scalar()
     assert n == 0  # FTS is now written only via replace_chunks (chunk-level)
+
+
+# --- add_link tests ---
+
+
+def test_add_link_inserts_single_edge(notes):
+    notes.insert("a", "ws", "u1", "A", [], _now(), _now(), "body")
+    notes.insert("b", "ws", "u1", "B", [], _now(), _now(), "body")
+    notes.add_link("b", "a", "ws", "u1")
+    assert "a" in notes.outlinks("b")
+
+
+def test_add_link_idempotent(notes):
+    notes.insert("a", "ws", "u1", "A", [], _now(), _now(), "body")
+    notes.insert("b", "ws", "u1", "B", [], _now(), _now(), "body")
+    notes.add_link("b", "a", "ws", "u1")
+    notes.add_link("b", "a", "ws", "u1")  # second insert must not raise
+    assert notes.outlinks("b") == ["a"]
+
+
+def test_add_link_preserves_existing_edges(notes):
+    for nid, title in [("a", "A"), ("b", "B"), ("c", "C")]:
+        notes.insert(nid, "ws", "u1", title, [], _now(), _now(), "body")
+    notes.replace_links("a", "ws", "u1", {"b"})  # a -> b
+    notes.add_link("a", "c", "ws", "u1")  # add a -> c without dropping a -> b
+    assert set(notes.outlinks("a")) == {"b", "c"}
