@@ -5,6 +5,7 @@ import bleach
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from kajet_turbo import workspace_settings
 from kajet_turbo.api.schemas import (
     BatchCreateNotesResponse,
     ChunkPreviewResponse,
@@ -24,6 +25,8 @@ from kajet_turbo.api.schemas import (
     TagsResponse,
     UpdateNoteResponse,
     UpdateWorkspaceResponse,
+    UpdateWorkspaceSettingsResponse,
+    WorkspaceSettingsResponse,
     WorkspacesListResponse,
 )
 from kajet_turbo.concurrency import run_sync
@@ -166,6 +169,52 @@ async def api_update_workspace(
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=422)
     return JSONResponse({"name": name, **result})
+
+
+@router.get("/api/workspaces/{name}/settings", response_model=WorkspaceSettingsResponse)
+@logged_route
+async def api_get_workspace_settings(
+    name: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    values = await run_sync(ws_service.get_settings, user["id"], name)
+    return JSONResponse({"definitions": workspace_settings.definitions(), "values": values})
+
+
+@router.patch("/api/workspaces/{name}/settings", response_model=UpdateWorkspaceSettingsResponse)
+@logged_route
+async def api_update_workspace_settings(
+    name: str,
+    request: Request,
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+) -> JSONResponse:
+    user = get_session_user(request)
+    if not user:
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
+    if not ws_service.has_access(user["id"], name):
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    values = body.get("values")
+    if not isinstance(values, dict):
+        return JSONResponse({"error": "Pole 'values' jest wymagane."}, status_code=422)
+    result: dict = {}
+    try:
+        for key, value in values.items():
+            result = await run_sync(ws_service.set_setting, user["id"], name, key, value)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=422)
+    if not result:
+        result = await run_sync(ws_service.get_settings, user["id"], name)
+    return JSONResponse({"values": result})
 
 
 @router.get("/api/workspaces/{name}/notes", response_model=NotesListResponse)
