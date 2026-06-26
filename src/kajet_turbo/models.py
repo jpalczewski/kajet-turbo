@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, ForeignKey, Index, LargeBinary, Text, text
+from sqlalchemy import Column, ForeignKey, Index, LargeBinary, Text, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 
@@ -317,3 +317,26 @@ class Job(SQLModel, table=True):
     last_error: str | None = Field(default=None, sa_column=Column(Text))
     created_at: float
     updated_at: float
+
+
+class SshKey(SQLModel, table=True):
+    """A user-owned SSH keypair authenticating workspace auto-push to an external
+    git host. The private key is sealed at rest (``private_key_enc``) and is
+    write-only — never returned over the API; only ``public_key`` and the SHA256
+    ``fingerprint`` are exposed, for pasting into the host's deploy keys."""
+
+    __tablename__ = "ssh_keys"
+
+    id: str = Field(primary_key=True)
+    user_id: str = Field(sa_column=Column(Text, ForeignKey("users.id"), nullable=False))
+    name: str
+    algorithm: str
+    public_key: str = Field(sa_column=Column(Text, nullable=False))
+    private_key_enc: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    fingerprint: str
+    created_at: str
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_ssh_keys_user_name"),
+        Index("ix_ssh_keys_user", "user_id"),
+    )
