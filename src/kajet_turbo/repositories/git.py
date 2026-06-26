@@ -177,6 +177,31 @@ class GitRepository:
             except Exception as e:
                 raise GitError(str(e)) from e
 
+    def commit_files(self, relative_paths: list[str], message: str) -> None:
+        """Stage and commit multiple files in a single commit (one lock, one ref update).
+
+        Used by batch note creation; the caller has already written the files to disk.
+        No-op on an empty list. Raises GitError if any path is missing on disk.
+        """
+        if not relative_paths:
+            return
+        with _workspace_lock(self._workspace_path):
+            try:
+                for rel in relative_paths:
+                    if not Path(self._workspace_path, rel).exists():
+                        raise GitError(f"File not found: {rel}")
+                porcelain.add(self._workspace_path, paths=list(relative_paths))
+                porcelain.commit(
+                    self._workspace_path,
+                    message=message.encode(),
+                    author=COMMITTER,
+                    committer=COMMITTER,
+                )
+            except GitError:
+                raise
+            except Exception as e:
+                raise GitError(str(e)) from e
+
     def last_commit_time(self) -> int | None:
         try:
             repo = Repo(self._workspace_path)

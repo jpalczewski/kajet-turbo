@@ -181,3 +181,30 @@ def test_parallel_commits_across_processes_keep_all(tmp_path):
 
     commits = list(Repo(str(tmp_path)).get_walker())
     assert len(commits) == 8
+
+
+def test_commit_files_creates_single_commit_over_many(git_ws, tmp_path):
+    (tmp_path / "a.md").write_text("# A")
+    (tmp_path / "b.md").write_text("# B")
+    (tmp_path / "c.md").write_text("# C")
+
+    git_ws.commit_files(["a.md", "b.md", "c.md"], "note: add 3 notes")
+
+    commits = list(DulwichRepo(str(tmp_path)).get_walker())
+    assert len(commits) == 1
+    assert b"note: add 3 notes" in commits[0].commit.message
+
+
+def test_commit_files_empty_is_noop(git_ws, tmp_path):
+    (tmp_path / "seed.md").write_text("# seed")
+    git_ws.commit_file("seed.md", "note: seed")
+
+    git_ws.commit_files([], "note: nothing")
+
+    assert len(list(DulwichRepo(str(tmp_path)).get_walker())) == 1
+
+
+def test_commit_files_raises_on_missing_file(git_ws, tmp_path):
+    (tmp_path / "a.md").write_text("# A")
+    with pytest.raises(GitError):
+        git_ws.commit_files(["a.md", "missing.md"], "note: add")
