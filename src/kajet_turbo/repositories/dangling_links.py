@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from nanoid import generate
-from sqlalchemy import Engine, delete, exists
+from sqlalchemy import Engine, delete
 from sqlmodel import Session, col, select
 
 from kajet_turbo.models import DanglingLink
@@ -42,16 +42,15 @@ class DanglingLinkRepository:
 
     def exists(self, owner_id: str, workspace: str) -> bool:
         with Session(self._engine) as session:
-            return bool(
-                session.scalar(
-                    select(
-                        exists().where(
-                            DanglingLink.owner_id == owner_id,
-                            DanglingLink.workspace == workspace,
-                        )
-                    )
+            row = session.exec(
+                select(DanglingLink.id)
+                .where(
+                    DanglingLink.owner_id == owner_id,
+                    DanglingLink.workspace == workspace,
                 )
-            )
+                .limit(1)
+            ).first()
+        return row is not None
 
     def list_for_workspace(self, owner_id: str, workspace: str) -> list[dict]:
         with Session(self._engine) as session:
