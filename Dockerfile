@@ -9,7 +9,9 @@ FROM ghcr.io/astral-sh/uv:bookworm-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends git && \
+# openssh-client: dulwich's SubprocessSSHVendor shells out to `ssh` for git push
+# over SSH (workspace auto-push). Without it: FileNotFoundError [Errno 2] 'ssh'.
+RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client && \
     rm -rf /var/lib/apt/lists/* && \
     git config --global user.email "kajet@localhost" && \
     git config --global user.name "kajet-turbo"
