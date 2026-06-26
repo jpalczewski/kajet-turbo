@@ -36,10 +36,11 @@ from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.m
 
 
 class Database:
-    def __init__(self, db_path: str | None = None):
+    def __init__(self, db_path: str | None = None, *, skip_migrations: bool = False):
         self.embedding_dim = int(os.getenv("EMBEDDING_DIM", "1536"))
         self.db_path = db_path or os.getenv("DB_PATH", "/data/kajet.db")
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self._skip_migrations = skip_migrations
 
         # QueuePool: up to pool_size connections kept warm, each thread gets
         # its own checkout. WAL mode allows concurrent reads across connections.
@@ -61,7 +62,8 @@ class Database:
             conn.execute("PRAGMA foreign_keys=ON")
             conn.execute("PRAGMA busy_timeout=5000")
 
-        self._run_migrations()
+        if not self._skip_migrations:
+            self._run_migrations()
         self._init_schema()
 
     def _run_migrations(self) -> None:

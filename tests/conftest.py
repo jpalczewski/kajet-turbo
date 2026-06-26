@@ -34,21 +34,34 @@ def pytest_configure(config):
         os.environ["DB_PATH"] = path
 
 
+import shutil
+
 from kajet_turbo.db import Database
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.workspace import note_filepath, write_note_file
 
 
+@pytest.fixture(scope="session")
+def _db_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Migrated DB created once per worker session; tests copy it instead of re-running Alembic."""
+    path = tmp_path_factory.mktemp("db-template") / "template.db"
+    db = Database(str(path))
+    db.close()
+    return path
+
+
 @pytest.fixture
-def database_factory(tmp_path: Path) -> Iterator[Callable[..., Database]]:
+def database_factory(tmp_path: Path, _db_template: Path) -> Iterator[Callable[..., Database]]:
     databases: list[Database] = []
 
     def create(name: str = "test.db", *, embedding_dim: int | None = None) -> Database:
+        dest = tmp_path / name
+        shutil.copy2(_db_template, dest)
         previous_dim = os.environ.get("EMBEDDING_DIM")
         if embedding_dim is not None:
             os.environ["EMBEDDING_DIM"] = str(embedding_dim)
         try:
-            database = Database(str(tmp_path / name))
+            database = Database(str(dest), skip_migrations=True)
         finally:
             if embedding_dim is not None:
                 if previous_dim is None:
