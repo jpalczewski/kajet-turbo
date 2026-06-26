@@ -57,6 +57,7 @@
   }
 
   async function remove() {
+    error = '';
     try {
       const r = await apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDelete(name);
       if (r.status === 200) {
@@ -64,6 +65,8 @@
         originUrl = '';
         sshKeyId = '';
         enabled = true;
+      } else {
+        error = apiErrorMessage(r, 'Nie udało się usunąć remote.');
       }
     } catch (e) {
       error = apiErrorMessage(e, 'Nie udało się usunąć remote.');
@@ -76,6 +79,9 @@
     try {
       const r = await apiTriggerWorkspacePushApiWorkspacesNameRemotePushPost(name);
       if (r.status === 200) await load();
+      else {
+        error = apiErrorMessage(r, 'Push nie powiódł się.');
+      }
     } catch (e) {
       error = apiErrorMessage(e, 'Push nie powiódł się.');
     } finally {
