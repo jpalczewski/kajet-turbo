@@ -856,3 +856,118 @@ def test_validate_wikilinks_without_extra_still_raises(service, workspace):
 
     with pytest.raises(BrokenWikilinkError):
         service._validate_wikilinks("ws", "u1", "see [[Nope]]")
+
+
+# --- save_many ---
+
+
+def _commit_count(workspace):
+    from dulwich.repo import Repo as DulwichRepo
+
+    try:
+        return len(list(DulwichRepo(str(workspace)).get_walker()))
+    except KeyError:
+        return 0  # empty repo: no HEAD yet
+
+
+def test_save_many_happy_path_single_commit(service, workspace):
+    before = _commit_count(workspace)
+    notes = [
+        {"title": "Batch A", "content": "alpha"},
+        {"title": "Batch B", "content": "beta", "tags": ["x"]},
+        {"title": "Batch C", "content": "gamma", "folder": "docs"},
+    ]
+    results = service.save_many("u1", "ws", str(workspace), notes)
+
+    assert [r["index"] for r in results] == [0, 1, 2]
+    assert all("note_id" in r for r in results)
+    assert (workspace / "Batch A.md").exists()
+    assert (workspace / "docs" / "Batch C.md").exists()
+    # Exactly one new commit for the whole batch.
+    assert _commit_count(workspace) == before + 1
+
+
+def test_save_many_best_effort_reports_per_note(service, workspace):
+    service.save("u1", "ws", str(workspace), "Existing", "x", [])
+    notes = [
+        {"title": "Fresh One", "content": "a"},
+        {"title": "Existing", "content": "dup"},  # collides with DB
+        {"title": "", "content": "no title"},  # empty title
+        {"title": "Fresh Two", "content": "b"},
+    ]
+    results = service.save_many("u1", "ws", str(workspace), notes)
+
+    assert "note_id" in results[0]
+    assert "error" in results[1]
+    assert "error" in results[2]
+    assert "note_id" in results[3]
+
+
+def test_save_many_intra_batch_duplicate(service, workspace):
+    notes = [
+        {"title": "Same", "content": "first"},
+        {"title": "Same", "content": "second"},  # same (folder, title) within batch
+    ]
+    results = service.save_many("u1", "ws", str(workspace), notes)
+
+    assert "note_id" in results[0]
+    assert "error" in results[1]
+    assert "batchu" in results[1]["error"].lower()
+
+
+def test_save_many_empty_list(service, workspace):
+    assert service.save_many("u1", "ws", str(workspace), []) == []
+
+
+def test_save_many_cross_batch_wikilink_order_independent(service, workspace):
+    # Note A links to B; B comes AFTER A in input order — must still resolve.
+    notes = [
+        {"title": "A note", "content": "links to [[B note]]"},
+        {"title": "B note", "content": "target"},
+    ]
+    results = service.save_many("u1", "ws", str(workspace), notes)
+
+    assert "note_id" in results[0]
+    assert "note_id" in results[1]
+    b_id = results[1]["note_id"]
+    # A's link edge resolves to B's note_id.
+    links = service._repo.resolve_paths("ws", "u1", [("", "B note")])
+    assert links[("", "B note")] == b_id
+
+
+def test_save_many_non_cascading_drop(service, workspace):
+    # A links to B (valid in-batch); B has its own broken link and is dropped.
+    notes = [
+        {"title": "A links B", "content": "see [[B broken]]"},
+        {"title": "B broken", "content": "see [[Does Not Exist]]"},
+    ]
+    results = service.save_many("u1", "ws", str(workspace), notes)
+
+    assert "note_id" in results[0]  # A still saved
+    assert "error" in results[1]  # B dropped for its own broken link
+
+
+def test_save_many_git_error_rolls_back_all_files(service, workspace):
+    from kajet_turbo.repositories.git import GitError
+
+    notes = [{"title": "RB One", "content": "a"}, {"title": "RB Two", "content": "b"}]
+    with (
+        patch(
+            "kajet_turbo.repositories.git.GitRepository.commit_files",
+            side_effect=GitError("fail"),
+        ),
+        pytest.raises(GitError),
+    ):
+        service.save_many("u1", "ws", str(workspace), notes)
+
+    md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
+    assert md_files == []
+
+
+def test_save_many_indexes_every_valid_note(service, workspace):
+    notes = [{"title": "Idx A", "content": "a"}, {"title": "Idx B", "content": "b"}]
+    with patch.object(service._indexer, "index_many") as idx:
+        service.save_many("u1", "ws", str(workspace), notes)
+    idx.assert_called_once()
+    passed = idx.call_args.args[2]
+    assert {n["title"] for n in passed} == {"Idx A", "Idx B"}

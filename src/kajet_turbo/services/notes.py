@@ -231,6 +231,128 @@ class NoteService:
         self._index(note_id, ws_name, user_id, title, content)
         return {"note_id": note_id}
 
+    def save_many(
+        self,
+        user_id: str,
+        ws_name: str,
+        ws_path: str,
+        notes: builtins.list[dict],
+    ) -> builtins.list[dict]:
+        """Create many notes in one batch: one git commit, one cache bump, embeddings
+        parallelized across the indexer threadpool. Best-effort per note — invalid notes
+        are reported and skipped. Each input dict: ``{title, content, tags=[], folder=""}``.
+        Returns per-note ``{index, note_id}`` | ``{index, error}``, input order preserved.
+        Raises GitError if the batch commit fails (written files are rolled back first).
+        """
+        results: builtins.list[dict | None] = [None] * len(notes)
+        now = datetime.now(UTC).isoformat()
+
+        # Phase 1: uniqueness + id assignment. Survivors get an id and register in the
+        # batch target map so in-batch wikilinks resolve in Phase 2.
+        accepted: set[tuple[str, str]] = set()
+        batch_targets: dict[tuple[str, str], str] = {}
+        survivors: builtins.list[dict] = []
+        for index, raw in enumerate(notes):
+            title = str(raw.get("title", "")).strip()
+            if not title:
+                results[index] = {"index": index, "error": "Tytuł jest wymagany."}
+                continue
+            folder = normalize_folder(str(raw.get("folder", "")))
+            key = (folder, title)
+            if key in accepted:
+                results[index] = {
+                    "index": index,
+                    "error": f"Duplikat w batchu: '{title}' w folderze '{folder or 'root'}'.",
+                }
+                continue
+            if not self._repo.check_unique(ws_name, user_id, folder, title):
+                results[index] = {
+                    "index": index,
+                    "error": f"Notatka '{title}' już istnieje w folderze '{folder or 'root'}'.",
+                }
+                continue
+            note_id = generate(size=7)
+            filepath = note_filepath(ws_path, folder, title)
+            accepted.add(key)
+            batch_targets[key] = note_id
+            survivors.append(
+                {
+                    "index": index,
+                    "note_id": note_id,
+                    "title": title,
+                    "content": str(raw.get("content", "")),
+                    "tags": self._normalize_tags(raw.get("tags", []) or []),
+                    "folder": folder,
+                    "filepath": filepath,
+                    "relative": str(Path(filepath).relative_to(ws_path)),
+                }
+            )
+
+        # Phase 2: wikilink resolution against existing notes union batch_targets.
+        # Non-cascading: batch_targets is not mutated as notes are dropped, so a link to a
+        # later-dropped note still resolves (worst case a harmless orphan edge).
+        valid: builtins.list[dict] = []
+        for s in survivors:
+            try:
+                s["target_ids"] = self._validate_wikilinks(
+                    ws_name, user_id, s["content"], extra_targets=batch_targets
+                )
+            except BrokenWikilinkError as e:
+                results[s["index"]] = {"index": s["index"], "error": str(e)}
+                continue
+            valid.append(s)
+
+        if not valid:
+            return [r for r in results if r is not None]
+
+        # Phase 3: write files, then one commit (roll back files on failure).
+        for s in valid:
+            write_note_file(
+                s["filepath"], s["note_id"], s["title"], s["tags"], now, now, s["content"]
+            )
+        try:
+            GitRepository(ws_path).commit_files(
+                [s["relative"] for s in valid], f"note: add {len(valid)} notes"
+            )
+        except GitError:
+            for s in valid:
+                Path(s["filepath"]).unlink(missing_ok=True)
+            raise
+
+        # Phase 4: DB insert + link graph + tags.
+        with timed("db_ms"):
+            for s in valid:
+                self._repo.insert(
+                    s["note_id"],
+                    ws_name,
+                    user_id,
+                    s["title"],
+                    s["tags"],
+                    now,
+                    now,
+                    s["content"],
+                    s["folder"],
+                )
+                self._repo.replace_links(s["note_id"], ws_name, user_id, s["target_ids"])
+                self._sync_tags(s["note_id"], ws_name, user_id, s["tags"], s["content"])
+
+        if self._cache is not None:
+            self._cache.bump(ws_name, user_id)
+
+        # Phase 5: index — embedding parallelized across the threadpool, best-effort.
+        if self._indexer is not None:
+            self._indexer.index_many(
+                ws_name,
+                user_id,
+                [{"id": s["note_id"], "title": s["title"], "content": s["content"]} for s in valid],
+            )
+
+        for s in valid:
+            results[s["index"]] = {"index": s["index"], "note_id": s["note_id"]}
+            logger.info("note_saved", note_id=s["note_id"], ws=ws_name, folder=s["folder"])
+
+        return [r for r in results if r is not None]
+
     def _resolve_link_notes(
         self, note_ids: builtins.list[str], owner_id: str
     ) -> builtins.list[dict]:
