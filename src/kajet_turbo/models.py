@@ -105,6 +105,30 @@ class NoteLink(SQLModel, table=True):
     __table_args__ = (Index("ix_note_links_target", "target_note_id", "source_note_id"),)
 
 
+class DanglingLink(SQLModel, table=True):
+    """An unresolved wikilink from ``source_note_id`` to a ``(target_folder, target_title)``
+    that has no matching note yet. Written only when a workspace has link validation OFF
+    (otherwise broken links are rejected at save). A background ``heal_dangling`` job
+    reconciles these into ``note_links`` once the target note exists. Rows for a source are
+    replaced wholesale on every save of that source (``replace_for_source``), mirroring
+    ``note_links``."""
+
+    __tablename__ = "dangling_links"
+
+    id: str = Field(primary_key=True)
+    workspace: str
+    owner_id: str
+    source_note_id: str
+    target_folder: str
+    target_title: str
+    created_at: str
+
+    __table_args__ = (
+        Index("ix_dangling_target", "workspace", "owner_id", "target_folder", "target_title"),
+        Index("ix_dangling_source", "source_note_id"),
+    )
+
+
 class Tag(SQLModel, table=True):
     """A node in a workspace's tag hierarchy. ``path`` is the full slash-path
     (bare, lowercased); ancestor rows are materialized so every node exists and
