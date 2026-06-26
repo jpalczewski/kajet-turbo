@@ -39,6 +39,25 @@ services:
       - kajet_data:/data
       - kajet_workspaces:/workspaces
 
+  # Background worker: drains the SQLite job queue (auto-push, future embeddings).
+  # No HTTP. Shares the DB (jobs/remotes) + workspaces (git push) with api/mcp;
+  # depends on api so migrations run first. Decrypts SSH keys to /dev/shm and
+  # writes the TOFU known_hosts under /data/ssh (self-created on first push).
+  # Horizontally scalable (claims are atomic + same-workspace pushes serialized
+  # at the queue level), but one replica is plenty at current volume.
+  kajet-worker:
+    image: kajet-turbo:local
+    depends_on:
+      - kajet-api
+    env_file: .env
+    environment:
+      KAJET_ROLE: worker
+      KAJET_WORKER_CONCURRENCY: "4"
+      KAJET_WORKER_POLL_INTERVAL: "1"
+    volumes:
+      - kajet_data:/data
+      - kajet_workspaces:/workspaces
+
 volumes:
   kajet_data:
   kajet_workspaces:
