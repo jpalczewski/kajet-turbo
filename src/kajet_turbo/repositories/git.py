@@ -231,6 +231,22 @@ class GitRepository:
                 raise GitError(str(e)) from e
         _fire_post_commit(self._workspace_path)
 
+    def rename_master_to_main(self) -> bool:
+        """Idempotently move this repo from ``master`` to ``main``: point HEAD at
+        main and rename the branch ref. No-op (returns False) if HEAD is not on
+        master. Holds the workspace lock — it mutates refs."""
+        with _workspace_lock(self._workspace_path):
+            repo = Repo(self._workspace_path)
+            head = repo.refs.read_ref(b"HEAD")  # ty: ignore[invalid-argument-type] - Literal[bytes] satisfies Ref type
+            if head != b"ref: refs/heads/master":
+                return False
+            if b"refs/heads/master" in repo.refs:  # ty: ignore[unsupported-operator] - dulwich RefsContainer supports __contains__
+                repo.refs[b"refs/heads/main"] = repo.refs[b"refs/heads/master"]  # ty: ignore[invalid-assignment,invalid-argument-type] - Literal[bytes] satisfies Ref type
+            repo.refs.set_symbolic_ref(b"HEAD", b"refs/heads/main")  # ty: ignore[invalid-argument-type] - Literal[bytes] satisfies Ref type
+            if b"refs/heads/master" in repo.refs:  # ty: ignore[unsupported-operator] - dulwich RefsContainer supports __contains__
+                del repo.refs[b"refs/heads/master"]  # ty: ignore[invalid-argument-type] - Literal[bytes] satisfies Ref type
+            return True
+
     def last_commit_time(self) -> int | None:
         try:
             repo = Repo(self._workspace_path)

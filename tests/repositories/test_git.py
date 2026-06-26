@@ -225,3 +225,33 @@ def test_init_defaults_to_main_branch(tmp_path):
     (ws / "n.md").write_text("x")
     GitRepository(str(ws)).commit_file("n.md", "note: add")
     assert current_branch(str(ws)) == b"refs/heads/main"
+
+
+def test_rename_master_to_main(tmp_path):
+    from dulwich import porcelain
+    from dulwich.repo import Repo
+
+    from kajet_turbo.repositories.git import GitRepository
+    from kajet_turbo.repositories.git_push import current_branch
+
+    ws = tmp_path / "ws"
+    porcelain.init(str(ws))  # legacy: starts on master
+    (ws / "n.md").write_text("x")
+    porcelain.add(str(ws), paths=["n.md"])
+    porcelain.commit(str(ws), message=b"c", author=b"t <t@t>", committer=b"t <t@t>")
+    assert current_branch(str(ws)) == b"refs/heads/master"
+
+    assert GitRepository(str(ws)).rename_master_to_main() is True
+    assert current_branch(str(ws)) == b"refs/heads/main"
+    refs = Repo(str(ws)).refs
+    assert b"refs/heads/main" in refs and b"refs/heads/master" not in refs  # ty: ignore[unsupported-operator] - dulwich RefsContainer supports __contains__
+
+
+def test_rename_master_to_main_idempotent(tmp_path):
+    from kajet_turbo.repositories.git import GitRepository
+
+    ws = tmp_path / "ws"
+    GitRepository.init(str(ws))  # already main (Task 7)
+    (ws / "n.md").write_text("x")
+    GitRepository(str(ws)).commit_file("n.md", "c")
+    assert GitRepository(str(ws)).rename_master_to_main() is False
