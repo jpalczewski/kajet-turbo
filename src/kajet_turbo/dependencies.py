@@ -6,7 +6,7 @@ from starlette.requests import Request
 
 from kajet_turbo.auth import KajetOAuthProvider, create_auth
 from kajet_turbo.cache import WorkspaceCache, cache_enabled
-from kajet_turbo.crypto import cipher_from_env
+from kajet_turbo.crypto import cipher_for, cipher_from_env
 from kajet_turbo.db import Database
 from kajet_turbo.embedding import build_embedder, pooled_embedder_factory
 from kajet_turbo.embedding.base import EmbedderConfig
@@ -17,12 +17,14 @@ from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileReposito
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.sessions import SessionRepository
+from kajet_turbo.repositories.ssh_keys import SshKeyRepository
 from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.ssh_keys import SshKeyService
 from kajet_turbo.services.workspaces import WorkspaceService
 
 db = Database()
@@ -84,6 +86,13 @@ note_service = NoteService(
 )
 workspace_meta_repo = WorkspaceMetaRepository(db.engine)
 workspace_service = WorkspaceService(workspace_repo, note_repo, workspace_meta_repo)
+
+_ssh_key_repo = SshKeyRepository(db.engine)
+ssh_key_service = SshKeyService(_ssh_key_repo, lambda: cipher_for("ssh-key"))
+
+
+def get_ssh_key_service() -> SshKeyService:
+    return ssh_key_service
 
 
 def get_embedding_profile_service() -> EmbeddingProfileService:
