@@ -151,6 +151,12 @@ def main() -> None:
         from kajet_turbo.dependencies import push_handler
         from kajet_turbo.worker import register_handler, run_worker
 
+        # The worker returns before any uvicorn app is built, so it must init logging
+        # itself — otherwise it falls back to loguru's default human sink (no `extra`
+        # fields), and push errors never reach the logs. This switches it to the JSON
+        # sink, which includes the bound fields (workspace, error, ...).
+        setup_logging()
+
         if os.getenv("KAJET_MIGRATE_BRANCHES_ON_START", "1") == "1":
             # Bring legacy `master` workspaces onto `main`. Idempotent — a pure
             # no-op scan once converged. Disable via KAJET_MIGRATE_BRANCHES_ON_START=0
