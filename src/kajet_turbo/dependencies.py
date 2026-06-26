@@ -14,6 +14,7 @@ from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbeddingCache
 from kajet_turbo.embedding.resolver import ProfileResolver
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
+from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 from kajet_turbo.repositories.git import register_post_commit_hook
 from kajet_turbo.repositories.jobs import JobRepository
@@ -26,6 +27,8 @@ from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
+from kajet_turbo.services.heal_enqueue import make_enqueue_heal_on_commit
+from kajet_turbo.services.heal_handler import HealDanglingHandler
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.jobs import JobService
 from kajet_turbo.services.notes import NoteService
@@ -87,6 +90,7 @@ _query_cache = QueryEmbeddingCache()
 
 workspace_meta_repo = WorkspaceMetaRepository(db.engine)
 workspace_service = WorkspaceService(workspace_repo, note_repo, workspace_meta_repo)
+dangling_repo = DanglingLinkRepository(db.engine)
 
 note_service = NoteService(
     note_repo,
@@ -98,6 +102,7 @@ note_service = NoteService(
     link_validation_enabled=lambda ws, owner: workspace_service.get_settings(owner, ws)[
         "validate_links"
     ],
+    dangling_repo=dangling_repo,
 )
 
 _ssh_key_repo = SshKeyRepository(db.engine)
@@ -118,6 +123,11 @@ push_handler = PushHandler(
 register_post_commit_hook(
     make_enqueue_push_on_commit(job_repo, workspace_remote_repo, WORKSPACES_DIR)
 )
+
+heal_handler = HealDanglingHandler(note_repo, dangling_repo)
+# Enqueue a dangling-link heal after every commit in a workspace that has dangling rows.
+# Zero-cost for validation-on workspaces (the EXISTS check short-circuits immediately).
+register_post_commit_hook(make_enqueue_heal_on_commit(job_repo, dangling_repo, WORKSPACES_DIR))
 
 workspace_remote_service = WorkspaceRemoteService(
     workspace_remote_repo, _ssh_key_repo, job_repo, WORKSPACES_DIR

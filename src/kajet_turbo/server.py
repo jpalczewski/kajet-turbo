@@ -148,7 +148,7 @@ def main() -> None:
     role = os.getenv("KAJET_ROLE", "all")
     if role == "worker":
         from kajet_turbo.db import Database
-        from kajet_turbo.dependencies import push_handler
+        from kajet_turbo.dependencies import heal_handler, push_handler
         from kajet_turbo.worker import register_handler, run_worker
 
         # The worker returns before any uvicorn app is built, so it must init logging
@@ -172,6 +172,7 @@ def main() -> None:
                 logger.warning("startup_branch_migration_failed", error=str(e))
 
         register_handler("push_workspace", push_handler)
+        register_handler("heal_dangling", heal_handler)
         db = Database()
         run_worker(
             db.engine,
