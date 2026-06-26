@@ -8,6 +8,7 @@
     type WorkspaceRemoteView,
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
+  import { settingsPath } from '$lib/routes';
 
   let { name, keys }: { name: string; keys: SshKeyItem[] } = $props();
 
@@ -36,9 +37,16 @@
     loaded = true;
   }
 
+  // Mirror of the backend rule: only SSH origins (scp-like or ssh://); reject HTTP(S).
+  const SSH_REMOTE = /^(ssh:\/\/\S+|[\w.+-]+@[\w.-]+:\S+)$/i;
+
   async function save(e: SubmitEvent) {
     e.preventDefault();
     if (!originUrl.trim() || !sshKeyId) return;
+    if (!SSH_REMOTE.test(originUrl.trim())) {
+      error = 'Origin musi być adresem SSH (git@host:repo.git lub ssh://…), nie HTTPS.';
+      return;
+    }
     busy = true;
     error = '';
     try {
@@ -101,7 +109,7 @@
     <p class="remote__hint">Ładowanie…</p>
   {:else if keys.length === 0}
     <p class="remote__hint">
-      Brak kluczy SSH. Utwórz klucz w <a href="/settings">ustawieniach</a>, aby skonfigurować
+      Brak kluczy SSH. Utwórz klucz w <a href={settingsPath()}>ustawieniach</a>, aby skonfigurować
       remote.
     </p>
   {:else}

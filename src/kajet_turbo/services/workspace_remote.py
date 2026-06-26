@@ -2,11 +2,22 @@
 chosen SSH key belongs to the user, and enqueues push jobs identically to the
 commit hook (same dedup_key + ws_path) so manual and auto pushes coalesce."""
 
+import re
+
 from kajet_turbo.models import WorkspaceRemote
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.workspace import workspace_path
+
+# An SSH git remote: scp-like ``user@host:path`` or an ``ssh://`` URL. http(s)://,
+# git:// etc. are rejected — auto-push authenticates only with the per-workspace SSH
+# key, so an HTTPS origin can never work and must not be storable.
+_SSH_REMOTE = re.compile(r"^(ssh://\S+|[\w.+-]+@[\w.-]+:\S+)$", re.IGNORECASE)
+
+
+def is_ssh_remote(url: str) -> bool:
+    return bool(_SSH_REMOTE.match(url.strip()))
 
 
 class WorkspaceRemoteService:
@@ -43,6 +54,10 @@ class WorkspaceRemoteService:
         origin_url = origin_url.strip()
         if not origin_url:
             raise ValueError("origin_url is required")
+        if not is_ssh_remote(origin_url):
+            raise ValueError(
+                "origin must be an SSH URL (git@host:repo.git or ssh://...), not HTTP(S)"
+            )
         if self._keys.get(user_id, ssh_key_id) is None:
             raise ValueError("ssh key not found")
         row = self._remotes.upsert(

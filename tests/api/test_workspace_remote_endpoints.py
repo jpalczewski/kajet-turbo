@@ -79,7 +79,16 @@ def test_put_unknown_key_400(database, monkeypatch, tmp_path):
     client = _app(database, monkeypatch, tmp_path)
     r = client.put(
         "/api/workspaces/ws/remote",
-        json={"origin_url": "o", "ssh_key_id": "nope", "enabled": True},
+        json={"origin_url": "git@h:r.git", "ssh_key_id": "nope", "enabled": True},
+    )
+    assert r.status_code == 400
+
+
+def test_put_https_origin_400(database, monkeypatch, tmp_path):
+    client = _app(database, monkeypatch, tmp_path)
+    r = client.put(
+        "/api/workspaces/ws/remote",
+        json={"origin_url": "https://github.com/u/r.git", "ssh_key_id": "k1", "enabled": True},
     )
     assert r.status_code == 400
 
@@ -88,7 +97,7 @@ def test_manual_push_enqueues(database, monkeypatch, tmp_path):
     client = _app(database, monkeypatch, tmp_path)
     client.put(
         "/api/workspaces/ws/remote",
-        json={"origin_url": "o", "ssh_key_id": "k1", "enabled": True},
+        json={"origin_url": "git@h:r.git", "ssh_key_id": "k1", "enabled": True},
     )
     assert client.post("/api/workspaces/ws/remote/push").status_code == 200
     assert JobRepository(database.engine).list_jobs("u1")[0].kind == "push_workspace"
