@@ -146,6 +146,17 @@ def main() -> None:
     host = os.getenv("MCP_HOST", "0.0.0.0")
     port = int(os.getenv("MCP_PORT", "8000"))
     role = os.getenv("KAJET_ROLE", "all")
+    if role == "worker":
+        from kajet_turbo.db import Database
+        from kajet_turbo.worker import run_worker
+
+        db = Database()
+        run_worker(
+            db.engine,
+            poll_interval=float(os.getenv("KAJET_WORKER_POLL_INTERVAL", "1")),
+            concurrency=int(os.getenv("KAJET_WORKER_CONCURRENCY", "4")),
+        )
+        return
     if role == "mcp":
         # Hard invariant: stateful MCP sessions live in process memory, so the
         # MCP role MUST be single-process regardless of any env. This is the fix.
