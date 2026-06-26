@@ -28,12 +28,12 @@ class HealDanglingHandler:
         resolved = self._notes.resolve_paths(workspace, user_id, pairs)
         healed = 0
         for r in rows:
+            if self._notes.get(r["source_note_id"], owner_id=user_id) is None:
+                self._dangling.delete(r["id"])  # orphan: source note gone, clean regardless
+                continue
             target_id = resolved.get((r["target_folder"], r["target_title"]))
             if target_id is None:
                 continue  # target still missing — leave the row
-            if self._notes.get(r["source_note_id"], owner_id=user_id) is None:
-                self._dangling.delete(r["id"])  # orphan: source note gone
-                continue
             self._notes.add_link(r["source_note_id"], target_id, workspace, user_id)
             self._dangling.delete(r["id"])
             healed += 1

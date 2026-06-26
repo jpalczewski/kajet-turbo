@@ -69,6 +69,13 @@ def test_heal_orphan_source_cleaned(note_repo, dangling, uid):
     assert note_repo.backlinks("a") == []  # no edge created for a vanished source
 
 
+def test_heal_orphan_source_unresolved_target_cleaned(note_repo, dangling, uid):
+    # Source note gone AND target never resolves — orphan row must still be deleted.
+    dangling.replace_for_source("ghost-src", "ws", uid, [("", "NeverExists")])
+    HealDanglingHandler(note_repo, dangling)({"user_id": uid, "workspace": "ws"})
+    assert dangling.exists(uid, "ws") is False  # orphan cleaned despite unresolved target
+
+
 def test_heal_empty_workspace_noop(note_repo, dangling, uid):
     # No rows at all — must not raise.
     HealDanglingHandler(note_repo, dangling)({"user_id": uid, "workspace": "ws"})

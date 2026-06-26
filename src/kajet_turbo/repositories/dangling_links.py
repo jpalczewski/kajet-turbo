@@ -76,3 +76,10 @@ class DanglingLinkRepository:
                 delete(DanglingLink).where(col(DanglingLink.id) == row_id)
             )
             session.commit()
+
+    def delete_for_source(self, source_note_id: str) -> None:
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+                delete(DanglingLink).where(col(DanglingLink.source_note_id) == source_note_id)
+            )
+            session.commit()

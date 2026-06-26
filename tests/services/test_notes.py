@@ -1129,3 +1129,14 @@ def test_validation_on_writes_no_dangling(database, workspace):
     with pytest.raises(BrokenWikilinkError):
         svc.save("u1", "ws", str(workspace), "Source", "[[Ghost]]", tags=[])
     assert dangling.exists("u1", "ws") is False
+
+
+def test_delete_note_clears_dangling_rows(database, workspace):
+    """Deleting a note that was the source of dangling links removes its dangling rows."""
+    svc, dangling = _make_service_with_dangling(
+        database, link_validation_enabled=lambda ws, owner: False
+    )
+    res = svc.save("u1", "ws", str(workspace), "Source", "[[Ghost]]", tags=[])
+    assert dangling.exists("u1", "ws") is True
+    svc.delete(res["note_id"], "u1", str(workspace))
+    assert dangling.exists("u1", "ws") is False

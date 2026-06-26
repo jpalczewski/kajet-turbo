@@ -916,6 +916,8 @@ class NoteService:
         self._repo.delete(note_id, owner_id=owner_id)
         self._repo.delete_links_from(note_id)
         self._repo.delete_links_to(note_id)
+        if self._dangling_repo is not None:
+            self._dangling_repo.delete_for_source(note_id)
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_deleted", note_id=note_id)
@@ -943,6 +945,15 @@ class NoteService:
 
     def tag_tree(self, ws_name: str, owner_id: str) -> builtins.list[dict]:
         return self._repo.tag_tree(ws_name, owner_id)
+
+    def tag_counts(
+        self,
+        ws_name: str,
+        owner_id: str,
+        folder: str | None = None,
+        include_subfolders: bool = True,
+    ) -> builtins.list[dict]:
+        return self._repo.tag_counts(ws_name, owner_id, folder, include_subfolders)
 
     def notes_by_tag(
         self,
