@@ -1,14 +1,20 @@
+import enum
 import json
 
 from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_access_token
 from nanoid import generate
 
+from kajet_turbo import workspace_settings
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool, logger
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.services.workspaces import WorkspaceService
+
+# Enum of valid setting keys, derived from the registry so new settings extend the
+# MCP tool's argument schema for free. FastMCP renders this as an enumerated choice.
+_SettingKey = enum.Enum("_SettingKey", {k: k for k in workspace_settings.REGISTRY})
 
 
 class _Deps:
@@ -169,3 +175,58 @@ def register_workspaces(
         except ValueError as e:
             return json.dumps({"error": str(e)})
         return json.dumps({"message": f"Workspace '{name}' zaktualizowany."})
+
+    @mcp.tool()
+    @logged_tool
+    async def list_workspace_settings(name: str, ctx: Context) -> str:
+        """Zwraca ustawienia workspace'u i ich definicje.
+        Odpowiedź: {"settings": [{key, label, description, type, value, default}]}."""
+        user_id, err = await run_sync(_resolve_user)
+        if err:
+            return err
+        if user_id is None:
+            return json.dumps({"error": "Wymagane zalogowanie."})
+        available = await run_sync(workspace_service.list_accessible, user_id)
+        if name not in available:
+            return json.dumps(
+                {
+                    "error": f"Workspace '{name}' nie istnieje lub brak dostępu.",
+                    "available": available,
+                }
+            )
+        values = await run_sync(workspace_service.get_settings, user_id, name)
+        settings = [{**d, "value": values[d["key"]]} for d in workspace_settings.definitions()]
+        return json.dumps({"settings": settings})
+
+    @mcp.tool()
+    @logged_tool
+    async def set_workspace_setting(
+        name: str,
+        setting: _SettingKey,
+        value: bool | int | str,
+        ctx: Context,
+    ) -> str:
+        """Ustawia pojedyncze ustawienie workspace'u.
+        `setting` to klucz z list_workspace_settings; `value` zgodny z typem ustawienia.
+        Sukces: {"message", "setting", "value"}. Błąd: {"error", ...}."""
+        user_id, err = await run_sync(_resolve_user)
+        if err:
+            return err
+        if user_id is None:
+            return json.dumps({"error": "Wymagane zalogowanie."})
+        available = await run_sync(workspace_service.list_accessible, user_id)
+        if name not in available:
+            return json.dumps(
+                {
+                    "error": f"Workspace '{name}' nie istnieje lub brak dostępu.",
+                    "available": available,
+                }
+            )
+        key = setting.value
+        try:
+            result = await run_sync(workspace_service.set_setting, user_id, name, key, value)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+        return json.dumps(
+            {"message": f"Ustawienie '{key}' zaktualizowane.", "setting": key, "value": result[key]}
+        )
