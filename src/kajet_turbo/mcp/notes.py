@@ -552,3 +552,24 @@ def register_notes(
             include_subfolders=include_subfolders,
         )
         return json.dumps(tags, ensure_ascii=False)
+
+    @mcp.tool()
+    @logged_tool
+    async def get_note_links(
+        note_id: str,
+        ctx: Context,
+        include_meta: bool = False,
+    ) -> str:
+        """Zwraca linki wychodzące i przychodzące dla notatki w aktywnym workspace.
+        outlinks: notatki, do których ta notatka linkuje.
+        backlinks: notatki, które linkują do tej notatki.
+        include_meta=True dorzuca tags i updated_at do każdego wpisu.
+        Sukces: {"outlinks": [...], "backlinks": [...]}. Błąd: {"error": "..."}."""
+        try:
+            owner_id, _, _ = await get_active_workspace(ctx, workspace_service)
+        except RuntimeError as e:
+            return json.dumps({"error": str(e)})
+        result = await run_sync(note_service.links, note_id, owner_id, include_meta)
+        if result is None:
+            return json.dumps({"error": f"Notatka {note_id} nie znaleziona."})
+        return json.dumps(result, ensure_ascii=False)

@@ -501,3 +501,73 @@ async def test_save_notes_tool_batch(workspaces_dir, mcp_server):
     out = json.loads(result.content[0].text)
     assert [r["index"] for r in out] == [0, 1]
     assert all("note_id" in r for r in out)
+
+
+async def test_get_note_links(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        target_id = json.loads(
+            (await client.call_tool("save_note", {"title": "Target", "content": "content"}))
+            .content[0]
+            .text
+        )["note_id"]
+        source_id = json.loads(
+            (await client.call_tool("save_note", {"title": "Source", "content": "see [[Target]]"}))
+            .content[0]
+            .text
+        )["note_id"]
+
+        # outlinks of Source → Target
+        result = json.loads(
+            (await client.call_tool("get_note_links", {"note_id": source_id})).content[0].text
+        )
+        assert result["outlinks"] == [{"note_id": target_id, "title": "Target", "folder": ""}]
+        assert result["backlinks"] == []
+
+        # backlinks of Target → Source
+        result = json.loads(
+            (await client.call_tool("get_note_links", {"note_id": target_id})).content[0].text
+        )
+        assert result["backlinks"] == [{"note_id": source_id, "title": "Source", "folder": ""}]
+        assert result["outlinks"] == []
+
+
+async def test_get_note_links_not_found(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        result = json.loads(
+            (await client.call_tool("get_note_links", {"note_id": "nonexistent"})).content[0].text
+        )
+        assert "error" in result
+
+
+async def test_get_note_links_include_meta(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        target_id = json.loads(
+            (
+                await client.call_tool(
+                    "save_note", {"title": "Tagged", "content": "content", "tags": ["work"]}
+                )
+            )
+            .content[0]
+            .text
+        )["note_id"]
+        source_id = json.loads(
+            (await client.call_tool("save_note", {"title": "Linker", "content": "[[Tagged]]"}))
+            .content[0]
+            .text
+        )["note_id"]
+
+        result = json.loads(
+            (await client.call_tool("get_note_links", {"note_id": source_id, "include_meta": True}))
+            .content[0]
+            .text
+        )
+        entry = result["outlinks"][0]
+        assert entry["note_id"] == target_id
+        assert "tags" in entry
+        assert "updated_at" in entry
