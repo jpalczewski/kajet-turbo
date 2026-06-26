@@ -82,6 +82,23 @@ export interface HTTPValidationError {
   detail?: ValidationError[];
 }
 
+export interface JobItem {
+  id: string;
+  kind: string;
+  workspace?: string | null;
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  last_error?: string | null;
+  next_run_at: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface JobsResponse {
+  jobs: JobItem[];
+}
+
 export interface NoteLinkItem {
   note_id: string;
   title: string;
@@ -1821,6 +1838,128 @@ export const apiTriggerWorkspacePushApiWorkspacesNameRemotePushPost = async (nam
   {
     ...options,
     method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiListJobsApiMeJobsGetResponse200 = {
+  data: JobsResponse
+  status: 200
+}
+
+export type apiListJobsApiMeJobsGetResponseSuccess = (apiListJobsApiMeJobsGetResponse200) & {
+  headers: Headers;
+};
+;
+
+export type apiListJobsApiMeJobsGetResponse = (apiListJobsApiMeJobsGetResponseSuccess)
+
+export const getApiListJobsApiMeJobsGetUrl = () => {
+
+
+
+
+  return `/api/me/jobs`
+}
+
+/**
+ * @summary Api List Jobs
+ */
+export const apiListJobsApiMeJobsGet = async ( options?: RequestInit): Promise<apiListJobsApiMeJobsGetResponse> => {
+
+  return customFetch<apiListJobsApiMeJobsGetResponse>(getApiListJobsApiMeJobsGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiRetryJobApiMeJobsJobIdRetryPostResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiRetryJobApiMeJobsJobIdRetryPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiRetryJobApiMeJobsJobIdRetryPostResponseSuccess = (apiRetryJobApiMeJobsJobIdRetryPostResponse200) & {
+  headers: Headers;
+};
+export type apiRetryJobApiMeJobsJobIdRetryPostResponseError = (apiRetryJobApiMeJobsJobIdRetryPostResponse422) & {
+  headers: Headers;
+};
+
+export type apiRetryJobApiMeJobsJobIdRetryPostResponse = (apiRetryJobApiMeJobsJobIdRetryPostResponseSuccess | apiRetryJobApiMeJobsJobIdRetryPostResponseError)
+
+export const getApiRetryJobApiMeJobsJobIdRetryPostUrl = (jobId: string,) => {
+
+
+
+
+  return `/api/me/jobs/${jobId}/retry`
+}
+
+/**
+ * @summary Api Retry Job
+ */
+export const apiRetryJobApiMeJobsJobIdRetryPost = async (jobId: string, options?: RequestInit): Promise<apiRetryJobApiMeJobsJobIdRetryPostResponse> => {
+
+  return customFetch<apiRetryJobApiMeJobsJobIdRetryPostResponse>(getApiRetryJobApiMeJobsJobIdRetryPostUrl(jobId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiDismissJobApiMeJobsJobIdDeleteResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiDismissJobApiMeJobsJobIdDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiDismissJobApiMeJobsJobIdDeleteResponseSuccess = (apiDismissJobApiMeJobsJobIdDeleteResponse200) & {
+  headers: Headers;
+};
+export type apiDismissJobApiMeJobsJobIdDeleteResponseError = (apiDismissJobApiMeJobsJobIdDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type apiDismissJobApiMeJobsJobIdDeleteResponse = (apiDismissJobApiMeJobsJobIdDeleteResponseSuccess | apiDismissJobApiMeJobsJobIdDeleteResponseError)
+
+export const getApiDismissJobApiMeJobsJobIdDeleteUrl = (jobId: string,) => {
+
+
+
+
+  return `/api/me/jobs/${jobId}`
+}
+
+/**
+ * @summary Api Dismiss Job
+ */
+export const apiDismissJobApiMeJobsJobIdDelete = async (jobId: string, options?: RequestInit): Promise<apiDismissJobApiMeJobsJobIdDeleteResponse> => {
+
+  return customFetch<apiDismissJobApiMeJobsJobIdDeleteResponse>(getApiDismissJobApiMeJobsJobIdDeleteUrl(jobId),
+  {
+    ...options,
+    method: 'DELETE'
 
 
   }

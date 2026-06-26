@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { settingsPath } from '$lib/routes';
+  import { jobsPath, settingsPath } from '$lib/routes';
 
   let { email, onLogout }: { email: string; onLogout: () => void } = $props();
   let open = $state(false);
@@ -22,6 +22,7 @@
   </button>
   {#if open}
     <div class="user-menu__dropdown">
+      <a href={jobsPath()} onclick={close} class="user-menu__item">Zadania</a>
       <a href={settingsPath()} onclick={close} class="user-menu__item">Ustawienia instancji</a>
       <button
         onclick={() => {

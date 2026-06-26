@@ -11,6 +11,7 @@ export const homePath = () => resolve('/');
 export const loginPath = () => resolve('/login');
 export const workspacesPath = () => resolve('/(protected)/workspaces');
 export const settingsPath = () => resolve('/(protected)/settings');
+export const jobsPath = () => resolve('/(protected)/jobs');
 
 export const notesPath = (slug: string, folder = '') =>
   resolve('/(protected)/workspace/[slug]/notes/[...path]', {
