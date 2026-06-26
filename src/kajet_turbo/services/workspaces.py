@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 
+from kajet_turbo import workspace_settings
 from kajet_turbo.markdown import tags as tagutil
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
@@ -98,6 +99,18 @@ class WorkspaceService:
                 }
             )
         return result
+
+    def get_settings(self, user_id: str, name: str) -> dict:
+        blob = self._meta_repo.get_settings(user_id, name)
+        raw = json.loads(blob) if blob else None
+        return workspace_settings.coerce_all(raw)
+
+    def set_setting(self, user_id: str, name: str, key: str, value: object) -> dict:
+        coerced = workspace_settings.validate(key, value)  # raises ValueError on bad key/type
+        current = self.get_settings(user_id, name)
+        current[key] = coerced
+        self._meta_repo.set_settings(user_id, name, json.dumps(current))
+        return current
 
     def has_access(self, user_id: str, name: str) -> bool:
         return self._repo.has_access(user_id, name)
