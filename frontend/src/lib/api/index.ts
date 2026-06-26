@@ -199,6 +199,14 @@ export interface SessionResponse {
   email: string;
 }
 
+export interface SettingDefinition {
+  key: string;
+  type: string;
+  label: string;
+  description: string;
+  default: unknown;
+}
+
 export interface SshKeyItem {
   id: string;
   name: string;
@@ -234,6 +242,12 @@ export interface UpdateWorkspaceResponse {
   tags: string[];
 }
 
+export type UpdateWorkspaceSettingsResponseValues = { [key: string]: unknown };
+
+export interface UpdateWorkspaceSettingsResponse {
+  values: UpdateWorkspaceSettingsResponseValues;
+}
+
 export interface WorkspaceInfo {
   name: string;
   file_count: number;
@@ -254,6 +268,13 @@ export interface WorkspaceRemoteView {
 
 export interface WorkspaceRemoteResponse {
   remote: WorkspaceRemoteView | null;
+}
+
+export type WorkspaceSettingsResponseValues = { [key: string]: unknown };
+
+export interface WorkspaceSettingsResponse {
+  definitions: SettingDefinition[];
+  values: WorkspaceSettingsResponseValues;
 }
 
 export interface WorkspacesListResponse {
@@ -574,6 +595,92 @@ export const getApiUpdateWorkspaceApiWorkspacesNamePatchUrl = (name: string,) =>
 export const apiUpdateWorkspaceApiWorkspacesNamePatch = async (name: string, options?: RequestInit): Promise<apiUpdateWorkspaceApiWorkspacesNamePatchResponse> => {
 
   return customFetch<apiUpdateWorkspaceApiWorkspacesNamePatchResponse>(getApiUpdateWorkspaceApiWorkspacesNamePatchUrl(name),
+  {
+    ...options,
+    method: 'PATCH'
+
+
+  }
+);}
+
+
+
+export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse200 = {
+  data: WorkspaceSettingsResponse
+  status: 200
+}
+
+export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponseSuccess = (apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse200) & {
+  headers: Headers;
+};
+export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponseError = (apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse = (apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponseSuccess | apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponseError)
+
+export const getApiGetWorkspaceSettingsApiWorkspacesNameSettingsGetUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/settings`
+}
+
+/**
+ * @summary Api Get Workspace Settings
+ */
+export const apiGetWorkspaceSettingsApiWorkspacesNameSettingsGet = async (name: string, options?: RequestInit): Promise<apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse> => {
+
+  return customFetch<apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse>(getApiGetWorkspaceSettingsApiWorkspacesNameSettingsGetUrl(name),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse200 = {
+  data: UpdateWorkspaceSettingsResponse
+  status: 200
+}
+
+export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponseSuccess = (apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse200) & {
+  headers: Headers;
+};
+export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponseError = (apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse422) & {
+  headers: Headers;
+};
+
+export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse = (apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponseSuccess | apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponseError)
+
+export const getApiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/settings`
+}
+
+/**
+ * @summary Api Update Workspace Settings
+ */
+export const apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatch = async (name: string, options?: RequestInit): Promise<apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse> => {
+
+  return customFetch<apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse>(getApiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchUrl(name),
   {
     ...options,
     method: 'PATCH'
