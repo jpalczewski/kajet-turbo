@@ -319,6 +319,29 @@ class Job(SQLModel, table=True):
     updated_at: float
 
 
+class WorkspaceRemote(SQLModel, table=True):
+    """Per-workspace external git remote for auto-push. The DB is the source of
+    truth (``.git/config`` is only a mirror). Keyed ``(user_id, workspace)`` like
+    WorkspaceMeta. ``ssh_key_id`` references a sealed key; ON DELETE RESTRICT keeps
+    a key in use from being removed out from under a remote."""
+
+    __tablename__ = "workspace_remotes"
+
+    user_id: str = Field(
+        sa_column=Column(Text, ForeignKey("users.id"), primary_key=True, nullable=False)
+    )
+    workspace: str = Field(primary_key=True)
+    origin_url: str = Field(sa_column=Column(Text, nullable=False))
+    ssh_key_id: str = Field(
+        sa_column=Column(Text, ForeignKey("ssh_keys.id", ondelete="RESTRICT"), nullable=False)
+    )
+    enabled: bool = Field(default=True)
+    dirty_at: str | None = Field(default=None)
+    pushed_at: str | None = Field(default=None)
+    last_error: str | None = Field(default=None, sa_column=Column(Text))
+    updated_at: str
+
+
 class SshKey(SQLModel, table=True):
     """A user-owned SSH keypair authenticating workspace auto-push to an external
     git host. The private key is sealed at rest (``private_key_enc``) and is
