@@ -22,6 +22,18 @@ if "MCP_BASE_URL" not in os.environ:
     os.environ["MCP_BASE_URL"] = "http://localhost:8000"
 
 
+def pytest_configure(config):
+    # pytest-xdist workers inherit DB_PATH from the controller process and would
+    # all run alembic upgrade head on the same file simultaneously → race.
+    # Override to a per-worker temp file before any test file is collected.
+    worker_input = getattr(config, "workerinput", None)
+    if worker_input is not None:
+        worker_id = worker_input.get("workerid", "gw0")
+        fd, path = tempfile.mkstemp(suffix=f"-{worker_id}.db")
+        os.close(fd)
+        os.environ["DB_PATH"] = path
+
+
 from kajet_turbo.db import Database
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.workspace import note_filepath, write_note_file
