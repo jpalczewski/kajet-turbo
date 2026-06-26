@@ -27,6 +27,7 @@ from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
 from kajet_turbo.services.indexing import NoteIndexer
+from kajet_turbo.services.jobs import JobService
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.push_enqueue import make_enqueue_push_on_commit
 from kajet_turbo.services.push_handler import PushHandler
@@ -117,6 +118,12 @@ register_post_commit_hook(
 workspace_remote_service = WorkspaceRemoteService(
     workspace_remote_repo, _ssh_key_repo, job_repo, WORKSPACES_DIR
 )
+
+job_service = JobService(job_repo)
+
+
+def get_job_service() -> JobService:
+    return job_service
 
 
 def get_workspace_remote_service() -> WorkspaceRemoteService:
