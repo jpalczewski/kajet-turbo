@@ -189,6 +189,13 @@ class LoggingMiddleware:
             await send(message)
 
         with logger.contextualize(request_id=request_id, user_id=user_id, session_id=session_id):
+            if request.url.path.startswith("/mcp"):
+                headers = {
+                    k: v
+                    for k, v in request.headers.items()
+                    if k.lower() not in ("authorization", "cookie")
+                }
+                logger.debug("mcp_request_headers", headers=headers)
             await self._app(scope, receive, send_wrapper)
 
 
