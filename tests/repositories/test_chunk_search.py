@@ -3,11 +3,11 @@ from sqlmodel import Session
 from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.markdown import Chunk
 from kajet_turbo.models import Note
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteChunkRepository
 
 
 def _seed(database):
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     with Session(database.engine) as session:
         session.add(
             Note(
@@ -68,7 +68,7 @@ def test_hybrid_search_fts_only_returns_chunks(database):
 
 
 def test_search_chunks_vec_knn(database):
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     with Session(database.engine) as session:
         session.add(
             Note(
@@ -108,12 +108,12 @@ def test_search_chunks_vec_knn(database):
 def test_search_chunks_vec_missing_table_degrades(database):
     # A backend configured before any indexing at its dim → no vec table yet. Must return []
     # (degrade to FTS) instead of raising "no such table".
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     assert repo.search_chunks_vec(pack_vector([1.0, 0.0]), "ws", "u1", dim=999, k=10) == []
 
 
 def test_hybrid_search_caps_chunks_per_note(database):
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     with Session(database.engine) as session:
         session.add(
             Note(

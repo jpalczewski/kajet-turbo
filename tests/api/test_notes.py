@@ -374,7 +374,7 @@ def test_html_renders_clickable_wikilink(auth_client):
     client, note_svc, ws_path = auth_client
     note_svc.save("u1", "test-ws", ws_path, "Target", "t", [], folder="A")
     sid = note_svc.save("u1", "test-ws", ws_path, "Source", "go [[A/Target|here]]", [])["note_id"]
-    tid = note_svc._repo.get_by_path("test-ws", "u1", "A", "Target").id
+    tid = note_svc._crud_repo.get_by_path("test-ws", "u1", "A", "Target").id
 
     resp = client.get(f"/api/workspaces/test-ws/notes/{sid}/html")
 
@@ -400,8 +400,8 @@ def test_links_returns_backlinks_and_outlinks(auth_client):
     client, note_svc, ws_path = auth_client
     note_svc.save("u1", "test-ws", ws_path, "Target", "t", [])
     note_svc.save("u1", "test-ws", ws_path, "Source", "[[Target]]", [])
-    tid = note_svc._repo.get_by_path("test-ws", "u1", "", "Target").id
-    sid = note_svc._repo.get_by_path("test-ws", "u1", "", "Source").id
+    tid = note_svc._crud_repo.get_by_path("test-ws", "u1", "", "Target").id
+    sid = note_svc._crud_repo.get_by_path("test-ws", "u1", "", "Source").id
 
     # Target sees Source as a backlink, no outlinks.
     target = client.get(f"/api/workspaces/test-ws/notes/{tid}/links").json()

@@ -240,7 +240,7 @@ def api_list_notes(
         )
     else:
         # Explorer lists the full folder; no cap (MCP list_notes keeps its own limit).
-        notes = note_service.list(name, owner_id=user["id"], folder=folder, limit=None)
+        notes = note_service.list_notes(name, owner_id=user["id"], folder=folder, limit=None)
     enriched = []
     for note in notes:
         filepath = note_filepath(ws_path, note["folder"], note["title"])
@@ -319,7 +319,7 @@ def api_ls(
     subdirs = sorted(
         d.name for d in folder_abs.iterdir() if d.is_dir() and not d.name.startswith(".")
     )
-    notes = note_service.list(name, owner_id=user["id"], folder=path, limit=1000)
+    notes = note_service.list_notes(name, owner_id=user["id"], folder=path, limit=1000)
     entries = []
     for note in notes:
         filepath = note_filepath(ws_path, note["folder"], note["title"])

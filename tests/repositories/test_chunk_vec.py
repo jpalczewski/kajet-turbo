@@ -1,11 +1,11 @@
 import pytest
 from sqlalchemy import text
 
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteChunkRepository
 
 
 def test_ensure_vec_table_creates_dim_table(database):
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     repo.ensure_vec_table(768)
     with database.engine.connect() as conn:
         names = {
@@ -18,7 +18,7 @@ def test_ensure_vec_table_creates_dim_table(database):
 
 
 def test_ensure_vec_table_is_idempotent(database):
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     repo.ensure_vec_table(1024)
     repo.ensure_vec_table(1024)  # no error second time
     with database.engine.connect() as conn:
@@ -29,6 +29,6 @@ def test_ensure_vec_table_is_idempotent(database):
 
 
 def test_ensure_vec_table_rejects_non_int_dim(database):
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     with pytest.raises((ValueError, TypeError)):
         repo.ensure_vec_table("768; DROP TABLE notes")  # ty: ignore[invalid-argument-type]

@@ -5,7 +5,7 @@ Orphan rows (source note gone) are also deleted. Idempotent: a re-run is a no-op
 
 from kajet_turbo.log import logger
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
 
 
 class HealDanglingHandler:
@@ -14,8 +14,14 @@ class HealDanglingHandler:
     note_links edge and deletes the row. Orphan rows (source gone) are deleted. Idempotent:
     a re-run finds nothing left. Reads no note files — pure DB reconciliation."""
 
-    def __init__(self, note_repo: NoteRepository, dangling_repo: DanglingLinkRepository):
+    def __init__(
+        self,
+        note_repo: NoteRepository,
+        link_repo: NoteLinkRepository,
+        dangling_repo: DanglingLinkRepository,
+    ):
         self._notes = note_repo
+        self._links = link_repo
         self._dangling = dangling_repo
 
     def __call__(self, payload: dict) -> None:
@@ -34,7 +40,7 @@ class HealDanglingHandler:
             target_id = resolved.get((r["target_folder"], r["target_title"]))
             if target_id is None:
                 continue  # target still missing — leave the row
-            self._notes.add_link(r["source_note_id"], target_id, workspace, user_id)
+            self._links.add_link(r["source_note_id"], target_id, workspace, user_id)
             self._dangling.delete(r["id"])
             healed += 1
         if healed:

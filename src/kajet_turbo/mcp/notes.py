@@ -363,7 +363,7 @@ def register_notes(
         except RuntimeError as e:
             return json.dumps({"error": str(e)})
         notes = await run_sync(
-            note_service.list,
+            note_service.list_notes,
             ws_name,
             owner_id=owner_id,
             tags=tags or None,

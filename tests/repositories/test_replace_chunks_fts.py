@@ -3,7 +3,7 @@ from sqlmodel import Session
 
 from kajet_turbo.markdown import Chunk
 from kajet_turbo.models import Note
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteChunkRepository
 
 
 def _note(database, note_id="n1"):
@@ -36,7 +36,7 @@ def _chunks():
 
 def test_replace_chunks_writes_fts_rows(database):
     _note(database)
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, dim=None)
     with Session(database.engine) as session:
         rows = session.execute(
@@ -53,7 +53,7 @@ def test_replace_chunks_writes_fts_rows(database):
 
 def test_replace_chunks_fts_is_searchable(database):
     _note(database)
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, dim=None)
     with Session(database.engine) as session:
         hits = session.execute(
@@ -64,7 +64,7 @@ def test_replace_chunks_fts_is_searchable(database):
 
 def test_replace_chunks_replaces_fts_rows(database):
     _note(database)
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, dim=None)
     repo.replace_chunks(
         "n1",
@@ -86,7 +86,7 @@ def test_replace_chunks_replaces_fts_rows(database):
 
 def test_replace_chunks_empty_clears_fts(database):
     _note(database)
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, dim=None)
     repo.replace_chunks("n1", "ws", "u1", "Title", [], embeddings=None, dim=None)
     with Session(database.engine) as session:

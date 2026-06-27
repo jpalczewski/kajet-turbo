@@ -17,13 +17,13 @@ from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import chunk_markdown, embedded_text
 from kajet_turbo.perf import incr, timed
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteChunkRepository
 
 
 class NoteIndexer:
     def __init__(
         self,
-        repo: NoteRepository,
+        repo: NoteChunkRepository,
         cache: EmbeddingCacheRepository,
         resolve_backend: Callable[[str], EmbedderConfig | None],
         build_embedder: Callable[[EmbedderConfig], object],

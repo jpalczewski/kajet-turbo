@@ -3,7 +3,7 @@ from sqlmodel import Session
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.models import Note
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
 
 
@@ -21,7 +21,7 @@ class _FakeEmbedder:
 
 
 def _indexer(database):
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
     cfg = EmbedderConfig(
         backend_id="fake", type="fake", model="m", dim=3, base_url="http://x", api_key="k"
@@ -47,7 +47,7 @@ def _seed_notes(database, n=3):
 
 def test_index_many_indexes_all(database):
     _seed_notes(database, 3)
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     indexer = _indexer(database)
     notes = [
         {"id": f"n{i}", "title": f"T{i}", "content": f"# T{i}\n\nbody {i}\n"} for i in range(3)
@@ -61,7 +61,7 @@ def test_index_many_indexes_all(database):
 
 def test_index_many_one_failure_does_not_abort_batch(database):
     _seed_notes(database, 3)
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     indexer = _indexer(database)
     # n9 has no Note row → replace_chunks UPDATE touches nothing but the chunk INSERT
     # FK to notes.id will fail for n9; the batch must still index n0 and n2.
