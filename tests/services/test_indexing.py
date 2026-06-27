@@ -3,7 +3,7 @@ from sqlmodel import Session
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.models import Note
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
 
 
@@ -46,7 +46,7 @@ def _cfg():
 
 
 def _indexer(database, *, cfg=None, embedder=None):
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
     emb = embedder or _FakeEmbedder()
     return (
@@ -74,7 +74,7 @@ def test_index_note_embeds_and_marks_indexed(database):
 def test_index_note_resolver_error_degrades_to_stale(database):
     # resolve_backend raising (e.g. SECRET_KEY unset → cipher refuses) must not lose chunks.
     _note(database)
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
 
     def _boom(owner_id):

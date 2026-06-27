@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from kajet_turbo.markdown import Chunk
 from kajet_turbo.models import Note
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteChunkRepository
 
 
 def _note(database, note_id="n1", ws="ws", owner="u1"):
@@ -35,7 +35,7 @@ def _chunks():
 
 def test_replace_chunks_without_embeddings_marks_stale(database):
     _note(database)
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     repo.replace_chunks("n1", "ws", "u1", "T", _chunks(), embeddings=None, dim=None)
     rows = repo.get_chunks("n1")
     assert [r["ordinal"] for r in rows] == [0, 1]
@@ -47,7 +47,7 @@ def test_replace_chunks_without_embeddings_marks_stale(database):
 
 def test_replace_chunks_with_embeddings_writes_vectors_and_marks_indexed(database):
     _note(database)
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     repo.ensure_vec_table(2)
     repo.replace_chunks(
         "n1", "ws", "u1", "T", _chunks(), embeddings=[[0.1, 0.2], [0.3, 0.4]], dim=2
@@ -63,7 +63,7 @@ def test_replace_chunks_with_embeddings_writes_vectors_and_marks_indexed(databas
 
 def test_replace_chunks_replaces_previous(database):
     _note(database)
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     repo.ensure_vec_table(2)
     repo.replace_chunks(
         "n1", "ws", "u1", "T", _chunks(), embeddings=[[0.1, 0.2], [0.3, 0.4]], dim=2
@@ -88,7 +88,7 @@ def test_replace_chunks_replaces_previous(database):
 
 def test_replace_chunks_empty_clears(database):
     _note(database)
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     repo.ensure_vec_table(2)
     repo.replace_chunks(
         "n1", "ws", "u1", "T", _chunks(), embeddings=[[0.1, 0.2], [0.3, 0.4]], dim=2
@@ -104,7 +104,7 @@ def test_replace_chunks_empty_clears(database):
 
 def test_replace_chunks_embedding_count_must_match(database):
     _note(database)
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     repo.ensure_vec_table(2)
     with pytest.raises(ValueError):
         repo.replace_chunks("n1", "ws", "u1", "T", _chunks(), embeddings=[[0.1, 0.2]], dim=2)

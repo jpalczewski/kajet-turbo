@@ -1,8 +1,8 @@
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteChunkRepository, NoteRepository
 
 
 def test_index_meta_upsert_and_get(database):
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     assert repo.get_index_meta("u1") is None
     repo.upsert_index_meta("u1", backend="openai-large", model="text-embedding-3-large", dim=3072)
     meta = repo.get_index_meta("u1")

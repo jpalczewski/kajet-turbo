@@ -5,7 +5,12 @@ from sqlalchemy import text
 
 from kajet_turbo.db import Database
 from kajet_turbo.markdown import Chunk
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import (
+    NoteChunkRepository,
+    NoteLinkRepository,
+    NoteRepository,
+    NoteTagRepository,
+)
 
 
 @pytest.fixture
@@ -16,6 +21,21 @@ def db(database: Database) -> Database:
 @pytest.fixture
 def notes(db):
     return NoteRepository(db.engine)
+
+
+@pytest.fixture
+def link_repo(db):
+    return NoteLinkRepository(db.engine)
+
+
+@pytest.fixture
+def tag_repo(db):
+    return NoteTagRepository(db.engine)
+
+
+@pytest.fixture
+def chunk_repo(db):
+    return NoteChunkRepository(db.engine)
 
 
 def test_schema_creates_all_tables(db):
@@ -93,12 +113,12 @@ def test_list_notes_by_workspace(notes):
     assert "id3" not in ids
 
 
-def test_list_notes_filter_by_tag(notes):
+def test_list_notes_filter_by_tag(notes, tag_repo):
     notes.insert("id1", "ws1", "u1", "Tagged", ["python", "mcp"], _now(), _now(), "treść")
     notes.insert("id2", "ws1", "u1", "Untagged", [], _now(), _now(), "treść")
     # list() now filters via the tag index (not JSON field); sync_note_tags populates it.
-    notes.sync_note_tags("id1", "ws1", "u1", [("python", "frontmatter"), ("mcp", "frontmatter")])
-    result = notes.list("ws1", owner_id="u1", tags=["python"])
+    tag_repo.sync_note_tags("id1", "ws1", "u1", [("python", "frontmatter"), ("mcp", "frontmatter")])
+    result = notes.list("ws1", owner_id="u1", tags=["python"], _tag_repo=tag_repo)
     ids = [n["note_id"] for n in result]
     assert "id1" in ids
     assert "id2" not in ids
@@ -138,10 +158,10 @@ def test_list_notes_limit_none_returns_all(notes):
     assert len(notes.list("ws1", owner_id="u1")) == 20  # default cap unchanged
 
 
-def _index(notes, note_id, workspace, owner_id, title, content):
+def _index(notes, chunk_repo, note_id, workspace, owner_id, title, content):
     """Create a note row and a single FTS-indexed chunk for it (insert writes no FTS)."""
     notes.insert(note_id, workspace, owner_id, title, [], _now(), _now(), content)
-    notes.replace_chunks(
+    chunk_repo.replace_chunks(
         note_id,
         workspace,
         owner_id,
@@ -152,50 +172,50 @@ def _index(notes, note_id, workspace, owner_id, title, content):
     )
 
 
-def test_fts_search_finds_by_title(notes):
+def test_fts_search_finds_by_title(notes, chunk_repo):
     # FTS now indexes the chunk's header_path (the title-derived "# ..." breadcrumb).
-    _index(notes, "id1", "ws1", "u1", "Python async programming", "tutorial o asyncio")
-    _index(notes, "id2", "ws1", "u1", "JavaScript basics", "podstawy JS")
-    results = notes.search_fts("async", "ws1", owner_id="u1")
+    _index(notes, chunk_repo, "id1", "ws1", "u1", "Python async programming", "tutorial o asyncio")
+    _index(notes, chunk_repo, "id2", "ws1", "u1", "JavaScript basics", "podstawy JS")
+    results = chunk_repo.search_fts("async", "ws1", owner_id="u1")
     ids = [r["note_id"] for r in results]
     assert "id1" in ids
     assert "id2" not in ids
 
 
-def test_fts_search_finds_by_content(notes):
-    _index(notes, "id1", "ws1", "u1", "Notatka", "sqlite jest świetny do embeddingów")
-    results = notes.search_fts("embedding", "ws1", owner_id="u1")
+def test_fts_search_finds_by_content(notes, chunk_repo):
+    _index(notes, chunk_repo, "id1", "ws1", "u1", "Notatka", "sqlite jest świetny do embeddingów")
+    results = chunk_repo.search_fts("embedding", "ws1", owner_id="u1")
     assert any(r["note_id"] == "id1" for r in results)
     assert all("content" in r for r in results)
 
 
-def test_fts_search_respects_workspace(notes):
-    _index(notes, "id1", "ws1", "u1", "Python notatka", "treść o pythonie")
-    _index(notes, "id2", "ws2", "u1", "Python inny workspace", "treść o pythonie")
-    results = notes.search_fts("python", "ws1", owner_id="u1")
+def test_fts_search_respects_workspace(notes, chunk_repo):
+    _index(notes, chunk_repo, "id1", "ws1", "u1", "Python notatka", "treść o pythonie")
+    _index(notes, chunk_repo, "id2", "ws2", "u1", "Python inny workspace", "treść o pythonie")
+    results = chunk_repo.search_fts("python", "ws1", owner_id="u1")
     ids = [r["note_id"] for r in results]
     assert "id1" in ids
     assert "id2" not in ids
 
 
-def test_fts_search_respects_owner(notes):
-    _index(notes, "id1", "ws1", "u1", "Python notatka u1", "treść o pythonie")
-    _index(notes, "id2", "ws1", "u2", "Python notatka u2", "treść o pythonie")
-    results = notes.search_fts("python", "ws1", owner_id="u1")
+def test_fts_search_respects_owner(notes, chunk_repo):
+    _index(notes, chunk_repo, "id1", "ws1", "u1", "Python notatka u1", "treść o pythonie")
+    _index(notes, chunk_repo, "id2", "ws1", "u2", "Python notatka u2", "treść o pythonie")
+    results = chunk_repo.search_fts("python", "ws1", owner_id="u1")
     ids = [r["note_id"] for r in results]
     assert "id1" in ids
     assert "id2" not in ids
 
 
-def test_fts_search_trigram_partial(notes):
-    _index(notes, "id1", "ws1", "u1", "Programowanie", "nauka programowania w Pythonie")
-    results = notes.search_fts("gram", "ws1", owner_id="u1")
+def test_fts_search_trigram_partial(notes, chunk_repo):
+    _index(notes, chunk_repo, "id1", "ws1", "u1", "Programowanie", "nauka programowania w Pythonie")
+    results = chunk_repo.search_fts("gram", "ws1", owner_id="u1")
     assert any(r["note_id"] == "id1" for r in results)
 
 
-def test_hybrid_search_fallback_without_vec(notes):
-    _index(notes, "id1", "ws1", "u1", "Python tutorial", "programowanie w Pythonie")
-    results = notes.hybrid_search("python", "ws1", owner_id="u1", embedding=None)
+def test_hybrid_search_fallback_without_vec(notes, chunk_repo):
+    _index(notes, chunk_repo, "id1", "ws1", "u1", "Python tutorial", "programowanie w Pythonie")
+    results = chunk_repo.hybrid_search("python", "ws1", owner_id="u1", embedding=None)
     assert any(r["note_id"] == "id1" for r in results)
 
 
@@ -240,24 +260,24 @@ def test_insert_writes_no_fts_rows(database):
 # --- add_link tests ---
 
 
-def test_add_link_inserts_single_edge(notes):
+def test_add_link_inserts_single_edge(notes, link_repo):
     notes.insert("a", "ws", "u1", "A", [], _now(), _now(), "body")
     notes.insert("b", "ws", "u1", "B", [], _now(), _now(), "body")
-    notes.add_link("b", "a", "ws", "u1")
-    assert "a" in notes.outlinks("b")
+    link_repo.add_link("b", "a", "ws", "u1")
+    assert "a" in link_repo.outlinks("b")
 
 
-def test_add_link_idempotent(notes):
+def test_add_link_idempotent(notes, link_repo):
     notes.insert("a", "ws", "u1", "A", [], _now(), _now(), "body")
     notes.insert("b", "ws", "u1", "B", [], _now(), _now(), "body")
-    notes.add_link("b", "a", "ws", "u1")
-    notes.add_link("b", "a", "ws", "u1")  # second insert must not raise
-    assert notes.outlinks("b") == ["a"]
+    link_repo.add_link("b", "a", "ws", "u1")
+    link_repo.add_link("b", "a", "ws", "u1")  # second insert must not raise
+    assert link_repo.outlinks("b") == ["a"]
 
 
-def test_add_link_preserves_existing_edges(notes):
+def test_add_link_preserves_existing_edges(notes, link_repo):
     for nid, title in [("a", "A"), ("b", "B"), ("c", "C")]:
         notes.insert(nid, "ws", "u1", title, [], _now(), _now(), "body")
-    notes.replace_links("a", "ws", "u1", {"b"})  # a -> b
-    notes.add_link("a", "c", "ws", "u1")  # add a -> c without dropping a -> b
-    assert set(notes.outlinks("a")) == {"b", "c"}
+    link_repo.replace_links("a", "ws", "u1", {"b"})  # a -> b
+    link_repo.add_link("a", "c", "ws", "u1")  # add a -> c without dropping a -> b
+    assert set(link_repo.outlinks("a")) == {"b", "c"}
