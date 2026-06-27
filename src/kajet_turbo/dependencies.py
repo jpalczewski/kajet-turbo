@@ -16,6 +16,7 @@ from kajet_turbo.embedding.resolver import ProfileResolver
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
+from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.git import register_post_commit_hook
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import (
@@ -166,9 +167,15 @@ workspace_remote_service = WorkspaceRemoteService(
 
 job_service = JobService(job_repo)
 
+event_repo = EventRepository(db.engine)
+
 
 def get_job_service() -> JobService:
     return job_service
+
+
+def get_event_repo() -> EventRepository:
+    return event_repo
 
 
 def get_workspace_remote_service() -> WorkspaceRemoteService:
