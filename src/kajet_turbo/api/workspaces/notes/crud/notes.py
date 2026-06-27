@@ -193,7 +193,7 @@ async def api_update_note(
         ) from e
     except FileExistsError:
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None
-    except ValueError, FileNotFoundError:
+    except (ValueError, FileNotFoundError):
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
     return JSONResponse(result)
 
@@ -236,7 +236,7 @@ async def api_move_note(
         )
     except InvalidFolderError:
         raise HTTPException(status_code=422, detail=FolderError.INVALID_FOLDER) from None
-    except ValueError, FileNotFoundError:
+    except (ValueError, FileNotFoundError):
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
     except FileExistsError:
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None

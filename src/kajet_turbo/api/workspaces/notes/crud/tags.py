@@ -54,7 +54,7 @@ def api_ls(
     try:
         folder_abs = (ws_root / path).resolve() if path else ws_root
         folder_abs.relative_to(ws_root)
-    except ValueError, OSError:
+    except (ValueError, OSError):
         raise HTTPException(status_code=400, detail="INVALID_PATH") from None
     if path and not folder_abs.is_dir():
         raise HTTPException(status_code=404, detail="FOLDER_NOT_FOUND")
