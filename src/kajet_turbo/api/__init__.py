@@ -7,6 +7,7 @@ from kajet_turbo.api.oauth import router as oauth_router
 from kajet_turbo.api.ssh_keys import router as ssh_keys_router
 from kajet_turbo.api.workspace_remote import router as workspace_remote_router
 from kajet_turbo.api.workspaces import router as workspaces_router
+from kajet_turbo.api.ws import router as ws_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -16,3 +17,4 @@ api_router.include_router(embedding_router)
 api_router.include_router(ssh_keys_router)
 api_router.include_router(workspace_remote_router)
 api_router.include_router(jobs_router)
+api_router.include_router(ws_router)

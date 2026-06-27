@@ -24,6 +24,15 @@ from kajet_turbo.log import LoggingMiddleware, logger, setup_logging
 from kajet_turbo.mcp import build_mcp
 
 
+def _make_sweep_handler(event_repo, job_repo):
+    def _sweep(payload: dict) -> None:
+        swept = event_repo.sweep(3600.0)
+        logger.info("outbox_sweep", swept=swept)
+        job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox", delay=900.0)
+
+    return _sweep
+
+
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI):
     gil_enabled = sys._is_gil_enabled() if hasattr(sys, "_is_gil_enabled") else True
@@ -130,7 +139,7 @@ def build_mcp_app() -> Any:
 def build_api_app() -> Any:
     """API role: REST /api + SPA. Stateless — scales to any worker count."""
     app = FastAPI(lifespan=combine_lifespans(_app_lifespan, _logging_lifespan))
-    app.add_exception_handler(HTTPException, _http_exception_handler)
+    app.add_exception_handler(HTTPException, _http_exception_handler)  # ty: ignore[invalid-argument-type] — FastAPI accepts narrower exc type at runtime
     app.add_middleware(LoggingMiddleware)
     app.include_router(api_router)
     _mount_spa(app)
@@ -141,7 +150,7 @@ def build_app() -> Any:
     """Combined role ("all"): MCP + API + SPA in one process (local dev)."""
     mcp_app = _new_mcp_app()
     app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan, _logging_lifespan))
-    app.add_exception_handler(HTTPException, _http_exception_handler)
+    app.add_exception_handler(HTTPException, _http_exception_handler)  # ty: ignore[invalid-argument-type] — FastAPI accepts narrower exc type at runtime
     app.add_middleware(LoggingMiddleware)
     app.include_router(api_router)
     app.mount("/mcp", mcp_app)
@@ -183,6 +192,11 @@ def main() -> None:
 
         register_handler("push_workspace", push_handler)
         register_handler("heal_dangling", heal_handler)
+        from kajet_turbo.dependencies import event_repo
+        from kajet_turbo.dependencies import job_repo as _job_repo
+
+        register_handler("sweep_outbox", _make_sweep_handler(event_repo, _job_repo))
+        _job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox")
         db = Database()
         run_worker(
             db.engine,
