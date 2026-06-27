@@ -11,7 +11,6 @@ from kajet_turbo.repositories.notes.chunks import NoteChunkRepository
 from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.services.heal_handler import HealDanglingHandler
 from kajet_turbo.services.indexing import NoteIndexer
-from kajet_turbo.services.notes import NoteService
 
 
 def _now() -> str:
@@ -105,7 +104,6 @@ def git_ws(tmp_path: Path) -> Path:
 def test_end_to_end_dangling_then_target_created(database, note_repo, link_repo, dangling, uid, git_ws):
     """Full chain: save Source with [[Target]] (dangling written) -> save Target ->
     run HealDanglingHandler directly (simulating the worker) -> assert edge + cleanup."""
-    repo = NoteRepository(database.engine)
     chunk_repo_e2e = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
         chunk_repo_e2e,
@@ -113,8 +111,10 @@ def test_end_to_end_dangling_then_target_created(database, note_repo, link_repo,
         resolve_backend=lambda owner_id: None,
         build_embedder=lambda cfg: None,
     )
-    svc = NoteService(
-        repo,
+    from tests.services.conftest import build_note_service
+
+    svc = build_note_service(
+        database,
         indexer=indexer,
         link_validation_enabled=lambda ws, owner: False,
         dangling_repo=dangling,
@@ -128,9 +128,9 @@ def test_end_to_end_dangling_then_target_created(database, note_repo, link_repo,
     svc.save(uid, "ws", str(git_ws), "Target", "body", tags=[])
 
     # Run the handler directly (what the worker does)
-    HealDanglingHandler(repo, link_repo, dangling)({"user_id": uid, "workspace": "ws"})
+    HealDanglingHandler(note_repo, link_repo, dangling)({"user_id": uid, "workspace": "ws"})
 
-    src_id = repo.resolve_paths("ws", uid, [("", "Source")])[("", "Source")]
-    tgt_id = repo.resolve_paths("ws", uid, [("", "Target")])[("", "Target")]
+    src_id = note_repo.resolve_paths("ws", uid, [("", "Source")])[("", "Source")]
+    tgt_id = note_repo.resolve_paths("ws", uid, [("", "Target")])[("", "Target")]
     assert link_repo.backlinks(tgt_id) == [src_id]
     assert dangling.exists(uid, "ws") is False

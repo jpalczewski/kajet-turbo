@@ -1,5 +1,5 @@
-from kajet_turbo.repositories.notes import NoteRepository
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.repositories.notes import NoteChunkRepository
+from tests.services.conftest import build_note_service
 
 
 class _RecordingIndexer:
@@ -16,7 +16,7 @@ class _RecordingIndexer:
 
 def test_save_triggers_indexing(database, git_workspace_factory):
     indexer = _RecordingIndexer()
-    service = NoteService(NoteRepository(database.engine), indexer=indexer)
+    service = build_note_service(database, indexer=indexer)
     ws = git_workspace_factory("ws")
     service.save("u1", "ws", str(ws), "Title", "# Title\n\nbody\n", tags=[])
     assert len(indexer.indexed) == 1
@@ -30,14 +30,14 @@ def test_save_writes_fts_via_indexer(database, git_workspace_factory):
     from kajet_turbo.embedding.cache import EmbeddingCacheRepository
     from kajet_turbo.services.indexing import NoteIndexer
 
-    repo = NoteRepository(database.engine)
+    chunk_repo = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
-        repo,
+        chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
         build_embedder=lambda c: None,
     )
-    service = NoteService(repo, indexer=indexer)
+    service = build_note_service(database, indexer=indexer)
     ws = git_workspace_factory("ws")
     service.save("u1", "ws", str(ws), "Title", "# Title\n\nsearchable body\n", tags=[])
     with database.engine.connect() as conn:
@@ -57,7 +57,7 @@ def test_save_surfaces_chunk_write_failure(database, git_workspace_factory):
         def clear_note(self, *a, **k):
             pass
 
-    service = NoteService(NoteRepository(database.engine), indexer=_BadIndexer())
+    service = build_note_service(database, indexer=_BadIndexer())
     ws = git_workspace_factory("ws")
     with pytest.raises(RuntimeError):
         service.save("u1", "ws", str(ws), "Title", "# Title\n\nbody\n", tags=[])
@@ -65,7 +65,7 @@ def test_save_surfaces_chunk_write_failure(database, git_workspace_factory):
 
 def test_update_reindexes_with_new_content(database, git_workspace_factory):
     indexer = _RecordingIndexer()
-    service = NoteService(NoteRepository(database.engine), indexer=indexer)
+    service = build_note_service(database, indexer=indexer)
     ws = git_workspace_factory("ws")
     res = service.save("u1", "ws", str(ws), "Title", "# Title\n\nold\n", tags=[])
     service.update(
@@ -80,7 +80,7 @@ def test_update_reindexes_with_new_content(database, git_workspace_factory):
 
 def test_delete_clears_chunks_before_row_delete(database, git_workspace_factory):
     indexer = _RecordingIndexer()
-    service = NoteService(NoteRepository(database.engine), indexer=indexer)
+    service = build_note_service(database, indexer=indexer)
     ws = git_workspace_factory("ws")
     res = service.save("u1", "ws", str(ws), "Title", "# Title\n\nbody\n", tags=[])
     service.delete(res["note_id"], owner_id="u1", ws_path=str(ws))
@@ -88,7 +88,7 @@ def test_delete_clears_chunks_before_row_delete(database, git_workspace_factory)
 
 
 def test_no_indexer_is_a_noop(database, git_workspace_factory):
-    service = NoteService(NoteRepository(database.engine))  # no indexer
+    service = build_note_service(database)  # no indexer
     ws = git_workspace_factory("ws")
     res = service.save("u1", "ws", str(ws), "Title", "# Title\n\nbody\n", tags=[])
     # must not raise; delete must not raise either

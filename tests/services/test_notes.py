@@ -23,7 +23,7 @@ def test_save_creates_file_and_db_record(service, workspace):
     assert "note_id" in result
     note_id = result["note_id"]
     assert (workspace / "Testowa notatka.md").exists()
-    note = service._repo.get(note_id, owner_id="u1")
+    note = service._crud_repo.get(note_id, owner_id="u1")
     assert note is not None
     assert note.title == "Testowa notatka"
     assert note.owner_id == "u1"
@@ -331,7 +331,7 @@ def test_reindex_rebuilds_fts(service, workspace):
     )
     result = service.reindex("ws", owner_id="u1", ws_path=str(workspace))
     assert result["count"] == 1
-    found = service._repo.search_fts("Zewnętrzna", "ws", owner_id="u1")
+    found = service._chunk_repo.search_fts("Zewnętrzna", "ws", owner_id="u1")
     assert any(n["note_id"] == "ext001" for n in found)
 
 
@@ -442,17 +442,17 @@ def test_update_to_valid_wikilink_succeeds(service, workspace):
 def test_save_records_note_link(service, workspace):
     tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
     sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target]]", [])["note_id"]
-    assert service._repo.backlinks(tid) == [sid]
+    assert service._link_service._link_repo.backlinks(tid) == [sid]
 
 
 def test_update_replaces_links(service, workspace):
     a = service.save("u1", "ws", str(workspace), "A", "a", [])["note_id"]
     b = service.save("u1", "ws", str(workspace), "B", "b", [])["note_id"]
     sid = service.save("u1", "ws", str(workspace), "Source", "[[A]]", [])["note_id"]
-    assert service._repo.backlinks(a) == [sid]
+    assert service._link_service._link_repo.backlinks(a) == [sid]
     service.update(sid, owner_id="u1", ws_path=str(workspace), content="now [[B]]", confirm=True)
-    assert service._repo.backlinks(a) == []
-    assert service._repo.backlinks(b) == [sid]
+    assert service._link_service._link_repo.backlinks(a) == []
+    assert service._link_service._link_repo.backlinks(b) == [sid]
 
 
 def test_delete_removes_outgoing_and_incoming_links(service, workspace):
@@ -460,7 +460,7 @@ def test_delete_removes_outgoing_and_incoming_links(service, workspace):
     sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
     # Source -> Target edge exists; deleting Source clears the edge.
     service.delete(sid, owner_id="u1", ws_path=str(workspace))
-    assert service._repo.backlinks(tid) == []
+    assert service._link_service._link_repo.backlinks(tid) == []
 
 
 def test_delete_target_orphans_handled(service, workspace):
@@ -468,26 +468,26 @@ def test_delete_target_orphans_handled(service, workspace):
     service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])
     service.delete(tid, owner_id="u1", ws_path=str(workspace))
     # Incoming edge to the deleted target is removed.
-    assert service._repo.backlinks(tid) == []
+    assert service._link_service._link_repo.backlinks(tid) == []
 
 
 def test_reindex_rebuilds_links(service, workspace):
     tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
     sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
     service.reindex("ws", "u1", str(workspace))
-    assert service._repo.backlinks(tid) == [sid]
+    assert service._link_service._link_repo.backlinks(tid) == [sid]
 
 
 def test_move_rewrites_backlink_path(service, workspace):
     service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Old")
     sid = service.save("u1", "ws", str(workspace), "Source", "see [[Old/Target|T]]", [])["note_id"]
-    tid = service._repo.get_by_path("ws", "u1", "Old", "Target").id
+    tid = service._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
     service.move(tid, owner_id="u1", ws_path=str(workspace), folder="New")
     src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
     assert "[[New/Target|T]]" in src["content"]
     assert "[[Old/Target" not in src["content"]
     # edge still points to the same target note
-    assert service._repo.backlinks(tid) == [sid]
+    assert service._link_service._link_repo.backlinks(tid) == [sid]
 
 
 def test_rename_via_update_rewrites_backlink(service, workspace):
@@ -501,7 +501,7 @@ def test_rename_via_update_rewrites_backlink(service, workspace):
 def test_move_rewrite_creates_commit_in_source_history(service, workspace):
     service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Old")
     sid = service.save("u1", "ws", str(workspace), "Source", "[[Old/Target]]", [])["note_id"]
-    tid = service._repo.get_by_path("ws", "u1", "Old", "Target").id
+    tid = service._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
     service.move(tid, owner_id="u1", ws_path=str(workspace), folder="New")
     history = service.get_history(sid, owner_id="u1", ws_path=str(workspace))
     assert any("rewrite wikilink" in h["message"] for h in history)
@@ -516,20 +516,20 @@ def test_save_indexes_frontmatter_and_inline_tags(service, workspace):
         "body with #inline/tag here",
         ["Work/Projects"],
     )
-    paths = {r["path"] for r in service._repo.tag_tree("ws", "u1")}
+    paths = {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")}
     assert paths == {"work", "work/projects", "inline", "inline/tag"}
 
 
 def test_save_normalizes_frontmatter_tags_in_file(service, workspace):
     service.save("u1", "ws", str(workspace), "Note", "body", ["Work/Projects"])
-    note_id = service._repo.list("ws", "u1", limit=None)[0]["note_id"]
+    note_id = service._crud_repo.list("ws", "u1", limit=None)[0]["note_id"]
     fetched = service.get(note_id, owner_id="u1")
     assert fetched["tags"] == ["work/projects"]  # normalized, frontmatter-only
 
 
 def test_save_does_not_promote_inline_to_frontmatter(service, workspace):
     service.save("u1", "ws", str(workspace), "Note", "see #inline", [])
-    note_id = service._repo.list("ws", "u1", limit=None)[0]["note_id"]
+    note_id = service._crud_repo.list("ws", "u1", limit=None)[0]["note_id"]
     assert service.get(note_id, owner_id="u1")["tags"] == []  # inline stays out of frontmatter
 
 
@@ -538,14 +538,14 @@ def test_update_resyncs_tags(service, workspace):
     service.update(
         res["note_id"], owner_id="u1", ws_path=str(workspace), content="body #new", confirm=True
     )
-    paths = {r["path"] for r in service._repo.tag_tree("ws", "u1")}
+    paths = {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")}
     assert paths == {"keep", "new"}  # #old gone, #new added, frontmatter 'keep' stays
 
 
 def test_delete_removes_tags(service, workspace):
     res = service.save("u1", "ws", str(workspace), "Note", "#x", ["y"])
     service.delete(res["note_id"], owner_id="u1", ws_path=str(workspace))
-    assert service._repo.tag_tree("ws", "u1") == []
+    assert service._tag_repo.tag_tree("ws", "u1") == []
 
 
 def test_tag_tree_and_notes_by_tag_service(service, workspace):
@@ -558,9 +558,9 @@ def test_tag_tree_and_notes_by_tag_service(service, workspace):
 
 
 def test_normalize_with_warnings_drops_invalid_and_dedups():
-    from kajet_turbo.services.notes import NoteService
+    from kajet_turbo.services.notes import NoteTagService
 
-    out, warnings = NoteService._normalize_with_warnings(["Work", "work", "has space", "a/b"])
+    out, warnings = NoteTagService.normalize_with_warnings(["Work", "work", "has space", "a/b"])
     assert out == ["work", "a/b"]  # 'Work'/'work' unify, dedup; order kept
     assert len(warnings) == 1
     assert "has space" in warnings[0]
@@ -878,7 +878,7 @@ def test_prune_empty_folders_removes_orphans_keeps_gitkeep(service, workspace):
 
 def test_validate_wikilinks_accepts_extra_targets(service, workspace):
     # No note "Target" exists in the DB; supply it via extra_targets.
-    ids, broken = service._validate_wikilinks(
+    ids, broken = service._link_service.validate_wikilinks(
         "ws", "u1", "see [[Target]]", extra_targets={("", "Target"): "abc1234"}
     )
     assert ids == {"abc1234"}
@@ -889,7 +889,7 @@ def test_validate_wikilinks_without_extra_still_raises(service, workspace):
     from kajet_turbo.markdown import BrokenWikilinkError
 
     with pytest.raises(BrokenWikilinkError):
-        service._validate_wikilinks("ws", "u1", "see [[Nope]]")
+        service._link_service.validate_wikilinks("ws", "u1", "see [[Nope]]")
 
 
 # --- save_many ---
@@ -965,7 +965,7 @@ def test_save_many_cross_batch_wikilink_order_independent(service, workspace):
     assert "note_id" in results[1]
     b_id = results[1]["note_id"]
     # A's link edge resolves to B's note_id.
-    links = service._repo.resolve_paths("ws", "u1", [("", "B note")])
+    links = service._crud_repo.resolve_paths("ws", "u1", [("", "B note")])
     assert links[("", "B note")] == b_id
 
 
@@ -1030,7 +1030,7 @@ def test_save_many_filename_collision_dedup(service, workspace):
     assert data["content"].strip() == "first"
 
     # DB row for the first note exists; no second row for "A B".
-    note = service._repo.get(results[0]["note_id"], owner_id="u1")
+    note = service._crud_repo.get(results[0]["note_id"], owner_id="u1")
     assert note is not None
     assert note.title == "A:B"
 
@@ -1041,18 +1041,21 @@ def test_save_many_filename_collision_dedup(service, workspace):
 def _make_service_with_validation(database, link_validation_enabled=None):
     """Build a NoteService with optional link_validation_enabled predicate."""
     from kajet_turbo.embedding.cache import EmbeddingCacheRepository
-    from kajet_turbo.repositories.notes import NoteRepository
-    from kajet_turbo.services.indexing import NoteIndexer
-    from kajet_turbo.services.notes import NoteService
+    from kajet_turbo.repositories.notes import NoteChunkRepository
+    from tests.services.conftest import build_note_service
 
-    repo = NoteRepository(database.engine)
+    chunk_repo = NoteChunkRepository(database.engine)
+    from kajet_turbo.services.indexing import NoteIndexer
+
     indexer = NoteIndexer(
-        repo,
+        chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda owner_id: None,
         build_embedder=lambda cfg: None,
     )
-    return NoteService(repo, indexer=indexer, link_validation_enabled=link_validation_enabled)
+    return build_note_service(
+        database, indexer=indexer, link_validation_enabled=link_validation_enabled
+    )
 
 
 def test_save_with_broken_wikilink_allowed_when_validation_disabled(database, workspace):
@@ -1061,7 +1064,7 @@ def test_save_with_broken_wikilink_allowed_when_validation_disabled(database, wo
     result = svc.save("u1", "ws", str(workspace), "Note A", "see [[Ghost]]", tags=[])
     assert "note_id" in result
     assert (workspace / "Note A.md").exists()
-    assert svc._repo.get(result["note_id"], owner_id="u1") is not None
+    assert svc._crud_repo.get(result["note_id"], owner_id="u1") is not None
 
 
 def test_disabled_validation_still_links_existing_targets(database, workspace):
@@ -1070,10 +1073,10 @@ def test_disabled_validation_still_links_existing_targets(database, workspace):
     a = svc.save("u1", "ws", str(workspace), "Target", "body", tags=[])
     b = svc.save("u1", "ws", str(workspace), "Source", "[[Target]] and [[Ghost]]", tags=[])
     # Resolved target appears as a backlink; broken Ghost is absent.
-    backlinks = svc._repo.backlinks(a["note_id"])
+    backlinks = svc._link_service._link_repo.backlinks(a["note_id"])
     assert b["note_id"] in backlinks
     # Ghost never existed, so no outlink edge for it (no error row either).
-    outlinks = svc._repo.outlinks(b["note_id"])
+    outlinks = svc._link_service._link_repo.outlinks(b["note_id"])
     assert a["note_id"] in outlinks
     assert len(outlinks) == 1
 
@@ -1094,21 +1097,21 @@ def _make_service_with_dangling(database, link_validation_enabled=None):
     """Build a NoteService wired with a real DanglingLinkRepository on the same engine."""
     from kajet_turbo.embedding.cache import EmbeddingCacheRepository
     from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
-    from kajet_turbo.repositories.notes import NoteRepository
+    from kajet_turbo.repositories.notes import NoteChunkRepository
     from kajet_turbo.services.indexing import NoteIndexer
-    from kajet_turbo.services.notes import NoteService
+    from tests.services.conftest import build_note_service
 
-    repo = NoteRepository(database.engine)
+    chunk_repo = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
-        repo,
+        chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda owner_id: None,
         build_embedder=lambda cfg: None,
     )
     dangling = DanglingLinkRepository(database.engine)
     return (
-        NoteService(
-            repo,
+        build_note_service(
+            database,
             indexer=indexer,
             link_validation_enabled=link_validation_enabled,
             dangling_repo=dangling,

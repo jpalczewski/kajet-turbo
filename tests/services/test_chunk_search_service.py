@@ -1,18 +1,20 @@
+from kajet_turbo.cache import WorkspaceCache
+from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
-from kajet_turbo.services.notes import NoteService
+from tests.services.conftest import build_note_service
 
 
 def _service(database):
-    repo = NoteRepository(database.engine)
+    chunk_repo = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
-        repo,
+        chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
         build_embedder=lambda c: None,
     )
-    return NoteService(repo, indexer=indexer)
+    return build_note_service(database, indexer=indexer)
 
 
 def test_search_returns_chunk_shape_fts_only(database, git_workspace_factory):
@@ -39,37 +41,35 @@ def test_search_empty_when_no_match(database, git_workspace_factory):
 
 def test_search_cache_key_varies_by_backend(database, git_workspace_factory):
     # A backend/key change must not keep serving the previous backend's cached ranking.
-    from kajet_turbo.cache import WorkspaceCache
-    from kajet_turbo.embedding.base import EmbedderConfig
-
-    repo = NoteRepository(database.engine)
+    chunk_repo = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
-        repo,
+        chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
         build_embedder=lambda c: None,
     )
 
     calls = {"n": 0}
-    inner = repo.hybrid_search
+    inner = chunk_repo.hybrid_search
 
     def counting(*a, **k):
         calls["n"] += 1
         return inner(*a, **k)
 
-    repo.hybrid_search = counting  # type: ignore[method-assign]
+    chunk_repo.hybrid_search = counting  # type: ignore[method-assign]
 
     class _FakeEmbedder:
         async def embed_query(self, text):
             return [1.0, 0.0, 0.0]
 
     state: dict = {"cfg": None}
-    svc = NoteService(
-        repo,
-        cache=WorkspaceCache(),
+    svc = build_note_service(
+        database,
         indexer=indexer,
+        cache=WorkspaceCache(),
         query_resolver=lambda o: state["cfg"],
         build_embedder=lambda c: _FakeEmbedder(),
+        chunk_repo=chunk_repo,  # pass the patched repo through
     )
     ws = git_workspace_factory("ws")
     svc.save("u1", "ws", str(ws), "T", "# T\n\nalpha\n", tags=[])

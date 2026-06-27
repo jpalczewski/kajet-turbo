@@ -18,7 +18,12 @@ from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 from kajet_turbo.repositories.git import register_post_commit_hook
 from kajet_turbo.repositories.jobs import JobRepository
-from kajet_turbo.repositories.notes import NoteChunkRepository, NoteLinkRepository, NoteRepository
+from kajet_turbo.repositories.notes import (
+    NoteChunkRepository,
+    NoteLinkRepository,
+    NoteRepository,
+    NoteTagRepository,
+)
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.sessions import SessionRepository
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
@@ -31,7 +36,14 @@ from kajet_turbo.services.heal_enqueue import make_enqueue_heal_on_commit
 from kajet_turbo.services.heal_handler import HealDanglingHandler
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.jobs import JobService
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import (
+    NoteFolderService,
+    NoteLinkService,
+    NoteSearchService,
+    NoteService,
+    NoteTagService,
+    NoteVersionService,
+)
 from kajet_turbo.services.push_enqueue import make_enqueue_push_on_commit
 from kajet_turbo.services.push_handler import PushHandler
 from kajet_turbo.services.ssh_keys import SshKeyService
@@ -42,6 +54,7 @@ from kajet_turbo.workspace import WORKSPACES_DIR
 db = Database()
 note_repo = NoteRepository(db.engine)
 note_link_repo = NoteLinkRepository(db.engine)
+note_tag_repo = NoteTagRepository(db.engine)
 note_chunk_repo = NoteChunkRepository(db.engine)
 user_repo = UserRepository(db.engine)
 session_repo = SessionRepository(db.engine)
@@ -94,17 +107,33 @@ workspace_meta_repo = WorkspaceMetaRepository(db.engine)
 workspace_service = WorkspaceService(workspace_repo, note_repo, workspace_meta_repo)
 dangling_repo = DanglingLinkRepository(db.engine)
 
+_cache = WorkspaceCache() if cache_enabled() else None
+_link_validation = lambda ws, owner: workspace_service.get_settings(owner, ws)["validate_links"]  # noqa: E731
+
+_note_tag_service = NoteTagService(note_repo, note_tag_repo, _cache)
+_note_link_service = NoteLinkService(note_repo, note_link_repo, dangling_repo, _link_validation)
+_note_search_service = NoteSearchService(
+    note_chunk_repo,
+    _cache,
+    _profile_resolver.resolve_backend,
+    pooled_embedder_factory(),
+    _query_cache,
+)
+_note_version_service = NoteVersionService(note_repo, _cache)
+_note_folder_service = NoteFolderService(note_repo, _note_link_service, _cache)
+
 note_service = NoteService(
     note_repo,
-    cache=WorkspaceCache() if cache_enabled() else None,
+    note_link_repo,
+    note_tag_repo,
+    note_chunk_repo,
+    _note_tag_service,
+    _note_link_service,
+    _note_search_service,
+    _note_version_service,
+    _note_folder_service,
     indexer=note_indexer,
-    query_resolver=_profile_resolver.resolve_backend,
-    build_embedder=pooled_embedder_factory(),
-    query_cache=_query_cache,
-    link_validation_enabled=lambda ws, owner: workspace_service.get_settings(owner, ws)[
-        "validate_links"
-    ],
-    dangling_repo=dangling_repo,
+    cache=_cache,
 )
 
 _ssh_key_repo = SshKeyRepository(db.engine)

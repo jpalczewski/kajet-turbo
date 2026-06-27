@@ -16,7 +16,6 @@ from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.indexing import NoteIndexer
-from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
 
@@ -35,20 +34,24 @@ class McpTestContext:
 
 @pytest.fixture
 def mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestContext:
+    from kajet_turbo.repositories.notes import NoteChunkRepository as _NoteChunkRepo
+    from tests.services.conftest import build_note_service
+
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
     note_repository = NoteRepository(database.engine)
     workspace_repository = WorkspaceRepository(database.engine)
     active_workspace_repository = ActiveWorkspaceRepository(database.engine)
     oauth_repository = OAuthRepository(database.engine)
     provider = create_auth(oauth_repository)
+    note_chunk_repository = _NoteChunkRepo(database.engine)
     indexer = NoteIndexer(
-        note_repository,
+        note_chunk_repository,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
         build_embedder=lambda c: None,
     )
     server = build_mcp(
-        NoteService(note_repository, indexer=indexer),
+        build_note_service(database, indexer=indexer),
         WorkspaceService(
             workspace_repository, note_repository, WorkspaceMetaRepository(database.engine)
         ),

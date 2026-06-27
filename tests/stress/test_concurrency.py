@@ -6,9 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.repositories.git import GitRepository
-from kajet_turbo.repositories.notes import NoteRepository
-from kajet_turbo.services.notes import NoteService
 
 WS = "stress"
 OWNER = "user-stress"
@@ -16,10 +15,10 @@ OWNER = "user-stress"
 
 @pytest.fixture()
 def svc(tmp_path, database_factory):
-    from kajet_turbo.cache import WorkspaceCache
+    from tests.services.conftest import build_note_service
 
     db = database_factory("stress.db")
-    service = NoteService(NoteRepository(db.engine), cache=WorkspaceCache())
+    service = build_note_service(db, cache=WorkspaceCache())
     return service, str(tmp_path / "ws")
 
 

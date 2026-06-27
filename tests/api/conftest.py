@@ -50,17 +50,21 @@ def api_client_factory(
     contexts: list[tuple[TestClient, Any]] = []
 
     def create(*, user_id: str | None = "u1", grant_access: bool = True) -> ApiTestContext:
+        from kajet_turbo.repositories.notes import NoteChunkRepository as _NoteChunkRepo
+        from tests.services.conftest import build_note_service
+
         monkeypatch.setenv("WORKSPACES_DIR", str(workspace.parent.parent))
         database = database_factory(f"api-{len(contexts)}.db")
         note_repository = NoteRepository(database.engine)
         workspace_repository = WorkspaceRepository(database.engine)
+        note_chunk_repository = _NoteChunkRepo(database.engine)
         note_indexer = NoteIndexer(
-            note_repository,
+            note_chunk_repository,
             EmbeddingCacheRepository(database.engine),
             resolve_backend=lambda owner_id: None,  # FTS-only in tests
             build_embedder=lambda cfg: None,
         )
-        note_service = NoteService(note_repository, indexer=note_indexer)
+        note_service = build_note_service(database, indexer=note_indexer)
         workspace_service = WorkspaceService(
             workspace_repository, note_repository, WorkspaceMetaRepository(database.engine)
         )

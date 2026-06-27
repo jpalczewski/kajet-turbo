@@ -1,5 +1,12 @@
 from kajet_turbo.cache import WorkspaceCache
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import (
+    NoteFolderService,
+    NoteLinkService,
+    NoteSearchService,
+    NoteService,
+    NoteTagService,
+    NoteVersionService,
+)
 
 
 def test_epoch_starts_at_zero_and_bumps():
@@ -26,7 +33,9 @@ def test_ttl_expiry():
     assert c.get(("k",)) is None
 
 
-class FakeRepo:
+class FakeChunkRepo:
+    """Minimal chunk repo double: only implements hybrid_search for search tests."""
+
     def __init__(self) -> None:
         self.calls = 0
 
@@ -35,10 +44,31 @@ class FakeRepo:
         return [{"note_id": "n1", "title": "t"}]
 
 
+def _make_search_svc(chunk_repo, cache):
+    """Build a minimal NoteService wired only for search (all other repos are None)."""
+    tag_service = NoteTagService(None, None, cache)  # type: ignore[arg-type]
+    link_service = NoteLinkService(None, None, None, None)  # type: ignore[arg-type]
+    search_service = NoteSearchService(chunk_repo, cache, None, None, None)
+    version_service = NoteVersionService(None, cache)  # type: ignore[arg-type]
+    folder_service = NoteFolderService(None, link_service, cache)  # type: ignore[arg-type]
+    return NoteService(
+        None,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+        chunk_repo,
+        tag_service,
+        link_service,
+        search_service,
+        version_service,
+        folder_service,
+        cache=cache,
+    )
+
+
 def test_search_is_cached_and_epoch_invalidates():
     cache = WorkspaceCache()
-    repo = FakeRepo()
-    svc = NoteService(repo, cache=cache)  # ty: ignore[invalid-argument-type] - test double
+    repo = FakeChunkRepo()
+    svc = _make_search_svc(repo, cache)
 
     r1 = svc.search("q", ["ws"], owner_id="u")
     r2 = svc.search("q", ["ws"], owner_id="u")
@@ -51,8 +81,8 @@ def test_search_is_cached_and_epoch_invalidates():
 
 
 def test_search_without_cache_always_hits_repo():
-    repo = FakeRepo()
-    svc = NoteService(repo, cache=None)  # ty: ignore[invalid-argument-type] - test double
+    repo = FakeChunkRepo()
+    svc = _make_search_svc(repo, None)
     svc.search("q", ["ws"], owner_id="u")
     svc.search("q", ["ws"], owner_id="u")
     assert repo.calls == 2
