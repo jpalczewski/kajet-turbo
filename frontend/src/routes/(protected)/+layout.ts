@@ -11,6 +11,6 @@ export const load: LayoutLoad = async ({ parent, depends }) => {
     apiListWorkspacesApiWorkspacesGet().catch(() => null),
   ]);
   if (!session) redirect(307, loginPath());
-  const workspaces: WorkspaceInfo[] = result?.data.workspaces ?? [];
+  const workspaces: WorkspaceInfo[] = result?.status === 200 ? result.data.workspaces : [];
   return { workspaces };
 };

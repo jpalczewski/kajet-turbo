@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -73,16 +75,15 @@ class BatchCreateNotesResponse(BaseModel):
     results: list[NoteResult]
 
 
-class LsEntry(BaseModel):
-    note_id: str
-    title: str
-    size_bytes: int
-    updated_at: str
-
-
-class LsResponse(BaseModel):
+class WorkspaceContentsResponse(BaseModel):
+    path: str
+    resolution: Literal["folder", "note", "missing"]
+    folder_path: str
+    selected_note_id: str | None
+    default_note_id: str | None
     folders: list[str]
-    entries: list[LsEntry]
+    child_folders: list[str]
+    notes: list[NoteItem]
 
 
 class ReindexResponse(BaseModel):

@@ -5,6 +5,14 @@
  * OpenAPI spec version: 0.1.0
  */
 import { customFetch } from './fetcher';
+export type AuthError = typeof AuthError[keyof typeof AuthError];
+
+
+export const AuthError = {
+  NOT_AUTHENTICATED: 'NOT_AUTHENTICATED',
+  ACCESS_DENIED: 'ACCESS_DENIED',
+} as const;
+
 export interface NoteResult {
   index: number;
   note_id?: string | null;
@@ -68,6 +76,53 @@ export interface EmbeddingProfilesResponse {
   profiles: EmbeddingProfileItem[];
 }
 
+export type WorkspaceError = typeof WorkspaceError[keyof typeof WorkspaceError];
+
+
+export const WorkspaceError = {
+  WORKSPACE_NOT_FOUND: 'WORKSPACE_NOT_FOUND',
+  WORKSPACE_ALREADY_EXISTS: 'WORKSPACE_ALREADY_EXISTS',
+  WORKSPACE_NAME_REQUIRED: 'WORKSPACE_NAME_REQUIRED',
+  WORKSPACE_INVALID_INPUT: 'WORKSPACE_INVALID_INPUT',
+} as const;
+
+export type NoteError = typeof NoteError[keyof typeof NoteError];
+
+
+export const NoteError = {
+  NOTE_NOT_FOUND: 'NOTE_NOT_FOUND',
+  NOTE_ALREADY_EXISTS: 'NOTE_ALREADY_EXISTS',
+  NOTE_TITLE_REQUIRED: 'NOTE_TITLE_REQUIRED',
+  BROKEN_WIKILINK: 'BROKEN_WIKILINK',
+  NOTE_INVALID_INPUT: 'NOTE_INVALID_INPUT',
+} as const;
+
+export type FolderError = typeof FolderError[keyof typeof FolderError];
+
+
+export const FolderError = {
+  FOLDER_PATH_REQUIRED: 'FOLDER_PATH_REQUIRED',
+  FOLDER_PATH_INVALID: 'FOLDER_PATH_INVALID',
+  INVALID_FOLDER: 'INVALID_FOLDER',
+  FOLDER_NOT_FOUND: 'FOLDER_NOT_FOUND',
+} as const;
+
+export type GitError = typeof GitError[keyof typeof GitError];
+
+
+export const GitError = {
+  GIT_ERROR: 'GIT_ERROR',
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+} as const;
+
+export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,} as const
+export type ErrorCode = typeof ErrorCode[keyof typeof ErrorCode];
+
+export interface ErrorResponse {
+  error: ErrorCode;
+  detail?: string | null;
+}
+
 export type ValidationErrorCtx = { [key: string]: unknown };
 
 export interface ValidationError {
@@ -113,18 +168,6 @@ export interface LinksResponse {
 export interface LoginResponse {
   email: string;
   redirect_uri?: string | null;
-}
-
-export interface LsEntry {
-  note_id: string;
-  title: string;
-  size_bytes: number;
-  updated_at: string;
-}
-
-export interface LsResponse {
-  folders: string[];
-  entries: LsEntry[];
 }
 
 export interface MoveNoteResponse {
@@ -248,6 +291,26 @@ export interface UpdateWorkspaceSettingsResponse {
   values: UpdateWorkspaceSettingsResponseValues;
 }
 
+export type WorkspaceContentsResponseResolution = typeof WorkspaceContentsResponseResolution[keyof typeof WorkspaceContentsResponseResolution];
+
+
+export const WorkspaceContentsResponseResolution = {
+  folder: 'folder',
+  note: 'note',
+  missing: 'missing',
+} as const;
+
+export interface WorkspaceContentsResponse {
+  path: string;
+  resolution: WorkspaceContentsResponseResolution;
+  folder_path: string;
+  selected_note_id: string | null;
+  default_note_id: string | null;
+  folders: string[];
+  child_folders: string[];
+  notes: NoteItem[];
+}
+
 export interface WorkspaceInfo {
   name: string;
   file_count: number;
@@ -291,9 +354,8 @@ tag?: string | null;
 include_descendants?: boolean;
 };
 
-export type ApiLsApiWorkspacesNameLsGetParams = {
+export type ApiWorkspaceContentsApiWorkspacesNameContentsGetParams = {
 path?: string;
-recursive?: boolean;
 };
 
 export type apiLoginApiLoginPostResponse200 = {
@@ -495,12 +557,24 @@ export type apiListWorkspacesApiWorkspacesGetResponse200 = {
   status: 200
 }
 
+export type apiListWorkspacesApiWorkspacesGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiListWorkspacesApiWorkspacesGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
 export type apiListWorkspacesApiWorkspacesGetResponseSuccess = (apiListWorkspacesApiWorkspacesGetResponse200) & {
   headers: Headers;
 };
-;
+export type apiListWorkspacesApiWorkspacesGetResponseError = (apiListWorkspacesApiWorkspacesGetResponse401 | apiListWorkspacesApiWorkspacesGetResponse403) & {
+  headers: Headers;
+};
 
-export type apiListWorkspacesApiWorkspacesGetResponse = (apiListWorkspacesApiWorkspacesGetResponseSuccess)
+export type apiListWorkspacesApiWorkspacesGetResponse = (apiListWorkspacesApiWorkspacesGetResponseSuccess | apiListWorkspacesApiWorkspacesGetResponseError)
 
 export const getApiListWorkspacesApiWorkspacesGetUrl = () => {
 
@@ -531,12 +605,34 @@ export type apiCreateWorkspaceApiWorkspacesPostResponse201 = {
   status: 201
 }
 
+export type apiCreateWorkspaceApiWorkspacesPostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiCreateWorkspaceApiWorkspacesPostResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiCreateWorkspaceApiWorkspacesPostResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type apiCreateWorkspaceApiWorkspacesPostResponse422 = {
+  data: ErrorResponse
+  status: 422
+}
+
 export type apiCreateWorkspaceApiWorkspacesPostResponseSuccess = (apiCreateWorkspaceApiWorkspacesPostResponse201) & {
   headers: Headers;
 };
-;
+export type apiCreateWorkspaceApiWorkspacesPostResponseError = (apiCreateWorkspaceApiWorkspacesPostResponse401 | apiCreateWorkspaceApiWorkspacesPostResponse403 | apiCreateWorkspaceApiWorkspacesPostResponse409 | apiCreateWorkspaceApiWorkspacesPostResponse422) & {
+  headers: Headers;
+};
 
-export type apiCreateWorkspaceApiWorkspacesPostResponse = (apiCreateWorkspaceApiWorkspacesPostResponseSuccess)
+export type apiCreateWorkspaceApiWorkspacesPostResponse = (apiCreateWorkspaceApiWorkspacesPostResponseSuccess | apiCreateWorkspaceApiWorkspacesPostResponseError)
 
 export const getApiCreateWorkspaceApiWorkspacesPostUrl = () => {
 
@@ -567,15 +663,25 @@ export type apiUpdateWorkspaceApiWorkspacesNamePatchResponse200 = {
   status: 200
 }
 
+export type apiUpdateWorkspaceApiWorkspacesNamePatchResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiUpdateWorkspaceApiWorkspacesNamePatchResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
 export type apiUpdateWorkspaceApiWorkspacesNamePatchResponse422 = {
-  data: HTTPValidationError
+  data: ErrorResponse
   status: 422
 }
 
 export type apiUpdateWorkspaceApiWorkspacesNamePatchResponseSuccess = (apiUpdateWorkspaceApiWorkspacesNamePatchResponse200) & {
   headers: Headers;
 };
-export type apiUpdateWorkspaceApiWorkspacesNamePatchResponseError = (apiUpdateWorkspaceApiWorkspacesNamePatchResponse422) & {
+export type apiUpdateWorkspaceApiWorkspacesNamePatchResponseError = (apiUpdateWorkspaceApiWorkspacesNamePatchResponse401 | apiUpdateWorkspaceApiWorkspacesNamePatchResponse403 | apiUpdateWorkspaceApiWorkspacesNamePatchResponse422) & {
   headers: Headers;
 };
 
@@ -610,6 +716,16 @@ export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse200 = {
   status: 200
 }
 
+export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
 export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -618,7 +734,7 @@ export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse422 = {
 export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponseSuccess = (apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse200) & {
   headers: Headers;
 };
-export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponseError = (apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse422) & {
+export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponseError = (apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse401 | apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse403 | apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse422) & {
   headers: Headers;
 };
 
@@ -653,15 +769,25 @@ export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse200 
   status: 200
 }
 
+export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
 export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse422 = {
-  data: HTTPValidationError
+  data: ErrorResponse
   status: 422
 }
 
 export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponseSuccess = (apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse200) & {
   headers: Headers;
 };
-export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponseError = (apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse422) & {
+export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponseError = (apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse401 | apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse403 | apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse422) & {
   headers: Headers;
 };
 
@@ -696,6 +822,16 @@ export type apiListNotesApiWorkspacesNameNotesGetResponse200 = {
   status: 200
 }
 
+export type apiListNotesApiWorkspacesNameNotesGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiListNotesApiWorkspacesNameNotesGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
 export type apiListNotesApiWorkspacesNameNotesGetResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -704,7 +840,7 @@ export type apiListNotesApiWorkspacesNameNotesGetResponse422 = {
 export type apiListNotesApiWorkspacesNameNotesGetResponseSuccess = (apiListNotesApiWorkspacesNameNotesGetResponse200) & {
   headers: Headers;
 };
-export type apiListNotesApiWorkspacesNameNotesGetResponseError = (apiListNotesApiWorkspacesNameNotesGetResponse422) & {
+export type apiListNotesApiWorkspacesNameNotesGetResponseError = (apiListNotesApiWorkspacesNameNotesGetResponse401 | apiListNotesApiWorkspacesNameNotesGetResponse403 | apiListNotesApiWorkspacesNameNotesGetResponse422) & {
   headers: Headers;
 };
 
@@ -748,15 +884,30 @@ export type apiCreateNoteApiWorkspacesNameNotesPostResponse201 = {
   status: 201
 }
 
+export type apiCreateNoteApiWorkspacesNameNotesPostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiCreateNoteApiWorkspacesNameNotesPostResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiCreateNoteApiWorkspacesNameNotesPostResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
 export type apiCreateNoteApiWorkspacesNameNotesPostResponse422 = {
-  data: HTTPValidationError
+  data: ErrorResponse
   status: 422
 }
 
 export type apiCreateNoteApiWorkspacesNameNotesPostResponseSuccess = (apiCreateNoteApiWorkspacesNameNotesPostResponse201) & {
   headers: Headers;
 };
-export type apiCreateNoteApiWorkspacesNameNotesPostResponseError = (apiCreateNoteApiWorkspacesNameNotesPostResponse422) & {
+export type apiCreateNoteApiWorkspacesNameNotesPostResponseError = (apiCreateNoteApiWorkspacesNameNotesPostResponse401 | apiCreateNoteApiWorkspacesNameNotesPostResponse403 | apiCreateNoteApiWorkspacesNameNotesPostResponse409 | apiCreateNoteApiWorkspacesNameNotesPostResponse422) & {
   headers: Headers;
 };
 
@@ -786,201 +937,30 @@ export const apiCreateNoteApiWorkspacesNameNotesPost = async (name: string, opti
 
 
 
-export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse200 = {
-  data: ReindexResponse
-  status: 200
-}
-
-export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponseSuccess = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponse200) & {
-  headers: Headers;
-};
-export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponseError = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponse422) & {
-  headers: Headers;
-};
-
-export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponseSuccess | apiReindexWorkspaceApiWorkspacesNameReindexPostResponseError)
-
-export const getApiReindexWorkspaceApiWorkspacesNameReindexPostUrl = (name: string,) => {
-
-
-
-
-  return `/api/workspaces/${name}/reindex`
-}
-
-/**
- * @summary Api Reindex Workspace
- */
-export const apiReindexWorkspaceApiWorkspacesNameReindexPost = async (name: string, options?: RequestInit): Promise<apiReindexWorkspaceApiWorkspacesNameReindexPostResponse> => {
-
-  return customFetch<apiReindexWorkspaceApiWorkspacesNameReindexPostResponse>(getApiReindexWorkspaceApiWorkspacesNameReindexPostUrl(name),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-export type apiListTagsApiWorkspacesNameTagsGetResponse200 = {
-  data: TagsResponse
-  status: 200
-}
-
-export type apiListTagsApiWorkspacesNameTagsGetResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type apiListTagsApiWorkspacesNameTagsGetResponseSuccess = (apiListTagsApiWorkspacesNameTagsGetResponse200) & {
-  headers: Headers;
-};
-export type apiListTagsApiWorkspacesNameTagsGetResponseError = (apiListTagsApiWorkspacesNameTagsGetResponse422) & {
-  headers: Headers;
-};
-
-export type apiListTagsApiWorkspacesNameTagsGetResponse = (apiListTagsApiWorkspacesNameTagsGetResponseSuccess | apiListTagsApiWorkspacesNameTagsGetResponseError)
-
-export const getApiListTagsApiWorkspacesNameTagsGetUrl = (name: string,) => {
-
-
-
-
-  return `/api/workspaces/${name}/tags`
-}
-
-/**
- * @summary Api List Tags
- */
-export const apiListTagsApiWorkspacesNameTagsGet = async (name: string, options?: RequestInit): Promise<apiListTagsApiWorkspacesNameTagsGetResponse> => {
-
-  return customFetch<apiListTagsApiWorkspacesNameTagsGetResponse>(getApiListTagsApiWorkspacesNameTagsGetUrl(name),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-export type apiLsApiWorkspacesNameLsGetResponse200 = {
-  data: LsResponse
-  status: 200
-}
-
-export type apiLsApiWorkspacesNameLsGetResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type apiLsApiWorkspacesNameLsGetResponseSuccess = (apiLsApiWorkspacesNameLsGetResponse200) & {
-  headers: Headers;
-};
-export type apiLsApiWorkspacesNameLsGetResponseError = (apiLsApiWorkspacesNameLsGetResponse422) & {
-  headers: Headers;
-};
-
-export type apiLsApiWorkspacesNameLsGetResponse = (apiLsApiWorkspacesNameLsGetResponseSuccess | apiLsApiWorkspacesNameLsGetResponseError)
-
-export const getApiLsApiWorkspacesNameLsGetUrl = (name: string,
-    params?: ApiLsApiWorkspacesNameLsGetParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/api/workspaces/${name}/ls?${stringifiedParams}` : `/api/workspaces/${name}/ls`
-}
-
-/**
- * @summary Api Ls
- */
-export const apiLsApiWorkspacesNameLsGet = async (name: string,
-    params?: ApiLsApiWorkspacesNameLsGetParams, options?: RequestInit): Promise<apiLsApiWorkspacesNameLsGetResponse> => {
-
-  return customFetch<apiLsApiWorkspacesNameLsGetResponse>(getApiLsApiWorkspacesNameLsGetUrl(name,params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-export type apiCreateFolderApiWorkspacesNameFoldersPostResponse200 = {
-  data: CreateFolderResponse
-  status: 200
-}
-
-export type apiCreateFolderApiWorkspacesNameFoldersPostResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type apiCreateFolderApiWorkspacesNameFoldersPostResponseSuccess = (apiCreateFolderApiWorkspacesNameFoldersPostResponse200) & {
-  headers: Headers;
-};
-export type apiCreateFolderApiWorkspacesNameFoldersPostResponseError = (apiCreateFolderApiWorkspacesNameFoldersPostResponse422) & {
-  headers: Headers;
-};
-
-export type apiCreateFolderApiWorkspacesNameFoldersPostResponse = (apiCreateFolderApiWorkspacesNameFoldersPostResponseSuccess | apiCreateFolderApiWorkspacesNameFoldersPostResponseError)
-
-export const getApiCreateFolderApiWorkspacesNameFoldersPostUrl = (name: string,) => {
-
-
-
-
-  return `/api/workspaces/${name}/folders`
-}
-
-/**
- * @summary Api Create Folder
- */
-export const apiCreateFolderApiWorkspacesNameFoldersPost = async (name: string, options?: RequestInit): Promise<apiCreateFolderApiWorkspacesNameFoldersPostResponse> => {
-
-  return customFetch<apiCreateFolderApiWorkspacesNameFoldersPostResponse>(getApiCreateFolderApiWorkspacesNameFoldersPostUrl(name),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
 export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse200 = {
   data: BatchCreateNotesResponse
   status: 200
 }
 
+export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
 export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse422 = {
-  data: HTTPValidationError
+  data: ErrorResponse
   status: 422
 }
 
 export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponseSuccess = (apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse200) & {
   headers: Headers;
 };
-export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponseError = (apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse422) & {
+export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponseError = (apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse401 | apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse403 | apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse422) & {
   headers: Headers;
 };
 
@@ -1015,15 +995,35 @@ export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse200 = {
   status: 200
 }
 
+export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
 export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse422 = {
-  data: HTTPValidationError
+  data: ErrorResponse
   status: 422
 }
 
 export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponseSuccess = (apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse200) & {
   headers: Headers;
 };
-export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponseError = (apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse422) & {
+export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponseError = (apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse401 | apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse403 | apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse404 | apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse409 | apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse422) & {
   headers: Headers;
 };
 
@@ -1060,6 +1060,21 @@ export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse200 = {
   status: 200
 }
 
+export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
 export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -1068,7 +1083,7 @@ export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse422 = {
 export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponseSuccess = (apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse200) & {
   headers: Headers;
 };
-export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponseError = (apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse422) & {
+export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponseError = (apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse401 | apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse403 | apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse404 | apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse422) & {
   headers: Headers;
 };
 
@@ -1105,15 +1120,35 @@ export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse200 = {
   status: 200
 }
 
+export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
 export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse422 = {
-  data: HTTPValidationError
+  data: ErrorResponse
   status: 422
 }
 
 export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponseSuccess = (apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse200) & {
   headers: Headers;
 };
-export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponseError = (apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse422) & {
+export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponseError = (apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse401 | apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse403 | apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse404 | apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse409 | apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse422) & {
   headers: Headers;
 };
 
@@ -1145,9 +1180,250 @@ export const apiMoveNoteApiWorkspacesNameNotesNoteIdMovePost = async (name: stri
 
 
 
+export type apiWorkspaceContentsApiWorkspacesNameContentsGetResponse200 = {
+  data: WorkspaceContentsResponse
+  status: 200
+}
+
+export type apiWorkspaceContentsApiWorkspacesNameContentsGetResponse400 = {
+  data: ErrorResponse
+  status: 400
+}
+
+export type apiWorkspaceContentsApiWorkspacesNameContentsGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiWorkspaceContentsApiWorkspacesNameContentsGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiWorkspaceContentsApiWorkspacesNameContentsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiWorkspaceContentsApiWorkspacesNameContentsGetResponseSuccess = (apiWorkspaceContentsApiWorkspacesNameContentsGetResponse200) & {
+  headers: Headers;
+};
+export type apiWorkspaceContentsApiWorkspacesNameContentsGetResponseError = (apiWorkspaceContentsApiWorkspacesNameContentsGetResponse400 | apiWorkspaceContentsApiWorkspacesNameContentsGetResponse401 | apiWorkspaceContentsApiWorkspacesNameContentsGetResponse403 | apiWorkspaceContentsApiWorkspacesNameContentsGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiWorkspaceContentsApiWorkspacesNameContentsGetResponse = (apiWorkspaceContentsApiWorkspacesNameContentsGetResponseSuccess | apiWorkspaceContentsApiWorkspacesNameContentsGetResponseError)
+
+export const getApiWorkspaceContentsApiWorkspacesNameContentsGetUrl = (name: string,
+    params?: ApiWorkspaceContentsApiWorkspacesNameContentsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/workspaces/${name}/contents?${stringifiedParams}` : `/api/workspaces/${name}/contents`
+}
+
+/**
+ * @summary Api Workspace Contents
+ */
+export const apiWorkspaceContentsApiWorkspacesNameContentsGet = async (name: string,
+    params?: ApiWorkspaceContentsApiWorkspacesNameContentsGetParams, options?: RequestInit): Promise<apiWorkspaceContentsApiWorkspacesNameContentsGetResponse> => {
+
+  return customFetch<apiWorkspaceContentsApiWorkspacesNameContentsGetResponse>(getApiWorkspaceContentsApiWorkspacesNameContentsGetUrl(name,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiListTagsApiWorkspacesNameTagsGetResponse200 = {
+  data: TagsResponse
+  status: 200
+}
+
+export type apiListTagsApiWorkspacesNameTagsGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiListTagsApiWorkspacesNameTagsGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiListTagsApiWorkspacesNameTagsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiListTagsApiWorkspacesNameTagsGetResponseSuccess = (apiListTagsApiWorkspacesNameTagsGetResponse200) & {
+  headers: Headers;
+};
+export type apiListTagsApiWorkspacesNameTagsGetResponseError = (apiListTagsApiWorkspacesNameTagsGetResponse401 | apiListTagsApiWorkspacesNameTagsGetResponse403 | apiListTagsApiWorkspacesNameTagsGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiListTagsApiWorkspacesNameTagsGetResponse = (apiListTagsApiWorkspacesNameTagsGetResponseSuccess | apiListTagsApiWorkspacesNameTagsGetResponseError)
+
+export const getApiListTagsApiWorkspacesNameTagsGetUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/tags`
+}
+
+/**
+ * @summary Api List Tags
+ */
+export const apiListTagsApiWorkspacesNameTagsGet = async (name: string, options?: RequestInit): Promise<apiListTagsApiWorkspacesNameTagsGetResponse> => {
+
+  return customFetch<apiListTagsApiWorkspacesNameTagsGetResponse>(getApiListTagsApiWorkspacesNameTagsGetUrl(name),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiCreateFolderApiWorkspacesNameFoldersPostResponse200 = {
+  data: CreateFolderResponse
+  status: 200
+}
+
+export type apiCreateFolderApiWorkspacesNameFoldersPostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiCreateFolderApiWorkspacesNameFoldersPostResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiCreateFolderApiWorkspacesNameFoldersPostResponse422 = {
+  data: ErrorResponse
+  status: 422
+}
+
+export type apiCreateFolderApiWorkspacesNameFoldersPostResponseSuccess = (apiCreateFolderApiWorkspacesNameFoldersPostResponse200) & {
+  headers: Headers;
+};
+export type apiCreateFolderApiWorkspacesNameFoldersPostResponseError = (apiCreateFolderApiWorkspacesNameFoldersPostResponse401 | apiCreateFolderApiWorkspacesNameFoldersPostResponse403 | apiCreateFolderApiWorkspacesNameFoldersPostResponse422) & {
+  headers: Headers;
+};
+
+export type apiCreateFolderApiWorkspacesNameFoldersPostResponse = (apiCreateFolderApiWorkspacesNameFoldersPostResponseSuccess | apiCreateFolderApiWorkspacesNameFoldersPostResponseError)
+
+export const getApiCreateFolderApiWorkspacesNameFoldersPostUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/folders`
+}
+
+/**
+ * @summary Api Create Folder
+ */
+export const apiCreateFolderApiWorkspacesNameFoldersPost = async (name: string, options?: RequestInit): Promise<apiCreateFolderApiWorkspacesNameFoldersPostResponse> => {
+
+  return customFetch<apiCreateFolderApiWorkspacesNameFoldersPostResponse>(getApiCreateFolderApiWorkspacesNameFoldersPostUrl(name),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse200 = {
+  data: ReindexResponse
+  status: 200
+}
+
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponseSuccess = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponse200) & {
+  headers: Headers;
+};
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponseError = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponse401 | apiReindexWorkspaceApiWorkspacesNameReindexPostResponse403 | apiReindexWorkspaceApiWorkspacesNameReindexPostResponse422) & {
+  headers: Headers;
+};
+
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponseSuccess | apiReindexWorkspaceApiWorkspacesNameReindexPostResponseError)
+
+export const getApiReindexWorkspaceApiWorkspacesNameReindexPostUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/reindex`
+}
+
+/**
+ * @summary Api Reindex Workspace
+ */
+export const apiReindexWorkspaceApiWorkspacesNameReindexPost = async (name: string, options?: RequestInit): Promise<apiReindexWorkspaceApiWorkspacesNameReindexPostResponse> => {
+
+  return customFetch<apiReindexWorkspaceApiWorkspacesNameReindexPostResponse>(getApiReindexWorkspaceApiWorkspacesNameReindexPostUrl(name),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
 export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse200 = {
   data: NoteHtmlResponse
   status: 200
+}
+
+export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse404 = {
+  data: ErrorResponse
+  status: 404
 }
 
 export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse422 = {
@@ -1158,7 +1434,7 @@ export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse422 = {
 export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponseSuccess = (apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse200) & {
   headers: Headers;
 };
-export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponseError = (apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse422) & {
+export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponseError = (apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse401 | apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse403 | apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse404 | apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse422) & {
   headers: Headers;
 };
 
@@ -1195,6 +1471,21 @@ export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse200
   status: 200
 }
 
+export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
 export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -1203,7 +1494,7 @@ export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse422
 export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponseSuccess = (apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse200) & {
   headers: Headers;
 };
-export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponseError = (apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse422) & {
+export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponseError = (apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse401 | apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse403 | apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse404 | apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse422) & {
   headers: Headers;
 };
 
@@ -1240,6 +1531,21 @@ export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse200 = {
   status: 200
 }
 
+export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
 export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -1248,7 +1554,7 @@ export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse422 = {
 export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponseSuccess = (apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse200) & {
   headers: Headers;
 };
-export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponseError = (apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse422) & {
+export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponseError = (apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse401 | apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse403 | apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse404 | apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse422) & {
   headers: Headers;
 };
 
@@ -1285,6 +1591,21 @@ export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse200 = {
   status: 200
 }
 
+export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
 export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -1293,7 +1614,7 @@ export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse422 = {
 export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponseSuccess = (apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse200) & {
   headers: Headers;
 };
-export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponseError = (apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse422) & {
+export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponseError = (apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse401 | apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse403 | apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse404 | apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse422) & {
   headers: Headers;
 };
 
@@ -1330,6 +1651,21 @@ export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse200 = {
   status: 200
 }
 
+export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
 export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -1338,7 +1674,7 @@ export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse422 = {
 export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponseSuccess = (apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse200) & {
   headers: Headers;
 };
-export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponseError = (apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse422) & {
+export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponseError = (apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse401 | apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse403 | apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse404 | apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse422) & {
   headers: Headers;
 };
 
@@ -1375,6 +1711,21 @@ export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse200 =
   status: 200
 }
 
+export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
 export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -1383,7 +1734,7 @@ export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse422 =
 export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponseSuccess = (apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse200) & {
   headers: Headers;
 };
-export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponseError = (apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse422) & {
+export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponseError = (apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse401 | apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse403 | apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse404 | apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse422) & {
   headers: Headers;
 };
 
@@ -1422,6 +1773,21 @@ export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePo
   status: 200
 }
 
+export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
 export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -1430,7 +1796,7 @@ export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePo
 export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponseSuccess = (apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse200) & {
   headers: Headers;
 };
-export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponseError = (apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse422) & {
+export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponseError = (apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse401 | apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse403 | apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse404 | apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse422) & {
   headers: Headers;
 };
 

@@ -14,8 +14,6 @@ from .crud import (
     CreateNoteRequest,
     CreateNoteResponse,
     DeleteNoteResponse,
-    LsEntry,
-    LsResponse,
     MoveNoteRequest,
     MoveNoteResponse,
     NoteCreate,
@@ -27,6 +25,7 @@ from .crud import (
     TagsResponse,
     UpdateNoteRequest,
     UpdateNoteResponse,
+    WorkspaceContentsResponse,
 )
 from .history import NoteHistoryEntry, NoteHistoryResponse, RestoreVersionResponse
 
@@ -41,8 +40,6 @@ __all__ = [
     "CreateNoteResponse",
     "DeleteNoteResponse",
     "LinksResponse",
-    "LsEntry",
-    "LsResponse",
     "MoveNoteRequest",
     "MoveNoteResponse",
     "NoteCreate",
@@ -60,4 +57,5 @@ __all__ = [
     "TagsResponse",
     "UpdateNoteRequest",
     "UpdateNoteResponse",
+    "WorkspaceContentsResponse",
 ]

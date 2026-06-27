@@ -13,8 +13,6 @@ from .notes import (
     CreateNoteResponse,
     DeleteNoteResponse,
     LinksResponse,
-    LsEntry,
-    LsResponse,
     MoveNoteRequest,
     MoveNoteResponse,
     NoteCreate,
@@ -32,6 +30,7 @@ from .notes import (
     TagsResponse,
     UpdateNoteRequest,
     UpdateNoteResponse,
+    WorkspaceContentsResponse,
 )
 from .ssh_keys import SshKeyItem, SshKeysResponse
 from .workspace_remote import WorkspaceRemoteResponse, WorkspaceRemoteView
@@ -64,8 +63,6 @@ __all__ = [
     "JobsResponse",
     "LinksResponse",
     "LoginResponse",
-    "LsEntry",
-    "LsResponse",
     "MoveNoteRequest",
     "MoveNoteResponse",
     "NoteCreate",
@@ -91,6 +88,7 @@ __all__ = [
     "UpdateNoteResponse",
     "UpdateWorkspaceResponse",
     "UpdateWorkspaceSettingsResponse",
+    "WorkspaceContentsResponse",
     "WorkspaceInfo",
     "WorkspaceRemoteResponse",
     "WorkspaceRemoteView",

@@ -1,11 +1,7 @@
-import { redirect } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import type { NoteItem, TagNode } from '$lib/api';
 import { loginPath, workspacesPath } from '$lib/routes';
 import type { PageLoad } from './$types';
-
-// Ordering (README-first + natural) is done backend-side; here we only need to
-// locate the README to default the folder preview to it.
-const isReadme = (n: NoteItem) => n.title.trim().toLowerCase() === 'readme';
 
 export const load: PageLoad = async ({ params, url, fetch, depends }) => {
   const slug = params.slug;
@@ -38,7 +34,7 @@ export const load: PageLoad = async ({ params, url, fetch, depends }) => {
       notes,
       noteSelected: false,
       // file-mode fields kept so the page's data shape stays consistent
-      tree: { folders: [], entries: [] },
+      tree: { folders: [] },
       folderPath: '',
       noteId: null,
       note: null,
@@ -47,86 +43,44 @@ export const load: PageLoad = async ({ params, url, fetch, depends }) => {
   }
 
   const segments = params.path ? params.path.split('/').filter(Boolean) : [];
-  const lastSegment = segments.at(-1) ?? null;
-  const parentPath = segments.slice(0, -1).join('/');
   const fullPath = segments.join('/');
 
-  // Fire all possible requests in a single round-trip.
-  // We don't yet know if the last segment is a folder or a note, so we fetch
-  // speculatively: notes for both fullPath (if folder) and parentPath (if note),
-  // plus the note html (if it's a note). One of these will be discarded.
-  const [lsResult, treeResult, notesInFolder, notesInParent, noteResult, linksResult] =
-    await Promise.all([
-      fetch(`/api/workspaces/${slug}/ls?path=${fullPath}`, { credentials: 'include' }).catch(
-        () => null,
-      ),
-      fetch(`/api/workspaces/${slug}/ls?recursive=true`, { credentials: 'include' }).catch(
-        () => null,
-      ),
-      segments.length > 0
-        ? fetch(`/api/workspaces/${slug}/notes?folder=${fullPath}`, {
-            credentials: 'include',
-          }).catch(() => null)
-        : Promise.resolve(null),
-      fetch(`/api/workspaces/${slug}/notes?folder=${parentPath}`, { credentials: 'include' }).catch(
-        () => null,
-      ),
-      lastSegment
-        ? fetch(`/api/workspaces/${slug}/notes/${lastSegment}/html`, {
-            credentials: 'include',
-          }).catch(() => null)
-        : Promise.resolve(null),
-      lastSegment
-        ? fetch(`/api/workspaces/${slug}/notes/${lastSegment}/links`, {
-            credentials: 'include',
-          }).catch(() => null)
-        : Promise.resolve(null),
-    ]);
+  const contentsUrl = fullPath
+    ? `/api/workspaces/${slug}/contents?path=${encodeURIComponent(fullPath)}`
+    : `/api/workspaces/${slug}/contents`;
+  const contentsResult = await fetch(contentsUrl, { credentials: 'include' }).catch(() => null);
 
-  if (lsResult?.status === 401) redirect(307, loginPath());
-  if (lsResult?.status === 403) redirect(307, workspacesPath());
+  if (contentsResult?.status === 401) redirect(307, loginPath());
+  if (contentsResult?.status === 403) redirect(307, workspacesPath());
+  if (contentsResult?.status === 400) error(400, 'Nieprawidłowa ścieżka.');
+  if (!contentsResult?.ok) error(500, 'Błąd serwera.');
 
-  const isFolder = lsResult?.ok ?? true;
-  const folderPath = isFolder ? fullPath : parentPath;
-  let noteId = isFolder ? null : lastSegment;
+  const contents = await contentsResult.json();
+  const folderPath = contents.folder_path;
+  const noteId = contents.selected_note_id ?? contents.default_note_id;
+  const noteSelected = contents.resolution === 'note';
 
-  const notesResult = isFolder ? (notesInFolder ?? notesInParent) : notesInParent;
-  const notes: NoteItem[] = notesResult?.ok ? (await notesResult.json()).notes : [];
-  const tree = treeResult?.ok ? await treeResult.json() : { folders: [], entries: [] };
-  let note = !isFolder && noteResult?.ok ? await noteResult.json() : null;
-  let links =
-    !isFolder && linksResult?.ok ? await linksResult.json() : { backlinks: [], outlinks: [] };
-
-  // Landing on a folder: default the preview to its README, if one exists.
-  if (isFolder && !note) {
-    const readme = notes.find(isReadme);
-    if (readme) {
-      const [readmeHtml, readmeLinks] = await Promise.all([
-        fetch(`/api/workspaces/${slug}/notes/${readme.note_id}/html`, {
+  const [noteResult, linksResult] = noteId
+    ? await Promise.all([
+        fetch(`/api/workspaces/${slug}/notes/${noteId}/html`, {
           credentials: 'include',
         }).catch(() => null),
-        fetch(`/api/workspaces/${slug}/notes/${readme.note_id}/links`, {
+        fetch(`/api/workspaces/${slug}/notes/${noteId}/links`, {
           credentials: 'include',
         }).catch(() => null),
-      ]);
-      if (readmeHtml?.ok) {
-        note = await readmeHtml.json();
-        noteId = readme.note_id;
-      }
-      if (readmeLinks?.ok) links = await readmeLinks.json();
-    }
-  }
+      ])
+    : [null, null];
 
   return {
     mode: 'files' as const,
-    notes,
-    tree,
+    notes: contents.notes as NoteItem[],
+    tree: { folders: contents.folders as string[] },
     folderPath,
     noteId,
-    noteSelected: !isFolder,
+    noteSelected,
     slug,
-    note,
-    links,
+    note: noteResult?.ok ? await noteResult.json() : null,
+    links: linksResult?.ok ? await linksResult.json() : { backlinks: [], outlinks: [] },
     // tag-mode fields kept so both branches share the same key set (clean union)
     tags: [] as TagNode[],
     tagPath: '',

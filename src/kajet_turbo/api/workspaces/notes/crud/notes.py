@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
@@ -12,6 +10,7 @@ from kajet_turbo.api.schemas import (
     UpdateNoteResponse,
 )
 from kajet_turbo.api.schemas.errors import ErrorResponse
+from kajet_turbo.api.workspaces.notes._views import enrich_note_items
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
 from kajet_turbo.errors import AuthError, FolderError, NoteError
@@ -20,7 +19,7 @@ from kajet_turbo.markdown import BrokenWikilinkError
 from kajet_turbo.repositories.git import GitError  # exception class, not errors.GitError StrEnum
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
-from kajet_turbo.workspace import InvalidFolderError, note_filepath
+from kajet_turbo.workspace import InvalidFolderError
 
 router = APIRouter(
     responses={
@@ -53,15 +52,7 @@ def api_list_notes(
         )
     else:
         notes = note_service.list_notes(name, owner_id=user["id"], folder=folder, limit=None)
-    enriched = []
-    for note in notes:
-        filepath = note_filepath(ws_path, note["folder"], note["title"])
-        try:
-            size_bytes = Path(filepath).stat().st_size
-        except OSError:
-            size_bytes = 0
-        enriched.append({**note, "size_bytes": size_bytes})
-    return JSONResponse({"notes": enriched})
+    return JSONResponse({"notes": enrich_note_items(ws_path, notes)})
 
 
 @router.post(

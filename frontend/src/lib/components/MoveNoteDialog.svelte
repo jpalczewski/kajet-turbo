@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    apiLsApiWorkspacesNameLsGet,
+    apiWorkspaceContentsApiWorkspacesNameContentsGet,
     apiMoveNoteApiWorkspacesNameNotesNoteIdMovePost,
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
@@ -31,7 +31,7 @@
     destination = '';
     modal.show();
     try {
-      const result = await apiLsApiWorkspacesNameLsGet(slug, { recursive: true });
+      const result = await apiWorkspaceContentsApiWorkspacesNameContentsGet(slug);
       if (result.status !== 200) throw new Error();
       folders = ['', ...(result.data.folders ?? [])].filter((folder) => folder !== currentFolder);
       destination = folders[0] ?? '';
