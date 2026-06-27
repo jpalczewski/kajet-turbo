@@ -33,12 +33,11 @@ class WorkspaceAccess(SQLModel, table=True):
 
 
 class ActiveWorkspace(SQLModel, table=True):
-    """Per-user active workspace, persisted so it survives MCP session churn.
+    """Active workspace persisted per authenticated MCP context.
 
-    The claude.ai/mobile connector opens a fresh MCP session per tool call, so
-    the in-memory session state (ctx.set_state) is lost between activate_workspace
-    and the next tool call. Keying by the stable user id is the only thing that
-    survives. Authenticated users only — anonymous sessions have no stable id.
+    Claude.ai can open several conversations through the same OAuth client and
+    user. Keying only by user_id turns the active workspace into a global switch;
+    adding scope lets each MCP session keep an independent fallback.
     """
 
     __tablename__ = "active_workspaces"
@@ -46,6 +45,7 @@ class ActiveWorkspace(SQLModel, table=True):
     user_id: str = Field(
         sa_column=Column(Text, ForeignKey("users.id"), primary_key=True, nullable=False)
     )
+    scope: str = Field(default="user", primary_key=True)
     workspace: str
     updated_at: str
 

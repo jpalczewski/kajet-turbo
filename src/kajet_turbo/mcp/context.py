@@ -29,6 +29,7 @@ class McpContextDeps:
 
 deps = McpContextDeps()
 MCP_CONTEXT = CurrentContext()
+LEGACY_ACTIVE_WORKSPACE_SCOPE = "user"
 
 
 def configure_mcp_context(
@@ -94,12 +95,18 @@ async def active_workspace(ctx: Context = MCP_CONTEXT) -> ActiveWorkspace:
 
     user_id = await resolve_user_id()
     if user_id is not None and deps.active_workspace_repo is not None:
-        db_name = await run_sync(deps.active_workspace_repo.get, user_id)
+        scope = active_workspace_scope(ctx)
+        db_name = await run_sync(deps.active_workspace_repo.get, user_id, scope)
         if db_name:
             await ctx.set_state("active_workspace", db_name)
             await ctx.set_state("active_user_id", user_id)
             await ctx.set_state("active_owner_id", user_id)
-            logger.info("active_workspace_resolved", source="db_fallback", ws=db_name)
+            logger.info(
+                "active_workspace_resolved",
+                source="db_fallback",
+                ws=db_name,
+                scope=scope,
+            )
             return ActiveWorkspace(
                 owner_id=user_id,
                 name=db_name,
@@ -114,6 +121,13 @@ async def active_workspace(ctx: Context = MCP_CONTEXT) -> ActiveWorkspace:
 async def get_active_workspace(ctx: Context) -> tuple[str, str, str]:
     ws = await active_workspace(ctx)
     return ws.owner_id, ws.name, ws.path
+
+
+def active_workspace_scope(ctx: Context) -> str:
+    session_id = getattr(ctx, "session_id", None)
+    if session_id:
+        return f"mcp-session:{session_id}"
+    return LEGACY_ACTIVE_WORKSPACE_SCOPE
 
 
 ACTIVE_WORKSPACE = Depends(active_workspace)

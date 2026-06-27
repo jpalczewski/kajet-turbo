@@ -25,6 +25,19 @@ def test_set_is_upsert(database: Database):
     assert repo.get(user_id) == "ws-beta"
 
 
+def test_scopes_are_independent(database: Database):
+    users = UserRepository(database.engine)
+    repo = ActiveWorkspaceRepository(database.engine)
+    user_id = users.create("a@b.com", "hash")
+
+    repo.set(user_id, "ws-alpha", scope="mcp-session:a")
+    repo.set(user_id, "ws-beta", scope="mcp-session:b")
+
+    assert repo.get(user_id, scope="mcp-session:a") == "ws-alpha"
+    assert repo.get(user_id, scope="mcp-session:b") == "ws-beta"
+    assert repo.get(user_id) is None
+
+
 def test_get_unknown_user_returns_none(database: Database):
     repo = ActiveWorkspaceRepository(database.engine)
     assert repo.get("nope") is None

@@ -4,7 +4,12 @@ from nanoid import generate
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool, logger
-from kajet_turbo.mcp.context import require_user_id, require_workspace_access, resolve_user_id
+from kajet_turbo.mcp.context import (
+    active_workspace_scope,
+    require_user_id,
+    require_workspace_access,
+    resolve_user_id,
+)
 from kajet_turbo.mcp.tooling import read_tool, write_tool
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -41,8 +46,11 @@ def build_meta(
         await ctx.set_state("active_user_id", user_id)
         await ctx.set_state("active_owner_id", owner_id)
         if user_id is not None:
-            await run_sync(active_workspace_repo.set, user_id, name)
-        logger.info("workspace_switched", ws=name)
+            scope = active_workspace_scope(ctx)
+            await run_sync(active_workspace_repo.set, user_id, name, scope)
+        else:
+            scope = None
+        logger.info("workspace_switched", ws=name, scope=scope)
         return WorkspaceMessageResult(message=f"Workspace '{name}' aktywny.", workspace=name)
 
     @srv.tool(**write_tool(tags={"workspace", "metadata"}, idempotent=False))
