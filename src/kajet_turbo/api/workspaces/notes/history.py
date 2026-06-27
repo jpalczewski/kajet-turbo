@@ -62,7 +62,7 @@ def api_note_version(
     ws_path = ws_service.workspace_path(user["id"], name)
     try:
         version = note_service.get_version(note_id, sha, owner_id=user["id"], ws_path=ws_path)
-    except ValueError, RepoGitError:
+    except (ValueError, RepoGitError):
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
     return JSONResponse(
         {
