@@ -5,7 +5,8 @@ import {
 import { loadApi } from '$lib/api/load';
 import type { PageLoad } from './$types';
 
-export const load: PageLoad = async ({ params }) => {
+export const load: PageLoad = async ({ params, depends }) => {
+  depends(`app:note:${params.id}`);
   const [note, links] = await Promise.all([
     loadApi(
       apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet(params.slug, params.id),
