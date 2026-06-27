@@ -101,7 +101,9 @@ def git_ws(tmp_path: Path) -> Path:
     return ws
 
 
-def test_end_to_end_dangling_then_target_created(database, note_repo, link_repo, dangling, uid, git_ws):
+def test_end_to_end_dangling_then_target_created(
+    database, note_repo, link_repo, dangling, uid, git_ws
+):
     """Full chain: save Source with [[Target]] (dangling written) -> save Target ->
     run HealDanglingHandler directly (simulating the worker) -> assert edge + cleanup."""
     chunk_repo_e2e = NoteChunkRepository(database.engine)

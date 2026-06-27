@@ -298,8 +298,8 @@ def test_delete_removes_file_from_note_folder(service, workspace):
 def test_list_scoped_by_owner(service, workspace):
     service.save("u1", "ws", str(workspace), "Notatka u1", "treść", [])
     service.save("u2", "ws", str(workspace), "Notatka u2", "treść", [])
-    result_u1 = service.list("ws", owner_id="u1")
-    result_u2 = service.list("ws", owner_id="u2")
+    result_u1 = service.list_notes("ws", owner_id="u1")
+    result_u2 = service.list_notes("ws", owner_id="u2")
     assert len(result_u1) == 1 and result_u1[0]["title"] == "Notatka u1"
     assert len(result_u2) == 1 and result_u2[0]["title"] == "Notatka u2"
 
@@ -522,14 +522,14 @@ def test_save_indexes_frontmatter_and_inline_tags(service, workspace):
 
 def test_save_normalizes_frontmatter_tags_in_file(service, workspace):
     service.save("u1", "ws", str(workspace), "Note", "body", ["Work/Projects"])
-    note_id = service._crud_repo.list("ws", "u1", limit=None)[0]["note_id"]
+    note_id = service._crud_repo.list_notes("ws", "u1", limit=None)[0]["note_id"]
     fetched = service.get(note_id, owner_id="u1")
     assert fetched["tags"] == ["work/projects"]  # normalized, frontmatter-only
 
 
 def test_save_does_not_promote_inline_to_frontmatter(service, workspace):
     service.save("u1", "ws", str(workspace), "Note", "see #inline", [])
-    note_id = service._crud_repo.list("ws", "u1", limit=None)[0]["note_id"]
+    note_id = service._crud_repo.list_notes("ws", "u1", limit=None)[0]["note_id"]
     assert service.get(note_id, owner_id="u1")["tags"] == []  # inline stays out of frontmatter
 
 

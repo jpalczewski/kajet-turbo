@@ -1,4 +1,3 @@
-import builtins
 import json
 from datetime import UTC, datetime
 
@@ -75,7 +74,7 @@ class NoteTagRepository:
         note_id: str,
         workspace: str,
         owner_id: str,
-        tagged: builtins.list[tuple[str, str]],
+        tagged: list[tuple[str, str]],
     ) -> None:
         """Rebuild ``note_tags`` for one note from ``tagged`` (``[(path, source)]``),
         materializing ancestor tag rows and garbage-collecting orphaned tags.
@@ -120,7 +119,7 @@ class NoteTagRepository:
         owner_id: str,
         path: str,
         include_descendants: bool,
-    ) -> builtins.list[str]:
+    ) -> list[str]:
         """Tag ids for ``path`` (and, if requested, its subtree). Uses GLOB so ``_``
         in a path is treated literally (LIKE would treat it as a wildcard)."""
         q = select(Tag.id).where(Tag.workspace == workspace, Tag.owner_id == owner_id)
@@ -134,12 +133,12 @@ class NoteTagRepository:
         self,
         workspace: str,
         owner_id: str,
-        paths: builtins.list[str],
+        paths: list[str],
         include_descendants: bool = True,
-    ) -> builtins.set[str]:
+    ) -> set[str]:
         """Union of note ids matching any of ``paths`` (prefix-aware when requested)."""
         with Session(self._engine) as session:
-            tag_ids: builtins.set[str] = set()
+            tag_ids: set[str] = set()
             for path in paths:
                 tag_ids.update(
                     self._descendant_tag_ids(
@@ -160,7 +159,7 @@ class NoteTagRepository:
         path: str,
         include_descendants: bool,
         limit: int | None,
-    ) -> builtins.list[dict]:
+    ) -> list[dict]:
         """Notes carrying ``path`` (or its subtree), newest first."""
         with Session(self._engine) as session:
             tag_ids = self._descendant_tag_ids(
@@ -195,7 +194,7 @@ class NoteTagRepository:
             for n in rows
         ]
 
-    def tag_tree(self, workspace: str, owner_id: str) -> builtins.list[dict]:
+    def tag_tree(self, workspace: str, owner_id: str) -> list[dict]:
         """All tags with ``exact_count`` (direct links) and ``descendant_count``
         (distinct notes on the node or any descendant). Computed in Python from one
         ``(path, note_id)`` join — workspaces are small."""
@@ -235,7 +234,7 @@ class NoteTagRepository:
         owner_id: str,
         folder: str | None = None,
         include_subfolders: bool = True,
-    ) -> builtins.list[dict]:
+    ) -> list[dict]:
         """Tags with ``count`` (distinct notes carrying exactly that tag), newest-popular
         first. Optionally scoped to a folder: ``include_subfolders`` toggles between the
         folder's subtree (prefix match, like :meth:`list_under_folder`) and that folder

@@ -1,4 +1,3 @@
-import builtins
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,10 +22,10 @@ class NoteTagService:
         self._cache = cache
 
     @staticmethod
-    def normalize_tags(raw: builtins.list[str]) -> builtins.list[str]:
+    def normalize_tags(raw: list[str]) -> list[str]:
         """Normalize frontmatter tags, dropping invalids and duplicates (order kept)."""
-        out: builtins.list[str] = []
-        seen: builtins.set[str] = set()
+        out: list[str] = []
+        seen: set[str] = set()
         for tag in raw:
             norm = normalize(tag)
             if norm and norm not in seen:
@@ -36,16 +35,16 @@ class NoteTagService:
 
     @staticmethod
     def normalize_with_warnings(
-        raw: builtins.list[str],
-    ) -> tuple[builtins.list[str], builtins.list[str]]:
+        raw: list[str],
+    ) -> tuple[list[str], list[str]]:
         """Like ``normalize_tags`` but returns (normalized_unique, warnings).
 
         Invalid entries are reported as warnings instead of being silently dropped,
         so a batch tool can surface them without failing the whole call.
         """
-        out: builtins.list[str] = []
-        seen: builtins.set[str] = set()
-        warnings: builtins.list[str] = []
+        out: list[str] = []
+        seen: set[str] = set()
+        warnings: list[str] = []
         for tag in raw:
             norm = normalize(tag)
             if norm is None:
@@ -57,7 +56,7 @@ class NoteTagService:
         return out, warnings
 
     def sync_tags(
-        self, note_id: str, ws_name: str, owner_id: str, fm_tags: builtins.list[str], content: str
+        self, note_id: str, ws_name: str, owner_id: str, fm_tags: list[str], content: str
     ) -> None:
         """Index the note's tags: union of frontmatter (normalized) and inline, frontmatter wins."""
         tagged: dict[str, str] = dict.fromkeys(fm_tags, "frontmatter")
@@ -70,7 +69,7 @@ class NoteTagService:
         note_id: str,
         owner_id: str,
         ws_path: str,
-        mutate: Callable[[builtins.list[str], str], tuple[builtins.list[str], builtins.list[str]]],
+        mutate: Callable[[list[str], str], tuple[list[str], list[str]]],
     ) -> dict:
         """Read the note's frontmatter tags, apply ``mutate`` -> (new_tags, warnings),
         and persist only if the list changed. Returns the effective state.
@@ -130,30 +129,24 @@ class NoteTagService:
             "warnings": warnings,
         }
 
-    def add_tags(self, note_id: str, owner_id: str, ws_path: str, tags: builtins.list[str]) -> dict:
+    def add_tags(self, note_id: str, owner_id: str, ws_path: str, tags: list[str]) -> dict:
         """Union ``tags`` into the note's frontmatter list (idempotent, order-preserving)."""
 
-        def mutate(
-            current: builtins.list[str], content: str
-        ) -> tuple[builtins.list[str], builtins.list[str]]:
+        def mutate(current: list[str], content: str) -> tuple[list[str], list[str]]:
             normalized, warnings = NoteTagService.normalize_with_warnings(tags)
             new_tags = list(dict.fromkeys([*current, *normalized]))
             return new_tags, warnings
 
         return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
 
-    def remove_tags(
-        self, note_id: str, owner_id: str, ws_path: str, tags: builtins.list[str]
-    ) -> dict:
+    def remove_tags(self, note_id: str, owner_id: str, ws_path: str, tags: list[str]) -> dict:
         """Remove ``tags`` from the note's frontmatter list (idempotent).
 
         A requested tag that exists only as an inline ``#hashtag`` in the body cannot be
         removed here (that would mean editing prose); it is reported as a warning instead.
         """
 
-        def mutate(
-            current: builtins.list[str], content: str
-        ) -> tuple[builtins.list[str], builtins.list[str]]:
+        def mutate(current: list[str], content: str) -> tuple[list[str], list[str]]:
             normalized, warnings = NoteTagService.normalize_with_warnings(tags)
             to_remove = set(normalized)
             new_tags = [t for t in current if t not in to_remove]
@@ -173,7 +166,7 @@ class NoteTagService:
         note_id: str,
         owner_id: str,
         ws_path: str,
-        tags: builtins.list[str],
+        tags: list[str],
         confirm: bool = False,
     ) -> dict:
         """Replace the note's frontmatter tag list.
@@ -185,9 +178,7 @@ class NoteTagService:
         normalized, warnings = NoteTagService.normalize_with_warnings(tags)
         new_set = set(normalized)
 
-        def mutate(
-            current: builtins.list[str], content: str
-        ) -> tuple[builtins.list[str], builtins.list[str]]:
+        def mutate(current: list[str], content: str) -> tuple[list[str], list[str]]:
             would_remove = [t for t in current if t not in new_set]
             if would_remove and not confirm:
                 return None, would_remove  # signal: early return needed
@@ -210,11 +201,11 @@ class NoteTagService:
     @staticmethod
     def _confirmation_payload(
         note_id: str,
-        would_remove: builtins.list[str],
+        would_remove: list[str],
         overwrites_content: bool,
     ) -> dict:
         """Non-applied result telling the caller a destructive op needs confirmation."""
-        parts: builtins.list[str] = []
+        parts: list[str] = []
         if would_remove:
             parts.append(f"usunie tagi: {', '.join(would_remove)}")
         if overwrites_content:

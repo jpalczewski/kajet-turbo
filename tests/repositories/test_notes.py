@@ -106,7 +106,7 @@ def test_list_notes_by_workspace(notes):
     notes.insert("id1", "ws1", "u1", "Notatka 1", ["a"], _now(), _now(), "treść 1")
     notes.insert("id2", "ws1", "u1", "Notatka 2", ["b"], _now(), _now(), "treść 2")
     notes.insert("id3", "ws2", "u1", "Notatka 3", [], _now(), _now(), "treść 3")
-    result = notes.list("ws1", owner_id="u1")
+    result = notes.list_notes("ws1", owner_id="u1")
     ids = [n["note_id"] for n in result]
     assert "id1" in ids
     assert "id2" in ids
@@ -118,7 +118,7 @@ def test_list_notes_filter_by_tag(notes, tag_repo):
     notes.insert("id2", "ws1", "u1", "Untagged", [], _now(), _now(), "treść")
     # list() now filters via the tag index (not JSON field); sync_note_tags populates it.
     tag_repo.sync_note_tags("id1", "ws1", "u1", [("python", "frontmatter"), ("mcp", "frontmatter")])
-    result = notes.list("ws1", owner_id="u1", tags=["python"], _tag_repo=tag_repo)
+    result = notes.list_notes("ws1", owner_id="u1", tags=["python"], _tag_repo=tag_repo)
     ids = [n["note_id"] for n in result]
     assert "id1" in ids
     assert "id2" not in ids
@@ -127,8 +127,8 @@ def test_list_notes_filter_by_tag(notes, tag_repo):
 def test_list_notes_isolated_by_owner(notes):
     notes.insert("id1", "ws1", "u1", "Notatka u1", [], _now(), _now(), "treść")
     notes.insert("id2", "ws1", "u2", "Notatka u2", [], _now(), _now(), "treść")
-    result_u1 = notes.list("ws1", owner_id="u1")
-    result_u2 = notes.list("ws1", owner_id="u2")
+    result_u1 = notes.list_notes("ws1", owner_id="u1")
+    result_u2 = notes.list_notes("ws1", owner_id="u2")
     assert [n["note_id"] for n in result_u1] == ["id1"]
     assert [n["note_id"] for n in result_u2] == ["id2"]
 
@@ -140,22 +140,22 @@ def test_list_notes_folder_readme_first_natural_order(notes):
     notes.insert("id02", "ws1", "u1", "02-body", [], _now(), "2026-01-03", "x", folder="ch1")
     notes.insert("id10", "ws1", "u1", "10-end", [], _now(), "2026-01-02", "x", folder="ch1")
     notes.insert("idrd", "ws1", "u1", "README", [], _now(), "2026-01-01", "x", folder="ch1")
-    result = notes.list("ws1", owner_id="u1", folder="ch1")
+    result = notes.list_notes("ws1", owner_id="u1", folder="ch1")
     assert [n["note_id"] for n in result] == ["idrd", "id01", "id02", "id10"]
 
 
 def test_list_notes_no_folder_keeps_recency_order(notes):
     notes.insert("idA", "ws1", "u1", "README", [], _now(), "2026-01-01", "x", folder="ch1")
     notes.insert("idB", "ws1", "u1", "01-intro", [], _now(), "2026-01-09", "x", folder="ch1")
-    result = notes.list("ws1", owner_id="u1")  # folder=None -> recent first
+    result = notes.list_notes("ws1", owner_id="u1")  # folder=None -> recent first
     assert [n["note_id"] for n in result] == ["idB", "idA"]
 
 
 def test_list_notes_limit_none_returns_all(notes):
     for i in range(25):
         notes.insert(f"id{i:02d}", "ws1", "u1", f"{i:02d}-note", [], _now(), _now(), "x")
-    assert len(notes.list("ws1", owner_id="u1", limit=None)) == 25
-    assert len(notes.list("ws1", owner_id="u1")) == 20  # default cap unchanged
+    assert len(notes.list_notes("ws1", owner_id="u1", limit=None)) == 25
+    assert len(notes.list_notes("ws1", owner_id="u1")) == 20  # default cap unchanged
 
 
 def _index(notes, chunk_repo, note_id, workspace, owner_id, title, content):

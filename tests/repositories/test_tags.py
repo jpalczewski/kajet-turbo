@@ -148,5 +148,8 @@ def test_list_tag_filter_is_prefix_aware(note_repo: NoteRepository, repo: NoteTa
     _insert_note(note_repo, "n2")
     repo.sync_note_tags("n1", "ws", "u1", [("work/projects", "frontmatter")])
     repo.sync_note_tags("n2", "ws", "u1", [("life", "frontmatter")])
-    got = {r["note_id"] for r in note_repo.list("ws", "u1", tags=["work"], limit=None, _tag_repo=repo)}
+    got = {
+        r["note_id"]
+        for r in note_repo.list_notes("ws", "u1", tags=["work"], limit=None, _tag_repo=repo)
+    }
     assert got == {"n1"}  # matched via descendant work/projects

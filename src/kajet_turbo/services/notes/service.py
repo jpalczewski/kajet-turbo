@@ -1,4 +1,3 @@
-import builtins
 import json
 import time
 from datetime import UTC, datetime
@@ -87,7 +86,7 @@ class NoteService:
         ws_path: str,
         title: str,
         content: str,
-        tags: builtins.list[str],
+        tags: list[str],
         folder: str = "",
     ) -> dict:
         folder = normalize_folder(folder)
@@ -106,7 +105,9 @@ class NoteService:
             Path(filepath).unlink(missing_ok=True)
             raise
         with timed("db_ms"):
-            self._crud_repo.insert(note_id, ws_name, user_id, title, tags, now, now, content, folder)
+            self._crud_repo.insert(
+                note_id, ws_name, user_id, title, tags, now, now, content, folder
+            )
             self._link_repo.replace_links(note_id, ws_name, user_id, target_ids)
             self._tag_service.sync_tags(note_id, ws_name, user_id, tags, content)
         self._link_service.write_dangling(note_id, ws_name, user_id, broken_pairs)
@@ -121,15 +122,15 @@ class NoteService:
         user_id: str,
         ws_name: str,
         ws_path: str,
-        notes: builtins.list[dict],
-    ) -> builtins.list[dict]:
+        notes: list[dict],
+    ) -> list[dict]:
         """Create many notes in one batch: one git commit, one cache bump, embeddings
         parallelized across the indexer threadpool. Best-effort per note — invalid notes
         are reported and skipped. Each input dict: ``{title, content, tags=[], folder=""}``.
         Returns per-note ``{index, note_id}`` | ``{index, error}``, input order preserved.
         Raises GitError if the batch commit fails (written files are rolled back first).
         """
-        results: builtins.list[dict | None] = [None] * len(notes)
+        results: list[dict | None] = [None] * len(notes)
         now = datetime.now(UTC).isoformat()
 
         # Phase 1: uniqueness + id assignment. Survivors get an id and register in the
@@ -137,7 +138,7 @@ class NoteService:
         accepted: set[tuple[str, str]] = set()
         accepted_paths: set[str] = set()
         batch_targets: dict[tuple[str, str], str] = {}
-        survivors: builtins.list[dict] = []
+        survivors: list[dict] = []
         for index, raw in enumerate(notes):
             title = str(raw.get("title", "")).strip()
             if not title:
@@ -185,7 +186,7 @@ class NoteService:
         # Phase 2: wikilink resolution against existing notes union batch_targets.
         # Non-cascading: batch_targets is not mutated as notes are dropped, so a link to a
         # later-dropped note still resolves (worst case a harmless orphan edge).
-        valid: builtins.list[dict] = []
+        valid: list[dict] = []
         for s in survivors:
             try:
                 s["target_ids"], s["broken_pairs"] = self._link_service.validate_wikilinks(
@@ -310,7 +311,7 @@ class NoteService:
         ws_path: str,
         title: str | None = None,
         content: str | None = None,
-        tags: builtins.list[str] | None = None,
+        tags: list[str] | None = None,
         folder: str | None = None,
         mode: str = "overwrite",
         target_heading: str | None = None,
@@ -441,12 +442,12 @@ class NoteService:
         self,
         ws_name: str,
         owner_id: str,
-        tags: builtins.list[str] | None = None,
+        tags: list[str] | None = None,
         limit: int | None = 20,
         folder: str | None = None,
         include_descendants: bool = True,
-    ) -> builtins.list[dict]:
-        return self._crud_repo.list(
+    ) -> list[dict]:
+        return self._crud_repo.list_notes(
             ws_name,
             owner_id=owner_id,
             tags=tags,
@@ -493,7 +494,9 @@ class NoteService:
             if not note["id"]:
                 continue
             fm_tags = NoteTagService.normalize_tags(note["tags"] or [])
-            self._tag_service.sync_tags(note["id"], ws_name, owner_id, fm_tags, note["content"] or "")
+            self._tag_service.sync_tags(
+                note["id"], ws_name, owner_id, fm_tags, note["content"] or ""
+            )
             pairs = [split_target(t) for t, _ in extract_wikilinks(note["content"] or "")]
             if not pairs:
                 continue
@@ -529,13 +532,15 @@ class NoteService:
     def restore_version(self, note_id: str, sha: str, owner_id: str, ws_path: str) -> dict:
         version = self._version_service.get_version(note_id, sha, owner_id, ws_path)
         # Version restore is an explicit intent — always bypass the destructive-op gate.
-        return self.update(note_id, owner_id=owner_id, ws_path=ws_path, content=version["content"], confirm=True)
+        return self.update(
+            note_id, owner_id=owner_id, ws_path=ws_path, content=version["content"], confirm=True
+        )
 
     # Delegation to peer services (public API unchanged):
-    def backlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> builtins.list[dict]:
+    def backlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
         return self._link_service.backlinks(note_id, owner_id, include_meta)
 
-    def outlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> builtins.list[dict]:
+    def outlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
         return self._link_service.outlinks(note_id, owner_id, include_meta)
 
     def links(self, note_id: str, owner_id: str, include_meta: bool = False) -> dict | None:
@@ -544,18 +549,18 @@ class NoteService:
     def link_resolver(self, ws_name: str, owner_id: str):
         return self._link_service.link_resolver(ws_name, owner_id)
 
-    def add_tags(self, note_id: str, owner_id: str, ws_path: str, tags: builtins.list[str]) -> dict:
+    def add_tags(self, note_id: str, owner_id: str, ws_path: str, tags: list[str]) -> dict:
         return self._tag_service.add_tags(note_id, owner_id, ws_path, tags)
 
-    def remove_tags(self, note_id: str, owner_id: str, ws_path: str, tags: builtins.list[str]) -> dict:
+    def remove_tags(self, note_id: str, owner_id: str, ws_path: str, tags: list[str]) -> dict:
         return self._tag_service.remove_tags(note_id, owner_id, ws_path, tags)
 
     def set_tags(
-        self, note_id: str, owner_id: str, ws_path: str, tags: builtins.list[str], confirm: bool = False
+        self, note_id: str, owner_id: str, ws_path: str, tags: list[str], confirm: bool = False
     ) -> dict:
         return self._tag_service.set_tags(note_id, owner_id, ws_path, tags, confirm)
 
-    def tag_tree(self, ws_name: str, owner_id: str) -> builtins.list[dict]:
+    def tag_tree(self, ws_name: str, owner_id: str) -> list[dict]:
         return self._tag_repo.tag_tree(ws_name, owner_id)
 
     def tag_counts(
@@ -564,7 +569,7 @@ class NoteService:
         owner_id: str,
         folder: str | None = None,
         include_subfolders: bool = True,
-    ) -> builtins.list[dict]:
+    ) -> list[dict]:
         return self._tag_repo.tag_counts(ws_name, owner_id, folder, include_subfolders)
 
     def notes_by_tag(
@@ -574,21 +579,19 @@ class NoteService:
         path: str,
         include_descendants: bool = True,
         limit: int | None = None,
-    ) -> builtins.list[dict]:
+    ) -> list[dict]:
         return self._tag_repo.notes_by_tag(ws_name, owner_id, path, include_descendants, limit)
 
     def search(
         self,
         query: str,
-        workspaces: builtins.list[str],
+        workspaces: list[str],
         owner_id: str,
         limit: int = 10,
-    ) -> builtins.list[dict]:
+    ) -> list[dict]:
         return self._search_service.search(query, workspaces, owner_id, limit)
 
-    def get_history(
-        self, note_id: str, owner_id: str, ws_path: str, limit: int = 50
-    ) -> builtins.list[dict]:
+    def get_history(self, note_id: str, owner_id: str, ws_path: str, limit: int = 50) -> list[dict]:
         return self._version_service.get_history(note_id, owner_id, ws_path, limit)
 
     def get_version(self, note_id: str, sha: str, owner_id: str, ws_path: str) -> dict:
@@ -597,7 +600,9 @@ class NoteService:
     def move(self, note_id: str, owner_id: str, ws_path: str, folder: str) -> dict:
         return self._folder_service.move(note_id, owner_id, ws_path, folder)
 
-    def move_folder(self, src: str, dst: str, *, owner_id: str, ws_path: str, workspace: str) -> dict:
+    def move_folder(
+        self, src: str, dst: str, *, owner_id: str, ws_path: str, workspace: str
+    ) -> dict:
         return self._folder_service.move_folder(
             src, dst, owner_id=owner_id, ws_path=ws_path, workspace=workspace
         )
@@ -605,17 +610,5 @@ class NoteService:
     def prune_empty_folders(self, ws_path: str) -> dict:
         return self._folder_service.prune_empty_folders(ws_path)
 
-    def list_folders(self, ws_path: str) -> builtins.list[str]:
+    def list_folders(self, ws_path: str) -> list[str]:
         return self._folder_service.list_folders(ws_path)
-
-    # Keep old list() as alias until Task 6 renames call sites:
-    def list(
-        self,
-        ws_name: str,
-        owner_id: str,
-        tags: builtins.list[str] | None = None,
-        limit: int | None = 20,
-        folder: str | None = None,
-        include_descendants: bool = True,
-    ) -> builtins.list[dict]:
-        return self.list_notes(ws_name, owner_id, tags, limit, folder, include_descendants)

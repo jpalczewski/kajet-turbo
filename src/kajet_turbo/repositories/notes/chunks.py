@@ -8,7 +8,6 @@ session.exec() is the SQLModel preference for *regular* tables only.
 suppressing a false positive from ty's SQLModel-specific deprecation rule.
 """
 
-import builtins
 import json
 from datetime import UTC, datetime
 
@@ -51,8 +50,8 @@ class NoteChunkRepository:
         workspace: str,
         owner_id: str,
         title: str,
-        chunks: builtins.list,  # list[kajet_turbo.markdown.Chunk]
-        embeddings: builtins.list[builtins.list[float]] | None,
+        chunks: list,  # list[kajet_turbo.markdown.Chunk]
+        embeddings: list[list[float]] | None,
         dim: int | None,
     ) -> None:
         """Replace all chunks (and vectors) for a note. ``embeddings`` is None (chunks only
@@ -153,7 +152,7 @@ class NoteChunkRepository:
             )
             session.commit()
 
-    def get_chunks(self, note_id: str) -> builtins.list[dict]:
+    def get_chunks(self, note_id: str) -> list[dict]:
         with Session(self._engine) as session:
             rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
@@ -180,9 +179,7 @@ class NoteChunkRepository:
             "score": score,
         }
 
-    def search_fts(
-        self, query: str, workspace: str, owner_id: str, limit: int = 50
-    ) -> builtins.list[dict]:
+    def search_fts(self, query: str, workspace: str, owner_id: str, limit: int = 50) -> list[dict]:
         try:
             with Session(self._engine) as session:
                 rows = session.execute(  # ty: ignore[deprecated] - raw SQL
@@ -208,7 +205,7 @@ class NoteChunkRepository:
 
     def search_chunks_vec(
         self, embedding: bytes, workspace: str, owner_id: str, dim: int, k: int = 50
-    ) -> builtins.list[dict]:
+    ) -> list[dict]:
         try:
             with Session(self._engine) as session:
                 rows = session.execute(  # ty: ignore[deprecated] - raw SQL
@@ -243,7 +240,7 @@ class NoteChunkRepository:
         dim: int | None = None,
         limit: int = 10,
         per_note_cap: int = 3,
-    ) -> builtins.list[dict]:
+    ) -> list[dict]:
         fts = self.search_fts(query, workspace, owner_id, limit=50)
         if embedding is None or dim is None:
             # Positional RRF-style scores so the public output always carries a numeric
@@ -265,7 +262,7 @@ class NoteChunkRepository:
                 {**by_id[cid], "score": s}
                 for cid, s in sorted(scores.items(), key=lambda x: x[1], reverse=True)
             ]
-        capped: builtins.list[dict] = []
+        capped: list[dict] = []
         per_note: dict[str, int] = {}
         for hit in ranked:
             nid = str(hit["note_id"])

@@ -1,7 +1,3 @@
-# `builtins.list` is used in annotations because the public `list()` method
-# below shadows the `list` builtin within the class body.
-# TODO(Task 6): remove after list() → list_notes() rename
-import builtins
 import json
 import re
 
@@ -32,7 +28,7 @@ class NoteRepository:
         workspace: str,
         owner_id: str,
         title: str,
-        tags: builtins.list[str],
+        tags: list[str],
         created_at: str,
         updated_at: str,
         content: str,
@@ -81,7 +77,7 @@ class NoteRepository:
             )
             return session.exec(q).first()
 
-    def list_under_folder(self, workspace: str, owner_id: str, prefix: str) -> builtins.list[Note]:
+    def list_under_folder(self, workspace: str, owner_id: str, prefix: str) -> list[Note]:
         """All notes whose folder is ``prefix`` or a descendant of it."""
         with Session(self._engine) as session:
             q = select(Note).where(
@@ -96,7 +92,7 @@ class NoteRepository:
         self,
         workspace: str,
         owner_id: str,
-        pairs: builtins.list[tuple[str, str]],
+        pairs: list[tuple[str, str]],
     ) -> dict[tuple[str, str], str]:
         """Map ``(folder, title) -> note_id`` for the pairs that exist.
 
@@ -121,7 +117,7 @@ class NoteRepository:
         owner_id: str | None = None,
         title: str | None = None,
         content: str | None = None,
-        tags: builtins.list[str] | None = None,
+        tags: list[str] | None = None,
         updated_at: str = "",
         folder: str | None = None,
     ) -> None:
@@ -155,17 +151,17 @@ class NoteRepository:
                 session.delete(note)
             session.commit()
 
-    def list(
+    def list_notes(
         self,
         workspace: str,
         owner_id: str,
-        tags: builtins.list[str] | None = None,
+        tags: list[str] | None = None,
         limit: int | None = 20,
         folder: str | None = None,
         include_descendants: bool = True,
         _tag_repo=None,
-    ) -> builtins.list[dict]:
-        allowed: builtins.set[str] | None = None
+    ) -> list[dict]:
+        allowed: set[str] | None = None
         if tags:
             if _tag_repo is None:
                 raise ValueError(
@@ -208,7 +204,7 @@ class NoteRepository:
                 break
         return result
 
-    def list_folders(self, workspace: str, owner_id: str) -> builtins.list[str]:
+    def list_folders(self, workspace: str, owner_id: str) -> list[str]:
         with Session(self._engine) as session:
             rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
@@ -219,7 +215,7 @@ class NoteRepository:
             ).fetchall()
         return [row[0] for row in rows]
 
-    def workspace_stats(self, owner_id: str, workspaces: builtins.list[str]) -> dict[str, dict]:
+    def workspace_stats(self, owner_id: str, workspaces: list[str]) -> dict[str, dict]:
         if not workspaces:
             return {}
         with Session(self._engine) as session:

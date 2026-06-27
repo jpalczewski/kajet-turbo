@@ -1,4 +1,3 @@
-import builtins
 from pathlib import Path
 
 import frontmatter
@@ -14,9 +13,7 @@ class NoteVersionService:
         self._crud_repo = crud_repo
         self._cache = cache
 
-    def get_history(
-        self, note_id: str, owner_id: str, ws_path: str, limit: int = 50
-    ) -> builtins.list[dict]:
+    def get_history(self, note_id: str, owner_id: str, ws_path: str, limit: int = 50) -> list[dict]:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
             raise ValueError(f"Notatka {note_id} nie znaleziona.")

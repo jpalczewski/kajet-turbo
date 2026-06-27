@@ -1,5 +1,4 @@
 import asyncio
-import builtins
 
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.embedding.cache import pack_vector
@@ -25,10 +24,10 @@ class NoteSearchService:
     def search(
         self,
         query: str,
-        workspaces: builtins.list[str],
+        workspaces: list[str],
         owner_id: str,
         limit: int = 10,
-    ) -> builtins.list[dict]:
+    ) -> list[dict]:
         # Resolve the backend identity up front so it is part of the cache key: a config
         # change (backend switch / key add) must not keep serving the old backend's ranking
         # from cache. resolve is a cheap indexed read, fine to run on cache hits too.
@@ -73,7 +72,7 @@ class NoteSearchService:
         )
         return results
 
-    def _embed_query(self, cfg, query: str) -> builtins.list[float]:
+    def _embed_query(self, cfg, query: str) -> list[float]:
         if self._query_cache is not None:
             cached = self._query_cache.get(query, cfg.backend_id, cfg.model)
             if cached is not None:

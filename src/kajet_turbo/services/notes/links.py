@@ -1,4 +1,3 @@
-import builtins
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -39,7 +38,7 @@ class NoteLinkService:
         owner_id: str,
         content: str,
         extra_targets: dict[tuple[str, str], str] | None = None,
-    ) -> tuple[set[str], builtins.list[tuple[str, str]]]:
+    ) -> tuple[set[str], list[tuple[str, str]]]:
         """Resolve every wikilink in ``content``. Returns ``(resolved_ids, broken_pairs)``.
 
         ``extra_targets`` maps ``(folder, title) -> note_id`` for notes created in the
@@ -68,7 +67,7 @@ class NoteLinkService:
         source_note_id: str,
         ws_name: str,
         owner_id: str,
-        broken_pairs: builtins.list[tuple[str, str]],
+        broken_pairs: list[tuple[str, str]],
     ) -> None:
         """Persist (or clear) the source note's dangling links. No-op when not wired."""
         if self._dangling_repo is None:
@@ -80,10 +79,10 @@ class NoteLinkService:
         if self._dangling_repo is not None:
             self._dangling_repo.delete_for_source(note_id)
 
-    def backlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> builtins.list[dict]:
+    def backlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
         return self._resolve_link_notes(self._link_repo.backlinks(note_id), owner_id, include_meta)
 
-    def outlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> builtins.list[dict]:
+    def outlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
         return self._resolve_link_notes(self._link_repo.outlinks(note_id), owner_id, include_meta)
 
     def links(self, note_id: str, owner_id: str, include_meta: bool = False) -> dict | None:
@@ -98,14 +97,15 @@ class NoteLinkService:
         def resolve(folder: str, title: str) -> str | None:
             note = self._crud_repo.get_by_path(ws_name, owner_id, folder, title)
             return note.id if note else None
+
         return resolve
 
     def _resolve_link_notes(
         self,
-        note_ids: builtins.list[str],
+        note_ids: list[str],
         owner_id: str,
         include_meta: bool = False,
-    ) -> builtins.list[dict]:
+    ) -> list[dict]:
         """Map note_ids to ``{note_id, title, folder}``, skipping missing/foreign notes.
         With ``include_meta=True`` also includes ``tags`` and ``updated_at``."""
         result = []

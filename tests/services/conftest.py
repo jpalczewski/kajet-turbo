@@ -43,7 +43,9 @@ def build_note_service(
 
     tag_service = NoteTagService(crud_repo, tag_repo, cache)
     link_service = NoteLinkService(crud_repo, link_repo, dangling_repo, link_validation_enabled)
-    search_service = NoteSearchService(chunk_repo, cache, query_resolver, build_embedder, query_cache)
+    search_service = NoteSearchService(
+        chunk_repo, cache, query_resolver, build_embedder, query_cache
+    )
     version_service = NoteVersionService(crud_repo, cache)
     folder_service = NoteFolderService(crud_repo, link_service, cache)
 

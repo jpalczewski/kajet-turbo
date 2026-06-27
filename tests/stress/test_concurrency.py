@@ -58,5 +58,5 @@ def test_parallel_save_search_history(svc, tmp_path):
             f.result()
 
     assert errors == []
-    notes = service.list(WS, owner_id=OWNER, limit=100)
+    notes = service.list_notes(WS, owner_id=OWNER, limit=100)
     assert len(notes) == 21  # seed + 20 parallel saves

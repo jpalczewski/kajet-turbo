@@ -1,4 +1,3 @@
-import builtins
 import shutil
 from pathlib import Path
 from secrets import token_hex
@@ -180,5 +179,5 @@ class NoteFolderService:
         removed = prune_all_empty_dirs(ws_path)
         return {"pruned": removed, "count": len(removed)}
 
-    def list_folders(self, ws_path: str) -> builtins.list[str]:
+    def list_folders(self, ws_path: str) -> list[str]:
         return list_workspace_folders(ws_path)

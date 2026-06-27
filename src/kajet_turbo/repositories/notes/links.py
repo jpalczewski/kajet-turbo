@@ -1,5 +1,3 @@
-import builtins
-
 from sqlalchemy import Engine, delete
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, col, select
@@ -16,7 +14,7 @@ class NoteLinkRepository:
         source_note_id: str,
         workspace: str,
         owner_id: str,
-        target_ids: builtins.set[str],
+        target_ids: set[str],
     ) -> None:
         """Replace the set of outgoing links for ``source_note_id`` (delete + reinsert)."""
         with Session(self._engine) as session:
@@ -77,7 +75,7 @@ class NoteLinkRepository:
             )
             session.commit()
 
-    def backlinks(self, target_note_id: str) -> builtins.list[str]:
+    def backlinks(self, target_note_id: str) -> list[str]:
         """Return source note_ids that link to ``target_note_id`` (index-only scan)."""
         with Session(self._engine) as session:
             rows = session.exec(
@@ -85,7 +83,7 @@ class NoteLinkRepository:
             ).all()
         return list(rows)
 
-    def outlinks(self, source_note_id: str) -> builtins.list[str]:
+    def outlinks(self, source_note_id: str) -> list[str]:
         """Return target note_ids that ``source_note_id`` links to (uses the composite PK)."""
         with Session(self._engine) as session:
             rows = session.exec(
