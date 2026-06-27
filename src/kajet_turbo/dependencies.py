@@ -222,3 +222,14 @@ def get_provider() -> KajetOAuthProvider:
 def get_session_user(request: Request) -> dict | None:
     token = request.cookies.get("kajet_session", "")
     return session_repo.get_user(token) if token else None
+
+
+def get_required_user(request: Request) -> dict:
+    from fastapi import HTTPException
+
+    from kajet_turbo.errors import AuthError
+
+    user = get_session_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail=AuthError.NOT_AUTHENTICATED)
+    return user

@@ -4,8 +4,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from fastmcp.utilities.lifespan import combine_lifespans
+from starlette.requests import Request as StarletteRequest
 
 from kajet_turbo.api import api_router
 from kajet_turbo.auth import hash_password
@@ -109,6 +111,12 @@ def _mount_spa(app: FastAPI) -> None:
         app.mount("/", _SPAFiles(str(dist)))
 
 
+async def _http_exception_handler(request: StarletteRequest, exc: HTTPException) -> JSONResponse:
+    if isinstance(exc.detail, dict):
+        return JSONResponse(status_code=exc.status_code, content=exc.detail)
+    return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
+
+
 def build_mcp_app() -> Any:
     """MCP role: /mcp + OAuth routes only. Stateful — must run single-process."""
     mcp_app = _new_mcp_app()
@@ -122,6 +130,7 @@ def build_mcp_app() -> Any:
 def build_api_app() -> Any:
     """API role: REST /api + SPA. Stateless — scales to any worker count."""
     app = FastAPI(lifespan=combine_lifespans(_app_lifespan, _logging_lifespan))
+    app.add_exception_handler(HTTPException, _http_exception_handler)
     app.add_middleware(LoggingMiddleware)
     app.include_router(api_router)
     _mount_spa(app)
@@ -132,6 +141,7 @@ def build_app() -> Any:
     """Combined role ("all"): MCP + API + SPA in one process (local dev)."""
     mcp_app = _new_mcp_app()
     app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan, _logging_lifespan))
+    app.add_exception_handler(HTTPException, _http_exception_handler)
     app.add_middleware(LoggingMiddleware)
     app.include_router(api_router)
     app.mount("/mcp", mcp_app)
