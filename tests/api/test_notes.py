@@ -347,6 +347,7 @@ def test_create_note_broken_wikilink_returns_422(auth_client):
         json={"title": "Source", "content": "see [[Ghost]]"},
     )
     assert resp.status_code == 422
+    assert resp.json()["detail"]["error"] == "BROKEN_WIKILINK"
     assert "Ghost" in resp.json()["detail"]["detail"]
 
 
@@ -368,6 +369,8 @@ def test_update_note_broken_wikilink_returns_422(auth_client):
         json={"content": "[[Ghost]]"},
     )
     assert resp.status_code == 422
+    assert resp.json()["detail"]["error"] == "BROKEN_WIKILINK"
+    assert "Ghost" in resp.json()["detail"]["detail"]
 
 
 def test_html_renders_clickable_wikilink(auth_client):
