@@ -6,6 +6,7 @@ from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
+from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, MCP_CONTEXT, ActiveWorkspace
 from kajet_turbo.mcp.notes._helpers import confirm_and_apply
 from kajet_turbo.mcp.notes._types import (
     DeletedNoteResult,
@@ -16,7 +17,7 @@ from kajet_turbo.mcp.notes._types import (
     SavedNoteResult,
     SearchChunkResult,
 )
-from kajet_turbo.mcp.workspaces import get_active_workspace
+from kajet_turbo.mcp.tooling import read_tool, write_tool
 from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteData, NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -29,29 +30,25 @@ def build_crud(
 ) -> FastMCP:
     srv = FastMCP("notes-crud", session_state_store=state_store)
 
-    @srv.tool()
+    @srv.tool(**write_tool(tags={"notes", "crud"}))
     @logged_tool
     async def save_note(
         title: str,
         content: str,
-        ctx: Context,
         tags: list[str] | None = None,
         folder: str = "",
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> SavedNoteResult:
         """Zapisuje nową notatkę w podanym folderze (domyślnie root).
         folder: opcjonalna ścieżka np. 'Projekty/Klient A'.
         Uwaga: content powinien zawierać rzeczywiste znaki nowej linii (\\n),
         nie literalne \\\\n."""
         try:
-            owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
-        except RuntimeError as e:
-            raise ToolError(str(e)) from None
-        try:
             result = await run_sync(
                 note_service.save,
-                owner_id,
-                ws_name,
-                ws_path,
+                ws.owner_id,
+                ws.name,
+                ws.path,
                 title,
                 content,
                 tags or [],
@@ -61,9 +58,12 @@ def build_crud(
             raise ToolError(str(e)) from e
         return SavedNoteResult(note_id=result["note_id"])
 
-    @srv.tool()
+    @srv.tool(**write_tool(tags={"notes", "crud"}))
     @logged_tool
-    async def save_notes(notes: list[NoteInput], ctx: Context) -> str:
+    async def save_notes(
+        notes: list[NoteInput],
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> str:
         """Zapisuje wiele notatek naraz (jeden commit, równoległe indeksowanie).
         Użyj tego narzędzia zawsze, gdy dodajesz 2+ notatek — zamiast wielu wywołań
         save_note. Best-effort: każda notatka walidowana osobno; wynik to lista
@@ -71,15 +71,11 @@ def build_crud(
         wejścia. Wikilinki do notatek z tego samego batcha rozwiązują się niezależnie
         od kolejności. content z prawdziwymi znakami nowej linii (\\n), nie literalnymi \\\\n."""
         try:
-            owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
-        except RuntimeError as e:
-            raise ToolError(str(e)) from None
-        try:
             results = await run_sync(
                 note_service.save_many,
-                owner_id,
-                ws_name,
-                ws_path,
+                ws.owner_id,
+                ws.name,
+                ws.path,
                 [n.model_dump() for n in notes],
             )
         except GitError as e:
@@ -88,26 +84,24 @@ def build_crud(
 
         return json.dumps(results, ensure_ascii=False)
 
-    @srv.tool()
+    @srv.tool(**read_tool(tags={"notes", "crud"}))
     @logged_tool
-    async def get_note(note_id: str, ctx: Context) -> NoteData:
+    async def get_note(
+        note_id: str,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> NoteData:
         """Zwraca notatkę jako obiekt ze wszystkimi polami. Błąd gdy notatka nie istnieje."""
-        try:
-            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
-        except RuntimeError as e:
-            raise ToolError(str(e)) from None
         result = await run_sync(
-            note_service.get_with_content, note_id, owner_id=owner_id, ws_path=ws_path
+            note_service.get_with_content, note_id, owner_id=ws.owner_id, ws_path=ws.path
         )
         if result is None:
             raise ToolError(f"Notatka {note_id} nie znaleziona.")
         return result
 
-    @srv.tool()
+    @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
     @logged_tool
     async def edit_note(
         note_id: str,
-        ctx: Context,
         title: str | None = None,
         content: str | None = None,
         tags: list[str] | None = None,
@@ -151,6 +145,8 @@ def build_crud(
             description="Potwierdzenie destrukcyjnego nadpisania "
             "(utrata tagów / nadpisanie treści).",
         ),
+        ctx: Context = MCP_CONTEXT,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> str:
         """Edytuje notatkę. Domyślnie (mode='overwrite') podmienia całe body na content;
         tryby chirurgiczne pozwalają dopisać/podmienić fragment bez przepisywania całości.
@@ -161,15 +157,11 @@ def build_crud(
         klient wspiera, inaczej zwraca requires_confirmation=true; zawołaj ponownie z confirm=true.
         Sukces: {"note_id": "..."}."""
         try:
-            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
-        except RuntimeError as e:
-            raise ToolError(str(e)) from None
-        try:
             result = await run_sync(
                 note_service.update,
                 note_id,
-                owner_id=owner_id,
-                ws_path=ws_path,
+                owner_id=ws.owner_id,
+                ws_path=ws.path,
                 title=title,
                 content=content,
                 tags=tags,
@@ -188,8 +180,8 @@ def build_crud(
             return await run_sync(
                 note_service.update,
                 note_id,
-                owner_id=owner_id,
-                ws_path=ws_path,
+                owner_id=ws.owner_id,
+                ws_path=ws.path,
                 title=title,
                 content=content,
                 tags=tags,
@@ -202,103 +194,93 @@ def build_crud(
 
         return await confirm_and_apply(ctx, result, reapply)
 
-    @srv.tool()
+    @srv.tool(**write_tool(tags={"notes", "crud"}))
     @logged_tool
-    async def move_note(note_id: str, folder: str, ctx: Context) -> MovedNoteResult:
+    async def move_note(
+        note_id: str,
+        folder: str,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> MovedNoteResult:
         """Przenosi notatkę do folderu w aktywnym workspace, tworząc brakującą ścieżkę.
         folder: pełna ścieżka folderu lub pusty string dla root."""
-        try:
-            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
-        except RuntimeError as e:
-            raise ToolError(str(e)) from None
         try:
             result = await run_sync(
                 note_service.move,
                 note_id,
-                owner_id=owner_id,
-                ws_path=ws_path,
+                owner_id=ws.owner_id,
+                ws_path=ws.path,
                 folder=folder,
             )
         except (ValueError, FileNotFoundError, FileExistsError, GitError) as e:
             raise ToolError(str(e)) from e
         return MovedNoteResult.model_validate(result)
 
-    @srv.tool()
+    @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
     @logged_tool
-    async def delete_note(note_id: str, ctx: Context) -> DeletedNoteResult:
+    async def delete_note(
+        note_id: str,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> DeletedNoteResult:
         """Usuwa notatkę. Błąd gdy notatka nie istnieje."""
         try:
-            owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
-        except RuntimeError as e:
-            raise ToolError(str(e)) from None
-        try:
-            await run_sync(note_service.delete, note_id, owner_id=owner_id, ws_path=ws_path)
+            await run_sync(note_service.delete, note_id, owner_id=ws.owner_id, ws_path=ws.path)
         except ValueError as e:
             raise ToolError(str(e)) from e
         return DeletedNoteResult(note_id=note_id)
 
-    @srv.tool()
+    @srv.tool(**read_tool(tags={"notes", "crud"}))
     @logged_tool
     async def list_notes(
-        ctx: Context,
         tags: list[str] | None = None,
         limit: int = 20,
         folder: str | None = None,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> list[NoteListItem]:
         """Zwraca listę notatek. Każda notatka zawiera pole 'folder'.
         folder: opcjonalny filtr — tylko notatki z tego folderu (np. 'Projekty/Klient A').
         Filtr tags używa OR i jest hierarchiczny: podanie 'work' dopasuje też notatki
         otagowane 'work/projects' itd. (dopasowanie po prefiksie segmentów)."""
-        try:
-            owner_id, ws_name, _ = await get_active_workspace(ctx, workspace_service)
-        except RuntimeError as e:
-            raise ToolError(str(e)) from None
         notes = await run_sync(
             note_service.list_notes,
-            ws_name,
-            owner_id=owner_id,
+            ws.name,
+            owner_id=ws.owner_id,
             tags=tags or None,
             limit=limit,
             folder=folder,
         )
         return [NoteListItem.model_validate(n) for n in notes]
 
-    @srv.tool()
+    @srv.tool(**read_tool(tags={"notes", "search"}))
     @logged_tool
     async def search_notes(
         query: str,
-        ctx: Context,
         workspace: str = "active",
         limit: int = 10,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> list[SearchChunkResult]:
         """Szuka notatek (chunk-level hybrid: FTS + semantic). workspace='active'
         (domyślnie) lub 'all'. Zwraca fragmenty (chunki):
         {note_id, title, folder, header_path, content, score}.
         Pusty [] gdy brak wyników."""
-        try:
-            owner_id, active_ws, _ = await get_active_workspace(ctx, workspace_service)
-        except RuntimeError as e:
-            raise ToolError(str(e)) from None
-        real_user_id: str | None = await ctx.get_state("active_user_id")
         ws_param = workspace or "active"
         if ws_param == "all":
-            workspaces = await run_sync(workspace_service.list_accessible, real_user_id)
+            workspaces = await run_sync(workspace_service.list_accessible, ws.user_id)
         else:
-            workspaces = [ws_param if ws_param != "active" else active_ws]
+            workspaces = [ws_param if ws_param != "active" else ws.name]
         results = await run_sync(
-            note_service.search, query, workspaces, owner_id=owner_id, limit=limit
+            note_service.search, query, workspaces, owner_id=ws.owner_id, limit=limit
         )
         return [SearchChunkResult.model_validate(r) for r in results]
 
-    @srv.tool()
+    @srv.tool(**write_tool(tags={"notes", "index"}, idempotent=True))
     @logged_tool
-    async def reindex_workspace(ctx: Context) -> ReindexResult:
+    async def reindex_workspace(
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> ReindexResult:
         """Przebudowuje indeks SQLite z plików .md w aktywnym workspace."""
-        try:
-            owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
-        except RuntimeError as e:
-            raise ToolError(str(e)) from None
-        result = await run_sync(note_service.reindex, ws_name, owner_id=owner_id, ws_path=ws_path)
+        result = await run_sync(
+            note_service.reindex, ws.name, owner_id=ws.owner_id, ws_path=ws.path
+        )
         return ReindexResult.model_validate(result)
 
     return srv

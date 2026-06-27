@@ -4,11 +4,11 @@ from nanoid import generate
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool, logger
+from kajet_turbo.mcp.context import require_user_id, require_workspace_access, resolve_user_id
 from kajet_turbo.mcp.tooling import read_tool, write_tool
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.services.workspaces import WorkspaceService
 
-from .context import require_user_id, require_workspace_access, resolve_user_id
 from .types import WorkspaceInfo, WorkspaceMessageResult, WorkspacesResult, WorkspaceUpdatedResult
 
 
@@ -34,7 +34,7 @@ def build_meta(
     async def activate_workspace(name: str, ctx: Context) -> WorkspaceMessageResult:
         """Ustawia aktywny workspace dla tej sesji."""
         user_id = await resolve_user_id()
-        await require_workspace_access(workspace_service, user_id, name)
+        await require_workspace_access(name, user_id)
         existing_owner_id = await ctx.get_state("active_owner_id")
         owner_id = user_id or existing_owner_id or f"anon-{generate(size=12)}"
         await ctx.set_state("active_workspace", name)
@@ -72,7 +72,7 @@ def build_meta(
         Foldery ustawiasz z UI, nie tym narzędziem."""
         del ctx
         user_id = await require_user_id()
-        await require_workspace_access(workspace_service, user_id, name)
+        await require_workspace_access(name, user_id)
         try:
             result = await run_sync(
                 workspace_service.set_meta, user_id, name, description=description, tags=tags

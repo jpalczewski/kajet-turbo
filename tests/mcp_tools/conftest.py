@@ -97,7 +97,7 @@ def authed_mcp_server(
     mcp_server.oauth_repo.record_client_authorization("cl1", "u1")
     mcp_server.workspace_repo.grant_access("u1", "test-ws")
     monkeypatch.setattr(
-        "kajet_turbo.mcp.workspaces.context.get_access_token",
+        "kajet_turbo.mcp.context.get_access_token",
         lambda: SimpleNamespace(client_id="cl1"),
     )
     return mcp_server

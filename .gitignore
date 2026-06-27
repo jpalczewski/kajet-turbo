@@ -5,6 +5,7 @@ __pycache__/
 dist/
 docs/superpowers/
 .superpowers/
+.serena/
 openapi.json
 docker-compose.override.yml
 CLAUDE.local.md
