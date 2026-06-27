@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import (
@@ -38,7 +38,7 @@ def api_list_workspaces(
 )
 @logged_route
 async def api_create_workspace(
-    request,
+    request: Request,
     user: dict = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:
@@ -54,7 +54,7 @@ async def api_create_workspace(
     tags = body.get("tags")
     try:
         await run_sync(ws_service.create, name, user["id"], description=description)
-    except (ValueError, FileExistsError):
+    except ValueError, FileExistsError:
         raise HTTPException(status_code=409, detail=WorkspaceError.ALREADY_EXISTS) from None
     if folder is not None or tags is not None:
         try:
@@ -78,7 +78,7 @@ async def api_create_workspace(
 @logged_route
 async def api_update_workspace(
     name: str,
-    request,
+    request: Request,
     user: dict = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:

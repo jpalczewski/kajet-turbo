@@ -186,7 +186,7 @@ def test_create_note_duplicate_returns_409(auth_client):
     client.post("/api/workspaces/test-ws/notes", json={"title": "Dup"})
     resp = client.post("/api/workspaces/test-ws/notes", json={"title": "Dup"})
     assert resp.status_code == 409
-    assert "error" in resp.json()
+    assert "detail" in resp.json()
 
 
 def test_create_note_missing_title_returns_422(auth_client):
@@ -347,7 +347,7 @@ def test_create_note_broken_wikilink_returns_422(auth_client):
         json={"title": "Source", "content": "see [[Ghost]]"},
     )
     assert resp.status_code == 422
-    assert "Ghost" in resp.json()["error"]
+    assert "Ghost" in resp.json()["detail"]["detail"]
 
 
 def test_create_note_valid_wikilink_succeeds(auth_client):

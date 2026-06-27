@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import CreateFolderResponse
@@ -31,7 +31,7 @@ router = APIRouter(
 @logged_route
 async def api_create_folder(
     name: str,
-    request,
+    request: Request,
     user: dict = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:

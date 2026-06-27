@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import (
@@ -73,7 +73,7 @@ def api_list_notes(
 @logged_route
 async def api_create_note(
     name: str,
-    request,
+    request: Request,
     user: dict = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
     note_service: NoteService = Depends(get_note_service),
@@ -119,7 +119,7 @@ async def api_create_note(
 @logged_route
 async def api_create_notes_batch(
     name: str,
-    request,
+    request: Request,
     user: dict = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
     note_service: NoteService = Depends(get_note_service),
@@ -156,7 +156,7 @@ async def api_create_notes_batch(
 async def api_update_note(
     name: str,
     note_id: str,
-    request,
+    request: Request,
     user: dict = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
     note_service: NoteService = Depends(get_note_service),
@@ -193,7 +193,7 @@ async def api_update_note(
         ) from e
     except FileExistsError:
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None
-    except (ValueError, FileNotFoundError):
+    except ValueError, FileNotFoundError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
     return JSONResponse(result)
 
@@ -211,7 +211,7 @@ async def api_update_note(
 async def api_move_note(
     name: str,
     note_id: str,
-    request,
+    request: Request,
     user: dict = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
     note_service: NoteService = Depends(get_note_service),
@@ -236,7 +236,7 @@ async def api_move_note(
         )
     except InvalidFolderError:
         raise HTTPException(status_code=422, detail=FolderError.INVALID_FOLDER) from None
-    except (ValueError, FileNotFoundError):
+    except ValueError, FileNotFoundError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
     except FileExistsError:
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None

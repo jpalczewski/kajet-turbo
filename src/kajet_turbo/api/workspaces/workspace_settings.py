@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from kajet_turbo import workspace_settings as ws_settings
@@ -39,7 +39,7 @@ async def api_get_workspace_settings(
 @logged_route
 async def api_update_workspace_settings(
     name: str,
-    request,
+    request: Request,
     user: dict = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:
