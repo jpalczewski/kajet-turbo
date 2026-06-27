@@ -1,10 +1,14 @@
+import json
+import time
 from typing import Annotated, Literal
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
+from kajet_turbo.api.schemas.ws import NoteUpdatedEvent
 from kajet_turbo.concurrency import run_sync
+from kajet_turbo.dependencies import event_repo
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, MCP_CONTEXT, ActiveWorkspace
 from kajet_turbo.mcp.notes._helpers import confirm_and_apply
@@ -56,6 +60,18 @@ def build_crud(
             )
         except (GitError, ValueError) as e:
             raise ToolError(str(e)) from e
+        await run_sync(
+            event_repo.publish,
+            ws.owner_id,
+            "note_updated",
+            NoteUpdatedEvent(
+                type="note_updated",
+                owner_id=ws.owner_id,
+                workspace=ws.name,
+                note_id=result["note_id"],
+                updated_at=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+            ).model_dump(),
+        )
         return SavedNoteResult(note_id=result["note_id"])
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
@@ -80,8 +96,21 @@ def build_crud(
             )
         except GitError as e:
             raise ToolError(str(e)) from e
-        import json
-
+        now = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
+        for item in results:
+            if "note_id" in item:
+                await run_sync(
+                    event_repo.publish,
+                    ws.owner_id,
+                    "note_updated",
+                    NoteUpdatedEvent(
+                        type="note_updated",
+                        owner_id=ws.owner_id,
+                        workspace=ws.name,
+                        note_id=item["note_id"],
+                        updated_at=now,
+                    ).model_dump(),
+                )
         return json.dumps(results, ensure_ascii=False)
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
@@ -192,7 +221,22 @@ def build_crud(
                 confirm=True,
             )
 
-        return await confirm_and_apply(ctx, result, reapply)
+        applied = await confirm_and_apply(ctx, result, reapply)
+        data = json.loads(applied)
+        if "note_id" in data and not data.get("requires_confirmation") and not data.get("cancelled"):
+            await run_sync(
+                event_repo.publish,
+                ws.owner_id,
+                "note_updated",
+                NoteUpdatedEvent(
+                    type="note_updated",
+                    owner_id=ws.owner_id,
+                    workspace=ws.name,
+                    note_id=data["note_id"],
+                    updated_at=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+                ).model_dump(),
+            )
+        return applied
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
     @logged_tool
