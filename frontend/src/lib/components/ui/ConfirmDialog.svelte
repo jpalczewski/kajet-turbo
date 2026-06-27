@@ -38,7 +38,13 @@
 
 {@render trigger({ open: () => modal.show() })}
 
-<Modal bind:this={modal} {title}>
+<Modal
+  bind:this={modal}
+  {title}
+  onclose={() => {
+    error = '';
+  }}
+>
   <p class="message">{message}</p>
   {#if error}
     <p class="error">{error}</p>
