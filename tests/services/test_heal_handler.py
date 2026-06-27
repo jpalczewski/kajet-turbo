@@ -7,6 +7,7 @@ from kajet_turbo.db import Database
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
+from kajet_turbo.repositories.notes.chunks import NoteChunkRepository
 from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.services.heal_handler import HealDanglingHandler
 from kajet_turbo.services.indexing import NoteIndexer
@@ -105,8 +106,9 @@ def test_end_to_end_dangling_then_target_created(database, note_repo, link_repo,
     """Full chain: save Source with [[Target]] (dangling written) -> save Target ->
     run HealDanglingHandler directly (simulating the worker) -> assert edge + cleanup."""
     repo = NoteRepository(database.engine)
+    chunk_repo_e2e = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
-        repo,
+        chunk_repo_e2e,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda owner_id: None,
         build_embedder=lambda cfg: None,
