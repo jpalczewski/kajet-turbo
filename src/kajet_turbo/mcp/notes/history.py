@@ -29,13 +29,13 @@ def build_history(
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             entries = await run_sync(
                 note_service.get_history, note_id, owner_id=owner_id, ws_path=ws_path, limit=limit
             )
         except ValueError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from e
         return [HistoryEntry.model_validate(e) for e in entries]
 
     @srv.tool()
@@ -46,13 +46,13 @@ def build_history(
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             version = await run_sync(
                 note_service.get_version, note_id, sha, owner_id=owner_id, ws_path=ws_path
             )
         except Exception as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from e
         return NoteData.model_validate(version)
 
     @srv.tool()
@@ -63,13 +63,13 @@ def build_history(
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             result = await run_sync(
                 note_service.restore_version, note_id, sha, owner_id=owner_id, ws_path=ws_path
             )
         except Exception as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from e
         return SavedNoteResult.model_validate(result)
 
     @srv.tool()
@@ -86,13 +86,13 @@ def build_history(
         try:
             owner_id, _, _ = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         result = await run_sync(note_service.links, note_id, owner_id, include_meta)
         if result is None:
             raise ToolError(f"Notatka {note_id} nie znaleziona.")
         return NoteLinksResult(
-            outlinks=[NoteLinkItem.model_validate(l) for l in result["outlinks"]],
-            backlinks=[NoteLinkItem.model_validate(l) for l in result["backlinks"]],
+            outlinks=[NoteLinkItem.model_validate(link) for link in result["outlinks"]],
+            backlinks=[NoteLinkItem.model_validate(link) for link in result["backlinks"]],
         )
 
     return srv

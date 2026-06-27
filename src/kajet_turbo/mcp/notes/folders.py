@@ -2,7 +2,6 @@ from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.errors import GitError as GitErrorCode
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.notes._types import (
     ConflictItem,
@@ -31,12 +30,14 @@ def build_folders(
         try:
             _, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         return await run_sync(note_service.list_folders, ws_path)
 
     @srv.tool()
     @logged_tool
-    async def move_folder(src: str, dst: str, ctx: Context) -> MovedFolderResult | FolderConflictResult:
+    async def move_folder(
+        src: str, dst: str, ctx: Context
+    ) -> MovedFolderResult | FolderConflictResult:
         """Przenosi/scala folder (z notatkami i podfolderami) w aktywnym workspace.
         Jeśli dst istnieje, foldery są scalane. Przy kolizji nazw notatek nic nie jest
         przenoszone i zwracana jest lista kolizji.
@@ -44,7 +45,7 @@ def build_folders(
         try:
             owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             result = await run_sync(
                 note_service.move_folder,
@@ -55,7 +56,7 @@ def build_folders(
                 workspace=ws_name,
             )
         except (ValueError, FileNotFoundError, FileExistsError, GitError) as e:
-            raise ToolError(str(e), details={"error": GitErrorCode.GIT_ERROR if isinstance(e, GitError) else None})
+            raise ToolError(str(e)) from e
         if "conflicts" in result:
             return FolderConflictResult(
                 error=result["error"],
@@ -65,7 +66,9 @@ def build_folders(
 
     @srv.tool()
     @logged_tool
-    async def rename_folder(folder: str, new_name: str, ctx: Context) -> MovedFolderResult | FolderConflictResult:
+    async def rename_folder(
+        folder: str, new_name: str, ctx: Context
+    ) -> MovedFolderResult | FolderConflictResult:
         """Zmienia nazwę folderu (w obrębie tego samego rodzica). new_name to sama nazwa
         liścia, bez ścieżki. Pozwala m.in. zmienić wielkość liter na case-sensitive FS.
         Sukces: {moved, src, dst}. Kolizja: {error, conflicts: [{title, folder}]}."""
@@ -74,7 +77,7 @@ def build_folders(
         try:
             owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             result = await run_sync(
                 note_service.move_folder,
@@ -85,7 +88,7 @@ def build_folders(
                 workspace=ws_name,
             )
         except (ValueError, FileNotFoundError, FileExistsError, GitError) as e:
-            raise ToolError(str(e), details={"error": GitErrorCode.GIT_ERROR if isinstance(e, GitError) else None})
+            raise ToolError(str(e)) from e
         if "conflicts" in result:
             return FolderConflictResult(
                 error=result["error"],
@@ -101,7 +104,7 @@ def build_folders(
         try:
             _, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         result = await run_sync(note_service.prune_empty_folders, ws_path)
         return PrunedFoldersResult.model_validate(result)
 

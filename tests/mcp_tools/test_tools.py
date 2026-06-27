@@ -521,7 +521,13 @@ async def test_get_note_links(workspaces_dir, mcp_server):
             (await client.call_tool("get_note_links", {"note_id": source_id})).content[0].text
         )
         assert result["outlinks"] == [
-            {"note_id": target_id, "title": "Target", "folder": "", "tags": None, "updated_at": None}
+            {
+                "note_id": target_id,
+                "title": "Target",
+                "folder": "",
+                "tags": None,
+                "updated_at": None,
+            }
         ]
         assert result["backlinks"] == []
 
@@ -530,7 +536,13 @@ async def test_get_note_links(workspaces_dir, mcp_server):
             (await client.call_tool("get_note_links", {"note_id": target_id})).content[0].text
         )
         assert result["backlinks"] == [
-            {"note_id": source_id, "title": "Source", "folder": "", "tags": None, "updated_at": None}
+            {
+                "note_id": source_id,
+                "title": "Source",
+                "folder": "",
+                "tags": None,
+                "updated_at": None,
+            }
         ]
         assert result["outlinks"] == []
 

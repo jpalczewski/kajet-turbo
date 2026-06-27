@@ -5,7 +5,6 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.errors import GitError as GitErrorCode
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.notes._helpers import confirm_and_apply
 from kajet_turbo.mcp.notes._types import TagItem, TagOperationResult
@@ -30,11 +29,11 @@ def build_tags(
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             result = await run_sync(note_service.add_tags, note_id, owner_id, ws_path, tags)
         except (GitError, ValueError, FileNotFoundError) as e:
-            raise ToolError(str(e), details={"error": GitErrorCode.GIT_ERROR if isinstance(e, GitError) else None})
+            raise ToolError(str(e)) from e
         return TagOperationResult.model_validate(result)
 
     @srv.tool()
@@ -45,11 +44,11 @@ def build_tags(
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             result = await run_sync(note_service.remove_tags, note_id, owner_id, ws_path, tags)
         except (GitError, ValueError, FileNotFoundError) as e:
-            raise ToolError(str(e), details={"error": GitErrorCode.GIT_ERROR if isinstance(e, GitError) else None})
+            raise ToolError(str(e)) from e
         return TagOperationResult.model_validate(result)
 
     @srv.tool()
@@ -62,13 +61,13 @@ def build_tags(
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             result = await run_sync(
                 note_service.set_tags, note_id, owner_id, ws_path, tags, confirm
             )
         except (GitError, ValueError, FileNotFoundError) as e:
-            raise ToolError(str(e), details={"error": GitErrorCode.GIT_ERROR if isinstance(e, GitError) else None})
+            raise ToolError(str(e)) from e
 
         async def reapply() -> dict:
             return await run_sync(note_service.set_tags, note_id, owner_id, ws_path, tags, True)
@@ -98,7 +97,7 @@ def build_tags(
         try:
             owner_id, ws_name, _ = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         tags_result = await run_sync(
             note_service.tag_counts,
             ws_name,

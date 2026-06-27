@@ -5,7 +5,6 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.errors import GitError as GitErrorCode
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.notes._helpers import confirm_and_apply
 from kajet_turbo.mcp.notes._types import (
@@ -46,7 +45,7 @@ def build_crud(
         try:
             owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             result = await run_sync(
                 note_service.save,
@@ -59,7 +58,7 @@ def build_crud(
                 folder=folder,
             )
         except (GitError, ValueError) as e:
-            raise ToolError(str(e), details={"error": GitErrorCode.GIT_ERROR if isinstance(e, GitError) else None})
+            raise ToolError(str(e)) from e
         return SavedNoteResult(note_id=result["note_id"])
 
     @srv.tool()
@@ -74,7 +73,7 @@ def build_crud(
         try:
             owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             results = await run_sync(
                 note_service.save_many,
@@ -84,8 +83,9 @@ def build_crud(
                 [n.model_dump() for n in notes],
             )
         except GitError as e:
-            raise ToolError(str(e), details={"error": GitErrorCode.GIT_ERROR})
+            raise ToolError(str(e)) from e
         import json
+
         return json.dumps(results, ensure_ascii=False)
 
     @srv.tool()
@@ -95,7 +95,7 @@ def build_crud(
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         result = await run_sync(
             note_service.get_with_content, note_id, owner_id=owner_id, ws_path=ws_path
         )
@@ -163,7 +163,7 @@ def build_crud(
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             result = await run_sync(
                 note_service.update,
@@ -180,9 +180,9 @@ def build_crud(
                 confirm=confirm,
             )
         except (ValueError, FileNotFoundError, FileExistsError) as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from e
         except GitError as e:
-            raise ToolError(str(e), details={"error": GitErrorCode.GIT_ERROR})
+            raise ToolError(str(e)) from e
 
         async def reapply() -> dict:
             return await run_sync(
@@ -210,7 +210,7 @@ def build_crud(
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             result = await run_sync(
                 note_service.move,
@@ -220,7 +220,7 @@ def build_crud(
                 folder=folder,
             )
         except (ValueError, FileNotFoundError, FileExistsError, GitError) as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from e
         return MovedNoteResult.model_validate(result)
 
     @srv.tool()
@@ -230,11 +230,11 @@ def build_crud(
         try:
             owner_id, _, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         try:
             await run_sync(note_service.delete, note_id, owner_id=owner_id, ws_path=ws_path)
         except ValueError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from e
         return DeletedNoteResult(note_id=note_id)
 
     @srv.tool()
@@ -252,7 +252,7 @@ def build_crud(
         try:
             owner_id, ws_name, _ = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         notes = await run_sync(
             note_service.list_notes,
             ws_name,
@@ -278,7 +278,7 @@ def build_crud(
         try:
             owner_id, active_ws, _ = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         real_user_id: str | None = await ctx.get_state("active_user_id")
         ws_param = workspace or "active"
         if ws_param == "all":
@@ -297,7 +297,7 @@ def build_crud(
         try:
             owner_id, ws_name, ws_path = await get_active_workspace(ctx, workspace_service)
         except RuntimeError as e:
-            raise ToolError(str(e))
+            raise ToolError(str(e)) from None
         result = await run_sync(note_service.reindex, ws_name, owner_id=owner_id, ws_path=ws_path)
         return ReindexResult.model_validate(result)
 
