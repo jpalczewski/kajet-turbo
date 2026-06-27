@@ -180,7 +180,7 @@ class NoteTagService:
         normalized, warnings = NoteTagService.normalize_with_warnings(tags)
         new_set = set(normalized)
 
-        def mutate(current: list[str], content: str) -> tuple[list[str], list[str]]:
+        def mutate(current: list[str], content: str) -> tuple[list[str] | None, list[str]]:
             would_remove = [t for t in current if t not in new_set]
             if would_remove and not confirm:
                 return None, would_remove  # signal: early return needed
