@@ -39,7 +39,9 @@ def test_enqueue_hook_enqueues_for_enabled_remote(database, tmp_path):
 
     listed = jobs.list_jobs("u1")
     assert [j.kind for j in listed] == ["push_workspace"]
-    assert remotes.get("u1", "ws").dirty_at is not None
+    remote = remotes.get("u1", "ws")
+    assert remote is not None
+    assert remote.dirty_at is not None
 
 
 def test_enqueue_hook_noop_without_remote(database, tmp_path):

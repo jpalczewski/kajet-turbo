@@ -211,7 +211,7 @@ class JobRepository:
             if kind is not None:
                 stmt = stmt.where(Job.kind == kind)
             stmt = stmt.order_by(col(Job.created_at).desc()).limit(limit).offset(offset)
-            return list(session.execute(stmt).scalars().all())
+            return list(session.exec(stmt).all())
 
     def retry(self, job_id: str, user_id: str, *, now: float | None = None) -> bool:
         now = time.time() if now is None else now

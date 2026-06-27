@@ -1,8 +1,7 @@
 import json
 
-from kajet_turbo.repositories.events import EventRepository
-
 from kajet_turbo.db import Database
+from kajet_turbo.repositories.events import EventRepository
 
 
 def test_publish_inserts_row(database: Database):

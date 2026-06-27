@@ -67,7 +67,9 @@ def test_index_note_embeds_and_marks_indexed(database):
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nhello world\n\n## S\n\nmore text here\n")
     assert len(repo.get_chunks("n1")) >= 1
     with Session(database.engine) as session:
-        assert session.get(Note, "n1").index_state == "indexed"
+        note = session.get(Note, "n1")
+        assert note is not None
+        assert note.index_state == "indexed"
     assert len(emb.calls) == 1
 
 
@@ -86,7 +88,9 @@ def test_index_note_resolver_error_degrades_to_stale(database):
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
     assert len(repo.get_chunks("n1")) >= 1
     with Session(database.engine) as session:
-        assert session.get(Note, "n1").index_state == "stale"
+        note = session.get(Note, "n1")
+        assert note is not None
+        assert note.index_state == "stale"
 
 
 def test_index_note_uses_cache_to_skip_embedding(database):
@@ -105,7 +109,9 @@ def test_index_note_no_backend_writes_chunks_stale(database):
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
     assert len(repo.get_chunks("n1")) >= 1
     with Session(database.engine) as session:
-        assert session.get(Note, "n1").index_state == "stale"
+        note = session.get(Note, "n1")
+        assert note is not None
+        assert note.index_state == "stale"
     assert emb.calls == []
 
 
@@ -120,7 +126,9 @@ def test_index_note_keyless_profile_embeds(database):
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
     assert len(repo.get_chunks("n1")) >= 1
     with Session(database.engine) as session:
-        assert session.get(Note, "n1").index_state == "indexed"
+        note = session.get(Note, "n1")
+        assert note is not None
+        assert note.index_state == "indexed"
     assert len(emb.calls) == 1  # embedder was called despite no api_key
 
 
@@ -135,7 +143,9 @@ def test_index_note_embedder_error_degrades_to_stale(database):
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
     assert len(repo.get_chunks("n1")) >= 1
     with Session(database.engine) as session:
-        assert session.get(Note, "n1").index_state == "stale"
+        note = session.get(Note, "n1")
+        assert note is not None
+        assert note.index_state == "stale"
 
 
 def test_index_note_empty_content_clears_chunks(database):

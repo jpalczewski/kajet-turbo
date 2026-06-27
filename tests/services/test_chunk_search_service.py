@@ -56,7 +56,7 @@ def test_search_cache_key_varies_by_backend(database, git_workspace_factory):
         calls["n"] += 1
         return inner(*a, **k)
 
-    chunk_repo.hybrid_search = counting  # type: ignore[method-assign]
+    chunk_repo.hybrid_search = counting  # type: ignore[method-assign]  # ty: ignore[invalid-assignment] - patch spy for cache-key regression
 
     class _FakeEmbedder:
         async def embed_query(self, text):

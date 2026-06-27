@@ -26,7 +26,7 @@ def test_jobs_table_columns(database: Database):
 
 def test_jobs_pending_dedup_is_partial_unique(database: Database):
     with Session(database.engine) as session:
-        sql = session.execute(
+        sql = session.execute(  # ty: ignore[deprecated] - raw SQL
             text(
                 "SELECT sql FROM sqlite_master WHERE type='index' AND name='uq_jobs_pending_dedup'"
             )

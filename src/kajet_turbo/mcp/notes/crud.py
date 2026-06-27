@@ -223,7 +223,11 @@ def build_crud(
 
         applied = await confirm_and_apply(ctx, result, reapply)
         data = json.loads(applied)
-        if "note_id" in data and not data.get("requires_confirmation") and not data.get("cancelled"):
+        if (
+            "note_id" in data
+            and not data.get("requires_confirmation")
+            and not data.get("cancelled")
+        ):
             await run_sync(
                 event_repo.publish,
                 ws.owner_id,
@@ -261,7 +265,11 @@ def build_crud(
             event_repo.publish,
             ws.owner_id,
             "workspace_changed",
-            WorkspaceChangedEvent(type="workspace_changed", owner_id=ws.owner_id, workspace=ws.name).model_dump(),
+            WorkspaceChangedEvent(
+                type="workspace_changed",
+                owner_id=ws.owner_id,
+                workspace=ws.name,
+            ).model_dump(),
         )
         return MovedNoteResult.model_validate(result)
 
@@ -280,7 +288,11 @@ def build_crud(
             event_repo.publish,
             ws.owner_id,
             "workspace_changed",
-            WorkspaceChangedEvent(type="workspace_changed", owner_id=ws.owner_id, workspace=ws.name).model_dump(),
+            WorkspaceChangedEvent(
+                type="workspace_changed",
+                owner_id=ws.owner_id,
+                workspace=ws.name,
+            ).model_dump(),
         )
         return DeletedNoteResult(note_id=note_id)
 

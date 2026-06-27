@@ -42,7 +42,9 @@ def test_replace_chunks_without_embeddings_marks_stale(database):
     assert rows[0]["content"] == "alpha body"
     assert json.loads(rows[1]["header_path"]) == ["# T", "## S"]
     with Session(database.engine) as session:
-        assert session.get(Note, "n1").index_state == "stale"
+        note = session.get(Note, "n1")
+        assert note is not None
+        assert note.index_state == "stale"
 
 
 def test_replace_chunks_with_embeddings_writes_vectors_and_marks_indexed(database):
@@ -54,7 +56,10 @@ def test_replace_chunks_with_embeddings_writes_vectors_and_marks_indexed(databas
     )
     with Session(database.engine) as session:
         note = session.get(Note, "n1")
-        vec_count = session.execute(_text("SELECT COUNT(*) FROM note_chunks_vec_2")).scalar()
+        vec_count = session.execute(  # ty: ignore[deprecated] - raw SQL
+            _text("SELECT COUNT(*) FROM note_chunks_vec_2")
+        ).scalar()
+    assert note is not None
     assert note.index_state == "indexed"
     assert note.indexed_at is not None
     assert vec_count == 2
@@ -80,7 +85,7 @@ def test_replace_chunks_replaces_previous(database):
     rows = repo.get_chunks("n1")
     assert len(rows) == 1 and rows[0]["content"] == "only"
     with Session(database.engine) as session:
-        vec_count = session.execute(
+        vec_count = session.execute(  # ty: ignore[deprecated] - raw SQL
             _text("SELECT COUNT(*) FROM note_chunks_vec_2 WHERE note_id='n1'")
         ).scalar()
     assert vec_count == 1
@@ -96,7 +101,7 @@ def test_replace_chunks_empty_clears(database):
     repo.replace_chunks("n1", "ws", "u1", "T", [], embeddings=None, dim=None)
     assert repo.get_chunks("n1") == []
     with Session(database.engine) as session:
-        vec_count = session.execute(
+        vec_count = session.execute(  # ty: ignore[deprecated] - raw SQL
             _text("SELECT COUNT(*) FROM note_chunks_vec_2 WHERE note_id='n1'")
         ).scalar()
     assert vec_count == 0

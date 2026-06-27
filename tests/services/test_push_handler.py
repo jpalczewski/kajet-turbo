@@ -66,8 +66,9 @@ def test_push_handler_pushes_and_marks_pushed(database, tmp_path):
 
     _handler(database, tmp_path)({"user_id": "u1", "workspace": "ws", "ws_path": str(ws)})
 
-    assert Repo(str(bare)).refs[b"refs/heads/master"] is not None
+    assert Repo(str(bare)).refs[b"refs/heads/master"] is not None  # ty: ignore[invalid-argument-type] - Literal[bytes] satisfies Dulwich Ref
     got = remotes.get("u1", "ws")
+    assert got is not None
     assert got.pushed_at is not None and got.last_error is None
     # the temp key was cleaned up (no leftover .key files)
     assert not list(Path(tmp_path).glob("*.key"))
@@ -80,7 +81,9 @@ def test_push_handler_noop_when_disabled(database, tmp_path):
     remotes.upsert("u1", "ws", origin_url="x", ssh_key_id="k1", enabled=False, now="t")
     # disabled -> no push attempt, no error
     _handler(database, tmp_path)({"user_id": "u1", "workspace": "ws", "ws_path": str(ws)})
-    assert remotes.get("u1", "ws").pushed_at is None
+    got = remotes.get("u1", "ws")
+    assert got is not None
+    assert got.pushed_at is None
 
 
 def test_push_handler_failure_marks_and_raises(database, tmp_path):
@@ -92,5 +95,7 @@ def test_push_handler_failure_marks_and_raises(database, tmp_path):
     )
     with pytest.raises(GitError):
         _handler(database, tmp_path)({"user_id": "u1", "workspace": "ws", "ws_path": str(ws)})
-    assert remotes.get("u1", "ws").last_error is not None
+    got = remotes.get("u1", "ws")
+    assert got is not None
+    assert got.last_error is not None
     assert not list(Path(tmp_path).glob("*.key"))  # key cleaned up even on failure

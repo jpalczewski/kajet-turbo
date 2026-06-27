@@ -38,7 +38,9 @@ def test_push_to_local_bare_repo_transfers_commit(tmp_path):
     # this proves the refspec/object-transfer mechanics of push().
     push(str(ws), str(bare), "/dev/shm/unused.key", "/tmp/unused_known_hosts")
     remote = Repo(str(bare))
-    assert remote.refs[b"refs/heads/master"] == Repo(str(ws)).refs[b"refs/heads/master"]
+    remote_head = remote.refs[b"refs/heads/master"]  # ty: ignore[invalid-argument-type] - Literal[bytes] satisfies Dulwich Ref
+    local_head = Repo(str(ws)).refs[b"refs/heads/master"]  # ty: ignore[invalid-argument-type] - Literal[bytes] satisfies Dulwich Ref
+    assert remote_head == local_head
 
 
 def test_push_rejected_raises_git_error(tmp_path):

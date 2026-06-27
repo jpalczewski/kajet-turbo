@@ -39,7 +39,7 @@ def test_replace_chunks_writes_fts_rows(database):
     repo = NoteChunkRepository(database.engine)
     repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, dim=None)
     with Session(database.engine) as session:
-        rows = session.execute(
+        rows = session.execute(  # ty: ignore[deprecated] - raw SQL
             _text(
                 "SELECT chunk_id, note_id, title, header_path, content"
                 " FROM notes_fts WHERE note_id='n1'"
@@ -56,7 +56,7 @@ def test_replace_chunks_fts_is_searchable(database):
     repo = NoteChunkRepository(database.engine)
     repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, dim=None)
     with Session(database.engine) as session:
-        hits = session.execute(
+        hits = session.execute(  # ty: ignore[deprecated] - raw SQL
             _text("SELECT content FROM notes_fts WHERE notes_fts MATCH 'banana'")
         ).fetchall()
     assert [h.content for h in hits] == ["beta banana"]
@@ -80,7 +80,9 @@ def test_replace_chunks_replaces_fts_rows(database):
         dim=None,
     )
     with Session(database.engine) as session:
-        rows = session.execute(_text("SELECT content FROM notes_fts WHERE note_id='n1'")).fetchall()
+        rows = session.execute(  # ty: ignore[deprecated] - raw SQL
+            _text("SELECT content FROM notes_fts WHERE note_id='n1'")
+        ).fetchall()
     assert [r.content for r in rows] == ["only gamma"]
 
 
@@ -90,5 +92,7 @@ def test_replace_chunks_empty_clears_fts(database):
     repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, dim=None)
     repo.replace_chunks("n1", "ws", "u1", "Title", [], embeddings=None, dim=None)
     with Session(database.engine) as session:
-        rows = session.execute(_text("SELECT content FROM notes_fts WHERE note_id='n1'")).fetchall()
+        rows = session.execute(  # ty: ignore[deprecated] - raw SQL
+            _text("SELECT content FROM notes_fts WHERE note_id='n1'")
+        ).fetchall()
     assert rows == []

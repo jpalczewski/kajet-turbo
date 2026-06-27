@@ -6,6 +6,7 @@ def test_index_meta_upsert_and_get(database):
     assert repo.get_index_meta("u1") is None
     repo.upsert_index_meta("u1", backend="openai-large", model="text-embedding-3-large", dim=3072)
     meta = repo.get_index_meta("u1")
+    assert meta is not None
     assert (meta["backend"], meta["model"], meta["dim"]) == (
         "openai-large",
         "text-embedding-3-large",
@@ -14,6 +15,7 @@ def test_index_meta_upsert_and_get(database):
 
     repo.upsert_index_meta("u1", backend="mmlw", model="mmlw", dim=1024)
     meta = repo.get_index_meta("u1")
+    assert meta is not None
     assert (meta["backend"], meta["model"], meta["dim"]) == ("mmlw", "mmlw", 1024)
 
 

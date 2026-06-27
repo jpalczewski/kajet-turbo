@@ -65,7 +65,11 @@ def build_folders(
             event_repo.publish,
             ws.owner_id,
             "workspace_changed",
-            WorkspaceChangedEvent(type="workspace_changed", owner_id=ws.owner_id, workspace=ws.name).model_dump(),
+            WorkspaceChangedEvent(
+                type="workspace_changed",
+                owner_id=ws.owner_id,
+                workspace=ws.name,
+            ).model_dump(),
         )
         return MovedFolderResult.model_validate(result)
 
@@ -101,7 +105,11 @@ def build_folders(
             event_repo.publish,
             ws.owner_id,
             "workspace_changed",
-            WorkspaceChangedEvent(type="workspace_changed", owner_id=ws.owner_id, workspace=ws.name).model_dump(),
+            WorkspaceChangedEvent(
+                type="workspace_changed",
+                owner_id=ws.owner_id,
+                workspace=ws.name,
+            ).model_dump(),
         )
         return MovedFolderResult.model_validate(result)
 
@@ -117,7 +125,11 @@ def build_folders(
             event_repo.publish,
             ws.owner_id,
             "workspace_changed",
-            WorkspaceChangedEvent(type="workspace_changed", owner_id=ws.owner_id, workspace=ws.name).model_dump(),
+            WorkspaceChangedEvent(
+                type="workspace_changed",
+                owner_id=ws.owner_id,
+                workspace=ws.name,
+            ).model_dump(),
         )
         return PrunedFoldersResult.model_validate(result)
 

@@ -37,6 +37,8 @@ def test_create_probes_dim_and_seals_key(database):
     assert out["has_key"] is True
     assert "sk-x" not in str(out) and "api_key" not in out
     row = EmbeddingProfileRepository(database.engine).get("u1", out["id"])
+    assert row is not None
+    assert row.api_key_enc is not None
     assert cipher_for("embedding", secret="server-secret").decrypt(row.api_key_enc) == "sk-x"
 
 
@@ -66,6 +68,8 @@ def test_update_keeps_key_when_omitted(database):
     p = svc.create_profile("u1", "A", "http://a/v1", "m", "sk-keep")
     svc.update_profile("u1", p["id"], name="A2", base_url="http://a/v1", model="m", api_key=None)
     row = EmbeddingProfileRepository(database.engine).get("u1", p["id"])
+    assert row is not None
+    assert row.api_key_enc is not None
     assert cipher_for("embedding", secret="server-secret").decrypt(row.api_key_enc) == "sk-keep"
 
 
@@ -74,4 +78,6 @@ def test_keyless_profile_create(database):
     svc, _ = _svc(database)
     out = svc.create_profile("u1", "local", "http://local/v1", "m", None)
     assert out["has_key"] is False
-    assert EmbeddingProfileRepository(database.engine).get("u1", out["id"]).api_key_enc is None
+    row = EmbeddingProfileRepository(database.engine).get("u1", out["id"])
+    assert row is not None
+    assert row.api_key_enc is None

@@ -1,4 +1,7 @@
+from typing import cast
+
 from kajet_turbo.cache import WorkspaceCache
+from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository, NoteTagRepository
 from kajet_turbo.services.notes import (
     NoteFolderService,
     NoteLinkService,
@@ -46,15 +49,34 @@ class FakeChunkRepo:
 
 def _make_search_svc(chunk_repo, cache):
     """Build a minimal NoteService wired only for search (all other repos are None)."""
-    tag_service = NoteTagService(None, None, cache)  # type: ignore[arg-type]
-    link_service = NoteLinkService(None, None, None, None)  # type: ignore[arg-type]
+    note_repo = cast(NoteRepository, None)
+    link_repo = cast(NoteLinkRepository, None)
+    tag_repo = cast(NoteTagRepository, None)
+    tag_service = NoteTagService(
+        note_repo,
+        tag_repo,
+        cache,
+    )
+    link_service = NoteLinkService(
+        note_repo,
+        link_repo,
+        None,
+        None,
+    )
     search_service = NoteSearchService(chunk_repo, cache, None, None, None)
-    version_service = NoteVersionService(None, cache)  # type: ignore[arg-type]
-    folder_service = NoteFolderService(None, link_service, cache)  # type: ignore[arg-type]
+    version_service = NoteVersionService(
+        note_repo,
+        cache,
+    )
+    folder_service = NoteFolderService(
+        note_repo,
+        link_service,
+        cache,
+    )
     return NoteService(
-        None,  # type: ignore[arg-type]
-        None,  # type: ignore[arg-type]
-        None,  # type: ignore[arg-type]
+        note_repo,
+        link_repo,
+        tag_repo,
         chunk_repo,
         tag_service,
         link_service,

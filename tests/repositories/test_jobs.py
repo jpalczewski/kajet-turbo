@@ -14,18 +14,22 @@ def _get(engine, job_id: str) -> Job | None:
         return session.get(Job, job_id)
 
 
+def _get_required(engine, job_id: str) -> Job:
+    job = _get(engine, job_id)
+    assert job is not None
+    return job
+
+
 def _pending(engine, kind: str, dedup_key: str) -> list[Job]:
     with Session(engine) as session:
         return list(
-            session.execute(
+            session.exec(
                 select(Job).where(
                     Job.kind == kind,
                     Job.dedup_key == dedup_key,
                     Job.status == "pending",
                 )
-            )
-            .scalars()
-            .all()
+            ).all()
         )
 
 
@@ -45,7 +49,7 @@ def _ensure_user(engine, user_id: str, email: str = "") -> None:
 def test_enqueue_creates_pending_job(database: Database):
     repo = JobRepository(database.engine)
     job_id = repo.enqueue("push_workspace", {"workspace": "ws1"}, now=1000.0)
-    job = _get(database.engine, job_id)
+    job = _get_required(database.engine, job_id)
     assert job.status == "pending"
     assert job.attempts == 0
     assert json.loads(job.payload) == {"workspace": "ws1"}
@@ -79,7 +83,7 @@ def test_enqueue_dedup_distinct_keys_coexist(database: Database):
 def test_enqueue_delay_sets_future_next_run_at(database: Database):
     repo = JobRepository(database.engine)
     job_id = repo.enqueue("k", {}, delay=30.0, now=1000.0)
-    assert _get(database.engine, job_id).next_run_at == 1030.0
+    assert _get_required(database.engine, job_id).next_run_at == 1030.0
 
 
 @pytest.mark.parametrize(
@@ -95,7 +99,7 @@ def test_claim_returns_and_locks_pending(database: Database):
     job_id = repo.enqueue("k", {"x": 1}, now=1000.0)
     claimed = repo.claim("worker-a", now=1001.0)
     assert claimed is not None and claimed.id == job_id
-    row = _get(database.engine, job_id)
+    row = _get_required(database.engine, job_id)
     assert row.status == "running"
     assert row.locked_by == "worker-a"
     assert row.locked_at == 1001.0
@@ -119,7 +123,7 @@ def test_claim_reclaims_stale_running_job(database: Database):
     # stale: locked_at 1000 < (1400 - 300)=1100
     reclaimed = repo.claim("worker-b", now=1400.0, stale_after=300.0)
     assert reclaimed is not None and reclaimed.id == job_id
-    assert _get(database.engine, job_id).locked_by == "worker-b"
+    assert _get_required(database.engine, job_id).locked_by == "worker-b"
 
 
 def test_claim_no_double_claim_under_concurrency(database: Database):
@@ -149,7 +153,7 @@ def test_complete_marks_done(database: Database):
     job_id = repo.enqueue("k", {}, now=1000.0)
     repo.claim("w", now=1000.0)
     repo.complete(job_id, now=1002.0)
-    assert _get(database.engine, job_id).status == "done"
+    assert _get_required(database.engine, job_id).status == "done"
 
 
 def test_fail_retries_with_backoff_then_terminal(database: Database):
@@ -157,7 +161,7 @@ def test_fail_retries_with_backoff_then_terminal(database: Database):
     job_id = repo.enqueue("k", {}, max_attempts=2, now=1000.0)
     repo.claim("w", now=1000.0)
     repo.fail(job_id, "boom", now=1000.0)
-    row = _get(database.engine, job_id)
+    row = _get_required(database.engine, job_id)
     assert row.status == "pending"
     assert row.attempts == 1
     assert row.next_run_at == 1002.0  # now + backoff(1)=2.0
@@ -166,7 +170,7 @@ def test_fail_retries_with_backoff_then_terminal(database: Database):
     # second failure reaches max_attempts -> failed
     repo.claim("w", now=1002.0)
     repo.fail(job_id, "boom2", now=1002.0)
-    row = _get(database.engine, job_id)
+    row = _get_required(database.engine, job_id)
     assert row.status == "failed"
     assert row.attempts == 2
 
@@ -176,7 +180,7 @@ def test_fail_terminal_fails_immediately(database: Database):
     job_id = repo.enqueue("k", {}, max_attempts=5, now=1000.0)
     repo.claim("w", now=1000.0)
     repo.fail_terminal(job_id, "no handler for kind 'k'", now=1001.0)
-    row = _get(database.engine, job_id)
+    row = _get_required(database.engine, job_id)
     assert row.status == "failed"
     assert row.last_error == "no handler for kind 'k'"
 
@@ -190,7 +194,10 @@ def test_reset_running_to_pending_scopes_to_worker(database: Database):
     n = repo.reset_running_to_pending("worker-a", now=1100.0)
     assert n == 1
     # worker-a's job is pending again; worker-b's is still running
-    statuses = {_get(database.engine, a).status, _get(database.engine, b).status}
+    statuses = {
+        _get_required(database.engine, a).status,
+        _get_required(database.engine, b).status,
+    }
     assert statuses == {"pending", "running"}
 
 
@@ -238,7 +245,7 @@ def test_retry_rearms_only_failed_owned_jobs(database: Database):
     failed = _make_failed(repo, database.engine, user_id="u1", now=1000.0)
     assert repo.retry(failed, "u2", now=2000.0) is False  # not owner
     assert repo.retry(failed, "u1", now=2000.0) is True
-    row = _get(database.engine, failed)
+    row = _get_required(database.engine, failed)
     assert row.status == "pending" and row.attempts == 0 and row.last_error is None
     assert repo.retry(failed, "u1", now=2000.0) is False  # now pending, not failed
 

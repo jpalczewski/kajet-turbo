@@ -42,7 +42,7 @@ def test_dangling_source_index_column(database: Database):
 
 def test_dangling_links_in_sqlite_master(database: Database):
     with Session(database.engine) as session:
-        result = session.execute(
+        result = session.execute(  # ty: ignore[deprecated] - raw SQL
             text("SELECT name FROM sqlite_master WHERE type='table' AND name='dangling_links'")
         ).scalar_one_or_none()
     assert result == "dangling_links"

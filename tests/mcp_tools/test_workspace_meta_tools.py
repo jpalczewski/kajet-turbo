@@ -9,9 +9,7 @@ async def test_list_workspaces_returns_objects(authed_workspaces_dir, authed_mcp
     async with Client(mcp) as client:
         result = await client.call_tool("list_workspaces")
     data = json.loads(result.content[0].text)
-    assert {"name": "test-ws", "description": "", "folder": "", "tags": []} in data[
-        "workspaces"
-    ]
+    assert {"name": "test-ws", "description": "", "folder": "", "tags": []} in data["workspaces"]
 
 
 async def test_update_workspace_sets_description_and_tags(authed_workspaces_dir, authed_mcp_server):

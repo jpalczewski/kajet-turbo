@@ -4,6 +4,7 @@ import pytest
 from fastapi import FastAPI
 from sqlmodel import Session
 from starlette.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from kajet_turbo.api.ws import router
 from kajet_turbo.db import Database
@@ -40,11 +41,13 @@ def _make_app(database: Database, user_id: str | None) -> FastAPI:
 
 def test_ws_rejects_unauthenticated(database: Database):
     app = _make_app(database, user_id=None)
-    with TestClient(app) as client:
-        # 1008 Policy Violation — Starlette raises WebSocketDisconnect on __enter__
-        with pytest.raises(Exception):
-            with client.websocket_connect("/api/ws") as ws:
-                ws.receive_text()
+    with (
+        TestClient(app) as client,
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect("/api/ws") as ws,
+    ):
+        # 1008 Policy Violation: Starlette raises WebSocketDisconnect on __enter__.
+        ws.receive_text()
 
 
 def test_ws_delivers_outbox_event(database: Database):
@@ -62,9 +65,10 @@ def test_ws_delivers_outbox_event(database: Database):
         },
     )
 
-    with TestClient(app) as client, client.websocket_connect(
-        "/api/ws", cookies={"kajet_session": "good-token"}
-    ) as ws:
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/api/ws", cookies={"kajet_session": "good-token"}) as ws,
+    ):
         msg = ws.receive_json()
     assert msg["type"] == "note_updated"
     assert msg["note_id"] == "nid1"

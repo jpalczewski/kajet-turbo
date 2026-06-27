@@ -25,8 +25,8 @@ LEVEL_ORDER = {"debug": 0, "info": 1, "warning": 2, "error": 3, "critical": 4}
 
 def parse_log(path: Path) -> list[dict]:
     events = []
-    for raw in path.read_text(errors="replace").splitlines():
-        raw = raw.strip()
+    for line in path.read_text(errors="replace").splitlines():
+        raw = line.strip()
         if not raw:
             continue
         idx = raw.find("{")
@@ -49,6 +49,7 @@ def latest_log(role: str = "") -> Path:
 
 # ── modes ──────────────────────────────────────────────────────────────────────
 
+
 def mode_sessions(events: list[dict]) -> None:
     sessions: dict[str, list[dict]] = defaultdict(list)
     for e in events:
@@ -68,8 +69,13 @@ def mode_sessions(events: list[dict]) -> None:
 
 
 def mode_workspaces(events: list[dict]) -> None:
-    relevant_msgs = {"workspace_switched", "activate_workspace", "active_workspace_resolved",
-                     "active_workspace_miss", "db_fallback"}
+    relevant_msgs = {
+        "workspace_switched",
+        "activate_workspace",
+        "active_workspace_resolved",
+        "active_workspace_miss",
+        "db_fallback",
+    }
     for e in events:
         msg = e.get("msg", "")
         if msg not in relevant_msgs and "workspace" not in msg.lower():
@@ -80,12 +86,17 @@ def mode_workspaces(events: list[dict]) -> None:
         scope = e.get("scope") or ""
         source = e.get("source") or ""
         sess = (e.get("session_id") or "")[:12]
-        extras = " ".join(filter(None, [
-            f"ws={ws}" if ws else "",
-            f"scope={scope}" if scope else "",
-            f"source={source}" if source else "",
-            f"sess={sess}…" if sess else "",
-        ]))
+        extras = " ".join(
+            filter(
+                None,
+                [
+                    f"ws={ws}" if ws else "",
+                    f"scope={scope}" if scope else "",
+                    f"source={source}" if source else "",
+                    f"sess={sess}…" if sess else "",
+                ],
+            )
+        )
         print(f"{ts}  [{lvl:4}]  {msg:<40}  {extras}")
 
 
@@ -128,7 +139,7 @@ def mode_tools(events: list[dict]) -> None:
     print("-" * 65)
     for tool, count in counts.most_common():
         durs = durations[tool]
-        avg = f"{sum(durs)/len(durs):.0f}" if durs else "-"
+        avg = f"{sum(durs) / len(durs):.0f}" if durs else "-"
         mx = f"{max(durs):.0f}" if durs else "-"
         err = errors[tool] or ""
         print(f"{tool:<30}  {count:>6}  {avg:>7}  {mx:>7}  {err!s:>6}")
@@ -154,7 +165,11 @@ MODES = ("sessions", "workspaces", "errors", "tools", "all")
 def main() -> None:
     parser = argparse.ArgumentParser(description="Analyze kajet-turbo ops logs")
     parser.add_argument("log", nargs="?", help="Log file path (default: latest produkcja_mcp*)")
-    parser.add_argument("--role", default="mcp", help="Role filter for auto-detection: mcp, api, worker (default: mcp)")
+    parser.add_argument(
+        "--role",
+        default="mcp",
+        help="Role filter for auto-detection: mcp, api, worker (default: mcp)",
+    )
     parser.add_argument("--mode", choices=MODES, default="all", help="Analysis mode")
     parser.add_argument("--grep", metavar="PATTERN", help="Filter events containing PATTERN")
     parser.add_argument("--min-level", default="warning", help="Minimum log level for errors mode")

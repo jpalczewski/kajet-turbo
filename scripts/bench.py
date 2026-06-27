@@ -233,8 +233,20 @@ def inproc_search_phase(tmp: Path) -> dict:
     os.environ["DB_PATH"] = str(tmp / "bench.db")
     os.environ["WORKSPACES_DIR"] = str(tmp / "workspaces")
     from kajet_turbo.db import Database
-    from kajet_turbo.repositories.notes import NoteRepository
-    from kajet_turbo.services.notes import NoteService
+    from kajet_turbo.repositories.notes import (
+        NoteChunkRepository,
+        NoteLinkRepository,
+        NoteRepository,
+        NoteTagRepository,
+    )
+    from kajet_turbo.services.notes import (
+        NoteFolderService,
+        NoteLinkService,
+        NoteSearchService,
+        NoteService,
+        NoteTagService,
+        NoteVersionService,
+    )
 
     owner_id = (
         sqlite3.connect(str(tmp / "bench.db"))
@@ -242,7 +254,37 @@ def inproc_search_phase(tmp: Path) -> dict:
         .fetchone()[0]
     )
     db = Database()
-    svc = NoteService(NoteRepository(db.engine))
+    note_repo = NoteRepository(db.engine)
+    link_repo = NoteLinkRepository(db.engine)
+    tag_repo = NoteTagRepository(db.engine)
+    chunk_repo = NoteChunkRepository(db.engine)
+    tag_service = NoteTagService(note_repo, tag_repo, cache=None)
+    link_service = NoteLinkService(
+        note_repo,
+        link_repo,
+        dangling_repo=None,
+        link_validation_enabled=None,
+    )
+    search_service = NoteSearchService(
+        chunk_repo,
+        cache=None,
+        query_resolver=None,
+        build_embedder=None,
+        query_cache=None,
+    )
+    version_service = NoteVersionService(note_repo, cache=None)
+    folder_service = NoteFolderService(note_repo, link_service, cache=None)
+    svc = NoteService(
+        note_repo,
+        link_repo,
+        tag_repo,
+        chunk_repo,
+        tag_service,
+        link_service,
+        search_service,
+        version_service,
+        folder_service,
+    )
     results: dict[str, dict] = {}
     total = 200
     for threads in (1, 4, 8):

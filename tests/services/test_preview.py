@@ -1,7 +1,7 @@
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
 from kajet_turbo.markdown import chunk_markdown, embedded_text
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
 
 
@@ -12,7 +12,7 @@ def _cfg():
 
 
 def test_preview_marks_embedded_from_cache(database):
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
     indexer = NoteIndexer(
         repo, cache, resolve_backend=lambda o: _cfg(), build_embedder=lambda c: None
@@ -37,7 +37,7 @@ def test_preview_marks_embedded_from_cache(database):
 
 
 def test_preview_no_backend_all_false(database):
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
     indexer = NoteIndexer(
         repo, cache, resolve_backend=lambda o: None, build_embedder=lambda c: None
@@ -47,7 +47,7 @@ def test_preview_no_backend_all_false(database):
 
 
 def test_preview_empty_content(database):
-    repo = NoteRepository(database.engine)
+    repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
     indexer = NoteIndexer(
         repo, cache, resolve_backend=lambda o: None, build_embedder=lambda c: None

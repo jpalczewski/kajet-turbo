@@ -24,7 +24,9 @@ def test_create_list_get(database):
     assert p.id and p.is_active is True  # first profile auto-activates
     rows = repo.list_for_user("u1")
     assert [r.name for r in rows] == ["OpenAI"]
-    assert repo.get("u1", p.id).model == "text-embedding-3-large"
+    got = repo.get("u1", p.id)
+    assert got is not None
+    assert got.model == "text-embedding-3-large"
 
 
 def test_second_profile_not_auto_active_and_activate_switches(database):
@@ -34,8 +36,12 @@ def test_second_profile_not_auto_active_and_activate_switches(database):
     b = repo.create("u1", "B", "http://b/v1", "m", b"k", 4)
     assert a.is_active is True and b.is_active is False
     repo.set_active("u1", b.id)
-    assert repo.get_active("u1").id == b.id
-    assert repo.get("u1", a.id).is_active is False  # exactly one active
+    active = repo.get_active("u1")
+    assert active is not None
+    assert active.id == b.id
+    inactive = repo.get("u1", a.id)
+    assert inactive is not None
+    assert inactive.is_active is False  # exactly one active
 
 
 def test_update_and_delete(database):
@@ -46,6 +52,7 @@ def test_update_and_delete(database):
         "u1", p.id, name="A2", base_url="http://a2/v1", model="m2", api_key_enc=b"k2", dim=5
     )
     g = repo.get("u1", p.id)
+    assert g is not None
     assert (g.name, g.base_url, g.model, g.dim) == ("A2", "http://a2/v1", "m2", 5)
     repo.delete("u1", p.id)
     assert repo.get("u1", p.id) is None
@@ -58,8 +65,9 @@ def test_delete_active_promotes_another(database):
     b = repo.create("u1", "B", "http://b/v1", "m", b"k", 4)
     repo.set_active("u1", a.id)
     repo.delete("u1", a.id)  # deleting the active one should promote a remaining profile
-    assert repo.get_active("u1") is not None
-    assert repo.get_active("u1").id == b.id
+    active = repo.get_active("u1")
+    assert active is not None
+    assert active.id == b.id
 
 
 def test_get_active_none_when_no_profiles(database):

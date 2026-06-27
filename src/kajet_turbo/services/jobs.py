@@ -2,6 +2,7 @@
 curated view — the raw payload (which holds the filesystem ws_path) is never
 exposed; only the workspace name is surfaced, parsed from the payload."""
 
+import builtins
 import json
 
 from kajet_turbo.models import Job
@@ -33,7 +34,9 @@ class JobService:
             "updated_at": job.updated_at,
         }
 
-    def list(self, user_id: str, *, status: str | None = None, limit: int = 50) -> list[dict]:
+    def list(
+        self, user_id: str, *, status: str | None = None, limit: int = 50
+    ) -> builtins.list[dict]:
         return [self._view(j) for j in self._jobs.list_jobs(user_id, status=status, limit=limit)]
 
     def retry(self, user_id: str, job_id: str) -> bool:

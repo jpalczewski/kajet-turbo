@@ -79,7 +79,7 @@ class NoteSearchService:
                 return cached
         # Only reached when search() resolved a backend, which is wired together with
         # build_embedder in the DI container; the None default is for cache-only test doubles.
-        embedder = self._build_embedder(cfg)  # ty: ignore[call-non-callable] - optional DI seam
+        embedder = self._build_embedder(cfg)
         vec = asyncio.run(embedder.embed_query(query))
         if self._query_cache is not None:
             self._query_cache.put(query, cfg.backend_id, cfg.model, vec)

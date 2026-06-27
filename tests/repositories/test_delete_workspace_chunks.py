@@ -47,9 +47,15 @@ def test_delete_workspace_notes_clears_chunks_and_does_not_fk_fail(database):
 
     assert chunk_repo.get_chunks("n1") == []
     with Session(database.engine) as session:
-        fts = session.execute(_text("SELECT COUNT(*) FROM notes_fts WHERE note_id='n1'")).scalar()
-        vec = session.execute(_text("SELECT COUNT(*) FROM note_chunks_vec_2")).scalar()
-        notes = session.execute(_text("SELECT COUNT(*) FROM notes WHERE id='n1'")).scalar()
+        fts = session.execute(  # ty: ignore[deprecated] - raw SQL
+            _text("SELECT COUNT(*) FROM notes_fts WHERE note_id='n1'")
+        ).scalar()
+        vec = session.execute(  # ty: ignore[deprecated] - raw SQL
+            _text("SELECT COUNT(*) FROM note_chunks_vec_2")
+        ).scalar()
+        notes = session.execute(  # ty: ignore[deprecated] - raw SQL
+            _text("SELECT COUNT(*) FROM notes WHERE id='n1'")
+        ).scalar()
     assert fts == 0
     assert vec == 0
     assert notes == 0
@@ -69,5 +75,7 @@ def test_delete_workspace_notes_is_owner_scoped(database):
     assert chunk_repo.get_chunks("n1") == []
     assert len(chunk_repo.get_chunks("n2")) == 1
     with Session(database.engine) as session:
-        kept = session.execute(_text("SELECT content FROM notes_fts WHERE note_id='n2'")).fetchall()
+        kept = session.execute(  # ty: ignore[deprecated] - raw SQL
+            _text("SELECT content FROM notes_fts WHERE note_id='n2'")
+        ).fetchall()
     assert [r.content for r in kept] == ["beta"]

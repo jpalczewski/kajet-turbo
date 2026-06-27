@@ -56,7 +56,9 @@ def test_index_many_indexes_all(database):
     for i in range(3):
         assert len(repo.get_chunks(f"n{i}")) >= 1
         with Session(database.engine) as session:
-            assert session.get(Note, f"n{i}").index_state == "indexed"
+            note = session.get(Note, f"n{i}")
+            assert note is not None
+            assert note.index_state == "indexed"
 
 
 def test_index_many_one_failure_does_not_abort_batch(database):
