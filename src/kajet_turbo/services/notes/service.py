@@ -432,8 +432,7 @@ class NoteService:
         self._crud_repo.delete(note_id, owner_id=owner_id)
         self._link_repo.delete_links_from(note_id)
         self._link_repo.delete_links_to(note_id)
-        if self._link_service._dangling_repo is not None:
-            self._link_service._dangling_repo.delete_for_source(note_id)
+        self._link_service.delete_dangling_for_source(note_id)
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_deleted", note_id=note_id)

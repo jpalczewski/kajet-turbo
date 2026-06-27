@@ -75,6 +75,11 @@ class NoteLinkService:
             return
         self._dangling_repo.replace_for_source(source_note_id, ws_name, owner_id, broken_pairs)
 
+    def delete_dangling_for_source(self, note_id: str) -> None:
+        """Remove dangling link rows for a deleted source note. No-op when not wired."""
+        if self._dangling_repo is not None:
+            self._dangling_repo.delete_for_source(note_id)
+
     def backlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> builtins.list[dict]:
         return self._resolve_link_notes(self._link_repo.backlinks(note_id), owner_id, include_meta)
 
