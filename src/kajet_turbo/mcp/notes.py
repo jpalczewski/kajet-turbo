@@ -135,7 +135,7 @@ def register_notes(
         )
         if result is None:
             return json.dumps({"error": f"Notatka {note_id} nie znaleziona."})
-        return json.dumps(result, ensure_ascii=False)
+        return json.dumps(result.model_dump(), ensure_ascii=False)
 
     @mcp.tool()
     @logged_tool

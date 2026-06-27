@@ -98,14 +98,14 @@ def api_get_note_html(
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
     return JSONResponse(
         {
-            "note_id": note["note_id"],
-            "title": note["title"],
-            "folder": note["folder"],
-            "tags": note["tags"],
-            "created_at": note["created_at"],
-            "updated_at": note["updated_at"],
+            "note_id": note.note_id,
+            "title": note.title,
+            "folder": note.folder,
+            "tags": note.tags,
+            "created_at": note.created_at,
+            "updated_at": note.updated_at,
             "content_html": _render_html(
-                note["content"],
+                note.content,
                 resolver=note_service.link_resolver(name, user["id"]),
                 slug=name,
             ),
@@ -134,13 +134,13 @@ def api_get_note_markdown(
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
     return JSONResponse(
         {
-            "note_id": note["note_id"],
-            "title": note["title"],
-            "folder": note["folder"],
-            "tags": note["tags"],
-            "created_at": note["created_at"],
-            "updated_at": note["updated_at"],
-            "content": note["content"],
+            "note_id": note.note_id,
+            "title": note.title,
+            "folder": note.folder,
+            "tags": note.tags,
+            "created_at": note.created_at,
+            "updated_at": note.updated_at,
+            "content": note.content,
         }
     )
 

@@ -27,6 +27,7 @@ from kajet_turbo.services.notes.history import NoteVersionService
 from kajet_turbo.services.notes.links import NoteLinkService
 from kajet_turbo.services.notes.search import NoteSearchService
 from kajet_turbo.services.notes.tags import NoteTagService
+from kajet_turbo.services.notes.types import NoteData
 from kajet_turbo.workspace import (
     InvalidFolderError,
     normalize_folder,
@@ -265,7 +266,7 @@ class NoteService:
             "updated_at": note.updated_at,
         }
 
-    def get_with_content(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
+    def get_with_content(self, note_id: str, owner_id: str, ws_path: str) -> NoteData | None:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
             return None
@@ -273,17 +274,17 @@ class NoteService:
         if not Path(filepath).exists():
             return None
         note_data = read_note_file(filepath)
-        return {
-            "note_id": note.id,
-            "workspace": note.workspace,
-            "owner_id": note.owner_id,
-            "title": note.title,
-            "folder": note.folder,
-            "tags": json.loads(note.tags or "[]"),
-            "created_at": note.created_at,
-            "updated_at": note.updated_at,
-            "content": note_data["content"],
-        }
+        return NoteData(
+            note_id=note.id,
+            workspace=note.workspace,
+            owner_id=note.owner_id,
+            title=note.title,
+            folder=note.folder,
+            tags=json.loads(note.tags or "[]"),
+            created_at=note.created_at,
+            updated_at=note.updated_at,
+            content=note_data["content"],
+        )
 
     def preview_chunks(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
         """Live chunk preview for a note (reads current file content; never stored rows)."""
@@ -293,9 +294,7 @@ class NoteService:
         data = self.get_with_content(note_id, owner_id, ws_path)
         if data is None:
             return None
-        chunks = (
-            self._indexer.preview(note.title, data["content"], owner_id) if self._indexer else []
-        )
+        chunks = self._indexer.preview(note.title, data.content, owner_id) if self._indexer else []
         return {
             "note_id": note.id,
             "title": note.title,

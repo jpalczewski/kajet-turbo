@@ -49,4 +49,4 @@ def test_restore_note_version_reverts_content(auth_client):
 
     current = note_service.get_with_content(note_id, owner_id="u1", ws_path=workspace)
     assert response.status_code == 200
-    assert current["content"] == "original"
+    assert current.content == "original"

@@ -57,6 +57,17 @@ def test_save_git_error_rolls_back_file(service, workspace):
     assert md_files == []
 
 
+def test_get_with_content_returns_note_data(service, workspace):
+    from kajet_turbo.services.notes.types import NoteData
+
+    note_id = service.save("u1", "ws", str(workspace), "Title", "# Content", [])["note_id"]
+    result = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert isinstance(result, NoteData)
+    assert result.note_id == note_id
+    assert result.title == "Title"
+    assert result.content == "# Content"
+
+
 def test_get_with_content_returns_none_for_wrong_owner(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Notatka", "treść", [])
     note_id = result["note_id"]
@@ -68,8 +79,8 @@ def test_get_with_content_returns_content(service, workspace):
     note_id = result["note_id"]
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note is not None
-    assert note["content"] == "moja treść"
-    assert note["title"] == "Notatka"
+    assert note.content == "moja treść"
+    assert note.title == "Notatka"
 
 
 def test_update_git_error_reverts_file(service, workspace):
@@ -87,7 +98,7 @@ def test_update_git_error_reverts_file(service, workspace):
             note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść", confirm=True
         )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note["content"] == "stara treść"
+    assert note.content == "stara treść"
 
 
 def test_update_title_renames_file(service, workspace):
@@ -114,7 +125,7 @@ def test_update_append_mode_adds_to_section(service, workspace):
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert "- Pierwsze\n- Drugie" in note["content"]
+    assert "- Pierwsze\n- Drugie" in note.content
     # Edit produced a second commit (history grows).
     assert len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace))) == 2
 
@@ -132,7 +143,7 @@ def test_update_replace_text_mode(service, workspace):
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note["content"] == "Hello earth."
+    assert note.content == "Hello earth."
 
 
 def test_update_insert_after_mode(service, workspace):
@@ -148,7 +159,7 @@ def test_update_insert_after_mode(service, workspace):
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert "- A\n- A.5\n- B" in note["content"]
+    assert "- A\n- A.5\n- B" in note.content
 
 
 def test_update_edit_mode_requires_content(service, workspace):
@@ -173,7 +184,7 @@ def test_update_replace_text_content_none_deletes(service, workspace):
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note["content"] == "Hello ."
+    assert note.content == "Hello ."
 
 
 def test_update_delete_text_mode(service, workspace):
@@ -188,7 +199,7 @@ def test_update_delete_text_mode(service, workspace):
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note["content"] == "- A\n- C"
+    assert note.content == "- A\n- C"
 
 
 def test_update_replace_text_ambiguous_raises(service, workspace):
@@ -381,7 +392,7 @@ def test_restore_version_reverts_content(service, workspace):
     service.restore_version(note_id, sha_v1, owner_id="u1", ws_path=str(workspace))
 
     current = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert current["content"] == "treść oryginalna"
+    assert current.content == "treść oryginalna"
 
 
 def test_save_with_valid_wikilink_succeeds(service, workspace):
@@ -414,7 +425,7 @@ def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, worksp
     with pytest.raises(BrokenWikilinkError):
         service.update(note_id, owner_id="u1", ws_path=str(workspace), content="[[Ghost]]")
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note["content"] == "original"
+    assert note.content == "original"
 
 
 def test_update_append_mode_validates_after_apply_edit(service, workspace):
@@ -436,7 +447,7 @@ def test_update_to_valid_wikilink_succeeds(service, workspace):
         note_id, owner_id="u1", ws_path=str(workspace), content="link [[Target]]", confirm=True
     )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert "[[Target]]" in note["content"]
+    assert "[[Target]]" in note.content
 
 
 def test_save_records_note_link(service, workspace):
@@ -484,8 +495,8 @@ def test_move_rewrites_backlink_path(service, workspace):
     tid = service._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
     service.move(tid, owner_id="u1", ws_path=str(workspace), folder="New")
     src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
-    assert "[[New/Target|T]]" in src["content"]
-    assert "[[Old/Target" not in src["content"]
+    assert "[[New/Target|T]]" in src.content
+    assert "[[Old/Target" not in src.content
     # edge still points to the same target note
     assert service._link_service._link_repo.backlinks(tid) == [sid]
 
@@ -495,7 +506,7 @@ def test_rename_via_update_rewrites_backlink(service, workspace):
     sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
     service.update(tid, owner_id="u1", ws_path=str(workspace), title="Renamed")
     src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
-    assert "[[Renamed]]" in src["content"]
+    assert "[[Renamed]]" in src.content
 
 
 def test_move_rewrite_creates_commit_in_source_history(service, workspace):
@@ -575,7 +586,7 @@ def test_add_tags_unions_into_frontmatter(service, workspace):
     assert set(result["tags"]) == {"python", "work"}
     assert result["warnings"] == []
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert set(note["tags"]) == {"python", "work"}
+    assert set(note.tags) == {"python", "work"}
 
 
 def test_add_tags_idempotent_no_extra_commit(service, workspace):
@@ -608,7 +619,7 @@ def test_remove_tags_drops_from_frontmatter(service, workspace):
     assert result["frontmatter_tags"] == ["python"]
     assert result["warnings"] == []
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note["tags"] == ["python"]
+    assert note.tags == ["python"]
 
 
 def test_remove_absent_tag_is_noop(service, workspace):
@@ -646,7 +657,7 @@ def test_set_tags_overwrites_frontmatter(service, workspace):
     assert result["frontmatter_tags"] == ["docs"]  # normalized, deduped, invalid dropped
     assert len(result["warnings"]) == 1  # 'a b' warned
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note["tags"] == ["docs"]
+    assert note.tags == ["docs"]
 
 
 def test_set_tags_requires_confirmation_when_dropping(service, workspace):
@@ -661,7 +672,7 @@ def test_set_tags_requires_confirmation_when_dropping(service, workspace):
     assert set(result["would_remove_tags"]) == {"python", "work"}
     assert result["overwrites_content"] is False
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert set(note["tags"]) == {"python", "work"}
+    assert set(note.tags) == {"python", "work"}
     after = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
     assert after == before
 
@@ -695,7 +706,7 @@ def test_update_requires_confirmation_on_content_overwrite(service, workspace):
     assert result["requires_confirmation"] is True
     assert result["overwrites_content"] is True
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note["content"] == "stara treść"
+    assert note.content == "stara treść"
     after = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
     assert after == before
 
@@ -708,7 +719,7 @@ def test_update_confirm_applies_content_overwrite(service, workspace):
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note["content"] == "nowa treść"
+    assert note.content == "nowa treść"
 
 
 def test_update_no_gate_on_empty_body_overwrite(service, workspace):
@@ -720,7 +731,7 @@ def test_update_no_gate_on_empty_body_overwrite(service, workspace):
 
     assert result.get("requires_confirmation") is None
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note["content"] == "pierwsza treść"
+    assert note.content == "pierwsza treść"
 
 
 def test_update_no_gate_on_surgical_append(service, workspace):

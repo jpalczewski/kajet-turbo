@@ -178,7 +178,7 @@ def test_create_note_in_subfolder(auth_client):
     note_id = resp.json()["note_id"]
     note = note_svc.get_with_content(note_id, owner_id="u1", ws_path=ws_path)
     assert note is not None
-    assert note["folder"] == "docs"
+    assert note.folder == "docs"
 
 
 def test_create_note_duplicate_returns_409(auth_client):
@@ -215,7 +215,7 @@ def test_update_note_content(auth_client):
     assert resp.status_code == 200
     assert resp.json()["note_id"] == note_id
     updated = note_svc.get_with_content(note_id, owner_id="u1", ws_path=ws_path)
-    assert updated["content"] == "new content"
+    assert updated.content == "new content"
 
 
 def test_update_note_title(auth_client):
