@@ -56,6 +56,10 @@
     goto(noteInTreePath(slug, folder, data.noteId));
   }
 
+  function handleDeleteNote(): void {
+    goto(notesPath(slug, data.folderPath));
+  }
+
   function toggleDescendants() {
     // eslint-disable-next-line svelte/no-navigation-without-resolve
     goto(tagsPath(slug, data.tagPath, !data.includeDescendants));
@@ -127,7 +131,13 @@
 
   <section class="explorer__preview">
     <a class="explorer__back" href={notesPath(slug, data.folderPath)}>‹ Wstecz</a>
-    <NotePreview note={data.note} {slug} links={data.links} onmoved={handleMoveNote} />
+    <NotePreview
+      note={data.note}
+      {slug}
+      links={data.links}
+      onmoved={handleMoveNote}
+      ondeleted={handleDeleteNote}
+    />
   </section>
 </div>
 

@@ -11,11 +11,13 @@
     slug,
     links,
     onmoved,
+    ondeleted,
   }: {
     note: NoteHtmlResponse | null;
     slug: string;
     links: LinksResponse;
     onmoved: (folder: string) => void | Promise<void>;
+    ondeleted: () => void | Promise<void>;
   } = $props();
 
   let mode = $state<'content' | 'chunks'>('content');
@@ -34,7 +36,15 @@
     <div class="preview__header">
       <span class="preview__path">{note.folder ? note.folder + '/' : ''}{note.title}</span>
       <NoteModeToggle {mode} onchange={(m) => (mode = m)} />
-      <NoteActions {slug} noteId={note.note_id} folder={note.folder} variant="preview" {onmoved} />
+      <NoteActions
+        {slug}
+        noteId={note.note_id}
+        folder={note.folder}
+        noteTitle={note.title}
+        variant="preview"
+        {onmoved}
+        {ondeleted}
+      />
     </div>
     <div class="preview__main">
       <div class="preview__body">

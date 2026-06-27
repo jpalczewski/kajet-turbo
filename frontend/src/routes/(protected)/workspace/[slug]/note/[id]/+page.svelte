@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invalidate, invalidateAll } from '$app/navigation';
+  import { goto, invalidate, invalidateAll } from '$app/navigation';
   import { page } from '$app/state';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import NoteActions from '$lib/components/note/NoteActions.svelte';
@@ -22,6 +22,10 @@
     await invalidate('app:workspace-tree');
     await invalidateAll();
   }
+
+  function handleDelete(): void {
+    goto(notesPath(slug, note.folder ?? ''));
+  }
 </script>
 
 <main class="page">
@@ -40,8 +44,10 @@
             {slug}
             noteId={note.note_id}
             folder={note.folder}
+            noteTitle={note.title}
             variant="full"
             onmoved={handleMove}
+            ondeleted={handleDelete}
           />
         </div>
       </header>
