@@ -14,7 +14,7 @@ from kajet_turbo.repositories.sessions import SessionRepository
 
 router = APIRouter()
 
-_WS_KINDS = ["note_updated"]
+_WS_KINDS = ["note_updated", "workspace_changed"]
 
 
 async def _get_ws_user(

@@ -11,7 +11,13 @@ class NoteUpdatedEvent(BaseModel):
     updated_at: str
 
 
-ServerEvent = Annotated[NoteUpdatedEvent, Field(discriminator="type")]
+class WorkspaceChangedEvent(BaseModel):
+    type: Literal["workspace_changed"]
+    owner_id: str
+    workspace: str
+
+
+ServerEvent = Annotated[NoteUpdatedEvent | WorkspaceChangedEvent, Field(discriminator="type")]
 
 
 class PingMessage(BaseModel):

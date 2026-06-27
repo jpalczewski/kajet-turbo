@@ -6,7 +6,7 @@ from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from kajet_turbo.api.schemas.ws import NoteUpdatedEvent
+from kajet_turbo.api.schemas.ws import NoteUpdatedEvent, WorkspaceChangedEvent
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import event_repo
 from kajet_turbo.log import logged_tool
@@ -257,6 +257,12 @@ def build_crud(
             )
         except (ValueError, FileNotFoundError, FileExistsError, GitError) as e:
             raise ToolError(str(e)) from e
+        await run_sync(
+            event_repo.publish,
+            ws.owner_id,
+            "workspace_changed",
+            WorkspaceChangedEvent(type="workspace_changed", owner_id=ws.owner_id, workspace=ws.name).model_dump(),
+        )
         return MovedNoteResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
@@ -270,6 +276,12 @@ def build_crud(
             await run_sync(note_service.delete, note_id, owner_id=ws.owner_id, ws_path=ws.path)
         except ValueError as e:
             raise ToolError(str(e)) from e
+        await run_sync(
+            event_repo.publish,
+            ws.owner_id,
+            "workspace_changed",
+            WorkspaceChangedEvent(type="workspace_changed", owner_id=ws.owner_id, workspace=ws.name).model_dump(),
+        )
         return DeletedNoteResult(note_id=note_id)
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))

@@ -1,7 +1,9 @@
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
+from kajet_turbo.api.schemas.ws import WorkspaceChangedEvent
 from kajet_turbo.concurrency import run_sync
+from kajet_turbo.dependencies import event_repo
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
 from kajet_turbo.mcp.notes._types import (
@@ -59,6 +61,12 @@ def build_folders(
                 error=result["error"],
                 conflicts=[ConflictItem.model_validate(c) for c in result["conflicts"]],
             )
+        await run_sync(
+            event_repo.publish,
+            ws.owner_id,
+            "workspace_changed",
+            WorkspaceChangedEvent(type="workspace_changed", owner_id=ws.owner_id, workspace=ws.name).model_dump(),
+        )
         return MovedFolderResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "folders"}))
@@ -89,6 +97,12 @@ def build_folders(
                 error=result["error"],
                 conflicts=[ConflictItem.model_validate(c) for c in result["conflicts"]],
             )
+        await run_sync(
+            event_repo.publish,
+            ws.owner_id,
+            "workspace_changed",
+            WorkspaceChangedEvent(type="workspace_changed", owner_id=ws.owner_id, workspace=ws.name).model_dump(),
+        )
         return MovedFolderResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "folders"}, idempotent=True))
@@ -99,6 +113,12 @@ def build_folders(
         """Usuwa puste katalogi (osierocone po przenoszeniu notatek).
         Foldery z .gitkeep są zachowane."""
         result = await run_sync(note_service.prune_empty_folders, ws.path)
+        await run_sync(
+            event_repo.publish,
+            ws.owner_id,
+            "workspace_changed",
+            WorkspaceChangedEvent(type="workspace_changed", owner_id=ws.owner_id, workspace=ws.name).model_dump(),
+        )
         return PrunedFoldersResult.model_validate(result)
 
     return srv

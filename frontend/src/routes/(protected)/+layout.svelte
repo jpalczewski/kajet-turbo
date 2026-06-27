@@ -12,6 +12,8 @@
       if (event.type === 'note_updated') {
         invalidate(`app:note:${event.note_id}`);
         invalidate('app:workspace-tree');
+      } else if (event.type === 'workspace_changed') {
+        invalidate('app:workspace-tree');
       }
     });
   });
