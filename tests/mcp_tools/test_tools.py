@@ -1,6 +1,8 @@
 import json
 
+import pytest
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 
 from kajet_turbo.repositories.git import GitRepository
 
@@ -62,8 +64,8 @@ async def test_delete_note(workspaces_dir, mcp_server):
         )
         note_id = json.loads(save_result.content[0].text)["note_id"]
         await client.call_tool("delete_note", {"note_id": note_id})
-        get_result = await client.call_tool("get_note", {"note_id": note_id})
-        assert "error" in json.loads(get_result.content[0].text)
+        with pytest.raises(ToolError):
+            await client.call_tool("get_note", {"note_id": note_id})
 
 
 async def test_edit_note_overwrite(workspaces_dir, mcp_server):
@@ -114,11 +116,11 @@ async def test_edit_note_replace_text_ambiguous_errors(workspaces_dir, mcp_serve
             "save_note", {"title": "Dwa razy", "content": "foo bar foo"}
         )
         note_id = json.loads(save_result.content[0].text)["note_id"]
-        edit_result = await client.call_tool(
-            "edit_note",
-            {"note_id": note_id, "mode": "replace_text", "old_text": "foo", "content": "qux"},
-        )
-        assert "error" in json.loads(edit_result.content[0].text)
+        with pytest.raises(ToolError):
+            await client.call_tool(
+                "edit_note",
+                {"note_id": note_id, "mode": "replace_text", "old_text": "foo", "content": "qux"},
+            )
 
 
 async def test_move_note_and_list_folders(workspaces_dir, mcp_server):
@@ -438,11 +440,8 @@ async def test_anon_no_cross_session_persistence(workspaces_dir, mcp_server):
         await client_a.call_tool("activate_workspace", {"name": "test-ws"})
 
     async with Client(mcp) as client_b:
-        save_result = await client_b.call_tool(
-            "save_note", {"title": "Should fail", "content": "body"}
-        )
-    payload = json.loads(save_result.content[0].text)
-    assert "activate_workspace" in payload["error"]
+        with pytest.raises(ToolError, match="activate_workspace"):
+            await client_b.call_tool("save_note", {"title": "Should fail", "content": "body"})
 
 
 async def test_fallback_writes_to_user_scoped_path(authed_workspaces_dir, authed_mcp_server):
@@ -468,8 +467,7 @@ async def test_search_all_scope_after_fallback(authed_workspaces_dir, authed_mcp
         search_result = await client_b.call_tool(
             "search_notes", {"query": "anything", "workspace": "all"}
         )
-    payload = json.loads(search_result.content[0].text)
-    assert isinstance(payload, list)  # not an {"error": ...} dict
+    assert not search_result.is_error  # not an {"error": ...} — fallback returned valid list
 
 
 async def test_same_session_fast_path_unchanged(authed_workspaces_dir, authed_mcp_server):
@@ -522,14 +520,18 @@ async def test_get_note_links(workspaces_dir, mcp_server):
         result = json.loads(
             (await client.call_tool("get_note_links", {"note_id": source_id})).content[0].text
         )
-        assert result["outlinks"] == [{"note_id": target_id, "title": "Target", "folder": ""}]
+        assert result["outlinks"] == [
+            {"note_id": target_id, "title": "Target", "folder": "", "tags": None, "updated_at": None}
+        ]
         assert result["backlinks"] == []
 
         # backlinks of Target → Source
         result = json.loads(
             (await client.call_tool("get_note_links", {"note_id": target_id})).content[0].text
         )
-        assert result["backlinks"] == [{"note_id": source_id, "title": "Source", "folder": ""}]
+        assert result["backlinks"] == [
+            {"note_id": source_id, "title": "Source", "folder": "", "tags": None, "updated_at": None}
+        ]
         assert result["outlinks"] == []
 
 
@@ -537,10 +539,8 @@ async def test_get_note_links_not_found(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        result = json.loads(
-            (await client.call_tool("get_note_links", {"note_id": "nonexistent"})).content[0].text
-        )
-        assert "error" in result
+        with pytest.raises(ToolError):
+            await client.call_tool("get_note_links", {"note_id": "nonexistent"})
 
 
 async def test_get_note_links_include_meta(workspaces_dir, mcp_server):
