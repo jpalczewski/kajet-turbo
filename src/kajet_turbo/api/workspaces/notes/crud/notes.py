@@ -17,7 +17,7 @@ from kajet_turbo.dependencies import get_note_service, get_required_user, get_wo
 from kajet_turbo.errors import AuthError, FolderError, NoteError
 from kajet_turbo.log import logged_route
 from kajet_turbo.markdown import BrokenWikilinkError
-from kajet_turbo.repositories.git import GitError
+from kajet_turbo.repositories.git import GitError  # exception class, not errors.GitError StrEnum
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.workspace import InvalidFolderError, note_filepath

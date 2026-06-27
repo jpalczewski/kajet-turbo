@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from kajet_turbo.api.schemas import LsResponse, TagsResponse
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
-from kajet_turbo.errors import AuthError
+from kajet_turbo.errors import AuthError, FolderError
 from kajet_turbo.log import logged_route
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -55,9 +55,9 @@ def api_ls(
         folder_abs = (ws_root / path).resolve() if path else ws_root
         folder_abs.relative_to(ws_root)
     except ValueError, OSError:
-        raise HTTPException(status_code=400, detail="INVALID_PATH") from None
+        raise HTTPException(status_code=400, detail=FolderError.PATH_INVALID) from None
     if path and not folder_abs.is_dir():
-        raise HTTPException(status_code=404, detail="FOLDER_NOT_FOUND")
+        raise HTTPException(status_code=404, detail=FolderError.NOT_FOUND)
     if recursive:
         return JSONResponse({"folders": note_service.list_folders(ws_path)[1:], "entries": []})
     subdirs = sorted(
