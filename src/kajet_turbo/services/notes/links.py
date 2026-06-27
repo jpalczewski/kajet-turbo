@@ -13,6 +13,9 @@ from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
 from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
 
+type BrokenPairs = list[tuple[str, str]]
+type ResolvedIds = set[str]
+
 
 class NoteLinkService:
     def __init__(
@@ -38,7 +41,7 @@ class NoteLinkService:
         owner_id: str,
         content: str,
         extra_targets: dict[tuple[str, str], str] | None = None,
-    ) -> tuple[set[str], list[tuple[str, str]]]:
+    ) -> tuple[ResolvedIds, BrokenPairs]:
         """Resolve every wikilink in ``content``. Returns ``(resolved_ids, broken_pairs)``.
 
         ``extra_targets`` maps ``(folder, title) -> note_id`` for notes created in the

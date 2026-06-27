@@ -9,6 +9,8 @@ from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
 
+type TaggedPairs = list[tuple[str, str]]
+
 
 class NoteTagService:
     def __init__(
