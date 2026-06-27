@@ -3,7 +3,7 @@ from key_value.aio.stores.memory import MemoryStore
 
 from kajet_turbo.auth import KajetOAuthProvider
 from kajet_turbo.mcp.notes import build_notes
-from kajet_turbo.mcp.workspaces import register_workspaces
+from kajet_turbo.mcp.workspaces import build_workspaces
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.services.notes import NoteService
@@ -19,6 +19,10 @@ def build_mcp(
 ) -> FastMCP:
     state_store = MemoryStore()
     mcp = FastMCP("kajet-turbo", auth=provider, session_state_store=state_store)
-    register_workspaces(mcp, workspace_service, oauth_repo, active_workspace_repo)
+    mcp.mount(
+        build_workspaces(
+            workspace_service, oauth_repo, active_workspace_repo, state_store=state_store
+        )
+    )
     mcp.mount(build_notes(note_service, workspace_service, state_store=state_store))
     return mcp

@@ -11,7 +11,7 @@ async def test_list_workspaces(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         result = await client.call_tool("list_workspaces")
-    names = [w["name"] for w in json.loads(result.content[0].text)]
+    names = [w["name"] for w in json.loads(result.content[0].text)["workspaces"]]
     assert "test-ws" in names
 
 
@@ -25,8 +25,8 @@ async def test_activate_workspace(workspaces_dir, mcp_server):
 async def test_activate_nonexistent_workspace(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        result = await client.call_tool("activate_workspace", {"name": "nie-istnieje"})
-    assert "aktywny" not in result.content[0].text.lower()
+        with pytest.raises(ToolError):
+            await client.call_tool("activate_workspace", {"name": "nie-istnieje"})
 
 
 async def test_save_and_get_note(workspaces_dir, mcp_server):

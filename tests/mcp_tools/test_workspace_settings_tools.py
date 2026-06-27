@@ -1,6 +1,7 @@
 import json
 
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 
 
 async def test_list_workspace_settings_shape(authed_workspaces_dir, authed_mcp_server):
@@ -20,9 +21,14 @@ async def test_list_workspace_settings_shape(authed_workspaces_dir, authed_mcp_s
 async def test_list_workspace_settings_no_access(authed_workspaces_dir, authed_mcp_server):
     mcp = authed_mcp_server.server
     async with Client(mcp) as client:
-        result = await client.call_tool("list_workspace_settings", {"name": "no-such-ws"})
-    data = json.loads(result.content[0].text)
-    assert "error" in data
+        try:
+            await client.call_tool("list_workspace_settings", {"name": "no-such-ws"})
+        except ToolError as e:
+            data = json.loads(str(e))
+            assert "brak dostępu" in data["error"]
+            assert data["available"] == ["test-ws"]
+        else:  # pragma: no cover
+            raise AssertionError("Expected ToolError")
 
 
 async def test_set_workspace_setting_flips_value(authed_workspaces_dir, authed_mcp_server):
@@ -55,9 +61,14 @@ async def test_set_workspace_setting_persists(authed_workspaces_dir, authed_mcp_
 async def test_set_workspace_setting_no_access(authed_workspaces_dir, authed_mcp_server):
     mcp = authed_mcp_server.server
     async with Client(mcp) as client:
-        result = await client.call_tool(
-            "set_workspace_setting",
-            {"name": "no-such-ws", "setting": "validate_links", "value": False},
-        )
-    data = json.loads(result.content[0].text)
-    assert "error" in data
+        try:
+            await client.call_tool(
+                "set_workspace_setting",
+                {"name": "no-such-ws", "setting": "validate_links", "value": False},
+            )
+        except ToolError as e:
+            data = json.loads(str(e))
+            assert "brak dostępu" in data["error"]
+            assert data["available"] == ["test-ws"]
+        else:  # pragma: no cover
+            raise AssertionError("Expected ToolError")
