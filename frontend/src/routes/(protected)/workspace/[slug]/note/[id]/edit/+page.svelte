@@ -6,6 +6,7 @@
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
   import TagEditor from '$lib/components/TagEditor.svelte';
   import { notePath, notesPath } from '$lib/routes';
 
@@ -43,13 +44,13 @@
     }
   }
 
-  async function handleDelete() {
-    if (!window.confirm(`Usunąć notatkę "${note.title}"?`)) return;
+  async function doDelete() {
     try {
       await apiDeleteNoteApiWorkspacesNameNotesNoteIdDelete(slug, note.note_id);
     } catch (e) {
-      saveError = apiErrorMessage(e, 'Nie udało się usunąć');
-      return;
+      throw new Error(apiErrorMessage(e, 'Nie udało się usunąć'), {
+        cause: e,
+      });
     }
     await invalidate('app:workspace-tree');
     goto(notesPath(slug, note.folder ?? ''));
@@ -83,7 +84,17 @@
         {saving ? 'Zapisywanie…' : 'Zapisz'}
       </button>
       <button class="btn btn--secondary" onclick={handleCancel}>Anuluj</button>
-      <button class="btn btn--danger" onclick={handleDelete}>Usuń</button>
+      <ConfirmDialog
+        title="Usuń notatkę"
+        message={`Usunąć "${note.title}"?`}
+        confirmLabel="Usuń"
+        confirmVariant="danger"
+        onconfirm={doDelete}
+      >
+        {#snippet trigger({ open })}
+          <button class="btn btn--danger" onclick={open}>Usuń</button>
+        {/snippet}
+      </ConfirmDialog>
     </div>
   </div>
 </main>

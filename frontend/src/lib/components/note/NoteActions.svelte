@@ -28,7 +28,9 @@
     try {
       await apiDeleteNoteApiWorkspacesNameNotesNoteIdDelete(slug, noteId);
     } catch (e) {
-      throw new Error(apiErrorMessage(e, 'Nie udało się usunąć notatki'));
+      throw new Error(apiErrorMessage(e, 'Nie udało się usunąć notatki'), {
+        cause: e,
+      });
     }
     await invalidate('app:workspace-tree');
     ondeleted();
