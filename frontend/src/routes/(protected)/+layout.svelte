@@ -11,6 +11,7 @@
     return wsConnection.onEvent((event: ServerEvent) => {
       if (event.type === 'note_updated') {
         invalidate(`app:note:${event.note_id}`);
+        invalidate('app:workspace-tree');
       }
     });
   });
