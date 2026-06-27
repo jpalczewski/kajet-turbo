@@ -345,6 +345,18 @@ class Job(SQLModel, table=True):
     updated_at: float
 
 
+class Event(SQLModel, table=True):
+    __tablename__ = "events"
+
+    id: str = Field(primary_key=True)
+    owner_id: str
+    kind: str
+    payload: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: float
+
+    __table_args__ = (Index("ix_events_poll", "owner_id", "created_at"),)
+
+
 class WorkspaceRemote(SQLModel, table=True):
     """Per-workspace external git remote for auto-push. The DB is the source of
     truth (``.git/config`` is only a mirror). Keyed ``(user_id, workspace)`` like
