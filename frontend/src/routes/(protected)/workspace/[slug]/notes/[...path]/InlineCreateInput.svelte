@@ -1,5 +1,6 @@
 <script lang="ts">
   import { autofocus } from '$lib/actions/focus';
+  import { apiErrorMessage } from '$lib/api/mutate';
 
   let {
     placeholder,
@@ -34,7 +35,7 @@
     try {
       await onsubmit(trimmed);
     } catch (err: unknown) {
-      error = err instanceof Error ? err.message : 'Błąd';
+      error = apiErrorMessage(err, 'Błąd');
     }
   }
 </script>
