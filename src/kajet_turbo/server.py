@@ -57,6 +57,14 @@ async def _logging_lifespan(app: FastAPI):
     yield
 
 
+@asynccontextmanager
+async def _sweep_outbox_lifespan(app: FastAPI):
+    from kajet_turbo.dependencies import job_repo as _job_repo
+
+    _job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox")
+    yield
+
+
 class _SPAFiles:
     """Starlette mount serving index.html for any path without a matching file (SPA fallback)."""
 
@@ -149,7 +157,11 @@ def build_api_app() -> Any:
 def build_app() -> Any:
     """Combined role ("all"): MCP + API + SPA in one process (local dev)."""
     mcp_app = _new_mcp_app()
-    app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan, _logging_lifespan))
+    app = FastAPI(
+        lifespan=combine_lifespans(
+            _app_lifespan, mcp_app.lifespan, _logging_lifespan, _sweep_outbox_lifespan
+        )
+    )
     app.add_exception_handler(HTTPException, _http_exception_handler)  # ty: ignore[invalid-argument-type] — FastAPI accepts narrower exc type at runtime
     app.add_middleware(LoggingMiddleware)
     app.include_router(api_router)

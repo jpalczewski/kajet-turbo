@@ -8,6 +8,7 @@ from starlette import status
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_event_repo, get_session_repo
+from kajet_turbo.log import logger
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.sessions import SessionRepository
 
@@ -38,7 +39,11 @@ async def ws_endpoint(
     async def _sender() -> None:
         while True:
             await asyncio.sleep(2.0)
-            events = await run_sync(event_repo.claim, user["id"], _WS_KINDS)
+            try:
+                events = await run_sync(event_repo.claim, user["id"], _WS_KINDS)
+            except Exception:
+                logger.warning("ws_claim_error", user_id=user["id"])
+                continue
             for event in events:
                 await websocket.send_json(json.loads(event.payload))
 
