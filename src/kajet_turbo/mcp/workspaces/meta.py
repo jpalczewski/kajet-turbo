@@ -47,7 +47,8 @@ def build_meta(
         await ctx.set_state("active_owner_id", owner_id)
         if user_id is not None:
             scope = active_workspace_scope(ctx)
-            await run_sync(active_workspace_repo.set, user_id, name, scope)
+            if scope is not None:
+                await run_sync(active_workspace_repo.set, user_id, name, scope)
         else:
             scope = None
         logger.info("workspace_switched", ws=name, scope=scope)

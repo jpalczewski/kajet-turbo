@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from fastmcp.dependencies import CurrentContext, Depends
 from fastmcp.exceptions import ToolError
 from fastmcp.server.context import Context
-from fastmcp.server.dependencies import get_access_token
+from fastmcp.server.dependencies import get_access_token, get_context
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logger
@@ -29,7 +29,6 @@ class McpContextDeps:
 
 deps = McpContextDeps()
 MCP_CONTEXT = CurrentContext()
-LEGACY_ACTIVE_WORKSPACE_SCOPE = "user"
 
 
 def configure_mcp_context(
@@ -96,8 +95,12 @@ async def active_workspace(ctx: Context = MCP_CONTEXT) -> ActiveWorkspace:
     user_id = await resolve_user_id()
     if user_id is not None and deps.active_workspace_repo is not None:
         scope = active_workspace_scope(ctx)
-        db_name = await run_sync(deps.active_workspace_repo.get, user_id, scope)
-        if db_name:
+        db_name = (
+            await run_sync(deps.active_workspace_repo.get, user_id, scope)
+            if scope is not None
+            else None
+        )
+        if db_name and scope is not None:
             await ctx.set_state("active_workspace", db_name)
             await ctx.set_state("active_user_id", user_id)
             await ctx.set_state("active_owner_id", user_id)
@@ -123,11 +126,22 @@ async def get_active_workspace(ctx: Context) -> tuple[str, str, str]:
     return ws.owner_id, ws.name, ws.path
 
 
-def active_workspace_scope(ctx: Context) -> str:
-    session_id = getattr(ctx, "session_id", None)
+def active_workspace_scope(ctx: Context) -> str | None:
+    session_id = _context_session_id(ctx)
     if session_id:
         return f"mcp-session:{session_id}"
-    return LEGACY_ACTIVE_WORKSPACE_SCOPE
+    return None
+
+
+def _context_session_id(ctx: Context) -> str | None:
+    try:
+        return ctx.session_id
+    except Exception:
+        pass
+    try:
+        return get_context().session_id
+    except Exception:
+        return None
 
 
 ACTIVE_WORKSPACE = Depends(active_workspace)
