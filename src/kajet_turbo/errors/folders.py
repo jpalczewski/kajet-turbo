@@ -1,0 +1,7 @@
+from enum import StrEnum
+
+
+class FolderError(StrEnum):
+    PATH_REQUIRED = "FOLDER_PATH_REQUIRED"
+    PATH_INVALID = "FOLDER_PATH_INVALID"
+    INVALID_FOLDER = "INVALID_FOLDER"
