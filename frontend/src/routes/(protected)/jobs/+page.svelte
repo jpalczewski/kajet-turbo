@@ -7,16 +7,16 @@
     type apiListJobsApiMeJobsGetResponse,
   } from '$lib/api';
   import { customFetch } from '$lib/api/fetcher';
-  import { apiErrorMessage } from '$lib/api/mutate';
+  import { useAsyncAction } from '$lib/utils/async-action.svelte';
   import { formatUnixDateTime } from '$lib/utils/format';
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
 
   let { data } = $props();
 
   // svelte-ignore state_referenced_locally
   let jobs = $state<JobItem[]>(data.jobs);
   let statusFilter = $state<string>('');
-  let busy = $state(false);
-  let actionError = $state('');
+  const action = useAsyncAction();
 
   async function reload() {
     const url = statusFilter
@@ -27,37 +27,23 @@
   }
 
   async function retry(id: string) {
-    busy = true;
-    actionError = '';
-    try {
+    await action.run(async () => {
       const r = await apiRetryJobApiMeJobsJobIdRetryPost(id);
       if (r.status !== 200) {
-        actionError = 'Nie udało się ponowić zadania.';
-      } else {
-        await reload();
+        throw new Error('Nie udało się ponowić zadania.');
       }
-    } catch (e) {
-      actionError = apiErrorMessage(e, 'Nie udało się ponowić zadania.');
-    } finally {
-      busy = false;
-    }
+      await reload();
+    }, 'Nie udało się ponowić zadania.');
   }
 
   async function dismiss(id: string) {
-    busy = true;
-    actionError = '';
-    try {
+    await action.run(async () => {
       const r = await apiDismissJobApiMeJobsJobIdDelete(id);
       if (r.status !== 200) {
-        actionError = 'Nie udało się odrzucić zadania.';
-      } else {
-        await reload();
+        throw new Error('Nie udało się odrzucić zadania.');
       }
-    } catch (e) {
-      actionError = apiErrorMessage(e, 'Nie udało się odrzucić zadania.');
-    } finally {
-      busy = false;
-    }
+      await reload();
+    }, 'Nie udało się odrzucić zadania.');
   }
 
   // Live status: poll while the page is mounted; re-run (and restart timer)
@@ -96,12 +82,12 @@
     </label>
   </div>
 
-  {#if actionError}
-    <p class="action-error">{actionError}</p>
+  {#if action.error}
+    <p class="action-error">{action.error}</p>
   {/if}
 
   {#if jobs.length === 0}
-    <p class="empty">Brak zadań.</p>
+    <EmptyState>Brak zadań.</EmptyState>
   {:else}
     <ul class="job-list">
       {#each jobs as job (job.id)}
@@ -136,7 +122,7 @@
               <button
                 type="button"
                 class="btn-primary job-card__btn"
-                disabled={busy}
+                disabled={action.busy}
                 onclick={() => retry(job.id)}
               >
                 Ponów
@@ -146,7 +132,7 @@
               <button
                 type="button"
                 class="job-card__btn job-card__btn--danger"
-                disabled={busy}
+                disabled={action.busy}
                 onclick={() => dismiss(job.id)}
               >
                 Odrzuć
@@ -229,14 +215,6 @@
     font-family: v.$font-mono;
     color: v.$error;
     margin: 0 0 v.$space-md;
-  }
-
-  .empty {
-    font-size: 0.85rem;
-    font-family: v.$font-mono;
-    color: v.$text-muted;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
   }
 
   .job-list {
