@@ -192,6 +192,10 @@ def get_embedding_profile_service() -> EmbeddingProfileService:
     return embedding_profile_service
 
 
+def get_folder_meta_repo() -> FolderMetaRepository:
+    return folder_meta_repo
+
+
 def get_note_repo() -> NoteRepository:
     return note_repo
 

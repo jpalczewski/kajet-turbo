@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class NoteItem(BaseModel):
@@ -108,3 +108,14 @@ class CreateFolderRequest(BaseModel):
 
 class CreateFolderResponse(BaseModel):
     path: str
+
+
+class FolderMetaResponse(BaseModel):
+    path: str = Field(description="Folder path; empty string means workspace root")
+    description: str = Field(description="What this folder is for")
+    instructions: str = Field(description="LLM instructions for working with notes in this folder")
+
+
+class UpdateFolderMetaRequest(BaseModel):
+    description: str = Field(description="What this folder is for; empty string clears the field")
+    instructions: str = Field(description="LLM instructions for working with notes in this folder; empty string clears")

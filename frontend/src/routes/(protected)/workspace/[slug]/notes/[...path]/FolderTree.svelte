@@ -3,6 +3,7 @@
   import { SvelteSet } from 'svelte/reactivity';
   import { notesPath } from '$lib/routes';
   import InlineCreateInput from './InlineCreateInput.svelte';
+  import FolderMetaDialog from './FolderMetaDialog.svelte';
   import { ancestors, buildTree } from './tree';
   import type { TreeNode } from './tree';
 
@@ -41,6 +42,14 @@
   }
 
   let creatingIn: string | null = $state(null);
+  let metaDialog: FolderMetaDialog;
+  let editingFolder = $state('');
+
+  function openMeta(path: string, e: MouseEvent) {
+    e.stopPropagation();
+    editingFolder = path;
+    metaDialog.open();
+  }
 
   function startCreating() {
     creatingIn = currentFolder;
@@ -80,17 +89,22 @@
 
 {#snippet node(n: TreeNode)}
   <li>
-    <button
-      class="folder-row"
-      class:active={currentFolder === n.fullPath}
-      onclick={() => {
-        toggle(n.fullPath);
-        navigate(n.fullPath);
-      }}
-    >
-      <span class="folder-chevron">{expanded.has(n.fullPath) ? '▼' : '▶'}</span>
-      <span class="folder-name">{n.name}/</span>
-    </button>
+    <div class="folder-row-wrap">
+      <button
+        class="folder-row"
+        class:active={currentFolder === n.fullPath}
+        onclick={() => {
+          toggle(n.fullPath);
+          navigate(n.fullPath);
+        }}
+      >
+        <span class="folder-chevron">{expanded.has(n.fullPath) ? '▼' : '▶'}</span>
+        <span class="folder-name">{n.name}/</span>
+      </button>
+      <button class="meta-btn" onclick={(e) => openMeta(n.fullPath, e)} title="Edytuj metadane"
+        >⚙</button
+      >
+    </div>
     {#if expanded.has(n.fullPath)}
       <ul class="subtree">
         {#each n.children as child (child.fullPath)}
@@ -120,6 +134,8 @@
     {@render inlineInput('')}
   </ul>
 </nav>
+
+<FolderMetaDialog bind:this={metaDialog} {slug} folder={editingFolder} />
 
 <style lang="scss">
   @use '$lib/styles/variables' as v;
@@ -198,6 +214,36 @@
 
     &:hover {
       color: v.$accent-hover;
+    }
+  }
+
+  .folder-row-wrap {
+    display: flex;
+    align-items: center;
+
+    .folder-row {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .meta-btn {
+      display: none;
+      background: none;
+      border: none;
+      color: v.$text-muted;
+      font-size: 0.75rem;
+      line-height: 1;
+      padding: 0 6px;
+      cursor: pointer;
+      flex-shrink: 0;
+
+      &:hover {
+        color: v.$accent;
+      }
+    }
+
+    &:hover .meta-btn {
+      display: block;
     }
   }
 

@@ -123,6 +123,15 @@ export interface ErrorResponse {
   detail?: string | null;
 }
 
+export interface FolderMetaResponse {
+  /** Folder path; empty string means workspace root */
+  path: string;
+  /** What this folder is for */
+  description: string;
+  /** LLM instructions for working with notes in this folder */
+  instructions: string;
+}
+
 export type ValidationErrorCtx = { [key: string]: unknown };
 
 export interface ValidationError {
@@ -272,6 +281,13 @@ export interface TagNode {
 
 export interface TagsResponse {
   tags: TagNode[];
+}
+
+export interface UpdateFolderMetaRequest {
+  /** What this folder is for; empty string clears the field */
+  description: string;
+  /** LLM instructions for working with notes in this folder; empty string clears */
+  instructions: string;
 }
 
 export interface UpdateNoteResponse {
@@ -1348,6 +1364,117 @@ export const apiCreateFolderApiWorkspacesNameFoldersPost = async (name: string, 
     method: 'POST'
 
 
+  }
+);}
+
+
+
+export type apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse200 = {
+  data: FolderMetaResponse
+  status: 200
+}
+
+export type apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponseSuccess = (apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse200) & {
+  headers: Headers;
+};
+export type apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponseError = (apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse401 | apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse403 | apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse = (apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponseSuccess | apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponseError)
+
+export const getApiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetUrl = (name: string,
+    path: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/folders/${path}/meta`
+}
+
+/**
+ * @summary Api Get Folder Meta
+ */
+export const apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGet = async (name: string,
+    path: string, options?: RequestInit): Promise<apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse> => {
+
+  return customFetch<apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse>(getApiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetUrl(name,path),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse200 = {
+  data: FolderMetaResponse
+  status: 200
+}
+
+export type apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponseSuccess = (apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse200) & {
+  headers: Headers;
+};
+export type apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponseError = (apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse401 | apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse403 | apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse422) & {
+  headers: Headers;
+};
+
+export type apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse = (apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponseSuccess | apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponseError)
+
+export const getApiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutUrl = (name: string,
+    path: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/folders/${path}/meta`
+}
+
+/**
+ * @summary Api Update Folder Meta
+ */
+export const apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPut = async (name: string,
+    path: string,
+    updateFolderMetaRequest: UpdateFolderMetaRequest, options?: RequestInit): Promise<apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse> => {
+
+  return customFetch<apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse>(getApiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutUrl(name,path),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateFolderMetaRequest)
   }
 );}
 
