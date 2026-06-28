@@ -36,8 +36,6 @@ def _make_sweep_handler(event_repo, job_repo):
 
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI):
-    gil_enabled = sys._is_gil_enabled() if hasattr(sys, "_is_gil_enabled") else True
-    logger.info("runtime", python=sys.version.split()[0], free_threading=not gil_enabled)
     admin_email = os.getenv("KAJET_ADMIN_EMAIL")
     admin_password = os.getenv("KAJET_ADMIN_PASSWORD")
     if admin_email and admin_password and user_repo.count() == 0:
@@ -55,6 +53,8 @@ async def _logging_lifespan(app: FastAPI):
     # setup_logging() replaces that handler with our _InterceptHandler so
     # FastMCP's internal messages flow through loguru and out as JSONL.
     setup_logging()
+    gil_enabled = sys._is_gil_enabled() if hasattr(sys, "_is_gil_enabled") else True
+    logger.info("runtime", python=sys.version.split()[0], free_threading=not gil_enabled)
     yield
 
 
