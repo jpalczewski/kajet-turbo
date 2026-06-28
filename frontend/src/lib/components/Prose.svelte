@@ -80,6 +80,13 @@
       cursor: pointer;
     }
 
+    // Cross-workspace wikilink: same clickable style as intra-workspace, plus a muted
+    // workspace indicator via opacity — visually distinct without being distracting.
+    :global(a.xws-wikilink) {
+      opacity: 0.8;
+      text-decoration-style: dashed;
+    }
+
     // Broken wikilink: target no longer resolves — flag it, not clickable.
     :global(.wikilink-broken) {
       color: v.$text-muted;
