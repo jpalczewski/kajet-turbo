@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import type { NoteItem } from '$lib/api';
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import { noteInTreePath } from '$lib/routes';
   import { formatDate, formatSize } from '$lib/utils/format';
   import InlineCreateInput from './InlineCreateInput.svelte';
@@ -54,7 +55,7 @@
   {/if}
 
   {#if notes.length === 0}
-    <p class="notes-list__empty">Brak notatek.</p>
+    <EmptyState>Brak notatek.</EmptyState>
   {:else}
     <ul>
       {#each notes as note (note.note_id)}
@@ -111,13 +112,6 @@
       border: 1px solid v.$border;
       border-radius: v.$radius-sm;
       padding: 1px 6px;
-    }
-
-    &__empty {
-      font-family: v.$font-mono;
-      font-size: 0.8rem;
-      color: v.$text-muted;
-      padding: 16px 12px;
     }
 
     ul {

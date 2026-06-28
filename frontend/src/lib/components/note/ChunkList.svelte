@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ChunkPreviewResponse } from '$lib/api';
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
 
   let { preview, showHeader = false }: { preview: ChunkPreviewResponse; showHeader?: boolean } =
     $props();
@@ -18,7 +19,7 @@
 {/if}
 
 {#if preview.chunks.length === 0}
-  <p class="empty">Brak chunków (pusta notatka).</p>
+  <EmptyState>Brak chunków (pusta notatka).</EmptyState>
 {:else}
   <ul class="chunk-list">
     {#each preview.chunks as chunk (chunk.ordinal)}
@@ -78,12 +79,6 @@
       border-color: v.$text-muted;
       color: v.$text-muted;
     }
-  }
-
-  .empty {
-    font-size: 0.85rem;
-    font-family: v.$font-mono;
-    color: v.$text-muted;
   }
 
   .chunk-list {

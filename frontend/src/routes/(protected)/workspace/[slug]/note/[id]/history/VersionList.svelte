@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { NoteHistoryEntry } from '$lib/api';
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import { formatUnixDateTime } from '$lib/utils/format';
 
   let {
@@ -15,7 +16,7 @@
 
 <aside class="history-list">
   {#if entries.length === 0}
-    <p class="empty">Brak historii.</p>
+    <EmptyState>Brak historii.</EmptyState>
   {/if}
   {#each entries as entry (entry.sha)}
     <button
@@ -77,11 +78,5 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-  }
-
-  .empty {
-    font-size: 0.85rem;
-    font-family: v.$font-mono;
-    color: v.$text-muted;
   }
 </style>

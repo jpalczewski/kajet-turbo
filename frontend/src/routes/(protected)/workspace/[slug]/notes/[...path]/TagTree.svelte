@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { SvelteSet } from 'svelte/reactivity';
   import type { TagNode } from '$lib/api';
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import { tagsPath } from '$lib/routes';
   import { buildTagTree, tagAncestors, type TagTreeNode } from './tagTree';
 
@@ -65,7 +66,7 @@
 
 <nav class="tag-tree">
   {#if tree.length === 0}
-    <p class="tag-empty">Brak tagów.</p>
+    <EmptyState>Brak tagów.</EmptyState>
   {:else}
     <ul class="tree-root">
       {#each tree as n (n.fullPath)}
@@ -124,10 +125,5 @@
   .tag-count {
     font-size: 0.68rem;
     color: v.$accent-dark;
-  }
-  .tag-empty {
-    color: v.$text-muted;
-    padding: 12px;
-    font-size: 0.8rem;
   }
 </style>
