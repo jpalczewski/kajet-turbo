@@ -36,4 +36,4 @@
 <button onclick={handleConsent} disabled={submitting} class="btn-primary">
   {submitting ? 'Autoryzowanie…' : 'Zezwól na dostęp'}
 </button>
-<button onclick={onLogout} class="btn-ghost">Wyloguj się</button>
+<button onclick={onLogout} class="btn-ghost btn-ghost--block">Wyloguj się</button>
