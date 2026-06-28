@@ -411,6 +411,27 @@ def test_save_with_broken_wikilink_rejected_and_no_file(service, workspace):
     assert not (workspace / "Source.md").exists()
 
 
+def test_save_with_cross_workspace_link_succeeds(service, workspace):
+    """[[note:ID]] never raises BrokenWikilinkError even when ID does not exist."""
+    result = service.save("u1", "ws1", str(workspace), "Source", "link to [[note:nonexistent-id-xyz]]", [])
+    assert "note_id" in result
+
+
+def test_save_with_cross_workspace_link_to_existing_note_records_edge(service, workspace):
+    """[[note:ID]] where ID exists is stored in note_links."""
+    target_id = service.save("u1", "ws2", str(workspace), "Target", "", [])["note_id"]
+    source_id = service.save("u1", "ws1", str(workspace), "Source", f"link to [[note:{target_id}]]", [])["note_id"]
+    backlinks = service._link_service._link_repo.backlinks(target_id)
+    assert source_id in backlinks
+
+
+def test_save_cross_workspace_link_does_not_create_dangling(service, workspace):
+    """[[note:nonexistent]] leaves no outgoing note_links row for source."""
+    note_id = service.save("u1", "ws1", str(workspace), "Source", "[[note:ghost-id-000]]", [])["note_id"]
+    outlinks = service._link_service._link_repo.outlinks(note_id)
+    assert outlinks == []
+
+
 def test_save_wikilink_in_code_is_not_validated(service, workspace):
     # `[[Ghost]]` inside inline code must not trigger validation.
     result = service.save("u1", "ws", str(workspace), "Source", "code `[[Ghost]]` here", [])

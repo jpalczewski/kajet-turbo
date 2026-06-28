@@ -44,26 +44,44 @@ class NoteLinkService:
     ) -> tuple[ResolvedIds, BrokenPairs]:
         """Resolve every wikilink in ``content``. Returns ``(resolved_ids, broken_pairs)``.
 
-        ``extra_targets`` maps ``(folder, title) -> note_id`` for notes created in the
-        same batch that are not yet persisted, so in-batch links resolve before insert.
-        Raises BrokenWikilinkError when validation is on and any link is broken; with
-        validation off, broken (folder, title) pairs are returned for dangling storage.
+        ``note:ID`` cross-workspace links are resolved by note ID and never raise
+        BrokenWikilinkError — a missing target is silently skipped (no dangling row).
+        ``extra_targets`` maps ``(folder, title) -> note_id`` for in-batch intra-workspace notes.
         """
-        pairs = [(target, split_target(target)) for target, _ in extract_wikilinks(content)]
-        if not pairs:
+        all_links = extract_wikilinks(content)
+        if not all_links:
             return set(), []
-        resolved = self._crud_repo.resolve_paths(ws_name, owner_id, [pair for _, pair in pairs])
+
+        xws_ids = [target[5:] for target, _ in all_links if target.startswith("note:")]
+        intra = [
+            (target, split_target(target))
+            for target, _ in all_links
+            if not target.startswith("note:")
+        ]
+
+        resolved_ids: set[str] = set()
+
+        # Cross-workspace: resolve by ID, never fail validation.
+        for note_id in xws_ids:
+            note = self._crud_repo.get(note_id, owner_id=owner_id)
+            if note is not None:
+                resolved_ids.add(note_id)
+
+        if not intra:
+            return resolved_ids, []
+
+        # Intra-workspace: existing path-based resolution.
+        resolved = self._crud_repo.resolve_paths(ws_name, owner_id, [pair for _, pair in intra])
         if extra_targets:
-            for _, pair in pairs:
+            for _, pair in intra:
                 if pair not in resolved and pair in extra_targets:
                     resolved[pair] = extra_targets[pair]
-        broken_targets = sorted({target for target, pair in pairs if pair not in resolved})
+        broken_targets = sorted({target for target, pair in intra if pair not in resolved})
         if broken_targets and self._links_validated(ws_name, owner_id):
             raise BrokenWikilinkError(broken_targets)
-        # Validation off: broken links are dropped (no note_links edge); resolved
-        # targets still flow to the graph. Dangling links persist via write_dangling.
-        broken_pairs = sorted({pair for _, pair in pairs if pair not in resolved})
-        return set(resolved.values()), broken_pairs
+        broken_pairs = sorted({pair for _, pair in intra if pair not in resolved})
+        resolved_ids |= set(resolved.values())
+        return resolved_ids, broken_pairs
 
     def write_dangling(
         self,
