@@ -1,6 +1,7 @@
 import json
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import quote
 
 from kajet_turbo.markdown import (
     BrokenWikilinkError,
@@ -142,10 +143,6 @@ class NoteLinkService:
         return resolve
 
     def xws_link_resolver(self, owner_id: str):
-        from urllib.parse import quote
-
-        from kajet_turbo.markdown import XwsResolver  # noqa: F401 — imported for type reference
-
         def resolve(note_id: str) -> tuple[str, str] | None:
             note = self._crud_repo.get(note_id, owner_id=owner_id)
             if note is None:
@@ -186,6 +183,7 @@ class NoteLinkService:
         note_id: str,
         owner_id: str,
         ws_path: str,
+        ws_name: str,
         old_folder: str,
         old_title: str,
         new_folder: str,
@@ -193,10 +191,13 @@ class NoteLinkService:
     ) -> None:
         """Rewrite wikilink paths in every note that links to ``note_id`` after it moved/renamed.
 
+        Only same-workspace backlinks are rewritten: cross-workspace links use ``[[note:ID]]``
+        syntax which is ID-stable and needs no path update.
+
         Each affected source is committed separately; the link graph edges are unchanged
         (``target_note_id`` stays the same), so no link-table update is needed.
         """
-        source_ids = self._link_repo.backlinks(note_id)
+        source_ids = self._link_repo.backlinks(note_id, same_workspace=ws_name)
         if not source_ids:
             return
         old_key = (old_folder, old_title)

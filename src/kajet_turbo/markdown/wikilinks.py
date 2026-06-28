@@ -5,8 +5,9 @@ The inline rule only fires in inline context, so ``[[...]]`` inside code spans a
 fenced/indented code blocks is ignored automatically — no manual code-range exclusion.
 
 - ``extract_wikilinks(body)`` walks the token tree (validation: resolve targets, reject broken).
-- ``render_markdown(content, resolver, slug)`` renders to (unsanitized) HTML; the wikilink
-  render rule resolves each target to a ``note_id`` via the ``resolver`` passed through ``env``
+- ``render_markdown(content, resolver, slug, xws_resolver)`` renders to (unsanitized) HTML; the
+  wikilink render rule resolves intra-workspace targets via ``resolver`` and cross-workspace
+  ``[[note:ID]]`` links via ``xws_resolver``, both passed through ``env``
   (per-render, no module-level mutable state — safe under free-threaded Python).
 
 ``BrokenWikilinkError`` subclasses ``ValueError`` so existing ``except ValueError`` handlers in
@@ -129,7 +130,11 @@ def render_markdown(
     slug: str | None = None,
     xws_resolver: XwsResolver | None = None,
 ) -> str:
-    """Render markdown to (unsanitized) HTML. Caller must sanitize (bleach)."""
+    """Render markdown to (unsanitized) HTML. Caller must sanitize (bleach).
+
+    ``xws_resolver`` is called for ``[[note:ID]]`` cross-workspace links to resolve an ID to
+    ``(title, url)``; when absent or returning ``None`` the link renders as a broken span.
+    """
     return _MD.render(
         content,
         env={"wl_resolver": resolver, "wl_slug": slug, "xws_resolver": xws_resolver},

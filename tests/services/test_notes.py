@@ -1321,6 +1321,22 @@ def test_link_item_includes_workspace_field(service, workspace):
     assert backlink["workspace"] == "ws-a"
 
 
+def test_rename_does_not_rewrite_cross_workspace_backlink(service, workspace):
+    # ws-b note is the target; ws-a note links to it via [[note:ID]] (cross-workspace syntax).
+    target_id = service.save("u1", "ws-b", str(workspace), "Old Title", "content", [])["note_id"]
+    source_id = service.save(
+        "u1", "ws-a", str(workspace), "Linker", f"[[note:{target_id}]]", []
+    )["note_id"]
+
+    # Rename the ws-b note — rewrite_backlinks must not touch the ws-a file.
+    service.update(target_id, owner_id="u1", ws_path=str(workspace), title="New Title")
+
+    source = service.get_with_content(source_id, owner_id="u1", ws_path=str(workspace))
+    assert source is not None
+    # The cross-workspace link is ID-stable: content must be unchanged.
+    assert f"[[note:{target_id}]]" in source.content
+
+
 # --- xws_link_resolver ---
 
 

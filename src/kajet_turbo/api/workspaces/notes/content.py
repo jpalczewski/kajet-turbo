@@ -186,7 +186,7 @@ def api_note_links(
 ) -> JSONResponse:
     if not ws_service.has_access(user["id"], name):
         raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-    result = note_service.links(note_id, owner_id=user["id"])
+    result = note_service.links(note_id, owner_id=user["id"], include_cross_workspace=False)
     if result is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
     return JSONResponse(result)

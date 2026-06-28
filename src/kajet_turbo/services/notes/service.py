@@ -412,7 +412,14 @@ class NoteService:
         self._link_service.write_dangling(note_id, note.workspace, owner_id, broken_pairs)
         if old_path != new_path:
             self._link_service.rewrite_backlinks(
-                note_id, owner_id, ws_path, note.folder, note.title, new_folder, new_title
+                note_id,
+                owner_id,
+                ws_path,
+                note.workspace,
+                note.folder,
+                note.title,
+                new_folder,
+                new_title,
             )
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
