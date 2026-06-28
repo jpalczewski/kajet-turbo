@@ -26,6 +26,7 @@
   const moveAction = useAsyncAction();
 
   async function openDialog() {
+    moveAction.clearError();
     destination = '';
     modal.show();
     await fetchAction.run(async () => {
