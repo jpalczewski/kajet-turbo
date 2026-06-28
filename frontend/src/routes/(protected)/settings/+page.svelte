@@ -148,7 +148,7 @@
             {/if}
             <button
               type="button"
-              class="profile__btn profile__btn--danger"
+              class="btn-danger"
               disabled={profileAction.busy}
               onclick={() => remove(p.id)}
             >
@@ -247,11 +247,7 @@
               >
                 Kopiuj klucz publiczny
               </button>
-              <button
-                type="button"
-                class="profile__btn profile__btn--danger"
-                onclick={() => deleteKey(key.id)}
-              >
+              <button type="button" class="btn-danger" onclick={() => deleteKey(key.id)}>
                 Usuń
               </button>
             </div>
@@ -391,17 +387,6 @@
       width: auto;
       padding: 6px 14px;
       font-size: 0.85rem;
-
-      &--danger {
-        background: transparent;
-        border: 1px solid v.$border;
-        color: v.$text-secondary;
-
-        &:hover:not(:disabled) {
-          border-color: v.$error;
-          color: v.$error;
-        }
-      }
 
       &:disabled {
         opacity: 0.5;

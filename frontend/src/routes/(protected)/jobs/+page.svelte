@@ -131,7 +131,7 @@
             {#if job.status === 'done' || job.status === 'failed'}
               <button
                 type="button"
-                class="job-card__btn job-card__btn--danger"
+                class="btn-danger"
                 disabled={action.busy}
                 onclick={() => dismiss(job.id)}
               >
@@ -294,28 +294,6 @@
       width: auto;
       padding: 6px 14px;
       font-size: 0.85rem;
-
-      &--danger {
-        background: transparent;
-        border: 1px solid v.$border;
-        border-radius: v.$radius-md;
-        color: v.$text-secondary;
-        font-size: 0.85rem;
-        font-family: v.$font-mono;
-        cursor: pointer;
-        transition:
-          border-color 0.15s,
-          color 0.15s;
-
-        &:hover:not(:disabled) {
-          border-color: v.$error;
-          color: v.$error;
-        }
-
-        &:disabled {
-          opacity: 0.5;
-        }
-      }
     }
   }
 

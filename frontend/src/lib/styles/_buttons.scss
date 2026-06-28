@@ -40,9 +40,6 @@
   transition:
     border-color 0.15s,
     color 0.15s;
-  width: 100%;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 
   &:hover {
     border-color: v.$violet;
@@ -51,7 +48,32 @@
   &--small {
     padding: 5px 10px;
     font-size: 0.8rem;
-    width: auto;
+  }
+  &--block {
+    width: 100%;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+}
+
+.btn-danger {
+  padding: 5px 10px;
+  background: transparent;
+  color: v.$text-muted;
+  border: 1px solid v.$border;
+  border-radius: v.$radius-md;
+  font-size: 0.8rem;
+  font-family: v.$font-mono;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+  &:hover {
+    color: v.$error;
+    border-color: v.$error;
+  }
+  &:disabled {
+    opacity: 0.5;
   }
 }
 

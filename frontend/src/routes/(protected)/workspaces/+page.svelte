@@ -413,26 +413,6 @@
       display: flex;
       gap: v.$space-sm;
       margin-top: v.$space-xs;
-
-      .btn-ghost {
-        background: none;
-        border: 1px solid v.$border;
-        border-radius: v.$radius-md;
-        color: v.$text-muted;
-        font-size: 0.8rem;
-        font-family: v.$font-mono;
-        padding: 6px 14px;
-        cursor: pointer;
-        transition: border-color 0.15s;
-
-        &:hover {
-          border-color: v.$text-muted;
-        }
-
-        &:disabled {
-          opacity: 0.5;
-        }
-      }
     }
   }
 </style>
