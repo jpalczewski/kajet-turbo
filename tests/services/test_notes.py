@@ -411,6 +411,27 @@ def test_save_with_broken_wikilink_rejected_and_no_file(service, workspace):
     assert not (workspace / "Source.md").exists()
 
 
+def test_save_with_cross_workspace_link_succeeds(service, workspace):
+    """[[note:ID]] never raises BrokenWikilinkError even when ID does not exist."""
+    result = service.save("u1", "ws1", str(workspace), "Source", "link to [[note:nonexistent-id-xyz]]", [])
+    assert "note_id" in result
+
+
+def test_save_with_cross_workspace_link_to_existing_note_records_edge(service, workspace):
+    """[[note:ID]] where ID exists is stored in note_links."""
+    target_id = service.save("u1", "ws2", str(workspace), "Target", "", [])["note_id"]
+    source_id = service.save("u1", "ws1", str(workspace), "Source", f"link to [[note:{target_id}]]", [])["note_id"]
+    backlinks = service._link_service._link_repo.backlinks(target_id)
+    assert source_id in backlinks
+
+
+def test_save_cross_workspace_link_does_not_create_dangling(service, workspace):
+    """[[note:nonexistent]] leaves no outgoing note_links row for source."""
+    note_id = service.save("u1", "ws1", str(workspace), "Source", "[[note:ghost-id-000]]", [])["note_id"]
+    outlinks = service._link_service._link_repo.outlinks(note_id)
+    assert outlinks == []
+
+
 def test_save_wikilink_in_code_is_not_validated(service, workspace):
     # `[[Ghost]]` inside inline code must not trigger validation.
     result = service.save("u1", "ws", str(workspace), "Source", "code `[[Ghost]]` here", [])
@@ -1194,7 +1215,7 @@ def test_links_returns_outlinks_and_backlinks(service, workspace):
     sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target]]", [])["note_id"]
     result = service.links(tid, "u1")
     assert result is not None
-    assert result["backlinks"] == [{"note_id": sid, "title": "Source", "folder": ""}]
+    assert result["backlinks"] == [{"note_id": sid, "title": "Source", "folder": "", "workspace": "ws"}]
     assert result["outlinks"] == []
 
 
@@ -1203,7 +1224,7 @@ def test_links_outlinks_populated(service, workspace):
     sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target]]", [])["note_id"]
     result = service.links(sid, "u1")
     assert result is not None
-    assert result["outlinks"] == [{"note_id": tid, "title": "Target", "folder": ""}]
+    assert result["outlinks"] == [{"note_id": tid, "title": "Target", "folder": "", "workspace": "ws"}]
     assert result["backlinks"] == []
 
 
@@ -1272,3 +1293,81 @@ def test_links_default_excludes_meta(service, workspace):
     entry = result["outlinks"][0]
     assert "tags" not in entry
     assert "updated_at" not in entry
+
+
+def test_backlinks_include_cross_workspace_by_default(service, workspace):
+    target_id = service.save("u1", "ws-b", str(workspace), "Target", "", [])["note_id"]
+    source_id = service.save("u1", "ws-a", str(workspace), "Source", f"[[note:{target_id}]]", [])["note_id"]
+    result = service.links(target_id, owner_id="u1")
+    assert result is not None
+    assert any(b["note_id"] == source_id for b in result["backlinks"])
+
+
+def test_backlinks_exclude_cross_workspace_when_flag_false(service, workspace):
+    target_id = service.save("u1", "ws-b", str(workspace), "Target", "", [])["note_id"]
+    service.save("u1", "ws-a", str(workspace), "Source", f"[[note:{target_id}]]", [])
+    result = service.links(target_id, owner_id="u1", include_cross_workspace=False)
+    assert result is not None
+    assert result["backlinks"] == []
+
+
+def test_link_item_includes_workspace_field(service, workspace):
+    target_id = service.save("u1", "ws-b", str(workspace), "Target", "", [])["note_id"]
+    service.save("u1", "ws-a", str(workspace), "Source", f"[[note:{target_id}]]", [])
+    result = service.links(target_id, owner_id="u1")
+    assert result is not None
+    backlink = result["backlinks"][0]
+    assert "workspace" in backlink
+    assert backlink["workspace"] == "ws-a"
+
+
+def test_rename_does_not_rewrite_cross_workspace_backlink(service, workspace):
+    # ws-b note is the target; ws-a note links to it via [[note:ID]] (cross-workspace syntax).
+    target_id = service.save("u1", "ws-b", str(workspace), "Old Title", "content", [])["note_id"]
+    source_id = service.save(
+        "u1", "ws-a", str(workspace), "Linker", f"[[note:{target_id}]]", []
+    )["note_id"]
+
+    # Rename the ws-b note — rewrite_backlinks must not touch the ws-a file.
+    service.update(target_id, owner_id="u1", ws_path=str(workspace), title="New Title")
+
+    source = service.get_with_content(source_id, owner_id="u1", ws_path=str(workspace))
+    assert source is not None
+    # The cross-workspace link is ID-stable: content must be unchanged.
+    assert f"[[note:{target_id}]]" in source.content
+
+
+# --- xws_link_resolver ---
+
+
+def test_xws_link_resolver_returns_title_and_url(service, workspace):
+    result = service.save("u1", "myws", str(workspace), "The Note", "", [])
+    note_id = result["note_id"]
+    resolver = service.xws_link_resolver("u1")
+    resolution = resolver(note_id)
+    assert resolution is not None
+    title, url = resolution
+    assert title == "The Note"
+    assert f"/workspace/myws/notes/{note_id}" in url
+
+
+def test_xws_link_resolver_returns_none_for_missing(service, workspace):
+    resolver = service.xws_link_resolver("u1")
+    assert resolver("nonexistent-id") is None
+
+
+def test_xws_link_resolver_encodes_folder_segments(service, workspace):
+    result = service.save("u1", "myws", str(workspace), "Deep Note", "", [], folder="docs/sub")
+    note_id = result["note_id"]
+    resolver = service.xws_link_resolver("u1")
+    resolution = resolver(note_id)
+    assert resolution is not None
+    _title, url = resolution
+    assert f"/workspace/myws/notes/docs/sub/{note_id}" in url
+
+
+def test_xws_link_resolver_wrong_owner_returns_none(service, workspace):
+    result = service.save("u1", "myws", str(workspace), "Owned Note", "", [])
+    note_id = result["note_id"]
+    resolver = service.xws_link_resolver("u2")  # different owner
+    assert resolver(note_id) is None

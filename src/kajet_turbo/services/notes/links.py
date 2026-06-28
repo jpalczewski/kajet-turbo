@@ -1,6 +1,7 @@
 import json
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import quote
 
 from kajet_turbo.markdown import (
     BrokenWikilinkError,
@@ -44,26 +45,44 @@ class NoteLinkService:
     ) -> tuple[ResolvedIds, BrokenPairs]:
         """Resolve every wikilink in ``content``. Returns ``(resolved_ids, broken_pairs)``.
 
-        ``extra_targets`` maps ``(folder, title) -> note_id`` for notes created in the
-        same batch that are not yet persisted, so in-batch links resolve before insert.
-        Raises BrokenWikilinkError when validation is on and any link is broken; with
-        validation off, broken (folder, title) pairs are returned for dangling storage.
+        ``note:ID`` cross-workspace links are resolved by note ID and never raise
+        BrokenWikilinkError — a missing target is silently skipped (no dangling row).
+        ``extra_targets`` maps ``(folder, title) -> note_id`` for in-batch intra-workspace notes.
         """
-        pairs = [(target, split_target(target)) for target, _ in extract_wikilinks(content)]
-        if not pairs:
+        all_links = extract_wikilinks(content)
+        if not all_links:
             return set(), []
-        resolved = self._crud_repo.resolve_paths(ws_name, owner_id, [pair for _, pair in pairs])
+
+        xws_ids = [target[5:] for target, _ in all_links if target.startswith("note:")]
+        intra = [
+            (target, split_target(target))
+            for target, _ in all_links
+            if not target.startswith("note:")
+        ]
+
+        resolved_ids: set[str] = set()
+
+        # Cross-workspace: resolve by ID, never fail validation.
+        for note_id in xws_ids:
+            note = self._crud_repo.get(note_id, owner_id=owner_id)
+            if note is not None:
+                resolved_ids.add(note_id)
+
+        if not intra:
+            return resolved_ids, []
+
+        # Intra-workspace: existing path-based resolution.
+        resolved = self._crud_repo.resolve_paths(ws_name, owner_id, [pair for _, pair in intra])
         if extra_targets:
-            for _, pair in pairs:
+            for _, pair in intra:
                 if pair not in resolved and pair in extra_targets:
                     resolved[pair] = extra_targets[pair]
-        broken_targets = sorted({target for target, pair in pairs if pair not in resolved})
+        broken_targets = sorted({target for target, pair in intra if pair not in resolved})
         if broken_targets and self._links_validated(ws_name, owner_id):
             raise BrokenWikilinkError(broken_targets)
-        # Validation off: broken links are dropped (no note_links edge); resolved
-        # targets still flow to the graph. Dangling links persist via write_dangling.
-        broken_pairs = sorted({pair for _, pair in pairs if pair not in resolved})
-        return set(resolved.values()), broken_pairs
+        broken_pairs = sorted({pair for _, pair in intra if pair not in resolved})
+        resolved_ids |= set(resolved.values())
+        return resolved_ids, broken_pairs
 
     def write_dangling(
         self,
@@ -82,17 +101,37 @@ class NoteLinkService:
         if self._dangling_repo is not None:
             self._dangling_repo.delete_for_source(note_id)
 
-    def backlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
-        return self._resolve_link_notes(self._link_repo.backlinks(note_id), owner_id, include_meta)
+    def backlinks(
+        self,
+        note_id: str,
+        owner_id: str,
+        include_meta: bool = False,
+        include_cross_workspace: bool = True,
+    ) -> list[dict]:
+        same_ws: str | None = None
+        if not include_cross_workspace:
+            note = self._crud_repo.get(note_id, owner_id=owner_id)
+            same_ws = note.workspace if note is not None else None
+        return self._resolve_link_notes(
+            self._link_repo.backlinks(note_id, same_workspace=same_ws),
+            owner_id,
+            include_meta,
+        )
 
     def outlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
         return self._resolve_link_notes(self._link_repo.outlinks(note_id), owner_id, include_meta)
 
-    def links(self, note_id: str, owner_id: str, include_meta: bool = False) -> dict | None:
+    def links(
+        self,
+        note_id: str,
+        owner_id: str,
+        include_meta: bool = False,
+        include_cross_workspace: bool = True,
+    ) -> dict | None:
         if self._crud_repo.get(note_id, owner_id=owner_id) is None:
             return None
         return {
-            "backlinks": self.backlinks(note_id, owner_id, include_meta),
+            "backlinks": self.backlinks(note_id, owner_id, include_meta, include_cross_workspace),
             "outlinks": self.outlinks(note_id, owner_id, include_meta),
         }
 
@@ -103,20 +142,36 @@ class NoteLinkService:
 
         return resolve
 
+    def xws_link_resolver(self, owner_id: str):
+        def resolve(note_id: str) -> tuple[str, str] | None:
+            note = self._crud_repo.get(note_id, owner_id=owner_id)
+            if note is None:
+                return None
+            segments = [quote(s) for s in note.folder.split("/") if s] + [note.id]
+            url = f"/workspace/{note.workspace}/notes/{'/'.join(segments)}"
+            return note.title, url
+
+        return resolve
+
     def _resolve_link_notes(
         self,
         note_ids: list[str],
         owner_id: str,
         include_meta: bool = False,
     ) -> list[dict]:
-        """Map note_ids to ``{note_id, title, folder}``, skipping missing/foreign notes.
+        """Map note_ids to ``{note_id, title, folder, workspace}``, skipping missing notes.
         With ``include_meta=True`` also includes ``tags`` and ``updated_at``."""
         result = []
         for note_id in note_ids:
             note = self._crud_repo.get(note_id, owner_id=owner_id)
             if note is None:
                 continue
-            entry: dict = {"note_id": note.id, "title": note.title, "folder": note.folder}
+            entry: dict = {
+                "note_id": note.id,
+                "title": note.title,
+                "folder": note.folder,
+                "workspace": note.workspace,
+            }
             if include_meta:
                 entry["tags"] = json.loads(note.tags or "[]")
                 entry["updated_at"] = note.updated_at
@@ -128,6 +183,7 @@ class NoteLinkService:
         note_id: str,
         owner_id: str,
         ws_path: str,
+        ws_name: str,
         old_folder: str,
         old_title: str,
         new_folder: str,
@@ -135,10 +191,13 @@ class NoteLinkService:
     ) -> None:
         """Rewrite wikilink paths in every note that links to ``note_id`` after it moved/renamed.
 
+        Only same-workspace backlinks are rewritten: cross-workspace links use ``[[note:ID]]``
+        syntax which is ID-stable and needs no path update.
+
         Each affected source is committed separately; the link graph edges are unchanged
         (``target_note_id`` stays the same), so no link-table update is needed.
         """
-        source_ids = self._link_repo.backlinks(note_id)
+        source_ids = self._link_repo.backlinks(note_id, same_workspace=ws_name)
         if not source_ids:
             return
         old_key = (old_folder, old_title)

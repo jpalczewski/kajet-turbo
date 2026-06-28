@@ -82,13 +82,17 @@ def build_history(
     async def get_note_links(
         note_id: str,
         include_meta: bool = False,
+        include_cross_workspace: bool = True,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> NoteLinksResult:
         """Zwraca linki wychodzące i przychodzące dla notatki w aktywnym workspace.
         outlinks: notatki, do których ta notatka linkuje.
         backlinks: notatki, które linkują do tej notatki.
-        include_meta=True dorzuca tags i updated_at do każdego wpisu."""
-        result = await run_sync(note_service.links, note_id, ws.owner_id, include_meta)
+        include_meta=True dorzuca tags i updated_at do każdego wpisu.
+        include_cross_workspace=False ogranicza backlinks tylko do tego samego workspace."""
+        result = await run_sync(
+            note_service.links, note_id, ws.owner_id, include_meta, include_cross_workspace
+        )
         if result is None:
             raise ToolError(f"Notatka {note_id} nie znaleziona.")
         return NoteLinksResult(

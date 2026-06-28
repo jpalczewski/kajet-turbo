@@ -135,3 +135,42 @@ def test_rewrite_target_to_root():
     body, changed = rewrite_wikilink_target("[[Old/T|x]]", ("Old", "T"), "T")
     assert changed
     assert body == "[[T|x]]"
+
+
+def test_render_xws_resolved_is_clickable_anchor():
+    xws_resolver = lambda nid: ("Target Note", "/workspace/other/notes/abc") if nid == "abc" else None
+    html = render_markdown("see [[note:abc]]", xws_resolver=xws_resolver)
+    assert '<a class="wikilink xws-wikilink" href="/workspace/other/notes/abc">Target Note</a>' in html
+
+
+def test_render_xws_with_alias_uses_alias():
+    xws_resolver = lambda nid: ("Real Title", "/workspace/other/notes/abc") if nid == "abc" else None
+    html = render_markdown("[[note:abc|Custom]]", xws_resolver=xws_resolver)
+    assert ">Custom<" in html
+    assert "xws-wikilink" in html
+
+
+def test_render_xws_broken_shows_note_id():
+    html = render_markdown("[[note:deadbeef]]", xws_resolver=lambda nid: None)
+    assert '<span class="wikilink-broken">deadbeef</span>' in html
+
+
+def test_render_xws_broken_with_alias_shows_alias():
+    html = render_markdown("[[note:deadbeef|My Note]]", xws_resolver=lambda nid: None)
+    assert '<span class="wikilink-broken">My Note</span>' in html
+
+
+def test_render_xws_no_resolver_is_broken():
+    html = render_markdown("[[note:abc]]")
+    assert '<span class="wikilink-broken">abc</span>' in html
+
+
+def test_extract_includes_xws_target():
+    # extract_wikilinks returns raw target including "note:" prefix
+    assert extract_wikilinks("[[note:abc123]]") == [("note:abc123", None)]
+
+
+def test_render_xws_escapes_label():
+    xws_resolver = lambda nid: ("<script>", "/w/n/x")
+    html = render_markdown("[[note:x]]", xws_resolver=xws_resolver)
+    assert "<script>" not in html

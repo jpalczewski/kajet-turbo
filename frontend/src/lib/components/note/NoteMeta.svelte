@@ -27,6 +27,21 @@
     collapsed = !collapsed;
     if (browser) localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0');
   }
+
+  const XWS_KEY = 'kajet:note-meta-xws';
+  let showCrossWorkspace = $state(!(browser && localStorage.getItem(XWS_KEY) === '0'));
+
+  function toggleXws() {
+    showCrossWorkspace = !showCrossWorkspace;
+    if (browser) localStorage.setItem(XWS_KEY, showCrossWorkspace ? '1' : '0');
+  }
+
+  const filteredBacklinks = $derived(
+    showCrossWorkspace ? backlinks : backlinks.filter((l) => !l.workspace || l.workspace === slug),
+  );
+  const filteredOutlinks = $derived(
+    showCrossWorkspace ? outlinks : outlinks.filter((l) => !l.workspace || l.workspace === slug),
+  );
 </script>
 
 {#if collapsed}
@@ -37,7 +52,14 @@
   <aside class="meta">
     <div class="meta__head">
       <span class="meta__title">Info</span>
-      <button class="meta__toggle" onclick={toggle} title="Zwiń" aria-label="Zwiń panel">»</button>
+      <div class="meta__head-controls">
+        <label class="meta__xws-toggle" title="Pokaż/ukryj linki między workspace'ami">
+          <input type="checkbox" bind:checked={showCrossWorkspace} onchange={toggleXws} />
+          <span>xws</span>
+        </label>
+        <button class="meta__toggle" onclick={toggle} title="Zwiń" aria-label="Zwiń panel">»</button
+        >
+      </div>
     </div>
 
     {#if tags.length > 0}
@@ -65,13 +87,19 @@
       </div>
     {/if}
 
-    {#if backlinks.length > 0}
+    {#if filteredBacklinks.length > 0}
       <div class="meta__section">
-        <h4 class="meta__heading">Backlinki ({backlinks.length})</h4>
+        <h4 class="meta__heading">Backlinki ({filteredBacklinks.length})</h4>
         <ul class="meta__list">
-          {#each backlinks as link (link.note_id)}
+          {#each filteredBacklinks as link (link.note_id)}
             <li>
-              <a href={noteInTreePath(slug, link.folder, link.note_id)} class="meta__link">
+              <a
+                href={noteInTreePath(link.workspace ?? slug, link.folder, link.note_id)}
+                class="meta__link"
+              >
+                {#if link.workspace && link.workspace !== slug}
+                  <span class="meta__xws">[{link.workspace}]</span>
+                {/if}
                 {#if link.folder}<span class="meta__folder">{link.folder}/</span>{/if}{link.title}
               </a>
             </li>
@@ -80,13 +108,19 @@
       </div>
     {/if}
 
-    {#if outlinks.length > 0}
+    {#if filteredOutlinks.length > 0}
       <div class="meta__section">
-        <h4 class="meta__heading">Wychodzące ({outlinks.length})</h4>
+        <h4 class="meta__heading">Wychodzące ({filteredOutlinks.length})</h4>
         <ul class="meta__list">
-          {#each outlinks as link (link.note_id)}
+          {#each filteredOutlinks as link (link.note_id)}
             <li>
-              <a href={noteInTreePath(slug, link.folder, link.note_id)} class="meta__link">
+              <a
+                href={noteInTreePath(link.workspace ?? slug, link.folder, link.note_id)}
+                class="meta__link"
+              >
+                {#if link.workspace && link.workspace !== slug}
+                  <span class="meta__xws">[{link.workspace}]</span>
+                {/if}
                 {#if link.folder}<span class="meta__folder">{link.folder}/</span>{/if}{link.title}
               </a>
             </li>
@@ -150,6 +184,29 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: v.$text-muted;
+    }
+
+    &__head-controls {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    &__xws-toggle {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      font-family: v.$font-mono;
+      font-size: 0.65rem;
+      color: v.$text-muted;
+      cursor: pointer;
+      user-select: none;
+      input {
+        cursor: pointer;
+      }
+      &:hover {
+        color: v.$accent;
+      }
     }
 
     &__toggle {
@@ -239,6 +296,12 @@
 
     &__folder {
       color: v.$text-muted;
+    }
+
+    &__xws {
+      color: v.$accent-dark;
+      font-size: 0.7em;
+      margin-right: 3px;
     }
   }
 </style>

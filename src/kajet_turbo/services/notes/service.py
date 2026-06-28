@@ -412,7 +412,14 @@ class NoteService:
         self._link_service.write_dangling(note_id, note.workspace, owner_id, broken_pairs)
         if old_path != new_path:
             self._link_service.rewrite_backlinks(
-                note_id, owner_id, ws_path, note.folder, note.title, new_folder, new_title
+                note_id,
+                owner_id,
+                ws_path,
+                note.workspace,
+                note.folder,
+                note.title,
+                new_folder,
+                new_title,
             )
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
@@ -543,11 +550,20 @@ class NoteService:
     def outlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
         return self._link_service.outlinks(note_id, owner_id, include_meta)
 
-    def links(self, note_id: str, owner_id: str, include_meta: bool = False) -> dict | None:
-        return self._link_service.links(note_id, owner_id, include_meta)
+    def links(
+        self,
+        note_id: str,
+        owner_id: str,
+        include_meta: bool = False,
+        include_cross_workspace: bool = True,
+    ) -> dict | None:
+        return self._link_service.links(note_id, owner_id, include_meta, include_cross_workspace)
 
     def link_resolver(self, ws_name: str, owner_id: str):
         return self._link_service.link_resolver(ws_name, owner_id)
+
+    def xws_link_resolver(self, owner_id: str):
+        return self._link_service.xws_link_resolver(owner_id)
 
     def add_tags(self, note_id: str, owner_id: str, ws_path: str, tags: list[str]) -> dict:
         return self._tag_service.add_tags(note_id, owner_id, ws_path, tags)

@@ -76,6 +76,7 @@ def api_note_version(
                 version["content"],
                 resolver=note_service.link_resolver(name, user["id"]),
                 slug=name,
+                xws_resolver=note_service.xws_link_resolver(user["id"]),
             ),
         }
     )

@@ -549,6 +549,7 @@ async def test_get_note_links(workspaces_dir, mcp_server):
                 "note_id": target_id,
                 "title": "Target",
                 "folder": "",
+                "workspace": "test-ws",
                 "tags": None,
                 "updated_at": None,
             }
@@ -564,6 +565,7 @@ async def test_get_note_links(workspaces_dir, mcp_server):
                 "note_id": source_id,
                 "title": "Source",
                 "folder": "",
+                "workspace": "test-ws",
                 "tags": None,
                 "updated_at": None,
             }
@@ -608,3 +610,43 @@ async def test_get_note_links_include_meta(workspaces_dir, mcp_server):
         assert "tags" in entry
         assert entry["tags"] == ["work"]
         assert "updated_at" in entry
+
+
+async def test_get_note_links_exclude_cross_workspace(workspaces_dir, mcp_server):
+    """include_cross_workspace=False parameter on MCP tool hides cross-workspace backlinks."""
+    for ws_name in ("ws-a", "ws-b"):
+        ws_path = workspaces_dir / ws_name
+        ws_path.mkdir()
+        GitRepository.init(str(ws_path))
+
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        # Create target note in ws-b.
+        await client.call_tool("activate_workspace", {"name": "ws-b"})
+        target_id = json.loads(
+            (await client.call_tool("save_note", {"title": "Target", "content": "content"}))
+            .content[0]
+            .text
+        )["note_id"]
+
+        # Create source note in ws-a with a cross-workspace link to target.
+        await client.call_tool("activate_workspace", {"name": "ws-a"})
+        await client.call_tool(
+            "save_note",
+            {"title": "Source", "content": f"[[note:{target_id}]]"},
+        )
+
+        # Switch back to ws-b and verify that include_cross_workspace=False hides the backlink.
+        await client.call_tool("activate_workspace", {"name": "ws-b"})
+        result = json.loads(
+            (
+                await client.call_tool(
+                    "get_note_links",
+                    {"note_id": target_id, "include_cross_workspace": False},
+                )
+            )
+            .content[0]
+            .text
+        )
+
+    assert result["backlinks"] == []

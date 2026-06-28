@@ -68,7 +68,14 @@ class NoteFolderService:
             folder=new_folder,
         )
         self._link_service.rewrite_backlinks(
-            note_id, owner_id, ws_path, note.folder, note.title, new_folder, note.title
+            note_id,
+            owner_id,
+            ws_path,
+            note.workspace,
+            note.folder,
+            note.title,
+            new_folder,
+            note.title,
         )
         prune_empty_parents(ws_path, note.folder)
         if self._cache is not None:
@@ -168,7 +175,14 @@ class NoteFolderService:
             )
         for note in notes:
             self._link_service.rewrite_backlinks(
-                note.id, owner_id, ws_path, note.folder, note.title, remap[note.id], note.title
+                note.id,
+                owner_id,
+                ws_path,
+                workspace,
+                note.folder,
+                note.title,
+                remap[note.id],
+                note.title,
             )
         remove_empty_tree(ws_path, src_n)
         if self._folder_meta_repo is not None:

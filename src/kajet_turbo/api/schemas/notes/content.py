@@ -5,6 +5,7 @@ class NoteLinkItem(BaseModel):
     note_id: str
     title: str
     folder: str
+    workspace: str | None = None
 
 
 class LinksResponse(BaseModel):
