@@ -76,7 +76,7 @@ def _render_wikilink(self, tokens: list[Token], idx: int, options, env) -> str:
             if resolved:
                 title, url = resolved
                 label = escapeHtml(raw_alias or title)
-                return f'<a class="wikilink xws-wikilink" href="{url}">{label}</a>'
+                return f'<a class="wikilink xws-wikilink" href="{escapeHtml(url)}">{label}</a>'
         fallback = escapeHtml(raw_alias or note_id)
         return f'<span class="wikilink-broken">{fallback}</span>'
 
@@ -86,6 +86,8 @@ def _render_wikilink(self, tokens: list[Token], idx: int, options, env) -> str:
     folder, title = split_target(target)
     note_id_resolved = resolver(folder, title) if resolver else None
     if note_id_resolved and slug:
+        # Point at the explorer route (/notes/{folder}/{id}) so the click opens the target's
+        # folder and shows the file in the tree, rather than the standalone note page.
         segments = [quote(s) for s in folder.split("/") if s] + [note_id_resolved]
         href = f"/workspace/{slug}/notes/{'/'.join(segments)}"
         return f'<a class="wikilink" href="{href}">{label}</a>'
