@@ -28,6 +28,16 @@ Run commands from the repository root unless the command explicitly starts with 
 
 Use Alembic migrations, never `create_all`. Generate with `uv run alembic revision --autogenerate -m "..."`, review the file, then apply `uv run alembic upgrade head`. Docker also upgrades on start. Keep migrations focused.
 
+Locally there is no `/data/kajet.db`. Use `scripts/migrate.sh` instead — it creates a throwaway SQLite file, builds a temp `alembic.ini`, and forwards all args to `alembic`:
+
+```bash
+bash scripts/migrate.sh revision -m "add foo table"   # autogenerate
+bash scripts/migrate.sh                                # upgrade head
+bash scripts/migrate.sh current                        # check revision
+```
+
+The generated file lands in `alembic/versions/` as usual. Review it, delete spurious `alter_column` noise (TEXT↔AutoString no-ops that SQLite doesn't need), then commit.
+
 ## Critical Runtime Rules
 
 Runtime is free-threaded Python 3.14t, so blocking and C-extension behavior matters.

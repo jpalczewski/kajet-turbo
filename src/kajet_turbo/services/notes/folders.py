@@ -4,6 +4,7 @@ from secrets import token_hex
 
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
+from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes.links import NoteLinkService
@@ -24,10 +25,12 @@ class NoteFolderService:
         crud_repo: NoteRepository,
         link_service: NoteLinkService,
         cache: WorkspaceCache | None,
+        folder_meta_repo: FolderMetaRepository | None = None,
     ):
         self._crud_repo = crud_repo
         self._link_service = link_service
         self._cache = cache
+        self._folder_meta_repo = folder_meta_repo
 
     def move(self, note_id: str, owner_id: str, ws_path: str, folder: str) -> dict:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
@@ -168,6 +171,8 @@ class NoteFolderService:
                 note.id, owner_id, ws_path, note.folder, note.title, remap[note.id], note.title
             )
         remove_empty_tree(ws_path, src_n)
+        if self._folder_meta_repo is not None:
+            self._folder_meta_repo.rename_paths(owner_id, workspace, src_n, dst_n)
         if self._cache is not None:
             self._cache.bump(workspace, owner_id)
         logger.info("folder_moved", src=src_n, dst=dst_n, count=len(notes))

@@ -4,7 +4,7 @@ from fastmcp.exceptions import ToolError
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
-from kajet_turbo.mcp.notes._types import (
+from kajet_turbo.mcp.notes.types import (
     HistoryEntry,
     NoteLinkItem,
     NoteLinksResult,

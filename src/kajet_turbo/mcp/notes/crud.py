@@ -12,24 +12,29 @@ from kajet_turbo.dependencies import event_repo
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, MCP_CONTEXT, ActiveWorkspace
 from kajet_turbo.mcp.notes._helpers import confirm_and_apply
-from kajet_turbo.mcp.notes._types import (
+from kajet_turbo.mcp.notes.types import (
     DeletedNoteResult,
+    FolderContext,
     MovedNoteResult,
     NoteInput,
     NoteListItem,
+    NoteListResponse,
     ReindexResult,
     SavedNoteResult,
     SearchChunkResult,
 )
 from kajet_turbo.mcp.tooling import read_tool, write_tool
+from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteData, NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.workspace import normalize_folder
 
 
 def build_crud(
     note_service: NoteService,
     workspace_service: WorkspaceService,
+    folder_meta_repo: FolderMetaRepository,
     state_store=None,
 ) -> FastMCP:
     srv = FastMCP("notes-crud", session_state_store=state_store)
@@ -294,13 +299,17 @@ def build_crud(
     async def list_notes(
         tags: list[str] | None = None,
         limit: int = 20,
-        folder: str | None = None,
+        folder: Annotated[
+            str | None,
+            Field(description="Filter to notes in this folder only, e.g. 'Projekty/Klient A'. Empty string = root."),
+        ] = None,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
-    ) -> list[NoteListItem]:
-        """Zwraca listę notatek. Każda notatka zawiera pole 'folder'.
+    ) -> NoteListResponse:
+        """Zwraca listę notatek wraz z metadanymi folderu (jeśli ustawione).
         folder: opcjonalny filtr — tylko notatki z tego folderu (np. 'Projekty/Klient A').
         Filtr tags używa OR i jest hierarchiczny: podanie 'work' dopasuje też notatki
-        otagowane 'work/projects' itd. (dopasowanie po prefiksie segmentów)."""
+        otagowane 'work/projects' itd. (dopasowanie po prefiksie segmentów).
+        folder_context w odpowiedzi zawiera instructions dla LLM-a, gdy są ustawione dla folderu."""
         notes = await run_sync(
             note_service.list_notes,
             ws.name,
@@ -309,7 +318,17 @@ def build_crud(
             limit=limit,
             folder=folder,
         )
-        return [NoteListItem.model_validate(n) for n in notes]
+        folder_context: FolderContext | None = None
+        if folder is not None:
+            meta = await run_sync(
+                folder_meta_repo.get, ws.owner_id, ws.name, normalize_folder(folder)
+            )
+            if meta is not None:
+                folder_context = FolderContext.model_validate(meta)
+        return NoteListResponse(
+            notes=[NoteListItem.model_validate(n) for n in notes],
+            folder_context=folder_context,
+        )
 
     @srv.tool(**read_tool(tags={"notes", "search"}))
     @logged_tool

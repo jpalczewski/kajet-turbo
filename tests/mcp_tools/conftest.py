@@ -50,11 +50,14 @@ def mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestCo
         resolve_backend=lambda o: None,
         build_embedder=lambda c: None,
     )
+    from kajet_turbo.repositories.folder_meta import FolderMetaRepository
+
     server = build_mcp(
         build_note_service(database, indexer=indexer),
         WorkspaceService(
             workspace_repository, note_repository, WorkspaceMetaRepository(database.engine)
         ),
+        FolderMetaRepository(database.engine),
         oauth_repository,
         active_workspace_repository,
         provider,

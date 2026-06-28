@@ -70,6 +70,25 @@ class WorkspaceMeta(SQLModel, table=True):
     updated_at: str
 
 
+class FolderMeta(SQLModel, table=True):
+    """Per-(owner_id, workspace, path) folder metadata visible to LLMs.
+
+    Path uses the same convention as Note.folder: empty string = workspace root,
+    no trailing slash, forward-slash separator. Rows survive folder moves because
+    move_folder updates the path column atomically alongside the notes."""
+
+    __tablename__ = "folder_meta"
+
+    owner_id: str = Field(
+        sa_column=Column(Text, ForeignKey("users.id"), primary_key=True, nullable=False)
+    )
+    workspace: str = Field(primary_key=True)
+    path: str = Field(primary_key=True)
+    description: str = Field(default="", sa_column=Column(Text))
+    instructions: str = Field(default="", sa_column=Column(Text))
+    updated_at: str = Field(default="")
+
+
 class Note(SQLModel, table=True):
     __tablename__ = "notes"
 

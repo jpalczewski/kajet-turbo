@@ -17,6 +17,7 @@ from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 from kajet_turbo.repositories.events import EventRepository
+from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.git import register_post_commit_hook
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import (
@@ -121,7 +122,8 @@ _note_search_service = NoteSearchService(
     _query_cache,
 )
 _note_version_service = NoteVersionService(note_repo, _cache)
-_note_folder_service = NoteFolderService(note_repo, _note_link_service, _cache)
+folder_meta_repo = FolderMetaRepository(db.engine)
+_note_folder_service = NoteFolderService(note_repo, _note_link_service, _cache, folder_meta_repo)
 
 note_service = NoteService(
     note_repo,

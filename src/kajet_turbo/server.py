@@ -14,6 +14,7 @@ from kajet_turbo.auth import hash_password
 from kajet_turbo.dependencies import (
     active_workspace_repo,
     db,
+    folder_meta_repo,
     note_service,
     oauth_repo,
     provider,
@@ -107,7 +108,7 @@ class _MCPPathFix:
 
 
 def _new_mcp_app() -> Any:
-    mcp = build_mcp(note_service, workspace_service, oauth_repo, active_workspace_repo, provider)
+    mcp = build_mcp(note_service, workspace_service, folder_meta_repo, oauth_repo, active_workspace_repo, provider)
     return mcp.http_app(path="/")
 
 

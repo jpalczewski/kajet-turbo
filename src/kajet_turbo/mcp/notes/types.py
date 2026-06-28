@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class NoteInput(BaseModel):
@@ -71,10 +71,37 @@ class NoteListItem(BaseModel):
     workspace: str
     owner_id: str
     title: str
-    folder: str
+    folder: str = Field(description="Folder path; empty string means workspace root")
     tags: list[str]
     created_at: str
     updated_at: str
+
+
+class FolderContext(BaseModel):
+    """Metadata for the folder being listed, surfaced passively to LLMs."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    path: str = Field(description="Folder path; empty string means workspace root")
+    description: str = Field(description="What this folder is for")
+    instructions: str = Field(description="LLM instructions for working with notes in this folder")
+
+
+class NoteListResponse(BaseModel):
+    notes: list[NoteListItem]
+    folder_context: FolderContext | None = Field(
+        default=None,
+        description="Metadata for the queried folder, present when a folder filter was given and metadata exists",
+    )
+
+
+class FolderInfo(BaseModel):
+    """Folder with its description, returned by list_folders."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    path: str = Field(description="Folder path; empty string means workspace root")
+    description: str = Field(description="What this folder is for; empty when not set")
 
 
 class SearchChunkResult(BaseModel):

@@ -136,7 +136,8 @@ async def test_move_note_and_list_folders(workspaces_dir, mcp_server):
         folders = await client.call_tool("list_folders", {})
         move_result = await client.call_tool("move_note", {"note_id": note_id, "folder": "archive"})
 
-        assert json.loads(folders.content[0].text) == ["", "archive"]
+        folder_paths = [f["path"] for f in json.loads(folders.content[0].text)]
+        assert folder_paths == ["", "archive"]
         assert json.loads(move_result.content[0].text) == {
             "note_id": note_id,
             "folder": "archive",

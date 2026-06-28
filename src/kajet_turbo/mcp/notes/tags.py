@@ -8,7 +8,7 @@ from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, MCP_CONTEXT, ActiveWorkspace
 from kajet_turbo.mcp.notes._helpers import confirm_and_apply
-from kajet_turbo.mcp.notes._types import TagItem, TagOperationResult
+from kajet_turbo.mcp.notes.types import TagItem, TagOperationResult
 from kajet_turbo.mcp.tooling import read_tool, write_tool
 from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteService

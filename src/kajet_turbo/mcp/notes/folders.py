@@ -1,26 +1,34 @@
+from typing import Annotated
+
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from kajet_turbo.api.schemas.ws import WorkspaceChangedEvent
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import event_repo
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
-from kajet_turbo.mcp.notes._types import (
+from kajet_turbo.mcp.notes.types import (
     ConflictItem,
     FolderConflictResult,
+    FolderContext,
+    FolderInfo,
     MovedFolderResult,
     PrunedFoldersResult,
 )
 from kajet_turbo.mcp.tooling import read_tool, write_tool
+from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.workspace import normalize_folder
 
 
 def build_folders(
     note_service: NoteService,
     workspace_service: WorkspaceService,
+    folder_meta_repo: FolderMetaRepository,
     state_store=None,
 ) -> FastMCP:
     srv = FastMCP("notes-folders", session_state_store=state_store)
@@ -29,10 +37,52 @@ def build_folders(
     @logged_tool
     async def list_folders(
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
-    ) -> list[str]:
-        """Zwraca istniejące foldery aktywnego workspace.
-        Pusty string oznacza katalog główny workspace."""
-        return await run_sync(note_service.list_folders, ws.path)
+    ) -> list[FolderInfo]:
+        """Zwraca istniejące foldery aktywnego workspace z ich opisami.
+        Pusty string w path oznacza katalog główny workspace.
+        description jest pusty gdy folder nie ma ustawionych metadanych."""
+        paths = await run_sync(note_service.list_folders, ws.path)
+        if not paths:
+            return []
+        meta_map = await run_sync(folder_meta_repo.get_many, ws.owner_id, ws.name, paths)
+        return [
+            FolderInfo(path=p, description=meta_map[p].description if p in meta_map else "")
+            for p in paths
+        ]
+
+    @srv.tool(**write_tool(tags={"notes", "folders"}))
+    @logged_tool
+    async def set_folder_meta(
+        folder: Annotated[
+            str,
+            Field(description="Folder path, e.g. 'Projekty/Klient A'. Empty string = workspace root."),
+        ],
+        description: Annotated[
+            str | None,
+            Field(description="Short description of what this folder contains. Omit to keep existing."),
+        ] = None,
+        instructions: Annotated[
+            str | None,
+            Field(description="LLM instructions shown when listing notes in this folder. Omit to keep existing."),
+        ] = None,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> FolderContext:
+        """Ustawia metadane folderu widoczne pasywnie dla LLM-a w list_notes i list_folders.
+        description: krótki opis co zawiera folder.
+        instructions: instrukcje dla LLM-a wyświetlane przy list_notes dla tego folderu.
+        Pominięcie parametru zachowuje istniejącą wartość."""
+        path = normalize_folder(folder)
+        await run_sync(
+            folder_meta_repo.set,
+            ws.owner_id,
+            ws.name,
+            path,
+            description=description,
+            instructions=instructions,
+        )
+        meta = await run_sync(folder_meta_repo.get, ws.owner_id, ws.name, path)
+        assert meta is not None
+        return FolderContext.model_validate(meta)
 
     @srv.tool(**write_tool(tags={"notes", "folders"}))
     @logged_tool
