@@ -8,7 +8,7 @@ from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, MCP_CONTEXT, ActiveWorkspace
 from kajet_turbo.mcp.notes._helpers import confirm_and_apply
-from kajet_turbo.mcp.notes.types import TagItem, TagOperationResult
+from kajet_turbo.mcp.notes.types import Cancelled, ConfirmationRequired, TagItem, TagOperationResult
 from kajet_turbo.mcp.tooling import read_tool, write_tool
 from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteService
@@ -60,11 +60,11 @@ def build_tags(
         confirm: bool = False,
         ctx: Context = MCP_CONTEXT,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
-    ) -> str:
+    ) -> TagOperationResult | ConfirmationRequired | Cancelled:
         """Nadpisuje frontmatter tagów notatki podaną listą, bez ruszania treści.
         Destrukcyjne: jeśli usunęłoby istniejące tagi, prosi o potwierdzenie (elicitation;
-        gdy klient nie wspiera — zwraca requires_confirmation, zawołaj ponownie z confirm=true).
-        Zwraca {note_id, tags, frontmatter_tags, warnings}."""
+        gdy klient nie wspiera — zwraca ConfirmationRequired; zawołaj ponownie z confirm=true).
+        Sukces: TagOperationResult {note_id, tags, frontmatter_tags, warnings}."""
         try:
             result = await run_sync(
                 note_service.set_tags, note_id, ws.owner_id, ws.path, tags, confirm
@@ -75,7 +75,12 @@ def build_tags(
         async def reapply() -> dict:
             return await run_sync(note_service.set_tags, note_id, ws.owner_id, ws.path, tags, True)
 
-        return await confirm_and_apply(ctx, result, reapply)
+        data = await confirm_and_apply(ctx, result, reapply)
+        if data.get("requires_confirmation"):
+            return ConfirmationRequired.model_validate(data)
+        if data.get("cancelled"):
+            return Cancelled.model_validate(data)
+        return TagOperationResult.model_validate(data)
 
     @srv.tool(**read_tool(tags={"notes", "tags"}))
     @logged_tool

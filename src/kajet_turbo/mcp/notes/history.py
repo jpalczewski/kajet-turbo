@@ -89,7 +89,9 @@ def build_history(
         outlinks: notatki, do których ta notatka linkuje.
         backlinks: notatki, które linkują do tej notatki.
         include_meta=True dorzuca tags i updated_at do każdego wpisu.
-        include_cross_workspace=False ogranicza backlinks tylko do tego samego workspace."""
+        include_cross_workspace=False ogranicza backlinks tylko do tego samego workspace.
+        Gdy wpis ma workspace != aktywny — to link cross-workspace; by go zapisać w treści
+        użyj [[note:NOTE_ID]] (np. [[note:abc-123]]) zamiast [[Title]]."""
         result = await run_sync(
             note_service.links, note_id, ws.owner_id, include_meta, include_cross_workspace
         )

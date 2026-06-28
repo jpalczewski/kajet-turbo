@@ -1,11 +1,13 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class NoteInput(BaseModel):
-    title: str
-    content: str = ""
-    tags: list[str] = []
-    folder: str = ""
+    title: str = Field(description="Note title; unique within (workspace, folder)")
+    content: str = Field(default="", description="Markdown body; use [[Title]] or [[Folder/Title]] for wikilinks, [[note:ID]] for cross-workspace links")
+    tags: list[str] = Field(default=[], description="Tag list, e.g. ['work', 'work/projects']")
+    folder: str = Field(default="", description="Folder path, e.g. 'Projects/Client A'; empty string = workspace root")
 
 
 class SavedNoteResult(BaseModel):
@@ -114,10 +116,10 @@ class SearchChunkResult(BaseModel):
 
 
 class NoteLinkItem(BaseModel):
-    note_id: str
+    note_id: str = Field(description="Use in [[note:NOTE_ID]] to create a permanent cross-workspace link")
     title: str
     folder: str
-    workspace: str | None = None
+    workspace: str | None = Field(default=None, description="Non-null and != active workspace means cross-workspace link; reference with [[note:note_id]]")
     tags: list[str] | None = None
     updated_at: str | None = None
 
@@ -125,3 +127,37 @@ class NoteLinkItem(BaseModel):
 class NoteLinksResult(BaseModel):
     outlinks: list[NoteLinkItem]
     backlinks: list[NoteLinkItem]
+
+
+class BatchNoteSuccess(BaseModel):
+    index: int
+    note_id: str
+
+
+class BatchNoteError(BaseModel):
+    index: int
+    error: str
+
+
+class ConfirmationRequired(BaseModel):
+    note_id: str
+    requires_confirmation: Literal[True]
+    would_remove_tags: list[str] = Field(
+        description="Tags that would be removed by this operation"
+    )
+    overwrites_content: bool = Field(
+        description="Whether non-empty content would be overwritten"
+    )
+    warning: str = Field(
+        description="Human-readable warning; explain to the user what will change and ask to confirm"
+    )
+
+
+class Cancelled(BaseModel):
+    note_id: str
+    cancelled: Literal[True]
+    message: str
+
+
+class EditNoteSuccess(BaseModel):
+    note_id: str

@@ -112,11 +112,15 @@ def split_target(target: str) -> tuple[str, str]:
     """``"A/B/Title"`` -> ``("A/B", "Title")``; ``"Title"`` -> ``("", "Title")``.
 
     Folder is normalized the same way as note storage so a link matches the stored note's
-    ``(folder, title)`` natural key.
+    ``(folder, title)`` natural key. Invalid paths (e.g. ``../relative``) return the raw
+    folder string — it can't match any stored note and is treated as a broken link.
     """
     target = target.strip().strip("/")
     folder_part, _, title = target.rpartition("/")
-    return normalize_folder(folder_part), title.strip()
+    try:
+        return normalize_folder(folder_part), title.strip()
+    except ValueError:
+        return folder_part, title.strip()
 
 
 def extract_wikilinks(body: str) -> list[tuple[str, str | None]]:

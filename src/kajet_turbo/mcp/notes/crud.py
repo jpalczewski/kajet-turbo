@@ -1,4 +1,3 @@
-import json
 import time
 from typing import Annotated, Literal
 
@@ -13,7 +12,12 @@ from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, MCP_CONTEXT, ActiveWorkspace
 from kajet_turbo.mcp.notes._helpers import confirm_and_apply
 from kajet_turbo.mcp.notes.types import (
+    BatchNoteError,
+    BatchNoteSuccess,
+    Cancelled,
+    ConfirmationRequired,
     DeletedNoteResult,
+    EditNoteSuccess,
     FolderContext,
     MovedNoteResult,
     NoteInput,
@@ -82,12 +86,12 @@ def build_crud(
     async def save_notes(
         notes: list[NoteInput],
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
-    ) -> str:
+    ) -> list[BatchNoteSuccess | BatchNoteError]:
         """Zapisuje wiele notatek naraz (jeden commit, równoległe indeksowanie).
         Użyj tego narzędzia zawsze, gdy dodajesz 2+ notatek — zamiast wielu wywołań
-        save_note. Best-effort: każda notatka walidowana osobno; wynik to lista
-        [{"index": i, "note_id": "..."} | {"index": i, "error": "..."}] w kolejności
-        wejścia. Wikilinki do notatek z tego samego batcha rozwiązują się niezależnie
+        save_note. Best-effort: każda notatka walidowana osobno; wynik per-note to
+        BatchNoteSuccess {index, note_id} lub BatchNoteError {index, error}.
+        Wikilinki do notatek z tego samego batcha rozwiązują się niezależnie
         od kolejności. content z prawdziwymi znakami nowej linii (\\n), nie literalnymi \\\\n."""
         try:
             results = await run_sync(
@@ -109,7 +113,12 @@ def build_crud(
                 workspace=ws.name,
             ).model_dump(),
         )
-        return json.dumps(results, ensure_ascii=False)
+        return [
+            BatchNoteSuccess(index=r["index"], note_id=r["note_id"])
+            if "note_id" in r
+            else BatchNoteError(index=r["index"], error=r["error"])
+            for r in results
+        ]
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
     @logged_tool
@@ -174,15 +183,14 @@ def build_crud(
         ),
         ctx: Context = MCP_CONTEXT,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
-    ) -> str:
+    ) -> EditNoteSuccess | ConfirmationRequired | Cancelled:
         """Edytuje notatkę. Domyślnie (mode='overwrite') podmienia całe body na content;
         tryby chirurgiczne pozwalają dopisać/podmienić fragment bez przepisywania całości.
         folder opcjonalny — jeśli podany, przenosi notatkę do nowego folderu.
         title/tags/folder można zmieniać niezależnie od trybu edycji content.
         content powinien zawierać rzeczywiste znaki nowej linii (\\n), nie literalne \\\\n.
         Nadpisanie niepustej treści lub utrata tagów wymagają potwierdzenia — elicitation gdy
-        klient wspiera, inaczej zwraca requires_confirmation=true; zawołaj ponownie z confirm=true.
-        Sukces: {"note_id": "..."}."""
+        klient wspiera, inaczej zwraca ConfirmationRequired; zawołaj ponownie z confirm=true."""
         try:
             result = await run_sync(
                 note_service.update,
@@ -219,26 +227,24 @@ def build_crud(
                 confirm=True,
             )
 
-        applied = await confirm_and_apply(ctx, result, reapply)
-        data = json.loads(applied)
-        if (
-            "note_id" in data
-            and not data.get("requires_confirmation")
-            and not data.get("cancelled")
-        ):
-            await run_sync(
-                event_repo.publish,
-                ws.owner_id,
-                "note_updated",
-                NoteUpdatedEvent(
-                    type="note_updated",
-                    owner_id=ws.owner_id,
-                    workspace=ws.name,
-                    note_id=data["note_id"],
-                    updated_at=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
-                ).model_dump(),
-            )
-        return applied
+        data = await confirm_and_apply(ctx, result, reapply)
+        if data.get("requires_confirmation"):
+            return ConfirmationRequired.model_validate(data)
+        if data.get("cancelled"):
+            return Cancelled.model_validate(data)
+        await run_sync(
+            event_repo.publish,
+            ws.owner_id,
+            "note_updated",
+            NoteUpdatedEvent(
+                type="note_updated",
+                owner_id=ws.owner_id,
+                workspace=ws.name,
+                note_id=data["note_id"],
+                updated_at=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+            ).model_dump(),
+        )
+        return EditNoteSuccess(note_id=data["note_id"])
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
     @logged_tool
@@ -338,9 +344,11 @@ def build_crud(
         limit: int = 10,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> list[SearchChunkResult]:
-        """Szuka notatek (chunk-level hybrid: FTS + semantic). workspace='active'
-        (domyślnie) lub 'all'. Zwraca fragmenty (chunki):
-        {note_id, title, folder, header_path, content, score}.
+        """Szuka notatek (chunk-level hybrid: FTS + semantic).
+        workspace='active' (domyślnie) — szuka tylko w aktywnym workspace.
+        workspace='all' — szuka we wszystkich dostępnych workspace'ach (cross-workspace).
+        Zwraca fragmenty (chunki): {note_id, title, folder, header_path, content, score}.
+        note_id z innych workspace'ów możesz linkować przez [[note:NOTE_ID]].
         Pusty [] gdy brak wyników."""
         ws_param = workspace or "active"
         if ws_param == "all":

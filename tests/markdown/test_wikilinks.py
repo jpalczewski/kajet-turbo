@@ -59,6 +59,14 @@ def test_split_target_normalizes_folder():
     assert title == "Title"
 
 
+def test_split_target_relative_dotdot_does_not_raise():
+    # ../ wikilinks are invalid references; they must not propagate ValueError as 500.
+    folder, title = split_target("../SomeFolder/some-note")
+    assert title == "some-note"
+    # folder contains ".." — can't match any stored note, treated as broken
+    assert ".." in folder
+
+
 def test_render_resolved_is_clickable_anchor():
     html = render_markdown(
         "go to [[A/Plan|Plan]]",
