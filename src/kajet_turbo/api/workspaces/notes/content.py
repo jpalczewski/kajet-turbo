@@ -12,7 +12,7 @@ from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
 from kajet_turbo.errors import AuthError, NoteError
 from kajet_turbo.log import logged_route, logger
-from kajet_turbo.markdown import LinkResolver, render_markdown
+from kajet_turbo.markdown import LinkResolver, XwsResolver, render_markdown
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -51,10 +51,13 @@ _ALLOWED_PROTOCOLS = ["http", "https", "mailto"]
 
 
 def _render_html(
-    content: str, resolver: LinkResolver | None = None, slug: str | None = None
+    content: str,
+    resolver: LinkResolver | None = None,
+    slug: str | None = None,
+    xws_resolver: XwsResolver | None = None,
 ) -> str:
     return bleach.clean(
-        render_markdown(content, resolver, slug),
+        render_markdown(content, resolver, slug, xws_resolver),
         tags=_ALLOWED_TAGS,
         attributes=_ALLOWED_ATTRS,
         protocols=_ALLOWED_PROTOCOLS,
@@ -108,6 +111,7 @@ def api_get_note_html(
                 note.content,
                 resolver=note_service.link_resolver(name, user["id"]),
                 slug=name,
+                xws_resolver=note_service.xws_link_resolver(user["id"]),
             ),
         }
     )

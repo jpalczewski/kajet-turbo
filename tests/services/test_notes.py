@@ -1293,3 +1293,39 @@ def test_links_default_excludes_meta(service, workspace):
     entry = result["outlinks"][0]
     assert "tags" not in entry
     assert "updated_at" not in entry
+
+
+# --- xws_link_resolver ---
+
+
+def test_xws_link_resolver_returns_title_and_url(service, workspace):
+    result = service.save("u1", "myws", str(workspace), "The Note", "", [])
+    note_id = result["note_id"]
+    resolver = service.xws_link_resolver("u1")
+    resolution = resolver(note_id)
+    assert resolution is not None
+    title, url = resolution
+    assert title == "The Note"
+    assert f"/workspace/myws/notes/{note_id}" in url
+
+
+def test_xws_link_resolver_returns_none_for_missing(service, workspace):
+    resolver = service.xws_link_resolver("u1")
+    assert resolver("nonexistent-id") is None
+
+
+def test_xws_link_resolver_encodes_folder_segments(service, workspace):
+    result = service.save("u1", "myws", str(workspace), "Deep Note", "", [], folder="docs/sub")
+    note_id = result["note_id"]
+    resolver = service.xws_link_resolver("u1")
+    resolution = resolver(note_id)
+    assert resolution is not None
+    _title, url = resolution
+    assert f"/workspace/myws/notes/docs/sub/{note_id}" in url
+
+
+def test_xws_link_resolver_wrong_owner_returns_none(service, workspace):
+    result = service.save("u1", "myws", str(workspace), "Owned Note", "", [])
+    note_id = result["note_id"]
+    resolver = service.xws_link_resolver("u2")  # different owner
+    assert resolver(note_id) is None

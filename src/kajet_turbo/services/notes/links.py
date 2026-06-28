@@ -121,6 +121,21 @@ class NoteLinkService:
 
         return resolve
 
+    def xws_link_resolver(self, owner_id: str):
+        from urllib.parse import quote
+
+        from kajet_turbo.markdown import XwsResolver  # noqa: F401 — imported for type reference
+
+        def resolve(note_id: str) -> tuple[str, str] | None:
+            note = self._crud_repo.get(note_id, owner_id=owner_id)
+            if note is None:
+                return None
+            segments = [quote(s) for s in note.folder.split("/") if s] + [note.id]
+            url = f"/workspace/{note.workspace}/notes/{'/'.join(segments)}"
+            return note.title, url
+
+        return resolve
+
     def _resolve_link_notes(
         self,
         note_ids: list[str],

@@ -549,6 +549,9 @@ class NoteService:
     def link_resolver(self, ws_name: str, owner_id: str):
         return self._link_service.link_resolver(ws_name, owner_id)
 
+    def xws_link_resolver(self, owner_id: str):
+        return self._link_service.xws_link_resolver(owner_id)
+
     def add_tags(self, note_id: str, owner_id: str, ws_path: str, tags: list[str]) -> dict:
         return self._tag_service.add_tags(note_id, owner_id, ws_path, tags)
 
