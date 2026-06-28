@@ -175,8 +175,98 @@ def build_app() -> Any:
     return _MCPPathFix(app)
 
 
+_TECH_USER_DOMAIN = "@kajet.local"
+
+
+def _cmd_create_user(args: list[str]) -> None:
+    import argparse
+    import secrets
+
+    parser = argparse.ArgumentParser(prog="kajet-turbo create-user")
+    parser.add_argument(
+        "--email",
+        default=f"stress_{secrets.token_hex(4)}{_TECH_USER_DOMAIN}",
+        help="Email for the technical user (default: auto-generated @kajet.local address)",
+    )
+    parsed = parser.parse_args(args)
+
+    password = secrets.token_urlsafe(16)
+    user_repo.create(parsed.email, hash_password(password))
+    print(f"email:    {parsed.email}")
+    print(f"password: {password}")
+
+
+def _cmd_purge_tech_users() -> None:
+    from sqlalchemy import text
+
+    from kajet_turbo.db import Database
+
+    engine = Database().engine
+    pattern = f"%{_TECH_USER_DOMAIN}"
+
+    # Must delete child rows first — FKs have no CASCADE.
+    child_tables = [
+        "sessions",
+        "client_authorizations",
+        "active_workspaces",
+        "workspace_access",
+        "workspace_meta",
+        "embedding_profiles",
+        "workspace_remotes",
+        "ssh_keys",
+        "jobs",
+    ]
+    with engine.connect() as conn:
+        ids = [
+            row[0]
+            for row in conn.execute(
+                text("SELECT id FROM users WHERE email LIKE :p"), {"p": pattern}
+            ).fetchall()
+        ]
+        if not ids:
+            print("No technical users found.")
+            return
+        placeholders = ", ".join(f":id{i}" for i in range(len(ids)))
+        params = {f"id{i}": uid for i, uid in enumerate(ids)}
+        for table in child_tables:
+            conn.execute(
+                text(f"DELETE FROM {table} WHERE user_id IN ({placeholders})"),
+                params,
+            )
+        conn.execute(
+            text(f"DELETE FROM users WHERE id IN ({placeholders})"),
+            params,
+        )
+        conn.commit()
+
+    import shutil
+
+    from kajet_turbo.workspace import WORKSPACES_DIR
+
+    ws_base = Path(WORKSPACES_DIR)
+    removed_dirs: list[str] = []
+    for uid in ids:
+        user_dir = ws_base / uid
+        if user_dir.is_dir():
+            shutil.rmtree(user_dir)
+            removed_dirs.append(str(user_dir))
+
+    print(f"Purged {len(ids)} technical user(s): {', '.join(ids)}")
+    if removed_dirs:
+        print(f"Removed workspace dirs: {', '.join(removed_dirs)}")
+
+
 def main() -> None:
     import uvicorn
+
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        if cmd == "create-user":
+            _cmd_create_user(sys.argv[2:])
+            return
+        if cmd == "purge-tech-users":
+            _cmd_purge_tech_users()
+            return
 
     host = os.getenv("MCP_HOST", "0.0.0.0")
     port = int(os.getenv("MCP_PORT", "8000"))
