@@ -75,12 +75,17 @@ class NoteLinkRepository:
             )
             session.commit()
 
-    def backlinks(self, target_note_id: str) -> list[str]:
-        """Return source note_ids that link to ``target_note_id`` (index-only scan)."""
+    def backlinks(self, target_note_id: str, same_workspace: str | None = None) -> list[str]:
+        """Return source note_ids that link to ``target_note_id``.
+
+        When ``same_workspace`` is given, only returns links whose source note is
+        in that workspace (filters cross-workspace backlinks out).
+        """
         with Session(self._engine) as session:
-            rows = session.exec(
-                select(NoteLink.source_note_id).where(NoteLink.target_note_id == target_note_id)
-            ).all()
+            query = select(NoteLink.source_note_id).where(NoteLink.target_note_id == target_note_id)
+            if same_workspace is not None:
+                query = query.where(col(NoteLink.workspace) == same_workspace)
+            rows = session.exec(query).all()
         return list(rows)
 
     def outlinks(self, source_note_id: str) -> list[str]:

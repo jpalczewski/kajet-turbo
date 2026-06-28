@@ -1215,7 +1215,7 @@ def test_links_returns_outlinks_and_backlinks(service, workspace):
     sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target]]", [])["note_id"]
     result = service.links(tid, "u1")
     assert result is not None
-    assert result["backlinks"] == [{"note_id": sid, "title": "Source", "folder": ""}]
+    assert result["backlinks"] == [{"note_id": sid, "title": "Source", "folder": "", "workspace": "ws"}]
     assert result["outlinks"] == []
 
 
@@ -1224,7 +1224,7 @@ def test_links_outlinks_populated(service, workspace):
     sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target]]", [])["note_id"]
     result = service.links(sid, "u1")
     assert result is not None
-    assert result["outlinks"] == [{"note_id": tid, "title": "Target", "folder": ""}]
+    assert result["outlinks"] == [{"note_id": tid, "title": "Target", "folder": "", "workspace": "ws"}]
     assert result["backlinks"] == []
 
 
@@ -1293,6 +1293,32 @@ def test_links_default_excludes_meta(service, workspace):
     entry = result["outlinks"][0]
     assert "tags" not in entry
     assert "updated_at" not in entry
+
+
+def test_backlinks_include_cross_workspace_by_default(service, workspace):
+    target_id = service.save("u1", "ws-b", str(workspace), "Target", "", [])["note_id"]
+    source_id = service.save("u1", "ws-a", str(workspace), "Source", f"[[note:{target_id}]]", [])["note_id"]
+    result = service.links(target_id, owner_id="u1")
+    assert result is not None
+    assert any(b["note_id"] == source_id for b in result["backlinks"])
+
+
+def test_backlinks_exclude_cross_workspace_when_flag_false(service, workspace):
+    target_id = service.save("u1", "ws-b", str(workspace), "Target", "", [])["note_id"]
+    service.save("u1", "ws-a", str(workspace), "Source", f"[[note:{target_id}]]", [])
+    result = service.links(target_id, owner_id="u1", include_cross_workspace=False)
+    assert result is not None
+    assert result["backlinks"] == []
+
+
+def test_link_item_includes_workspace_field(service, workspace):
+    target_id = service.save("u1", "ws-b", str(workspace), "Target", "", [])["note_id"]
+    service.save("u1", "ws-a", str(workspace), "Source", f"[[note:{target_id}]]", [])
+    result = service.links(target_id, owner_id="u1")
+    assert result is not None
+    backlink = result["backlinks"][0]
+    assert "workspace" in backlink
+    assert backlink["workspace"] == "ws-a"
 
 
 # --- xws_link_resolver ---

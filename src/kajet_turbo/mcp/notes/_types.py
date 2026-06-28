@@ -90,6 +90,7 @@ class NoteLinkItem(BaseModel):
     note_id: str
     title: str
     folder: str
+    workspace: str | None = None
     tags: list[str] | None = None
     updated_at: str | None = None
 

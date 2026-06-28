@@ -548,6 +548,7 @@ async def test_get_note_links(workspaces_dir, mcp_server):
                 "note_id": target_id,
                 "title": "Target",
                 "folder": "",
+                "workspace": "test-ws",
                 "tags": None,
                 "updated_at": None,
             }
@@ -563,6 +564,7 @@ async def test_get_note_links(workspaces_dir, mcp_server):
                 "note_id": source_id,
                 "title": "Source",
                 "folder": "",
+                "workspace": "test-ws",
                 "tags": None,
                 "updated_at": None,
             }

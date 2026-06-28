@@ -100,17 +100,37 @@ class NoteLinkService:
         if self._dangling_repo is not None:
             self._dangling_repo.delete_for_source(note_id)
 
-    def backlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
-        return self._resolve_link_notes(self._link_repo.backlinks(note_id), owner_id, include_meta)
+    def backlinks(
+        self,
+        note_id: str,
+        owner_id: str,
+        include_meta: bool = False,
+        include_cross_workspace: bool = True,
+    ) -> list[dict]:
+        same_ws: str | None = None
+        if not include_cross_workspace:
+            note = self._crud_repo.get(note_id, owner_id=owner_id)
+            same_ws = note.workspace if note is not None else None
+        return self._resolve_link_notes(
+            self._link_repo.backlinks(note_id, same_workspace=same_ws),
+            owner_id,
+            include_meta,
+        )
 
     def outlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
         return self._resolve_link_notes(self._link_repo.outlinks(note_id), owner_id, include_meta)
 
-    def links(self, note_id: str, owner_id: str, include_meta: bool = False) -> dict | None:
+    def links(
+        self,
+        note_id: str,
+        owner_id: str,
+        include_meta: bool = False,
+        include_cross_workspace: bool = True,
+    ) -> dict | None:
         if self._crud_repo.get(note_id, owner_id=owner_id) is None:
             return None
         return {
-            "backlinks": self.backlinks(note_id, owner_id, include_meta),
+            "backlinks": self.backlinks(note_id, owner_id, include_meta, include_cross_workspace),
             "outlinks": self.outlinks(note_id, owner_id, include_meta),
         }
 
@@ -142,14 +162,19 @@ class NoteLinkService:
         owner_id: str,
         include_meta: bool = False,
     ) -> list[dict]:
-        """Map note_ids to ``{note_id, title, folder}``, skipping missing/foreign notes.
+        """Map note_ids to ``{note_id, title, folder, workspace}``, skipping missing notes.
         With ``include_meta=True`` also includes ``tags`` and ``updated_at``."""
         result = []
         for note_id in note_ids:
             note = self._crud_repo.get(note_id, owner_id=owner_id)
             if note is None:
                 continue
-            entry: dict = {"note_id": note.id, "title": note.title, "folder": note.folder}
+            entry: dict = {
+                "note_id": note.id,
+                "title": note.title,
+                "folder": note.folder,
+                "workspace": note.workspace,
+            }
             if include_meta:
                 entry["tags"] = json.loads(note.tags or "[]")
                 entry["updated_at"] = note.updated_at

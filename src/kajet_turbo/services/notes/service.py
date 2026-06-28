@@ -543,8 +543,14 @@ class NoteService:
     def outlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
         return self._link_service.outlinks(note_id, owner_id, include_meta)
 
-    def links(self, note_id: str, owner_id: str, include_meta: bool = False) -> dict | None:
-        return self._link_service.links(note_id, owner_id, include_meta)
+    def links(
+        self,
+        note_id: str,
+        owner_id: str,
+        include_meta: bool = False,
+        include_cross_workspace: bool = True,
+    ) -> dict | None:
+        return self._link_service.links(note_id, owner_id, include_meta, include_cross_workspace)
 
     def link_resolver(self, ws_name: str, owner_id: str):
         return self._link_service.link_resolver(ws_name, owner_id)
