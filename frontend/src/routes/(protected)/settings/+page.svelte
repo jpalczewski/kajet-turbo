@@ -8,7 +8,9 @@
     apiCreateSshKeyApiMeSshKeysPost,
     apiDeleteSshKeyApiMeSshKeysKeyIdDelete,
   } from '$lib/api';
-  import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
+  import { jsonBody } from '$lib/api/mutate';
+  import { useAsyncAction } from '$lib/utils/async-action.svelte';
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
 
   let { data } = $props();
 
@@ -23,8 +25,8 @@
   let baseUrl = $state('');
   let model = $state('');
   let apiKey = $state('');
-  let error = $state('');
-  let busy = $state(false);
+
+  const profileAction = useAsyncAction();
 
   async function reload() {
     const r = await apiListEmbeddingProfilesApiMeEmbeddingProfilesGet();
@@ -37,9 +39,7 @@
     const b = baseUrl.trim();
     const m = model.trim();
     if (!n || !b || !m) return;
-    busy = true;
-    error = '';
-    try {
+    await profileAction.run(async () => {
       await apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost(
         jsonBody({ name: n, base_url: b, model: m, api_key: apiKey || undefined }),
       );
@@ -48,37 +48,21 @@
       model = '';
       apiKey = '';
       await reload();
-    } catch (e) {
-      error = apiErrorMessage(e, 'Nie udało się zapisać profilu.');
-    } finally {
-      busy = false;
-    }
+    }, 'Nie udało się zapisać profilu.');
   }
 
   async function activate(id: string) {
-    busy = true;
-    error = '';
-    try {
+    await profileAction.run(async () => {
       await apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePost(id);
       await reload();
-    } catch (e) {
-      error = apiErrorMessage(e, 'Nie udało się aktywować profilu.');
-    } finally {
-      busy = false;
-    }
+    }, 'Nie udało się aktywować profilu.');
   }
 
   async function remove(id: string) {
-    busy = true;
-    error = '';
-    try {
+    await profileAction.run(async () => {
       await apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDelete(id);
       await reload();
-    } catch (e) {
-      error = apiErrorMessage(e, 'Nie udało się usunąć profilu.');
-    } finally {
-      busy = false;
-    }
+    }, 'Nie udało się usunąć profilu.');
   }
 
   // SSH keys section.
@@ -86,8 +70,8 @@
   let keys = $state(data.keys);
   let keyName = $state('');
   let keyAlgorithm = $state('ed25519');
-  let keyError = $state('');
-  let keyBusy = $state(false);
+
+  const keyAction = useAsyncAction();
 
   async function reloadKeys() {
     const r = await apiListSshKeysApiMeSshKeysGet();
@@ -98,26 +82,18 @@
     e.preventDefault();
     const n = keyName.trim();
     if (!n) return;
-    keyBusy = true;
-    keyError = '';
-    try {
+    await keyAction.run(async () => {
       await apiCreateSshKeyApiMeSshKeysPost(jsonBody({ name: n, algorithm: keyAlgorithm }));
       keyName = '';
       await reloadKeys();
-    } catch (err) {
-      keyError = apiErrorMessage(err, 'Nie udało się wygenerować klucza.');
-    } finally {
-      keyBusy = false;
-    }
+    }, 'Nie udało się wygenerować klucza.');
   }
 
   async function deleteKey(id: string) {
-    try {
+    await keyAction.run(async () => {
       await apiDeleteSshKeyApiMeSshKeysKeyIdDelete(id);
       await reloadKeys();
-    } catch (err) {
-      keyError = apiErrorMessage(err, 'Nie udało się usunąć klucza.');
-    }
+    }, 'Nie udało się usunąć klucza.');
   }
 
   async function copyPublicKey(publicKey: string) {
@@ -129,10 +105,10 @@
   <h1>Profile embeddingów</h1>
   <p class="hint">Konfiguracja embedderów używanych do wyszukiwania semantycznego.</p>
 
-  {#if error}<p class="profiles__error">{error}</p>{/if}
+  {#if profileAction.error}<p class="profiles__error">{profileAction.error}</p>{/if}
 
   {#if profiles.length === 0}
-    <p class="profiles__empty">Brak profili — dodaj pierwszy poniżej.</p>
+    <EmptyState>Brak profili — dodaj pierwszy poniżej.</EmptyState>
   {:else}
     <ul class="profiles">
       {#each profiles as p (p.id)}
@@ -164,7 +140,7 @@
               <button
                 type="button"
                 class="btn-primary profile__btn"
-                disabled={busy}
+                disabled={profileAction.busy}
                 onclick={() => activate(p.id)}
               >
                 Aktywuj
@@ -173,7 +149,7 @@
             <button
               type="button"
               class="profile__btn profile__btn--danger"
-              disabled={busy}
+              disabled={profileAction.busy}
               onclick={() => remove(p.id)}
             >
               Usuń
@@ -189,7 +165,13 @@
 
     <label class="add-form__field">
       <span>Nazwa</span>
-      <input type="text" bind:value={name} autocomplete="off" spellcheck="false" disabled={busy} />
+      <input
+        type="text"
+        bind:value={name}
+        autocomplete="off"
+        spellcheck="false"
+        disabled={profileAction.busy}
+      />
     </label>
 
     <label class="add-form__field">
@@ -200,13 +182,19 @@
         placeholder="https://api.example.com/v1"
         autocomplete="off"
         spellcheck="false"
-        disabled={busy}
+        disabled={profileAction.busy}
       />
     </label>
 
     <label class="add-form__field">
       <span>model</span>
-      <input type="text" bind:value={model} autocomplete="off" spellcheck="false" disabled={busy} />
+      <input
+        type="text"
+        bind:value={model}
+        autocomplete="off"
+        spellcheck="false"
+        disabled={profileAction.busy}
+      />
     </label>
 
     <label class="add-form__field">
@@ -216,16 +204,16 @@
         bind:value={apiKey}
         placeholder="opcjonalny — dla endpointów bez klucza zostaw puste"
         autocomplete="off"
-        disabled={busy}
+        disabled={profileAction.busy}
       />
     </label>
 
     <button
       type="submit"
       class="btn-primary add-form__btn"
-      disabled={busy || !name.trim() || !baseUrl.trim() || !model.trim()}
+      disabled={profileAction.busy || !name.trim() || !baseUrl.trim() || !model.trim()}
     >
-      {busy ? '…' : 'Dodaj profil'}
+      {profileAction.busy ? '…' : 'Dodaj profil'}
     </button>
   </form>
 
@@ -233,10 +221,10 @@
     <h1>Klucze SSH</h1>
     <p class="hint">Klucze SSH używane do autopush workspace'ów do zdalnych repozytoriów.</p>
 
-    {#if keyError}<p class="profiles__error">{keyError}</p>{/if}
+    {#if keyAction.error}<p class="profiles__error">{keyAction.error}</p>{/if}
 
     {#if keys.length === 0}
-      <p class="profiles__empty">Brak kluczy SSH — wygeneruj pierwszy poniżej.</p>
+      <EmptyState>Brak kluczy SSH — wygeneruj pierwszy poniżej.</EmptyState>
     {:else}
       <ul class="profiles">
         {#each keys as key (key.id)}
@@ -283,21 +271,25 @@
           placeholder="Nazwa klucza"
           autocomplete="off"
           spellcheck="false"
-          disabled={keyBusy}
+          disabled={keyAction.busy}
         />
       </label>
 
       <label class="add-form__field">
         <span>Algorytm</span>
-        <select bind:value={keyAlgorithm} disabled={keyBusy} class="add-form__select">
+        <select bind:value={keyAlgorithm} disabled={keyAction.busy} class="add-form__select">
           <option value="ed25519">ed25519</option>
           <option value="ecdsa-p256">ecdsa-p256</option>
           <option value="rsa-4096">rsa-4096</option>
         </select>
       </label>
 
-      <button type="submit" class="btn-primary add-form__btn" disabled={keyBusy || !keyName.trim()}>
-        {keyBusy ? '…' : 'Generuj'}
+      <button
+        type="submit"
+        class="btn-primary add-form__btn"
+        disabled={keyAction.busy || !keyName.trim()}
+      >
+        {keyAction.busy ? '…' : 'Generuj'}
       </button>
     </form>
   </section>
@@ -325,13 +317,6 @@
       font-family: v.$font-mono;
       color: v.$error;
       margin-top: v.$space-md;
-    }
-
-    &__empty {
-      margin-top: v.$space-xl;
-      font-size: 0.85rem;
-      font-family: v.$font-mono;
-      color: v.$text-muted;
     }
   }
 
