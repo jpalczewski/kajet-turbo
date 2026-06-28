@@ -148,7 +148,7 @@
             {/if}
             <button
               type="button"
-              class="btn-danger"
+              class="profile__btn btn-danger"
               disabled={profileAction.busy}
               onclick={() => remove(p.id)}
             >
@@ -247,7 +247,11 @@
               >
                 Kopiuj klucz publiczny
               </button>
-              <button type="button" class="btn-danger" onclick={() => deleteKey(key.id)}>
+              <button
+                type="button"
+                class="profile__btn btn-danger"
+                onclick={() => deleteKey(key.id)}
+              >
                 Usuń
               </button>
             </div>

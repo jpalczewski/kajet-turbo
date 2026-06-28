@@ -131,7 +131,7 @@
             {#if job.status === 'done' || job.status === 'failed'}
               <button
                 type="button"
-                class="btn-danger"
+                class="job-card__btn btn-danger"
                 disabled={action.busy}
                 onclick={() => dismiss(job.id)}
               >
