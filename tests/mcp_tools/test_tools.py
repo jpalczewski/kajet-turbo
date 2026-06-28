@@ -613,24 +613,39 @@ async def test_get_note_links_include_meta(workspaces_dir, mcp_server):
 
 async def test_get_note_links_exclude_cross_workspace(workspaces_dir, mcp_server):
     """include_cross_workspace=False parameter on MCP tool hides cross-workspace backlinks."""
-    ws_path = str(workspaces_dir / "test-ws")
-    owner_id = "u1"
-    service = mcp_server.note_service
+    for ws_name in ("ws-a", "ws-b"):
+        ws_path = workspaces_dir / ws_name
+        ws_path.mkdir()
+        GitRepository.init(str(ws_path))
 
-    # Create cross-workspace link via service
-    target_id = service.save(owner_id, "ws-b", ws_path, "Target", "", [])["note_id"]
-    source_id = service.save(owner_id, "ws-a", ws_path, "Source", f"[[note:{target_id}]]", [])[
-        "note_id"
-    ]
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        # Create target note in ws-b.
+        await client.call_tool("activate_workspace", {"name": "ws-b"})
+        target_id = json.loads(
+            (await client.call_tool("save_note", {"title": "Target", "content": "content"}))
+            .content[0]
+            .text
+        )["note_id"]
 
-    # Query via service to verify setup
-    result_service = service.links(target_id, owner_id)
-    assert result_service is not None
-    assert any(b["note_id"] == source_id for b in result_service["backlinks"])
-    assert any(b["workspace"] == "ws-a" for b in result_service["backlinks"])
+        # Create source note in ws-a with a cross-workspace link to target.
+        await client.call_tool("activate_workspace", {"name": "ws-a"})
+        await client.call_tool(
+            "save_note",
+            {"title": "Source", "content": f"[[note:{target_id}]]"},
+        )
 
-    # Test MCP tool parameter via service.links directly
-    # (MCP tool implementation will pass through to service.links)
-    result_exclude = service.links(target_id, owner_id, include_cross_workspace=False)
-    assert result_exclude is not None
-    assert result_exclude["backlinks"] == []
+        # Switch back to ws-b and verify that include_cross_workspace=False hides the backlink.
+        await client.call_tool("activate_workspace", {"name": "ws-b"})
+        result = json.loads(
+            (
+                await client.call_tool(
+                    "get_note_links",
+                    {"note_id": target_id, "include_cross_workspace": False},
+                )
+            )
+            .content[0]
+            .text
+        )
+
+    assert result["backlinks"] == []
