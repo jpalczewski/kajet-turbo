@@ -1,36 +1,30 @@
 <script lang="ts">
   import { invalidate } from '$app/navigation';
   import { apiCreateWorkspaceApiWorkspacesPost } from '$lib/api';
-  import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
+  import { jsonBody } from '$lib/api/mutate';
+  import { useAsyncAction } from '$lib/utils/async-action.svelte';
 
   let name = $state('');
   let description = $state('');
-  let error = $state('');
-  let creating = $state(false);
+  const action = useAsyncAction();
 
   async function create(e: SubmitEvent) {
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    creating = true;
-    error = '';
-    try {
+    await action.run(async () => {
       await apiCreateWorkspaceApiWorkspacesPost(
         jsonBody({ name: trimmed, description: description.trim() || undefined }),
       );
       name = '';
       description = '';
       await invalidate('app:workspaces');
-    } catch (e) {
-      error = apiErrorMessage(e, 'Błąd sieci. Spróbuj ponownie.');
-    } finally {
-      creating = false;
-    }
+    }, 'Błąd sieci. Spróbuj ponownie.');
   }
 </script>
 
 <form onsubmit={create} class="create-form">
-  {#if error}<p class="create-form__error">{error}</p>{/if}
+  {#if action.error}<p class="create-form__error">{action.error}</p>{/if}
   <div class="create-form__row">
     <input
       type="text"
@@ -38,10 +32,14 @@
       placeholder="nazwa-workspace"
       autocomplete="off"
       spellcheck="false"
-      disabled={creating}
+      disabled={action.busy}
     />
-    <button type="submit" disabled={creating || !name.trim()} class="btn-primary create-form__btn">
-      {creating ? '…' : '+ Nowy'}
+    <button
+      type="submit"
+      disabled={action.busy || !name.trim()}
+      class="btn-primary create-form__btn"
+    >
+      {action.busy ? '…' : '+ Nowy'}
     </button>
   </div>
   <input
@@ -50,7 +48,7 @@
     bind:value={description}
     placeholder="Opis (opcjonalny)"
     autocomplete="off"
-    disabled={creating}
+    disabled={action.busy}
   />
 </form>
 

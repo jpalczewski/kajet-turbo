@@ -8,6 +8,7 @@
   import type { NoteHtmlResponse } from '$lib/api';
   import Prose from '$lib/components/Prose.svelte';
   import { notePath } from '$lib/routes';
+  import { useAsyncAction } from '$lib/utils/async-action.svelte';
   import VersionList from './VersionList.svelte';
 
   const slug = $derived(page.params.slug as string);
@@ -16,33 +17,33 @@
 
   let selectedSha = $state<string | null>(null);
   let selectedVersion = $state<NoteHtmlResponse | null>(null);
-  let loading = $state(false);
-  let restoring = $state(false);
+  const selectAction = useAsyncAction();
+  const restoreAction = useAsyncAction();
 
   async function selectVersion(sha: string) {
     selectedSha = sha;
-    loading = true;
     selectedVersion = null;
-    const result = await apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGet(
-      slug,
-      noteId,
-      sha,
-    ).catch(() => null);
-    loading = false;
-    selectedVersion = result?.status === 200 ? result.data : null;
+    await selectAction.run(async () => {
+      const result = await apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGet(
+        slug,
+        noteId,
+        sha,
+      ).catch(() => null);
+      selectedVersion = result?.status === 200 ? result.data : null;
+    }, 'Nie udało się załadować wersji');
   }
 
   async function restore() {
     if (!selectedSha) return;
-    restoring = true;
-    await apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePost(
-      slug,
-      noteId,
-      selectedSha,
-    ).catch(() => null);
-    restoring = false;
-    await invalidate('app:workspace-tree');
-    goto(notePath(slug, noteId));
+    await restoreAction.run(async () => {
+      await apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePost(
+        slug,
+        noteId,
+        selectedSha as string,
+      ).catch(() => null);
+      await invalidate('app:workspace-tree');
+      goto(notePath(slug, noteId));
+    }, 'Nie udało się przywrócić wersji');
   }
 </script>
 
@@ -54,12 +55,12 @@
     <VersionList {entries} {selectedSha} onselect={selectVersion} />
 
     <section class="history-preview">
-      {#if loading}
+      {#if selectAction.busy}
         <p class="history-preview__empty">Ładowanie...</p>
       {:else if selectedVersion}
         <div class="history-preview__actions">
-          <button class="btn-restore" onclick={restore} disabled={restoring}>
-            {restoring ? 'Przywracam...' : 'Przywróć tę wersję'}
+          <button class="btn-restore" onclick={restore} disabled={restoreAction.busy}>
+            {restoreAction.busy ? 'Przywracam...' : 'Przywróć tę wersję'}
           </button>
         </div>
         <Prose html={selectedVersion.content_html} />

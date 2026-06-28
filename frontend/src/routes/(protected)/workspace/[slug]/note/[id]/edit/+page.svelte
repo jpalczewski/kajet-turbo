@@ -9,6 +9,7 @@
   import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
   import TagEditor from '$lib/components/TagEditor.svelte';
   import { notePath, notesPath } from '$lib/routes';
+  import { useAsyncAction } from '$lib/utils/async-action.svelte';
 
   let { data } = $props();
   let note = $derived(data.note);
@@ -23,13 +24,10 @@
     content = data.note.content ?? '';
     tags = data.note.tags ?? [];
   });
-  let saveError = $state('');
-  let saving = $state(false);
+  const save = useAsyncAction();
 
   async function handleSave() {
-    saving = true;
-    saveError = '';
-    try {
+    await save.run(async () => {
       await apiUpdateNoteApiWorkspacesNameNotesNoteIdPatch(
         slug,
         note.note_id,
@@ -37,11 +35,7 @@
       );
       await invalidate('app:workspace-tree');
       goto(notePath(slug, note.note_id));
-    } catch (e) {
-      saveError = apiErrorMessage(e, 'Nie udało się zapisać');
-    } finally {
-      saving = false;
-    }
+    }, 'Nie udało się zapisać');
   }
 
   async function doDelete() {
@@ -75,13 +69,13 @@
     <textarea class="form__content" bind:value={content} placeholder="Treść w Markdown..." rows={20}
     ></textarea>
 
-    {#if saveError}
-      <p class="form__error">{saveError}</p>
+    {#if save.error}
+      <p class="form__error">{save.error}</p>
     {/if}
 
     <div class="form__actions">
-      <button class="btn btn--primary" onclick={handleSave} disabled={saving}>
-        {saving ? 'Zapisywanie…' : 'Zapisz'}
+      <button class="btn btn--primary" onclick={handleSave} disabled={save.busy}>
+        {save.busy ? 'Zapisywanie…' : 'Zapisz'}
       </button>
       <button class="btn btn--secondary" onclick={handleCancel}>Anuluj</button>
       <ConfirmDialog
