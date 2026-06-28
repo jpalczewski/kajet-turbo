@@ -63,13 +63,11 @@ def build_crud(
         await run_sync(
             event_repo.publish,
             ws.owner_id,
-            "note_updated",
-            NoteUpdatedEvent(
-                type="note_updated",
+            "workspace_changed",
+            WorkspaceChangedEvent(
+                type="workspace_changed",
                 owner_id=ws.owner_id,
                 workspace=ws.name,
-                note_id=result["note_id"],
-                updated_at=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
             ).model_dump(),
         )
         return SavedNoteResult(note_id=result["note_id"])
@@ -96,21 +94,16 @@ def build_crud(
             )
         except GitError as e:
             raise ToolError(str(e)) from e
-        now = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
-        for item in results:
-            if "note_id" in item:
-                await run_sync(
-                    event_repo.publish,
-                    ws.owner_id,
-                    "note_updated",
-                    NoteUpdatedEvent(
-                        type="note_updated",
-                        owner_id=ws.owner_id,
-                        workspace=ws.name,
-                        note_id=item["note_id"],
-                        updated_at=now,
-                    ).model_dump(),
-                )
+        await run_sync(
+            event_repo.publish,
+            ws.owner_id,
+            "workspace_changed",
+            WorkspaceChangedEvent(
+                type="workspace_changed",
+                owner_id=ws.owner_id,
+                workspace=ws.name,
+            ).model_dump(),
+        )
         return json.dumps(results, ensure_ascii=False)
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
