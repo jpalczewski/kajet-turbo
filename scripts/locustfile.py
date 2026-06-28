@@ -35,8 +35,10 @@ class KajetUser(HttpUser):
         password = os.environ["KAJET_STRESS_PASSWORD"]
         resp = self.client.post("/api/login", json={"email": email, "password": password})
         resp.raise_for_status()
-        # 409 = workspace already exists, which is fine
-        self.client.post("/api/workspaces", json={"name": _WS})
+        # 409 = workspace already exists, fine under concurrent VU startup
+        with self.client.post("/api/workspaces", json={"name": _WS}, catch_response=True) as r:
+            if r.status_code in (201, 409):
+                r.success()
 
     @task(3)
     def create_note(self) -> None:
