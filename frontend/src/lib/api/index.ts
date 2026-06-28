@@ -158,6 +158,7 @@ export interface NoteLinkItem {
   note_id: string;
   title: string;
   folder: string;
+  workspace?: string | null;
 }
 
 export interface LinksResponse {

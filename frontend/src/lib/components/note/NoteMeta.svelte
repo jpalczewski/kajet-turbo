@@ -71,7 +71,13 @@
         <ul class="meta__list">
           {#each backlinks as link (link.note_id)}
             <li>
-              <a href={noteInTreePath(slug, link.folder, link.note_id)} class="meta__link">
+              <a
+                href={noteInTreePath(link.workspace ?? slug, link.folder, link.note_id)}
+                class="meta__link"
+              >
+                {#if link.workspace && link.workspace !== slug}
+                  <span class="meta__xws">[{link.workspace}]</span>
+                {/if}
                 {#if link.folder}<span class="meta__folder">{link.folder}/</span>{/if}{link.title}
               </a>
             </li>
@@ -86,7 +92,13 @@
         <ul class="meta__list">
           {#each outlinks as link (link.note_id)}
             <li>
-              <a href={noteInTreePath(slug, link.folder, link.note_id)} class="meta__link">
+              <a
+                href={noteInTreePath(link.workspace ?? slug, link.folder, link.note_id)}
+                class="meta__link"
+              >
+                {#if link.workspace && link.workspace !== slug}
+                  <span class="meta__xws">[{link.workspace}]</span>
+                {/if}
                 {#if link.folder}<span class="meta__folder">{link.folder}/</span>{/if}{link.title}
               </a>
             </li>
@@ -239,6 +251,12 @@
 
     &__folder {
       color: v.$text-muted;
+    }
+
+    &__xws {
+      color: v.$accent-dark;
+      font-size: 0.7em;
+      margin-right: 3px;
     }
   }
 </style>
