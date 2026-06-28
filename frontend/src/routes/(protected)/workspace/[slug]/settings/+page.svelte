@@ -8,26 +8,20 @@
     type SettingDefinition,
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
+  import { useAsyncAction } from '$lib/utils/async-action.svelte';
 
   const slug = $derived(page.params.slug as string);
 
-  let reindexing = $state(false);
+  const reindexAction = useAsyncAction();
   let reindexMsg = $state('');
 
   async function reindex() {
-    reindexing = true;
     reindexMsg = '';
-    try {
+    await reindexAction.run(async () => {
       const res = await apiReindexWorkspaceApiWorkspacesNameReindexPost(slug);
-      reindexMsg =
-        res.status === 200
-          ? `Zreindeksowano ${res.data.count} notatek.`
-          : 'Nie udało się zreindeksować.';
-    } catch (e) {
-      reindexMsg = apiErrorMessage(e, 'Nie udało się zreindeksować.');
-    } finally {
-      reindexing = false;
-    }
+      reindexMsg = res.status === 200 ? `Zreindeksowano ${res.data.count} notatek.` : '';
+      if (res.status !== 200) throw new Error('Nie udało się zreindeksować.');
+    }, 'Nie udało się zreindeksować.');
   }
 
   let definitions = $state<SettingDefinition[]>([]);
@@ -84,9 +78,15 @@
   <section class="reindex">
     <h2>Indeks wyszukiwania</h2>
     <p class="hint">Przebudowuje indeks wyszukiwania (chunki + wektory) z plików notatek.</p>
-    <button type="button" class="btn-primary reindex__btn" disabled={reindexing} onclick={reindex}>
-      {reindexing ? 'Reindeksowanie…' : 'Reindeksuj workspace'}
+    <button
+      type="button"
+      class="btn-primary reindex__btn"
+      disabled={reindexAction.busy}
+      onclick={reindex}
+    >
+      {reindexAction.busy ? 'Reindeksowanie…' : 'Reindeksuj workspace'}
     </button>
+    {#if reindexAction.error}<p class="reindex__error">{reindexAction.error}</p>{/if}
     {#if reindexMsg}<p class="reindex__msg">{reindexMsg}</p>{/if}
   </section>
 </main>
@@ -149,6 +149,13 @@
       width: auto;
       padding: 9px 18px;
       white-space: nowrap;
+    }
+
+    &__error {
+      margin-top: v.$space-sm;
+      font-size: 0.85rem;
+      font-family: v.$font-mono;
+      color: v.$text-secondary;
     }
 
     &__msg {
