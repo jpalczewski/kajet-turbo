@@ -3,7 +3,8 @@
     apiWorkspaceContentsApiWorkspacesNameContentsGet,
     apiMoveNoteApiWorkspacesNameNotesNoteIdMovePost,
   } from '$lib/api';
-  import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
+  import { jsonBody } from '$lib/api/mutate';
+  import { useAsyncAction } from '$lib/utils/async-action.svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
 
   let {
@@ -21,32 +22,23 @@
   let modal: Modal;
   let folders = $state<string[]>([]);
   let destination = $state('');
-  let loading = $state(false);
-  let moving = $state(false);
-  let error = $state('');
+  const fetchAction = useAsyncAction();
+  const moveAction = useAsyncAction();
 
   async function openDialog() {
-    loading = true;
-    error = '';
     destination = '';
     modal.show();
-    try {
+    await fetchAction.run(async () => {
       const result = await apiWorkspaceContentsApiWorkspacesNameContentsGet(slug);
       if (result.status !== 200) throw new Error();
       folders = ['', ...(result.data.folders ?? [])].filter((folder) => folder !== currentFolder);
       destination = folders[0] ?? '';
-    } catch (e) {
-      error = apiErrorMessage(e, 'Nie udało się pobrać folderów');
-    } finally {
-      loading = false;
-    }
+    }, 'Nie udało się pobrać folderów');
   }
 
   async function moveNote() {
-    if (loading || moving || folders.length === 0) return;
-    moving = true;
-    error = '';
-    try {
+    if (fetchAction.busy || moveAction.busy || folders.length === 0) return;
+    await moveAction.run(async () => {
       const result = await apiMoveNoteApiWorkspacesNameNotesNoteIdMovePost(
         slug,
         noteId,
@@ -55,18 +47,14 @@
       if (result.status !== 200) throw new Error();
       await onmoved(result.data.folder);
       modal.close();
-    } catch (e) {
-      error = apiErrorMessage(e, 'Nie udało się przenieść notatki');
-    } finally {
-      moving = false;
-    }
+    }, 'Nie udało się przenieść notatki');
   }
 </script>
 
 <button class="move-trigger" onclick={openDialog}>Przenieś</button>
 
 <Modal bind:this={modal} title="Przenieś notatkę">
-  {#if loading}
+  {#if fetchAction.busy}
     <p class="move-status">Ładowanie folderów…</p>
   {:else if folders.length === 0}
     <p class="move-status">Brak innych folderów docelowych.</p>
@@ -81,20 +69,20 @@
     </label>
   {/if}
 
-  {#if error}
-    <p class="move-error">{error}</p>
+  {#if fetchAction.error || moveAction.error}
+    <p class="move-error">{fetchAction.error || moveAction.error}</p>
   {/if}
 
   {#snippet actions()}
-    <button class="btn btn--secondary" onclick={() => modal.close()} disabled={moving}
+    <button class="btn btn--secondary" onclick={() => modal.close()} disabled={moveAction.busy}
       >Anuluj</button
     >
     <button
       class="btn btn--primary"
       onclick={moveNote}
-      disabled={loading || moving || folders.length === 0}
+      disabled={fetchAction.busy || moveAction.busy || folders.length === 0}
     >
-      {moving ? 'Przenoszenie…' : 'Przenieś'}
+      {moveAction.busy ? 'Przenoszenie…' : 'Przenieś'}
     </button>
   {/snippet}
 </Modal>

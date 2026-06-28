@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { useAsyncAction } from '$lib/utils/async-action.svelte';
   import Modal from './Modal.svelte';
 
   let {
@@ -19,20 +20,13 @@
   } = $props();
 
   let modal: Modal;
-  let loading = $state(false);
-  let error = $state('');
+  const action = useAsyncAction();
 
   async function handleConfirm() {
-    loading = true;
-    error = '';
-    try {
+    await action.run(async () => {
       await onconfirm();
       modal.close();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Wystąpił błąd.';
-    } finally {
-      loading = false;
-    }
+    });
   }
 </script>
 
@@ -42,19 +36,19 @@
   bind:this={modal}
   {title}
   onclose={() => {
-    error = '';
+    action.clearError();
   }}
 >
   <p class="message">{message}</p>
-  {#if error}
-    <p class="error">{error}</p>
+  {#if action.error}
+    <p class="error">{action.error}</p>
   {/if}
   {#snippet actions()}
-    <button class="btn btn--secondary" onclick={() => modal.close()} disabled={loading}>
+    <button class="btn btn--secondary" onclick={() => modal.close()} disabled={action.busy}>
       Anuluj
     </button>
-    <button class="btn btn--{confirmVariant}" onclick={handleConfirm} disabled={loading}>
-      {loading ? '…' : confirmLabel}
+    <button class="btn btn--{confirmVariant}" onclick={handleConfirm} disabled={action.busy}>
+      {action.busy ? '…' : confirmLabel}
     </button>
   {/snippet}
 </Modal>
