@@ -1,21 +1,17 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Engine
-from sqlmodel import Session, col, or_, select
+from sqlmodel import col, or_, select
 
 from kajet_turbo.log import logger
 from kajet_turbo.models import FolderMeta
-from kajet_turbo.perf import timed
+from kajet_turbo.repositories import DbRepository
 
 
-class FolderMetaRepository:
+class FolderMetaRepository(DbRepository):
     """Per-(owner_id, workspace, path) folder metadata store.
 
     Partial upserts preserve unspecified fields (None = keep existing). rename_paths
     rewrites all nested paths in Python so move_folder never orphans metadata rows."""
-
-    def __init__(self, engine: Engine) -> None:
-        self._engine = engine
 
     def set(
         self,
@@ -28,7 +24,7 @@ class FolderMetaRepository:
     ) -> None:
         """Upsert folder metadata. None fields preserve existing values."""
         now = datetime.now(UTC).isoformat()
-        with Session(self._engine) as session, timed("db_ms"):
+        with self.timed_session() as session:
             row = session.exec(
                 select(FolderMeta).where(
                     FolderMeta.owner_id == owner_id,
@@ -56,19 +52,21 @@ class FolderMetaRepository:
         logger.info("folder_meta_set", owner_id=owner_id, ws=workspace, path=path)
 
     def get(self, owner_id: str, workspace: str, path: str) -> FolderMeta | None:
-        with Session(self._engine) as session, timed("db_ms"):
-            return session.exec(
+        with self.timed_session() as session:
+            row = session.exec(
                 select(FolderMeta).where(
                     FolderMeta.owner_id == owner_id,
                     FolderMeta.workspace == workspace,
                     FolderMeta.path == path,
                 )
             ).first()
+        logger.info("folder_meta_get", owner_id=owner_id, ws=workspace, path=path, found=row is not None)
+        return row
 
     def get_many(self, owner_id: str, workspace: str, paths: list[str]) -> dict[str, FolderMeta]:
         if not paths:
             return {}
-        with Session(self._engine) as session, timed("db_ms"):
+        with self.timed_session() as session:
             rows = session.exec(
                 select(FolderMeta).where(
                     FolderMeta.owner_id == owner_id,
@@ -76,7 +74,9 @@ class FolderMetaRepository:
                     col(FolderMeta.path).in_(paths),
                 )
             ).all()
-        return {r.path: r for r in rows}
+        result = {r.path: r for r in rows}
+        logger.info("folder_meta_get_many", owner_id=owner_id, ws=workspace, requested=len(paths), found=len(result))
+        return result
 
     def rename_paths(self, owner_id: str, workspace: str, src: str, dst: str) -> None:
         """Rename src folder and all descendants to dst, rewriting path prefix in-place.
@@ -88,7 +88,7 @@ class FolderMetaRepository:
         if src == dst:
             return
         now = datetime.now(UTC).isoformat()
-        with Session(self._engine) as session, timed("db_ms"):
+        with self.timed_session() as session:
             rows = session.exec(
                 select(FolderMeta).where(
                     FolderMeta.owner_id == owner_id,
@@ -103,7 +103,7 @@ class FolderMetaRepository:
                 if row.path == src:
                     row.path = dst
                 else:
-                    row.path = dst + row.path[len(src) :]
+                    row.path = dst + row.path[len(src):]
                 row.updated_at = now
                 session.add(row)
             count = len(rows)

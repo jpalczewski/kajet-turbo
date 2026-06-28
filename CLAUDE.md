@@ -52,6 +52,8 @@ Do not bypass repository, cache, or locking helpers for convenience.
 ## Coding Style & Quality Preferences
 
 - Prefer typed, explicit APIs and narrow data models. Avoid `Any` unless boundary data requires it, and keep that boundary small.
+- Every repository and service method that touches the DB must wrap the operation in `with timed("db_ms"):` from `kajet_turbo.perf` and call `logger.info("event_name", ...)` from `kajet_turbo.log` after the operation completes.
+- All repositories inherit from `DbRepository` (`kajet_turbo.repositories`) and use `self.timed_session()` instead of `Session(self._engine)` directly — this deduplicates the Session+timed boilerplate.
 - Keep code elegant with clear names, small cohesive functions, and simple module boundaries.
 - Design for extension where requirements are real. Avoid speculative abstractions, but leave obvious extension points when the domain already has variation.
 - Follow established project patterns and framework best practices before adding dependencies, new styles, or new architectural conventions.
