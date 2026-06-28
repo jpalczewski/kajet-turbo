@@ -101,7 +101,8 @@ class NoteService:
         relative = str(Path(filepath).relative_to(ws_path))
         write_note_file(filepath, note_id, title, tags, now, now, content)
         try:
-            GitRepository(ws_path).commit_file(relative, f"note: add {title}")
+            with timed("git_ms"):
+                GitRepository(ws_path).commit_file(relative, f"note: add {title}")
         except GitError:
             Path(filepath).unlink(missing_ok=True)
             raise

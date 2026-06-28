@@ -9,6 +9,7 @@ from functools import wraps
 
 from loguru import logger
 
+from kajet_turbo.perf import current as perf_current
 from kajet_turbo.perf import perf_span
 
 _HEALTH_PATHS = frozenset({"/healthz", "/readyz"})
@@ -185,6 +186,8 @@ class LoggingMiddleware:
                 status = message["status"]
                 if not is_health_path or status >= 500:
                     level = "warning" if is_health_path and status >= 500 else "info"
+                    _span = perf_current()
+                    perf_fields = dict(_span.fields) if _span else {}
                     logger.log(
                         level.upper(),
                         "http",
@@ -192,10 +195,14 @@ class LoggingMiddleware:
                         path=request.url.path,
                         status=status,
                         duration_ms=round((time.monotonic() - start) * 1000),
+                        **perf_fields,
                     )
             await send(message)
 
-        with logger.contextualize(request_id=request_id, user_id=user_id, session_id=session_id):
+        with (
+            logger.contextualize(request_id=request_id, user_id=user_id, session_id=session_id),
+            perf_span(),
+        ):
             await self._app(scope, receive, send_wrapper)
 
 
