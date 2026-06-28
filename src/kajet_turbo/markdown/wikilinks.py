@@ -29,6 +29,9 @@ from kajet_turbo.workspace import normalize_folder
 # (folder, title) -> note_id | None
 type LinkResolver = Callable[[str, str], str | None]
 
+# note_id -> (title, url) | None
+type XwsResolver = Callable[[str], tuple[str, str] | None]
+
 
 class BrokenWikilinkError(ValueError):
     """Raised when a note's content links to targets that don't resolve to existing notes."""
@@ -63,15 +66,27 @@ def _wikilink_rule(state: StateInline, silent: bool) -> bool:
 def _render_wikilink(self, tokens: list[Token], idx: int, options, env) -> str:
     meta = tokens[idx].meta
     target: str = meta["target"]
-    label = escapeHtml(meta["alias"] or target)
+    raw_alias: str | None = meta["alias"]
+
+    if target.startswith("note:"):
+        note_id = target[5:]
+        xws_resolver: XwsResolver | None = env.get("xws_resolver")
+        if xws_resolver:
+            resolved = xws_resolver(note_id)
+            if resolved:
+                title, url = resolved
+                label = escapeHtml(raw_alias or title)
+                return f'<a class="wikilink xws-wikilink" href="{url}">{label}</a>'
+        fallback = escapeHtml(raw_alias or note_id)
+        return f'<span class="wikilink-broken">{fallback}</span>'
+
+    label = escapeHtml(raw_alias or target)
     resolver: LinkResolver | None = env.get("wl_resolver")
     slug: str | None = env.get("wl_slug")
     folder, title = split_target(target)
-    note_id = resolver(folder, title) if resolver else None
-    if note_id and slug:
-        # Point at the explorer route (/notes/{folder}/{id}) so the click opens the target's
-        # folder and shows the file in the tree, rather than the standalone note page.
-        segments = [quote(s) for s in folder.split("/") if s] + [note_id]
+    note_id_resolved = resolver(folder, title) if resolver else None
+    if note_id_resolved and slug:
+        segments = [quote(s) for s in folder.split("/") if s] + [note_id_resolved]
         href = f"/workspace/{slug}/notes/{'/'.join(segments)}"
         return f'<a class="wikilink" href="{href}">{label}</a>'
     return f'<span class="wikilink-broken">{label}</span>'
@@ -107,10 +122,16 @@ def extract_wikilinks(body: str) -> list[tuple[str, str | None]]:
 
 
 def render_markdown(
-    content: str, resolver: LinkResolver | None = None, slug: str | None = None
+    content: str,
+    resolver: LinkResolver | None = None,
+    slug: str | None = None,
+    xws_resolver: XwsResolver | None = None,
 ) -> str:
     """Render markdown to (unsanitized) HTML. Caller must sanitize (bleach)."""
-    return _MD.render(content, env={"wl_resolver": resolver, "wl_slug": slug})
+    return _MD.render(
+        content,
+        env={"wl_resolver": resolver, "wl_slug": slug, "xws_resolver": xws_resolver},
+    )
 
 
 _REWRITE_RE = re.compile(r"\[\[([^\]]*?)\]\]")
