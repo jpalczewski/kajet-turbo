@@ -6,6 +6,7 @@
   import { notesPath } from '$lib/routes';
   import { formatUnixDate } from '$lib/utils/format';
   import { groupWorkspaces } from '$lib/utils/groupWorkspaces';
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import CreateWorkspaceForm from './CreateWorkspaceForm.svelte';
   import WorkspaceRemote from './WorkspaceRemote.svelte';
 
@@ -68,7 +69,7 @@
   <CreateWorkspaceForm />
 
   {#if workspaces.length === 0}
-    <p class="empty">Brak workspace'ów. Utwórz pierwszy powyżej.</p>
+    <EmptyState>Brak workspace'ów. Utwórz pierwszy powyżej.</EmptyState>
   {:else}
     {#each groups as group (group.folder)}
       {#if group.folder}
@@ -201,14 +202,6 @@
     border: 1px solid v.$border;
     border-radius: v.$radius-sm;
     padding: 2px 8px;
-  }
-
-  .empty {
-    font-size: 0.85rem;
-    font-family: v.$font-mono;
-    color: v.$text-muted;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
   }
 
   .folder-heading {

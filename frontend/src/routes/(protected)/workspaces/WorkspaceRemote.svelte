@@ -9,6 +9,7 @@
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
   import { settingsPath } from '$lib/routes';
+  import { useAsyncAction } from '$lib/utils/async-action.svelte';
 
   let { name, keys }: { name: string; keys: SshKeyItem[] } = $props();
 
@@ -16,9 +17,9 @@
   let originUrl = $state('');
   let sshKeyId = $state('');
   let enabled = $state(true);
-  let error = $state('');
-  let busy = $state(false);
   let loaded = $state(false);
+
+  const action = useAsyncAction();
 
   async function load() {
     try {
@@ -43,13 +44,11 @@
   async function save(e: SubmitEvent) {
     e.preventDefault();
     if (!originUrl.trim() || !sshKeyId) return;
-    if (!SSH_REMOTE.test(originUrl.trim())) {
-      error = 'Origin musi być adresem SSH (git@host:repo.git lub ssh://…), nie HTTPS.';
-      return;
-    }
-    busy = true;
-    error = '';
-    try {
+
+    await action.run(async () => {
+      if (!SSH_REMOTE.test(originUrl.trim())) {
+        throw new Error('Origin musi być adresem SSH (git@host:repo.git lub ssh://…), nie HTTPS.');
+      }
       const r = await apiSetWorkspaceRemoteApiWorkspacesNameRemotePut(
         name,
         jsonBody({ origin_url: originUrl.trim(), ssh_key_id: sshKeyId, enabled }),
@@ -57,44 +56,31 @@
       if (r.status === 200) {
         remote = (r.data as { remote: WorkspaceRemoteView }).remote;
       }
-    } catch (e) {
-      error = apiErrorMessage(e, 'Nie udało się zapisać remote.');
-    } finally {
-      busy = false;
-    }
+    }, 'Nie udało się zapisać remote.');
   }
 
   async function remove() {
-    error = '';
-    try {
+    await action.run(async () => {
       const r = await apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDelete(name);
-      if (r.status === 200) {
-        remote = null;
-        originUrl = '';
-        sshKeyId = '';
-        enabled = true;
-      } else {
-        error = apiErrorMessage(r, 'Nie udało się usunąć remote.');
+      if (r.status !== 200) {
+        throw new Error(apiErrorMessage(r, 'Nie udało się usunąć remote.'));
       }
-    } catch (e) {
-      error = apiErrorMessage(e, 'Nie udało się usunąć remote.');
-    }
+      remote = null;
+      originUrl = '';
+      sshKeyId = '';
+      enabled = true;
+    }, 'Nie udało się usunąć remote.');
   }
 
   async function pushNow() {
-    busy = true;
-    error = '';
-    try {
+    await action.run(async () => {
       const r = await apiTriggerWorkspacePushApiWorkspacesNameRemotePushPost(name);
-      if (r.status === 200) await load();
-      else {
-        error = apiErrorMessage(r, 'Push nie powiódł się.');
+      if (r.status === 200) {
+        await load();
+      } else {
+        throw new Error(apiErrorMessage(r, 'Push nie powiódł się.'));
       }
-    } catch (e) {
-      error = apiErrorMessage(e, 'Push nie powiódł się.');
-    } finally {
-      busy = false;
-    }
+    }, 'Push nie powiódł się.');
   }
 
   $effect(() => {
@@ -114,8 +100,8 @@
     </p>
   {:else}
     <form class="remote__form" onsubmit={save}>
-      {#if error}
-        <p class="remote__error">{error}</p>
+      {#if action.error}
+        <p class="remote__error">{action.error}</p>
       {/if}
 
       <label class="remote__label">
@@ -124,7 +110,7 @@
           type="text"
           bind:value={originUrl}
           placeholder="git@github.com:user/repo.git"
-          disabled={busy}
+          disabled={action.busy}
           spellcheck="false"
           autocomplete="off"
         />
@@ -132,7 +118,7 @@
 
       <label class="remote__label">
         Klucz SSH
-        <select bind:value={sshKeyId} disabled={busy}>
+        <select bind:value={sshKeyId} disabled={action.busy}>
           <option value="">— wybierz klucz —</option>
           {#each keys as k (k.id)}
             <option value={k.id}>{k.name} ({k.fingerprint})</option>
@@ -141,20 +127,24 @@
       </label>
 
       <label class="remote__checkbox">
-        <input type="checkbox" bind:checked={enabled} disabled={busy} />
+        <input type="checkbox" bind:checked={enabled} disabled={action.busy} />
         Auto-push po commicie
       </label>
 
       <div class="remote__actions">
-        <button type="submit" class="btn-primary" disabled={busy || !originUrl.trim() || !sshKeyId}>
-          {busy ? '…' : 'Zapisz'}
+        <button
+          type="submit"
+          class="btn-primary"
+          disabled={action.busy || !originUrl.trim() || !sshKeyId}
+        >
+          {action.busy ? '…' : 'Zapisz'}
         </button>
 
         {#if remote}
-          <button type="button" class="btn-ghost" disabled={busy} onclick={pushNow}>
+          <button type="button" class="btn-ghost" disabled={action.busy} onclick={pushNow}>
             Push teraz
           </button>
-          <button type="button" class="btn-danger" disabled={busy} onclick={remove}>
+          <button type="button" class="btn-danger" disabled={action.busy} onclick={remove}>
             Usuń remote
           </button>
         {/if}
