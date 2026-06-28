@@ -11,6 +11,8 @@ from loguru import logger
 
 from kajet_turbo.perf import perf_span
 
+_HEALTH_PATHS = frozenset({"/healthz", "/readyz"})
+
 
 def _json_sink(message) -> None:
     r = message.record
@@ -166,8 +168,9 @@ class LoggingMiddleware:
         from starlette.requests import Request
 
         request = Request(scope)
+        is_health_path = request.url.path in _HEALTH_PATHS
         request_id = str(uuid.uuid4())[:8]
-        user_id = _extract_user_id(request)
+        user_id = None if is_health_path else _extract_user_id(request)
         # Mcp-Session-Id lets us correlate every line of an MCP request to its
         # session — without it, diagnosing "state not held across calls" means
         # hand-correlating timestamps. None for non-MCP (web/API) requests.
@@ -179,13 +182,17 @@ class LoggingMiddleware:
             nonlocal logged
             if message["type"] == "http.response.start" and not logged:
                 logged = True
-                logger.info(
-                    "http",
-                    method=request.method,
-                    path=request.url.path,
-                    status=message["status"],
-                    duration_ms=round((time.monotonic() - start) * 1000),
-                )
+                status = message["status"]
+                if not is_health_path or status >= 500:
+                    level = "warning" if is_health_path and status >= 500 else "info"
+                    logger.log(
+                        level.upper(),
+                        "http",
+                        method=request.method,
+                        path=request.url.path,
+                        status=status,
+                        duration_ms=round((time.monotonic() - start) * 1000),
+                    )
             await send(message)
 
         with logger.contextualize(request_id=request_id, user_id=user_id, session_id=session_id):

@@ -20,6 +20,7 @@ from kajet_turbo.dependencies import (
     user_repo,
     workspace_service,
 )
+from kajet_turbo.health import add_health_routes
 from kajet_turbo.log import LoggingMiddleware, logger, setup_logging
 from kajet_turbo.mcp import build_mcp
 
@@ -139,6 +140,7 @@ def build_mcp_app() -> Any:
     mcp_app = _new_mcp_app()
     app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan, _logging_lifespan))
     app.add_middleware(LoggingMiddleware)
+    add_health_routes(app, engine=db.engine)
     app.mount("/mcp", mcp_app)
     _add_oauth_routes(app)
     return _MCPPathFix(app)
@@ -149,6 +151,7 @@ def build_api_app() -> Any:
     app = FastAPI(lifespan=combine_lifespans(_app_lifespan, _logging_lifespan))
     app.add_exception_handler(HTTPException, _http_exception_handler)  # ty: ignore[invalid-argument-type] — FastAPI accepts narrower exc type at runtime
     app.add_middleware(LoggingMiddleware)
+    add_health_routes(app, engine=db.engine)
     app.include_router(api_router)
     _mount_spa(app)
     return app
@@ -164,6 +167,7 @@ def build_app() -> Any:
     )
     app.add_exception_handler(HTTPException, _http_exception_handler)  # ty: ignore[invalid-argument-type] — FastAPI accepts narrower exc type at runtime
     app.add_middleware(LoggingMiddleware)
+    add_health_routes(app, engine=db.engine)
     app.include_router(api_router)
     app.mount("/mcp", mcp_app)
     _add_oauth_routes(app)

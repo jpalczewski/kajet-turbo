@@ -1,3 +1,19 @@
+x-kajet-http-healthcheck: &kajet-http-healthcheck
+  test:
+    [
+      "CMD",
+      "uv",
+      "run",
+      "--no-dev",
+      "python",
+      "-c",
+      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=2).read()",
+    ]
+  interval: 30s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+
 services:
   # Single host-facing entrypoint (Caddy). Kept under the name "kajet-turbo" so
   # Coolify's existing domain->service binding (it keys Traefik labels by service
@@ -10,8 +26,16 @@ services:
     expose:
       - "8000"
     depends_on:
-      - kajet-api
-      - kajet-mcp
+      kajet-api:
+        condition: service_healthy
+      kajet-mcp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/healthz >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # Stateless REST API + SPA. Scales to any worker count.
   kajet-api:
@@ -24,6 +48,7 @@ services:
     volumes:
       - kajet_data:/data
       - kajet_workspaces:/workspaces
+    healthcheck: *kajet-http-healthcheck
 
   # Stateful MCP. Single process (enforced in code) so sessions stay coherent
   # and ctx.sample()/elicitation keep working. Shares the DB + workspaces with
@@ -31,13 +56,15 @@ services:
   kajet-mcp:
     image: kajet-turbo:local
     depends_on:
-      - kajet-api
+      kajet-api:
+        condition: service_healthy
     env_file: .env
     environment:
       KAJET_ROLE: mcp
     volumes:
       - kajet_data:/data
       - kajet_workspaces:/workspaces
+    healthcheck: *kajet-http-healthcheck
 
   # Background worker: drains the SQLite job queue (auto-push, future embeddings).
   # No HTTP. Shares the DB (jobs/remotes) + workspaces (git push) with api/mcp;
@@ -48,7 +75,8 @@ services:
   kajet-worker:
     image: kajet-turbo:local
     depends_on:
-      - kajet-api
+      kajet-api:
+        condition: service_healthy
     env_file: .env
     environment:
       KAJET_ROLE: worker

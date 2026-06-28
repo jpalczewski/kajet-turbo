@@ -130,3 +130,67 @@ def test_logging_middleware_injects_request_id(capsys, monkeypatch, tmp_path):
     entries = [json.loads(ln) for ln in lines]
     inside = next(e for e in entries if e.get("msg") == "inside request")
     assert "request_id" in inside
+
+
+def test_logging_middleware_skips_successful_health_logs(capsys, monkeypatch, tmp_path):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
+    from fastapi import FastAPI
+    from starlette.testclient import TestClient
+
+    import kajet_turbo.log as log_module
+    from kajet_turbo.log import LoggingMiddleware, setup_logging
+
+    def fail_extract_user_id(request):
+        raise AssertionError("_extract_user_id must not run for health checks")
+
+    monkeypatch.setattr(log_module, "_extract_user_id", fail_extract_user_id)
+
+    setup_logging()
+    app = FastAPI()
+    app.add_middleware(LoggingMiddleware)
+
+    @app.get("/healthz")
+    def healthz():
+        return {"status": "ok"}
+
+    with TestClient(app) as client:
+        response = client.get("/healthz")
+
+    assert response.status_code == 200
+    captured = capsys.readouterr()
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
+    entries = [json.loads(ln) for ln in lines]
+    assert [e for e in entries if e.get("msg") == "http"] == []
+
+
+def test_logging_middleware_logs_failed_health_as_warning(capsys, monkeypatch, tmp_path):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
+    from fastapi import FastAPI
+    from starlette.testclient import TestClient
+
+    from kajet_turbo.log import LoggingMiddleware, setup_logging
+
+    setup_logging()
+    app = FastAPI()
+    app.add_middleware(LoggingMiddleware)
+
+    @app.get("/readyz")
+    def readyz():
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(status_code=503, content={"status": "error"})
+
+    with TestClient(app) as client:
+        response = client.get("/readyz")
+
+    assert response.status_code == 503
+    captured = capsys.readouterr()
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
+    entries = [json.loads(ln) for ln in lines]
+    http_entries = [e for e in entries if e.get("msg") == "http"]
+    assert len(http_entries) == 1
+    assert http_entries[0]["level"] == "warning"
+    assert http_entries[0]["path"] == "/readyz"
+    assert http_entries[0]["status"] == 503
