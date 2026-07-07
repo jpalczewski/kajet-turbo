@@ -415,17 +415,19 @@ async def test_edit_note_overwrite_confirm_applies(workspaces_dir, mcp_server):
 # --- active workspace scope: claude.ai conversations share user/client, not MCP session ---
 
 
-async def test_fresh_authenticated_session_does_not_inherit_workspace(
+async def test_fresh_authenticated_session_inherits_workspace_within_ttl(
     authed_workspaces_dir, authed_mcp_server
 ):
-    """A second Claude conversation must not inherit the first one's active workspace."""
+    """The claude.ai connector opens a fresh MCP session per tool call (upstream bug: it
+    never echoes back Mcp-Session-Id), so session-scoped state can't survive to the next
+    call. The per-user DB fallback bridges that gap for a bounded TTL window."""
     mcp, _ = authed_mcp_server
     async with Client(mcp) as client_a:
         await client_a.call_tool("activate_workspace", {"name": "test-ws"})
 
     async with Client(mcp) as client_b:
-        with pytest.raises(ToolError, match="activate_workspace"):
-            await client_b.call_tool("save_note", {"title": "Should fail", "content": "body"})
+        result = await client_b.call_tool("save_note", {"title": "Inherited", "content": "body"})
+    assert "error" not in json.loads(result.content[0].text)
 
 
 async def test_two_authenticated_sessions_keep_separate_workspaces(

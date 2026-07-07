@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Engine
 from sqlmodel import Session, select
@@ -34,7 +34,9 @@ class ActiveWorkspaceRepository:
             session.add(row)
             session.commit()
 
-    def get(self, user_id: str, scope: str = "user") -> str | None:
+    def get(
+        self, user_id: str, scope: str = "user", max_age: timedelta | None = None
+    ) -> str | None:
         with Session(self._engine) as session:
             row = session.exec(
                 select(ActiveWorkspace).where(
@@ -42,4 +44,11 @@ class ActiveWorkspaceRepository:
                     ActiveWorkspace.scope == scope,
                 )
             ).first()
-        return row.workspace if row else None
+        if row is None:
+            return None
+        if (
+            max_age is not None
+            and datetime.now(UTC) - datetime.fromisoformat(row.updated_at) > max_age
+        ):
+            return None
+        return row.workspace

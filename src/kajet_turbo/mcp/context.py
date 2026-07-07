@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from datetime import timedelta
 
 from fastmcp.dependencies import CurrentContext, Depends
 from fastmcp.exceptions import ToolError
@@ -11,6 +12,14 @@ from kajet_turbo.log import logger
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.services.workspaces import WorkspaceService
+
+# Global per-user fallback scope (ActiveWorkspaceRepository's default "user" scope).
+# Bridges the claude.ai connector's per-tool-call session churn (it never echoes back
+# Mcp-Session-Id, so mcp-session-scoped state can't survive to the next call) at the cost
+# of a bounded window where two concurrent conversations of the same user can clobber
+# each other's active workspace. TTL keeps that window small.
+USER_SCOPE = "user"
+USER_SCOPE_TTL = timedelta(hours=1)
 
 
 @dataclass(frozen=True)
@@ -77,8 +86,25 @@ async def require_workspace_access(name: str, user_id: str | None) -> list[str]:
     raise ToolError(json.dumps({"error": msg.format(name=name), "available": available}))
 
 
+async def _rehydrate_from_db(
+    ctx: Context, user_id: str, db_name: str, *, source: str, scope: str
+) -> ActiveWorkspace:
+    assert deps.workspace_service is not None
+    await ctx.set_state("active_workspace", db_name)
+    await ctx.set_state("active_user_id", user_id)
+    await ctx.set_state("active_owner_id", user_id)
+    logger.info("active_workspace_resolved", source=source, ws=db_name, scope=scope)
+    return ActiveWorkspace(
+        owner_id=user_id,
+        name=db_name,
+        path=deps.workspace_service.workspace_path(user_id, db_name),
+        user_id=user_id,
+    )
+
+
 async def active_workspace(ctx: Context = MCP_CONTEXT) -> ActiveWorkspace:
-    """Resolve active workspace from session state or the per-user DB fallback."""
+    """Resolve active workspace: session state, then the session-scoped DB row, then a
+    time-boxed per-user DB row (see USER_SCOPE docstring above)."""
     assert deps.workspace_service is not None
     name = await ctx.get_state("active_workspace")
     if name:
@@ -95,26 +121,19 @@ async def active_workspace(ctx: Context = MCP_CONTEXT) -> ActiveWorkspace:
     user_id = await resolve_user_id()
     if user_id is not None and deps.active_workspace_repo is not None:
         scope = active_workspace_scope(ctx)
-        db_name = (
-            await run_sync(deps.active_workspace_repo.get, user_id, scope)
-            if scope is not None
-            else None
+        if scope is not None:
+            db_name = await run_sync(deps.active_workspace_repo.get, user_id, scope)
+            if db_name:
+                return await _rehydrate_from_db(
+                    ctx, user_id, db_name, source="session_db_fallback", scope=scope
+                )
+
+        db_name = await run_sync(
+            deps.active_workspace_repo.get, user_id, USER_SCOPE, USER_SCOPE_TTL
         )
-        if db_name and scope is not None:
-            await ctx.set_state("active_workspace", db_name)
-            await ctx.set_state("active_user_id", user_id)
-            await ctx.set_state("active_owner_id", user_id)
-            logger.info(
-                "active_workspace_resolved",
-                source="db_fallback",
-                ws=db_name,
-                scope=scope,
-            )
-            return ActiveWorkspace(
-                owner_id=user_id,
-                name=db_name,
-                path=deps.workspace_service.workspace_path(user_id, db_name),
-                user_id=user_id,
+        if db_name:
+            return await _rehydrate_from_db(
+                ctx, user_id, db_name, source="user_scope_fallback", scope=USER_SCOPE
             )
 
     logger.info("active_workspace_miss", authenticated=user_id is not None)
