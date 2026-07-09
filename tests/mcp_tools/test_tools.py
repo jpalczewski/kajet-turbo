@@ -68,6 +68,22 @@ async def test_get_notes_rejects_too_many_ids(workspaces_dir, mcp_server):
             await client.call_tool("get_notes", {"note_ids": [f"id{i}" for i in range(51)]})
 
 
+async def test_get_note_outline(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        saved = await client.call_tool(
+            "save_note", {"title": "Doc", "content": "# Doc\n\n## Tasks\n\ncontent\n"}
+        )
+        import json
+
+        note_id = json.loads(saved.content[0].text)["note_id"]
+        result = await client.call_tool("get_note_outline", {"note_id": note_id})
+        text = result.content[0].text
+        assert "Tasks" in text
+        assert "content" not in text.lower() or "## Tasks" in text  # heading text, not body
+
+
 async def test_save_note_creates_file(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:

@@ -44,6 +44,9 @@ class Section:
 
     ``heading_end`` is the char index just past the heading line's trailing newline.
     ``body_end`` runs to the next same-or-higher-level heading, or end of document.
+    ``heading_line`` is the 0-based source line the heading starts on (from the
+    underlying ``Heading.open_line``) — used by ``markdown.outline`` for 1-based
+    line-span reporting without re-deriving it from ``heading_start``.
     """
 
     level: int
@@ -52,6 +55,7 @@ class Section:
     heading_end: int
     body_start: int
     body_end: int
+    heading_line: int
 
 
 def parse_sections(markdown: str) -> list[Section]:
@@ -71,14 +75,17 @@ def parse_sections(markdown: str) -> list[Section]:
     def line_offset(line: int) -> int:
         return offsets[line] if line < len(offsets) else doc_len
 
-    raw: list[tuple[int, int, int, str]] = []  # (level, heading_start, heading_end, heading_text)
+    # (level, heading_start, heading_end, heading_text, heading_line)
+    raw: list[tuple[int, int, int, str, int]] = []
     for h in iter_headings(tokens, top_level_only=True):
-        raw.append((h.level, line_offset(h.open_line), line_offset(h.body_line), h.text))
+        raw.append(
+            (h.level, line_offset(h.open_line), line_offset(h.body_line), h.text, h.open_line)
+        )
 
     sections: list[Section] = []
-    for i, (level, h_start, h_end, h_text) in enumerate(raw):
+    for i, (level, h_start, h_end, h_text, h_line) in enumerate(raw):
         body_end = doc_len
-        for next_level, next_start, _, _ in raw[i + 1 :]:
+        for next_level, next_start, _, _, _ in raw[i + 1 :]:
             if next_level <= level:
                 body_end = next_start
                 break
@@ -90,6 +97,7 @@ def parse_sections(markdown: str) -> list[Section]:
                 heading_end=h_end,
                 body_start=h_end,
                 body_end=body_end,
+                heading_line=h_line,
             )
         )
     return sections

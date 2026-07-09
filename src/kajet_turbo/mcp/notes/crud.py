@@ -25,6 +25,7 @@ from kajet_turbo.mcp.notes.types import (
     NoteInput,
     NoteListItem,
     NoteListResponse,
+    NoteOutlineResult,
     NoteReadError,
     ReindexResult,
     SavedNoteResult,
@@ -265,6 +266,25 @@ def build_crud(
             ).model_dump(),
         )
         return EditNoteSuccess(note_id=data["note_id"])
+
+    @srv.tool(**read_tool(tags={"notes", "crud"}))
+    @logged_tool
+    async def get_note_outline(
+        note_id: str,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> NoteOutlineResult:
+        """Zwraca strukturę notatki (nagłówki + rozmiary sekcji) bez treści — do
+        chirurgicznej edycji bez wciągania całej karty w kontekst. target_heading
+        każdej sekcji wklej bezpośrednio do edit_note(mode='replace_section',
+        target_heading=...). ambiguous=true → ten nagłówek powtarza się w dokumencie,
+        target_heading nie zadziała (edit_note zwróci błąd niejednoznaczności) — użyj
+        wtedy innego trybu (np. replace_text)."""
+        result = await run_sync(
+            note_service.get_outline, note_id, owner_id=ws.owner_id, ws_path=ws.path
+        )
+        if result is None:
+            raise ToolError(f"Notatka {note_id} nie znaleziona.")
+        return NoteOutlineResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
     @logged_tool

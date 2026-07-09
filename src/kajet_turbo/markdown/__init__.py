@@ -25,6 +25,7 @@ from kajet_turbo.markdown.note_edit import (
     replace_section,
     replace_text,
 )
+from kajet_turbo.markdown.outline import OutlineSection, build_outline
 from kajet_turbo.markdown.tags import ancestors, extract_inline_tags, normalize, segments
 from kajet_turbo.markdown.wikilinks import (
     BrokenWikilinkError,
@@ -45,11 +46,13 @@ __all__ = [
     "HeadingAmbiguousError",
     "HeadingNotFoundError",
     "LinkResolver",
+    "OutlineSection",
     "Section",
     "XwsResolver",
     "ancestors",
     "append_content",
     "apply_edit",
+    "build_outline",
     "chunk_markdown",
     "embedded_text",
     "extract_inline_tags",

@@ -196,3 +196,31 @@ class GrepResult(BaseModel):
 class NoteReadError(BaseModel):
     note_id: str
     error: str
+
+
+class OutlineSectionItem(BaseModel):
+    level: int
+    heading: str
+    target_heading: str
+    line_start: int
+    line_end: int
+    char_start: int
+    char_end: int
+    section_chars: int
+    section_lines: int
+    ambiguous: bool = Field(
+        description="True when this heading text repeats elsewhere in the note — "
+        "edit_note's target_heading lookup would raise an ambiguity error."
+    )
+
+
+class NoteOutlineResult(BaseModel):
+    note_id: str
+    title: str
+    folder: str
+    updated_at: str
+    total_chars: int
+    total_lines: int
+    preamble_chars: int
+    preamble_lines: int
+    sections: list[OutlineSectionItem]

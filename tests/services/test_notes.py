@@ -99,6 +99,21 @@ def test_get_many_returns_notes_in_order_with_errors_for_missing(service, worksp
     assert results[2].note_id == r2["note_id"]
 
 
+def test_get_outline_returns_headings_without_content(service, workspace):
+    result = service.save(
+        "u1", "ws", str(workspace), "Doc", "# Doc\n\n## Tasks\n\n- one\n\n## Notes\n\ntext\n", []
+    )
+    outline = service.get_outline(result["note_id"], owner_id="u1", ws_path=str(workspace))
+    assert outline["title"] == "Doc"
+    assert [s["heading"] for s in outline["sections"]] == ["Doc", "Tasks", "Notes"]
+    assert "content" not in outline
+    assert "content" not in outline["sections"][0]
+
+
+def test_get_outline_missing_note_returns_none(service, workspace):
+    assert service.get_outline("missing", owner_id="u1", ws_path=str(workspace)) is None
+
+
 def test_update_git_error_reverts_file(service, workspace):
     from kajet_turbo.repositories.git import GitError
 

@@ -1,5 +1,6 @@
 import json
 import time
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
     BrokenWikilinkError,
     apply_edit,
+    build_outline,
     extract_wikilinks,
     split_target,
 )
@@ -283,6 +285,29 @@ class NoteService:
             updated_at=note.updated_at,
             content=note_data["content"],
         )
+
+    def get_outline(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
+        """Note structure (headings + section sizes) without content — for picking a
+        target_heading before a surgical edit_note call without loading the full body."""
+        note = self._crud_repo.get(note_id, owner_id=owner_id)
+        if note is None:
+            return None
+        filepath = note_filepath(ws_path, note.folder, note.title)
+        if not Path(filepath).exists():
+            return None
+        content = read_note_file(filepath)["content"]
+        sections, preamble_chars, preamble_lines = build_outline(content)
+        return {
+            "note_id": note.id,
+            "title": note.title,
+            "folder": note.folder,
+            "updated_at": note.updated_at,
+            "total_chars": len(content),
+            "total_lines": content.count("\n") + 1 if content else 0,
+            "preamble_chars": preamble_chars,
+            "preamble_lines": preamble_lines,
+            "sections": [asdict(s) for s in sections],
+        }
 
     def get_many(self, note_ids: list[str], owner_id: str, ws_path: str) -> list[NoteData | dict]:
         """Read multiple notes in one call. Best-effort per id: a missing note becomes
