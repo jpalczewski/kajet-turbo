@@ -50,3 +50,20 @@ def test_restore_note_version_reverts_content(auth_client):
     current = note_service.get_with_content(note_id, owner_id="u1", ws_path=workspace)
     assert response.status_code == 200
     assert current.content == "original"
+
+
+def test_restore_note_version_response_matches_declared_schema(auth_client):
+    # note_service.restore_version delegates to note_service.update, whose return dict
+    # carries internal fields (e.g. "replaced", added for replace_all support) that this
+    # REST endpoint doesn't expose — the response must stay pinned to
+    # RestoreVersionResponse's documented shape, not leak them.
+    client, note_service, workspace = auth_client
+    note_id = note_service.save("u1", "test-ws", workspace, "Restore", "original", [])["note_id"]
+    version = note_service.get_history(note_id, owner_id="u1", ws_path=workspace)[0]["sha"]
+    note_service.update(
+        note_id, owner_id="u1", ws_path=workspace, content="new content", confirm=True
+    )
+
+    response = client.post(f"/api/workspaces/test-ws/notes/{note_id}/history/{version}/restore")
+
+    assert response.json() == {"note_id": note_id}
