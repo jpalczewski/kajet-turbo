@@ -83,6 +83,22 @@ def test_get_with_content_returns_content(service, workspace):
     assert note.title == "Notatka"
 
 
+def test_get_many_returns_notes_in_order_with_errors_for_missing(service, workspace):
+    r1 = service.save("u1", "ws", str(workspace), "First", "content one", [])
+    r2 = service.save("u1", "ws", str(workspace), "Second", "content two", [])
+    results = service.get_many(
+        [r1["note_id"], "does-not-exist", r2["note_id"]], owner_id="u1", ws_path=str(workspace)
+    )
+    assert len(results) == 3
+    assert results[0].note_id == r1["note_id"]
+    assert results[0].content == "content one"
+    assert results[1] == {
+        "note_id": "does-not-exist",
+        "error": "Notatka does-not-exist nie znaleziona.",
+    }
+    assert results[2].note_id == r2["note_id"]
+
+
 def test_update_git_error_reverts_file(service, workspace):
     from kajet_turbo.repositories.git import GitError
 
@@ -413,21 +429,27 @@ def test_save_with_broken_wikilink_rejected_and_no_file(service, workspace):
 
 def test_save_with_cross_workspace_link_succeeds(service, workspace):
     """[[note:ID]] never raises BrokenWikilinkError even when ID does not exist."""
-    result = service.save("u1", "ws1", str(workspace), "Source", "link to [[note:nonexistent-id-xyz]]", [])
+    result = service.save(
+        "u1", "ws1", str(workspace), "Source", "link to [[note:nonexistent-id-xyz]]", []
+    )
     assert "note_id" in result
 
 
 def test_save_with_cross_workspace_link_to_existing_note_records_edge(service, workspace):
     """[[note:ID]] where ID exists is stored in note_links."""
     target_id = service.save("u1", "ws2", str(workspace), "Target", "", [])["note_id"]
-    source_id = service.save("u1", "ws1", str(workspace), "Source", f"link to [[note:{target_id}]]", [])["note_id"]
+    source_id = service.save(
+        "u1", "ws1", str(workspace), "Source", f"link to [[note:{target_id}]]", []
+    )["note_id"]
     backlinks = service._link_service._link_repo.backlinks(target_id)
     assert source_id in backlinks
 
 
 def test_save_cross_workspace_link_does_not_create_dangling(service, workspace):
     """[[note:nonexistent]] leaves no outgoing note_links row for source."""
-    note_id = service.save("u1", "ws1", str(workspace), "Source", "[[note:ghost-id-000]]", [])["note_id"]
+    note_id = service.save("u1", "ws1", str(workspace), "Source", "[[note:ghost-id-000]]", [])[
+        "note_id"
+    ]
     outlinks = service._link_service._link_repo.outlinks(note_id)
     assert outlinks == []
 
@@ -1215,7 +1237,9 @@ def test_links_returns_outlinks_and_backlinks(service, workspace):
     sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target]]", [])["note_id"]
     result = service.links(tid, "u1")
     assert result is not None
-    assert result["backlinks"] == [{"note_id": sid, "title": "Source", "folder": "", "workspace": "ws"}]
+    assert result["backlinks"] == [
+        {"note_id": sid, "title": "Source", "folder": "", "workspace": "ws"}
+    ]
     assert result["outlinks"] == []
 
 
@@ -1224,7 +1248,9 @@ def test_links_outlinks_populated(service, workspace):
     sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target]]", [])["note_id"]
     result = service.links(sid, "u1")
     assert result is not None
-    assert result["outlinks"] == [{"note_id": tid, "title": "Target", "folder": "", "workspace": "ws"}]
+    assert result["outlinks"] == [
+        {"note_id": tid, "title": "Target", "folder": "", "workspace": "ws"}
+    ]
     assert result["backlinks"] == []
 
 
@@ -1297,7 +1323,9 @@ def test_links_default_excludes_meta(service, workspace):
 
 def test_backlinks_include_cross_workspace_by_default(service, workspace):
     target_id = service.save("u1", "ws-b", str(workspace), "Target", "", [])["note_id"]
-    source_id = service.save("u1", "ws-a", str(workspace), "Source", f"[[note:{target_id}]]", [])["note_id"]
+    source_id = service.save("u1", "ws-a", str(workspace), "Source", f"[[note:{target_id}]]", [])[
+        "note_id"
+    ]
     result = service.links(target_id, owner_id="u1")
     assert result is not None
     assert any(b["note_id"] == source_id for b in result["backlinks"])
@@ -1324,9 +1352,9 @@ def test_link_item_includes_workspace_field(service, workspace):
 def test_rename_does_not_rewrite_cross_workspace_backlink(service, workspace):
     # ws-b note is the target; ws-a note links to it via [[note:ID]] (cross-workspace syntax).
     target_id = service.save("u1", "ws-b", str(workspace), "Old Title", "content", [])["note_id"]
-    source_id = service.save(
-        "u1", "ws-a", str(workspace), "Linker", f"[[note:{target_id}]]", []
-    )["note_id"]
+    source_id = service.save("u1", "ws-a", str(workspace), "Linker", f"[[note:{target_id}]]", [])[
+        "note_id"
+    ]
 
     # Rename the ws-b note — rewrite_backlinks must not touch the ws-a file.
     service.update(target_id, owner_id="u1", ws_path=str(workspace), title="New Title")

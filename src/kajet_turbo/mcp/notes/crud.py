@@ -25,6 +25,7 @@ from kajet_turbo.mcp.notes.types import (
     NoteInput,
     NoteListItem,
     NoteListResponse,
+    NoteReadError,
     ReindexResult,
     SavedNoteResult,
     SearchChunkResult,
@@ -135,6 +136,23 @@ def build_crud(
         if result is None:
             raise ToolError(f"Notatka {note_id} nie znaleziona.")
         return result
+
+    @srv.tool(**read_tool(tags={"notes", "crud"}))
+    @logged_tool
+    async def get_notes(
+        note_ids: list[str],
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> list[NoteData | NoteReadError]:
+        """Czyta wiele notatek jednym wywołaniem zamiast N x get_note. Max 50 na raz.
+        Nieznalezione id → NoteReadError {note_id, error} zamiast przerwania całości."""
+        if not note_ids:
+            raise ToolError("note_ids nie może być puste.")
+        if len(note_ids) > 50:
+            raise ToolError(f"Maksymalnie 50 note_id na wywołanie (podano {len(note_ids)}).")
+        results = await run_sync(
+            note_service.get_many, note_ids, owner_id=ws.owner_id, ws_path=ws.path
+        )
+        return [r if isinstance(r, NoteData) else NoteReadError.model_validate(r) for r in results]
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
     @logged_tool

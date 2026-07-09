@@ -44,6 +44,30 @@ async def test_save_and_get_note(workspaces_dir, mcp_server):
         assert "Moja notatka" in get_result.content[0].text
 
 
+async def test_get_notes_bulk_read(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        r1 = await client.call_tool("save_note", {"title": "First", "content": "one"})
+        r2 = await client.call_tool("save_note", {"title": "Second", "content": "two"})
+
+        id1 = json.loads(r1.content[0].text)["note_id"]
+        id2 = json.loads(r2.content[0].text)["note_id"]
+        result = await client.call_tool("get_notes", {"note_ids": [id1, "bad-id", id2]})
+        text = result.content[0].text
+        assert "First" in text
+        assert "Second" in text
+        assert "nie znaleziona" in text
+
+
+async def test_get_notes_rejects_too_many_ids(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        with pytest.raises(ToolError):
+            await client.call_tool("get_notes", {"note_ids": [f"id{i}" for i in range(51)]})
+
+
 async def test_save_note_creates_file(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:

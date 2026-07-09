@@ -191,3 +191,8 @@ class GrepResult(BaseModel):
     truncated: bool = Field(
         description="True if max_results was hit — more matches may exist beyond what's returned."
     )
+
+
+class NoteReadError(BaseModel):
+    note_id: str
+    error: str

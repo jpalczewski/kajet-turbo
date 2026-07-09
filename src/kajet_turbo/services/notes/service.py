@@ -284,6 +284,18 @@ class NoteService:
             content=note_data["content"],
         )
 
+    def get_many(self, note_ids: list[str], owner_id: str, ws_path: str) -> list[NoteData | dict]:
+        """Read multiple notes in one call. Best-effort per id: a missing note becomes
+        {"note_id": ..., "error": ...} instead of failing the whole call. Order-preserving."""
+        results: list[NoteData | dict] = []
+        for note_id in note_ids:
+            data = self.get_with_content(note_id, owner_id, ws_path)
+            if data is None:
+                results.append({"note_id": note_id, "error": f"Notatka {note_id} nie znaleziona."})
+            else:
+                results.append(data)
+        return results
+
     def preview_chunks(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
         """Live chunk preview for a note (reads current file content; never stored rows)."""
         note = self._crud_repo.get(note_id, owner_id=owner_id)
