@@ -577,6 +577,186 @@ class NoteService:
         self._index(note_id, note.workspace, owner_id, new_title, new_content)
         return {"note_id": note_id, "replaced": replaced}
 
+    def edit_many(
+        self,
+        user_id: str,
+        ws_name: str,
+        ws_path: str,
+        edits: list[dict],
+        confirm: bool = False,
+    ) -> dict:
+        """Apply multiple surgical edits in ONE atomic commit. All-or-nothing at
+        validation: any invalid edit (missing note, duplicate note_id, broken wikilink,
+        bad anchor/heading) rejects the whole batch — nothing is written. Content + tags
+        only; no title/folder changes (a rename needs backlink rewrites across other
+        notes, incompatible with one commit_files call — use update() for that). Each
+        input dict: {note_id, mode="append", content="", target_heading=None,
+        old_text=None, replace_all=False, tags=None}.
+        """
+        if not edits:
+            raise ValueError("Batch edycji nie może być pusty.")
+
+        seen_ids: set[str] = set()
+        errors: list[dict] = []
+        prepared: list[dict] = []
+        for index, raw in enumerate(edits):
+            note_id = str(raw.get("note_id", "")).strip()
+            if not note_id:
+                errors.append({"index": index, "error": "note_id jest wymagany."})
+                continue
+            if note_id in seen_ids:
+                errors.append({"index": index, "error": f"Duplikat note_id w batchu: '{note_id}'."})
+                continue
+            seen_ids.add(note_id)
+            note = self._crud_repo.get(note_id, owner_id=user_id)
+            if note is None:
+                errors.append({"index": index, "error": f"Notatka {note_id} nie znaleziona."})
+                continue
+            filepath = note_filepath(ws_path, note.folder, note.title)
+            if not Path(filepath).exists():
+                errors.append({"index": index, "error": f"Plik notatki {note_id} nie znaleziony."})
+                continue
+            note_data = read_note_file(filepath)
+            old_content = note_data["content"]
+            mode = raw.get("mode", "append")
+            content = raw.get("content", "")
+            target_heading = raw.get("target_heading")
+            old_text = raw.get("old_text")
+            replace_all = bool(raw.get("replace_all", False))
+            try:
+                edit_result = apply_edit(
+                    old_content, mode, content, target_heading, old_text, replace_all=replace_all
+                )
+            except ValueError as e:
+                errors.append({"index": index, "error": str(e)})
+                continue
+            new_content = edit_result.body
+            try:
+                target_ids, broken_pairs = self._link_service.validate_wikilinks(
+                    ws_name, user_id, new_content
+                )
+            except BrokenWikilinkError as e:
+                errors.append({"index": index, "error": str(e)})
+                continue
+            raw_tags = raw.get("tags")
+            current_tags = NoteTagService.normalize_tags(note_data["tags"])
+            new_tags = (
+                NoteTagService.normalize_tags(raw_tags) if raw_tags is not None else current_tags
+            )
+            would_remove = (
+                [t for t in current_tags if t not in set(new_tags)] if raw_tags is not None else []
+            )
+            overwrites_content = (
+                mode == "overwrite" and old_content.strip() != "" and new_content != old_content
+            )
+            prepared.append(
+                {
+                    "index": index,
+                    "note_id": note_id,
+                    "note": note,
+                    "filepath": filepath,
+                    "relative": str(Path(filepath).relative_to(ws_path)),
+                    "old_content": old_content,
+                    "old_tags": current_tags,
+                    "new_content": new_content,
+                    "new_tags": new_tags,
+                    "target_ids": target_ids,
+                    "broken_pairs": broken_pairs,
+                    "would_remove": would_remove,
+                    "overwrites_content": overwrites_content,
+                    "replaced": edit_result.replaced,
+                }
+            )
+
+        if errors:
+            return {"applied": False, "errors": errors}
+
+        destructive = [p for p in prepared if p["would_remove"] or p["overwrites_content"]]
+        if destructive and not confirm:
+            items = [
+                {
+                    "index": p["index"],
+                    "note_id": p["note_id"],
+                    "would_remove_tags": p["would_remove"],
+                    "overwrites_content": p["overwrites_content"],
+                }
+                for p in destructive
+            ]
+            return {
+                "applied": False,
+                "requires_confirmation": True,
+                "items": items,
+                "warning": f"{len(destructive)} notatek wymaga potwierdzenia (utrata tagów lub "
+                "nadpisanie treści). Potwierdź z użytkownikiem i zawołaj ponownie z confirm=true.",
+            }
+
+        now = datetime.now(UTC).isoformat()
+        for p in prepared:
+            write_note_file(
+                p["filepath"],
+                p["note_id"],
+                p["note"].title,
+                p["new_tags"],
+                p["note"].created_at,
+                now,
+                p["new_content"],
+            )
+        try:
+            n = len(prepared)
+            GitRepository(ws_path).commit_files(
+                [p["relative"] for p in prepared], f"note: edit {n} note{'' if n == 1 else 's'}"
+            )
+        except GitError:
+            for p in prepared:
+                write_note_file(
+                    p["filepath"],
+                    p["note_id"],
+                    p["note"].title,
+                    p["old_tags"],
+                    p["note"].created_at,
+                    p["note"].updated_at,
+                    p["old_content"],
+                )
+            raise
+
+        for p in prepared:
+            self._crud_repo.update(
+                p["note_id"],
+                owner_id=user_id,
+                title=p["note"].title,
+                content=p["new_content"],
+                tags=p["new_tags"],
+                updated_at=now,
+                folder=p["note"].folder,
+            )
+            self._link_repo.replace_links(p["note_id"], ws_name, user_id, p["target_ids"])
+            self._tag_service.sync_tags(
+                p["note_id"], ws_name, user_id, p["new_tags"], p["new_content"]
+            )
+            self._link_service.write_dangling(p["note_id"], ws_name, user_id, p["broken_pairs"])
+
+        if self._cache is not None:
+            self._cache.bump(ws_name, user_id)
+
+        if self._indexer is not None:
+            self._indexer.index_many(
+                ws_name,
+                user_id,
+                [
+                    {"id": p["note_id"], "title": p["note"].title, "content": p["new_content"]}
+                    for p in prepared
+                ],
+            )
+
+        results = [
+            {"index": p["index"], "note_id": p["note_id"], "replaced": p["replaced"]}
+            for p in prepared
+        ]
+        for p in prepared:
+            logger.info("note_updated", note_id=p["note_id"], folder=p["note"].folder)
+        logger.info("notes_edited_batch", ws=ws_name, count=len(prepared))
+        return {"applied": True, "results": results}
+
     def delete(self, note_id: str, owner_id: str, ws_path: str) -> None:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:

@@ -17,12 +17,16 @@ from kajet_turbo.mcp.notes.types import (
     Cancelled,
     ConfirmationRequired,
     DeletedNoteResult,
+    EditNotesApplied,
+    EditNotesConfirmationRequired,
+    EditNotesRejected,
     EditNoteSuccess,
     FolderContext,
     FolderExportResult,
     GrepMatch,
     GrepResult,
     MovedNoteResult,
+    NoteEditInput,
     NoteInput,
     NoteListItem,
     NoteListResponse,
@@ -279,6 +283,53 @@ def build_crud(
             ).model_dump(),
         )
         return EditNoteSuccess.model_validate(data)
+
+    @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
+    @logged_tool
+    async def edit_notes(
+        edits: list[NoteEditInput],
+        confirm: bool = False,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> EditNotesApplied | EditNotesRejected | EditNotesConfirmationRequired:
+        """Edytuje wiele notatek w jednym atomowym commicie. All-or-nothing: jeśli
+        KTÓRAKOLWIEK edycja w batchu jest niepoprawna (zła notatka, błędny wikilink,
+        niejednoznaczny target_heading/old_text, duplikat note_id) — cały batch jest
+        odrzucany i NIC nie jest zapisywane; errors {index, error} per pozycja mówi co.
+        Zakres: tylko content i tagi — bez zmiany title/folder (do tego użyj edit_note).
+        Operacje destrukcyjne (utrata tagów, nadpisanie treści w mode='overwrite')
+        wymagają confirm=true — bez elicitation per-item; sprawdź
+        requires_confirmation w odpowiedzi, potwierdź z użytkownikiem i zawołaj
+        ponownie z confirm=true dla całego batcha. Max 50 edycji na wywołanie."""
+        if not edits:
+            raise ToolError("edits nie może być puste.")
+        if len(edits) > 50:
+            raise ToolError(f"Maksymalnie 50 edycji na wywołanie (podano {len(edits)}).")
+        try:
+            result = await run_sync(
+                note_service.edit_many,
+                ws.owner_id,
+                ws.name,
+                ws.path,
+                [e.model_dump() for e in edits],
+                confirm=confirm,
+            )
+        except GitError as e:
+            raise ToolError(str(e)) from e
+        if result.get("requires_confirmation"):
+            return EditNotesConfirmationRequired.model_validate(result)
+        if not result.get("applied"):
+            return EditNotesRejected.model_validate(result)
+        await run_sync(
+            event_repo.publish,
+            ws.owner_id,
+            "workspace_changed",
+            WorkspaceChangedEvent(
+                type="workspace_changed",
+                owner_id=ws.owner_id,
+                workspace=ws.name,
+            ).model_dump(),
+        )
+        return EditNotesApplied.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
     @logged_tool

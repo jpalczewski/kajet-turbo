@@ -47,6 +47,13 @@ resolve within the active workspace.
   loading its body, then edit just that section surgically
 - export_folder — concatenate a folder's subtree into one markdown corpus, for
   reconnaissance across many related notes instead of N x get_note
+
+## Batch editing
+- edit_note(replace_all=true) — replace_text/delete_text on every match in one note
+  instead of requiring old_text to be unique; response carries replaced with the count
+- edit_notes — edit multiple existing notes in one atomic commit, all-or-nothing: any
+  invalid item rejects the whole batch before anything is written. Content + tags only,
+  no renames (use edit_note for that); unlike save_notes, never leaves a partial batch
 """
 
 
@@ -71,5 +78,7 @@ def build_mcp(
             workspace_service, oauth_repo, active_workspace_repo, state_store=state_store
         )
     )
-    mcp.mount(build_notes(note_service, workspace_service, folder_meta_repo, state_store=state_store))
+    mcp.mount(
+        build_notes(note_service, workspace_service, folder_meta_repo, state_store=state_store)
+    )
     return mcp

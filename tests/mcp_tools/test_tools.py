@@ -787,3 +787,50 @@ async def test_get_note_links_exclude_cross_workspace(workspaces_dir, mcp_server
         )
 
     assert result["backlinks"] == []
+
+
+async def test_edit_notes_batch_applies_together(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        saved = await client.call_tool("save_note", {"title": "First", "content": "one\n"})
+        import json
+
+        note_id = json.loads(saved.content[0].text)["note_id"]
+        result = await client.call_tool(
+            "edit_notes", {"edits": [{"note_id": note_id, "mode": "append", "content": "more"}]}
+        )
+        data = json.loads(result.content[0].text)
+        assert data["applied"] is True
+        note = await client.call_tool("get_note", {"note_id": note_id})
+        assert "more" in note.content[0].text
+
+
+async def test_edit_notes_batch_rejects_all_on_one_bad_item(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        r1 = await client.call_tool("save_note", {"title": "First", "content": "one\n"})
+        r2 = await client.call_tool("save_note", {"title": "Second", "content": "two\n"})
+        import json
+
+        id1 = json.loads(r1.content[0].text)["note_id"]
+        id2 = json.loads(r2.content[0].text)["note_id"]
+        result = await client.call_tool(
+            "edit_notes",
+            {
+                "edits": [
+                    {"note_id": id1, "mode": "append", "content": "more"},
+                    {
+                        "note_id": id2,
+                        "mode": "replace_text",
+                        "content": "x",
+                        "old_text": "does-not-exist",
+                    },
+                ]
+            },
+        )
+        data = json.loads(result.content[0].text)
+        assert data["applied"] is False
+        note1 = await client.call_tool("get_note", {"note_id": id1})
+        assert "more" not in note1.content[0].text

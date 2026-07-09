@@ -241,3 +241,64 @@ class FolderExportResult(BaseModel):
     omitted: list[OmittedNote] = Field(
         description="Notes excluded once max_chars was hit (empty when nothing was truncated)."
     )
+
+
+class NoteEditInput(BaseModel):
+    note_id: str = Field(description="id notatki do edycji")
+    mode: Literal[
+        "overwrite",
+        "append",
+        "prepend",
+        "replace_section",
+        "replace_text",
+        "insert_after",
+        "delete_text",
+    ] = Field(
+        default="append",
+        description="Jak w edit_note. Domyślnie 'append' (najmniej destrukcyjny) — w batchu "
+        "łatwo o pomyłkę przy 'overwrite' na wielu notatkach naraz.",
+    )
+    content: str = ""
+    target_heading: str | None = None
+    old_text: str | None = None
+    replace_all: bool = False
+    tags: list[str] | None = Field(
+        default=None, description="Podmienia frontmatter tags tej notatki; None = bez zmian."
+    )
+
+
+class EditNotesSuccessItem(BaseModel):
+    index: int
+    note_id: str
+    replaced: int | None = None
+
+
+class EditNotesApplied(BaseModel):
+    applied: Literal[True]
+    results: list[EditNotesSuccessItem]
+
+
+class EditNotesError(BaseModel):
+    index: int
+    error: str
+
+
+class EditNotesRejected(BaseModel):
+    applied: Literal[False]
+    errors: list[EditNotesError] = Field(
+        description="Cały batch odrzucony — nic nie zostało zapisane."
+    )
+
+
+class EditNotesDestructiveItem(BaseModel):
+    index: int
+    note_id: str
+    would_remove_tags: list[str]
+    overwrites_content: bool
+
+
+class EditNotesConfirmationRequired(BaseModel):
+    applied: Literal[False]
+    requires_confirmation: Literal[True]
+    items: list[EditNotesDestructiveItem]
+    warning: str
