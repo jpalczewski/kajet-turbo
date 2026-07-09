@@ -2,9 +2,11 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import text
+from sqlmodel import Session
 
 from kajet_turbo.db import Database
 from kajet_turbo.markdown import Chunk
+from kajet_turbo.models import Note
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
@@ -281,3 +283,86 @@ def test_add_link_preserves_existing_edges(notes, link_repo):
     link_repo.replace_links("a", "ws", "u1", {"b"})  # a -> b
     link_repo.add_link("a", "c", "ws", "u1")  # add a -> c without dropping a -> b
     assert set(link_repo.outlinks("a")) == {"b", "c"}
+
+
+# --- list_notes(sort=) tests ---
+
+
+def _note(
+    note_id: str, title: str, folder: str, updated_at: str, created_at: str | None = None
+) -> Note:
+    return Note(
+        id=note_id,
+        workspace="ws",
+        owner_id="u1",
+        title=title,
+        folder=folder,
+        created_at=created_at or updated_at,
+        updated_at=updated_at,
+    )
+
+
+def test_list_notes_sort_default_folder_view_uses_title_order(database):
+    repo = NoteRepository(database.engine)
+    with Session(database.engine) as session:
+        session.add(_note("n1", "02 Second", "a", "2026-01-01T00:00:00+00:00"))
+        session.add(_note("n2", "01 First", "a", "2026-01-05T00:00:00+00:00"))
+        session.commit()
+    notes = repo.list_notes("ws", "u1", folder="a", limit=None)
+    assert [n["title"] for n in notes] == ["01 First", "02 Second"]
+
+
+def test_list_notes_sort_updated_ignores_folder_natural_order(database):
+    repo = NoteRepository(database.engine)
+    with Session(database.engine) as session:
+        session.add(_note("n1", "02 Second", "a", "2026-01-05T00:00:00+00:00"))
+        session.add(_note("n2", "01 First", "a", "2026-01-01T00:00:00+00:00"))
+        session.commit()
+    notes = repo.list_notes("ws", "u1", folder="a", limit=None, sort="updated")
+    assert [n["title"] for n in notes] == ["02 Second", "01 First"]
+
+
+def test_list_notes_sort_title_applies_globally_without_folder(database):
+    repo = NoteRepository(database.engine)
+    with Session(database.engine) as session:
+        session.add(_note("n1", "Zebra", "", "2026-01-05T00:00:00+00:00"))
+        session.add(_note("n2", "Apple", "", "2026-01-01T00:00:00+00:00"))
+        session.commit()
+    notes = repo.list_notes("ws", "u1", limit=None, sort="title")
+    assert [n["title"] for n in notes] == ["Apple", "Zebra"]
+
+
+def test_list_notes_sort_created(database):
+    repo = NoteRepository(database.engine)
+    with Session(database.engine) as session:
+        session.add(
+            _note(
+                "n1",
+                "A",
+                "",
+                updated_at="2026-01-01T00:00:00+00:00",
+                created_at="2026-01-01T00:00:00+00:00",
+            )
+        )
+        session.add(
+            _note(
+                "n2",
+                "B",
+                "",
+                updated_at="2026-01-01T00:00:00+00:00",
+                created_at="2026-01-10T00:00:00+00:00",
+            )
+        )
+        session.commit()
+    notes = repo.list_notes("ws", "u1", limit=None, sort="created")
+    assert [n["title"] for n in notes] == ["B", "A"]
+
+
+def test_list_notes_default_global_view_unchanged_recency_order(database):
+    repo = NoteRepository(database.engine)
+    with Session(database.engine) as session:
+        session.add(_note("n1", "Zebra", "", "2026-01-05T00:00:00+00:00"))
+        session.add(_note("n2", "Apple", "", "2026-01-01T00:00:00+00:00"))
+        session.commit()
+    notes = repo.list_notes("ws", "u1", limit=None)
+    assert [n["title"] for n in notes] == ["Zebra", "Apple"]

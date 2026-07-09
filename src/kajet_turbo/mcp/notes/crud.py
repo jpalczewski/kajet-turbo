@@ -351,6 +351,14 @@ def build_crud(
                 description="Filter to notes in this folder only, e.g. 'Projekty/Klient A'. Empty string = root."
             ),
         ] = None,
+        sort: Annotated[
+            Literal["default", "updated", "title", "created"],
+            Field(
+                description="'default' — recency globally, README-first natural title order "
+                "inside a folder. 'updated'/'created' — always that recency order, even inside "
+                "a folder. 'title' — natural title order (README-first), even globally."
+            ),
+        ] = "default",
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> NoteListResponse:
         """Zwraca listę notatek wraz z metadanymi folderu (jeśli ustawione).
@@ -365,6 +373,7 @@ def build_crud(
             tags=tags or None,
             limit=limit,
             folder=folder,
+            sort=sort,
         )
         folder_context: FolderContext | None = None
         if folder is not None:

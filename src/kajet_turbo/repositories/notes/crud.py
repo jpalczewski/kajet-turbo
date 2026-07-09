@@ -11,7 +11,7 @@ from kajet_turbo.repositories import DbRepository
 _NUM_SPLIT = re.compile(r"(\d+)")
 
 
-def _folder_sort_key(note: Note) -> tuple:
+def folder_sort_key(note: Note) -> tuple:
     """README pinned first, then natural order by title (01, 02, … 10)."""
     is_readme = 0 if note.title.strip().lower() == "readme" else 1
     natural = [
@@ -250,6 +250,7 @@ class NoteRepository(DbRepository):
         limit: int | None = 20,
         folder: str | None = None,
         include_descendants: bool = True,
+        sort: str = "default",
         _tag_repo=None,
     ) -> list[dict]:
         allowed: set[str] | None = None
@@ -268,12 +269,14 @@ class NoteRepository(DbRepository):
             q = select(Note).where(Note.workspace == workspace, Note.owner_id == owner_id)
             if folder is not None:
                 q = q.where(Note.folder == folder)
-            rows = session.exec(q.order_by(col(Note.updated_at).desc())).all()
+            order_col = col(Note.created_at) if sort == "created" else col(Note.updated_at)
+            rows = session.exec(q.order_by(order_col.desc())).all()
 
-        # Folder browsing gets README-first + natural order; the global listing
-        # (folder is None, e.g. MCP "recent notes") keeps recency order.
-        if folder is not None:
-            rows = sorted(rows, key=_folder_sort_key)
+        # Folder browsing gets README-first + natural order by default; sort='title'
+        # forces that ordering globally too; sort='updated'/'created' always keep the
+        # SQL-level recency order, even inside a folder.
+        if sort == "title" or (sort == "default" and folder is not None):
+            rows = sorted(rows, key=folder_sort_key)
 
         result = []
         for note in rows:

@@ -200,6 +200,17 @@ async def test_list_notes(workspaces_dir, mcp_server):
         assert "Notatka 2" in result.content[0].text
 
 
+async def test_list_notes_sort_title(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        await client.call_tool("save_note", {"title": "Zebra", "content": "z"})
+        await client.call_tool("save_note", {"title": "Apple", "content": "a"})
+        result = await client.call_tool("list_notes", {"sort": "title"})
+        text = result.content[0].text
+        assert text.index("Apple") < text.index("Zebra")
+
+
 async def test_search_notes_fts_fallback(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:

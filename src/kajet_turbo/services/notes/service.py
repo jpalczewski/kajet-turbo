@@ -550,6 +550,7 @@ class NoteService:
         limit: int | None = 20,
         folder: str | None = None,
         include_descendants: bool = True,
+        sort: str = "default",
     ) -> list[dict]:
         return self._crud_repo.list_notes(
             ws_name,
@@ -558,6 +559,7 @@ class NoteService:
             limit=limit,
             folder=folder,
             include_descendants=include_descendants,
+            sort=sort,
             _tag_repo=self._tag_repo if tags else None,
         )
 
