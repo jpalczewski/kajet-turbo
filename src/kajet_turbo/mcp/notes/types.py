@@ -176,6 +176,7 @@ class Cancelled(BaseModel):
 
 class EditNoteSuccess(BaseModel):
     note_id: str
+    replaced: int | None = None
 
 
 class GrepMatch(BaseModel):

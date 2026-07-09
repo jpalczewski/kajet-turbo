@@ -231,7 +231,7 @@ def test_insert_after_not_found_and_ambiguous():
 
 
 def test_apply_edit_overwrite_returns_content():
-    assert apply_edit("old", "overwrite", "new", None, None) == "new"
+    assert apply_edit("old", "overwrite", "new", None, None).body == "new"
 
 
 def test_apply_edit_validation_errors():
@@ -250,10 +250,42 @@ def test_apply_edit_validation_errors():
 
 
 def test_apply_edit_routes_to_modes():
-    assert apply_edit("a\n", "append", "b", None, None) == "a\nb\n"
-    assert apply_edit("foo bar", "replace_text", "qux", None, "foo") == "qux bar"
-    assert apply_edit("a", "insert_after", "b", None, "a") == "a\nb\n"
-    assert apply_edit("keep [drop] keep", "delete_text", "", None, "[drop] ") == "keep keep"
+    assert apply_edit("a\n", "append", "b", None, None).body == "a\nb\n"
+    assert apply_edit("foo bar", "replace_text", "qux", None, "foo").body == "qux bar"
+    assert apply_edit("a", "insert_after", "b", None, "a").body == "a\nb\n"
+    assert apply_edit("keep [drop] keep", "delete_text", "", None, "[drop] ").body == "keep keep"
+
+
+def test_apply_edit_replace_text_replace_all_returns_count():
+    result = apply_edit("foo bar foo baz foo", "replace_text", "qux", None, "foo", replace_all=True)
+    assert result.body == "qux bar qux baz qux"
+    assert result.replaced == 3
+
+
+def test_apply_edit_delete_text_replace_all_returns_count():
+    result = apply_edit("x foo y foo z", "delete_text", "", None, "foo ", replace_all=True)
+    assert result.body == "x y z"
+    assert result.replaced == 2
+
+
+def test_apply_edit_replace_all_no_match_raises():
+    with pytest.raises(AnchorNotFoundError):
+        apply_edit("no match here", "replace_text", "x", None, "zzz", replace_all=True)
+
+
+def test_apply_edit_replace_all_rejects_non_text_mode():
+    with pytest.raises(ValueError, match="replace_all"):
+        apply_edit("body", "append", "x", None, None, replace_all=True)
+
+
+def test_apply_edit_without_replace_all_keeps_uniqueness_requirement():
+    with pytest.raises(AnchorAmbiguousError):
+        apply_edit("foo bar foo", "replace_text", "qux", None, "foo")
+
+
+def test_apply_edit_non_replace_all_modes_have_replaced_none():
+    assert apply_edit("old", "overwrite", "new", None, None).replaced is None
+    assert apply_edit("a\n", "append", "b", None, None).replaced is None
 
 
 def test_polish_content_append_to_section():

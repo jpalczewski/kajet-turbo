@@ -39,6 +39,15 @@ class AnchorAmbiguousError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class EditResult:
+    """Result of ``apply_edit``. ``replaced`` is the match count for
+    replace_text/delete_text when ``replace_all=True`` was used, else ``None``."""
+
+    body: str
+    replaced: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Section:
     """A markdown section delimited by its heading.
 
@@ -163,6 +172,17 @@ def _locate_unique(content: str, needle: str) -> int:
     return positions[0]
 
 
+def _replace_text_all(content: str, old: str, new: str) -> tuple[str, int]:
+    """Replace every non-overlapping occurrence of ``old`` with ``new``. Raises
+    ``AnchorNotFoundError`` on zero occurrences (mirrors ``replace_text``'s contract).
+    ``old`` is always non-empty here — callers (``apply_edit``) already require it.
+    """
+    positions = _find_all(content, old)
+    if not positions:
+        raise AnchorNotFoundError("Tekst nie znaleziony.")
+    return content.replace(old, new), len(positions)
+
+
 def _splice_block(prefix: str, inserted: str, remainder: str) -> str:
     """Assemble ``prefix`` + ``inserted`` + ``remainder`` with newline normalization.
 
@@ -252,12 +272,17 @@ def apply_edit(
     content: str,
     target_heading: str | None,
     old_text: str | None,
-) -> str:
+    *,
+    replace_all: bool = False,
+) -> EditResult:
     """Dispatch to the transform for ``mode``, validating its required parameters.
 
     ``body`` is the current note body (no frontmatter); ``content`` is the edit payload.
-    Returns the new body. Raises ``ValueError`` (or a subclass) on invalid params or failed
-    anchor/heading lookups.
+    Returns an ``EditResult``. Raises ``ValueError`` (or a subclass) on invalid params or
+    failed anchor/heading lookups. ``replace_all`` only applies to 'replace_text'/
+    'delete_text' — every other mode combined with ``replace_all=True`` is a validation
+    error, since there's no well-defined "all occurrences" semantics for e.g. a section
+    replace.
     """
     if mode == "overwrite" and target_heading is not None:
         raise ValueError("Tryb 'overwrite' nie używa target_heading.")
@@ -265,22 +290,32 @@ def apply_edit(
         raise ValueError("Tryb 'replace_section' wymaga target_heading.")
     if mode in ("replace_text", "insert_after", "delete_text") and not old_text:
         raise ValueError(f"Tryb '{mode}' wymaga old_text.")
+    if replace_all and mode not in ("replace_text", "delete_text"):
+        raise ValueError("replace_all działa tylko z trybami 'replace_text'/'delete_text'.")
     if not content and mode not in ("replace_text", "delete_text"):
         raise ValueError(f"content nie może być pusty dla trybu '{mode}'.")
 
     if mode == "overwrite":
-        return content
+        return EditResult(body=content)
     if mode == "append":
-        return append_content(body, content, target_heading)
+        return EditResult(body=append_content(body, content, target_heading))
     if mode == "prepend":
-        return prepend_content(body, content, target_heading)
+        return EditResult(body=prepend_content(body, content, target_heading))
     if mode == "replace_section":
         # target_heading guaranteed non-None by validation above.
-        return replace_section(body, target_heading, content)  # ty: ignore[invalid-argument-type]
+        return EditResult(
+            body=replace_section(body, target_heading, content)  # ty: ignore[invalid-argument-type]
+        )
     if mode == "replace_text":
-        return replace_text(body, old_text, content)  # ty: ignore[invalid-argument-type]
+        if replace_all:
+            new_body, count = _replace_text_all(body, old_text, content)  # ty: ignore[invalid-argument-type]
+            return EditResult(body=new_body, replaced=count)
+        return EditResult(body=replace_text(body, old_text, content))  # ty: ignore[invalid-argument-type]
     if mode == "delete_text":
-        return replace_text(body, old_text, "")  # ty: ignore[invalid-argument-type]
+        if replace_all:
+            new_body, count = _replace_text_all(body, old_text, "")  # ty: ignore[invalid-argument-type]
+            return EditResult(body=new_body, replaced=count)
+        return EditResult(body=replace_text(body, old_text, ""))  # ty: ignore[invalid-argument-type]
     if mode == "insert_after":
-        return insert_after(body, old_text, content)  # ty: ignore[invalid-argument-type]
+        return EditResult(body=insert_after(body, old_text, content))  # ty: ignore[invalid-argument-type]
     raise ValueError(f"Nieznany tryb edycji: '{mode}'.")

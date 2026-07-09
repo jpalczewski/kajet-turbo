@@ -13,6 +13,7 @@ from kajet_turbo.markdown.chunking import (
 from kajet_turbo.markdown.note_edit import (
     AnchorAmbiguousError,
     AnchorNotFoundError,
+    EditResult,
     HeadingAmbiguousError,
     HeadingNotFoundError,
     Section,
@@ -43,6 +44,7 @@ __all__ = [
     "AnchorNotFoundError",
     "BrokenWikilinkError",
     "Chunk",
+    "EditResult",
     "HeadingAmbiguousError",
     "HeadingNotFoundError",
     "LinkResolver",

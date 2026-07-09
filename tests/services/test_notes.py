@@ -247,6 +247,48 @@ def test_update_replace_text_ambiguous_raises(service, workspace):
         )
 
 
+def test_update_replace_text_replace_all_reports_count(service, workspace):
+    result = service.save("u1", "ws", str(workspace), "Doc", "foo bar foo baz foo", [])
+    updated = service.update(
+        result["note_id"],
+        owner_id="u1",
+        ws_path=str(workspace),
+        mode="replace_text",
+        content="qux",
+        old_text="foo",
+        replace_all=True,
+    )
+    assert updated["replaced"] == 3
+    reread = service.get_with_content(result["note_id"], "u1", str(workspace))
+    assert reread.content == "qux bar qux baz qux"
+
+
+def test_update_without_replace_all_replaced_is_none(service, workspace):
+    result = service.save("u1", "ws", str(workspace), "Doc", "unique text here", [])
+    updated = service.update(
+        result["note_id"],
+        owner_id="u1",
+        ws_path=str(workspace),
+        mode="replace_text",
+        content="new",
+        old_text="unique",
+    )
+    assert updated["replaced"] is None
+
+
+def test_update_replace_all_wrong_mode_raises(service, workspace):
+    result = service.save("u1", "ws", str(workspace), "Doc", "body text", [])
+    with pytest.raises(ValueError, match="replace_all"):
+        service.update(
+            result["note_id"],
+            owner_id="u1",
+            ws_path=str(workspace),
+            mode="overwrite",
+            content="new body",
+            replace_all=True,
+        )
+
+
 def test_move_note_to_existing_folder_preserves_updated_at(service, workspace):
     (workspace / "archive").mkdir()
     note_id = service.save("u1", "ws", str(workspace), "Move me", "content", [])["note_id"]

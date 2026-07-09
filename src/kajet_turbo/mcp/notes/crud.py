@@ -198,6 +198,14 @@ def build_crud(
                 "Musi być unikalny w notatce."
             ),
         ] = None,
+        replace_all: Annotated[
+            bool,
+            Field(
+                description="Z trybem replace_text/delete_text: podmień/usuń WSZYSTKIE "
+                "wystąpienia old_text (nie tylko unikalne). Zwrot niesie replaced z liczbą "
+                "podmian."
+            ),
+        ] = False,
         confirm: bool = Field(
             False,
             description="Potwierdzenie destrukcyjnego nadpisania "
@@ -212,7 +220,9 @@ def build_crud(
         title/tags/folder można zmieniać niezależnie od trybu edycji content.
         content powinien zawierać rzeczywiste znaki nowej linii (\\n), nie literalne \\\\n.
         Nadpisanie niepustej treści lub utrata tagów wymagają potwierdzenia — elicitation gdy
-        klient wspiera, inaczej zwraca ConfirmationRequired; zawołaj ponownie z confirm=true."""
+        klient wspiera, inaczej zwraca ConfirmationRequired; zawołaj ponownie z confirm=true.
+        replace_all=true z replace_text/delete_text podmienia/usuwa każde wystąpienie
+        old_text (zamiast wymagać unikalności) i zwraca replaced z liczbą podmian."""
         try:
             result = await run_sync(
                 note_service.update,
@@ -227,6 +237,7 @@ def build_crud(
                 target_heading=target_heading,
                 old_text=old_text,
                 confirm=confirm,
+                replace_all=replace_all,
             )
         except (ValueError, FileNotFoundError, FileExistsError) as e:
             raise ToolError(str(e)) from e
@@ -247,6 +258,7 @@ def build_crud(
                 target_heading=target_heading,
                 old_text=old_text,
                 confirm=True,
+                replace_all=replace_all,
             )
 
         data = await confirm_and_apply(ctx, result, reapply)
@@ -266,7 +278,7 @@ def build_crud(
                 updated_at=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
             ).model_dump(),
         )
-        return EditNoteSuccess(note_id=data["note_id"])
+        return EditNoteSuccess.model_validate(data)
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
     @logged_tool

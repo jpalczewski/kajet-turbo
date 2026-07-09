@@ -142,7 +142,7 @@ async def test_edit_note_append_mode(workspaces_dir, mcp_server):
                 "content": "- Drugie",
             },
         )
-        assert json.loads(edit_result.content[0].text) == {"note_id": note_id}
+        assert json.loads(edit_result.content[0].text) == {"note_id": note_id, "replaced": None}
         get_result = await client.call_tool("get_note", {"note_id": note_id})
         content = json.loads(get_result.content[0].text)["content"]
         assert "- Pierwsze\n- Drugie" in content
@@ -161,6 +161,30 @@ async def test_edit_note_replace_text_ambiguous_errors(workspaces_dir, mcp_serve
                 "edit_note",
                 {"note_id": note_id, "mode": "replace_text", "old_text": "foo", "content": "qux"},
             )
+
+
+async def test_edit_note_replace_all_reports_count(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        saved = await client.call_tool(
+            "save_note", {"title": "Doc", "content": "foo bar foo baz foo"}
+        )
+        import json
+
+        note_id = json.loads(saved.content[0].text)["note_id"]
+        result = await client.call_tool(
+            "edit_note",
+            {
+                "note_id": note_id,
+                "mode": "replace_text",
+                "content": "qux",
+                "old_text": "foo",
+                "replace_all": True,
+            },
+        )
+        data = json.loads(result.content[0].text)
+        assert data["replaced"] == 3
 
 
 async def test_move_note_and_list_folders(workspaces_dir, mcp_server):

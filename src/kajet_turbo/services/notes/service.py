@@ -460,6 +460,7 @@ class NoteService:
         target_heading: str | None = None,
         old_text: str | None = None,
         confirm: bool = False,
+        replace_all: bool = False,
     ) -> dict:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
@@ -489,12 +490,19 @@ class NoteService:
                 raise FileExistsError(f"Plik docelowy '{new_rel}' już istnieje.")
         note_data = read_note_file(old_path)
         old_content = note_data["content"]
+        if replace_all and mode not in ("replace_text", "delete_text"):
+            raise ValueError("replace_all działa tylko z trybami 'replace_text'/'delete_text'.")
+        replaced: int | None = None
         if mode == "overwrite":
             new_content = content if content is not None else old_content
         else:
             if content is None and mode not in ("replace_text", "delete_text"):
                 raise ValueError("content jest wymagany dla trybu edycji.")
-            new_content = apply_edit(old_content, mode, content or "", target_heading, old_text)
+            edit_result = apply_edit(
+                old_content, mode, content or "", target_heading, old_text, replace_all=replace_all
+            )
+            new_content = edit_result.body
+            replaced = edit_result.replaced
 
         # Validate links on the final content (post apply_edit), before any git mutation.
         target_ids, broken_pairs = self._link_service.validate_wikilinks(
@@ -567,7 +575,7 @@ class NoteService:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_updated", note_id=note_id, folder=new_folder)
         self._index(note_id, note.workspace, owner_id, new_title, new_content)
-        return {"note_id": note_id}
+        return {"note_id": note_id, "replaced": replaced}
 
     def delete(self, note_id: str, owner_id: str, ws_path: str) -> None:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
