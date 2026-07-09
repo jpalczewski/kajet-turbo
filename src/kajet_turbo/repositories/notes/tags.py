@@ -2,17 +2,15 @@ import json
 from datetime import UTC, datetime
 
 from nanoid import generate
-from sqlalchemy import CursorResult, Engine, delete
+from sqlalchemy import CursorResult, delete
 from sqlmodel import Session, col, select
 
 from kajet_turbo.markdown import ancestors
 from kajet_turbo.models import Note, NoteTag, Tag
+from kajet_turbo.repositories import DbRepository
 
 
-class NoteTagRepository:
-    def __init__(self, engine: Engine):
-        self._engine = engine
-
+class NoteTagRepository(DbRepository):
     def _ensure_tag(
         self, session: Session, workspace: str, owner_id: str, path: str, now: str
     ) -> str:
@@ -81,7 +79,7 @@ class NoteTagRepository:
         ``tagged`` must already be normalized and deduped (frontmatter precedence).
         """
         now = datetime.now(UTC).isoformat()
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - DELETE statement
                 delete(NoteTag).where(col(NoteTag.note_id) == note_id)
             )
@@ -93,7 +91,7 @@ class NoteTagRepository:
 
     def delete_note_tags(self, note_id: str, workspace: str, owner_id: str) -> None:
         """Remove a note's tag links and GC any tags left empty (used on note delete)."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - DELETE statement
                 delete(NoteTag).where(col(NoteTag.note_id) == note_id)
             )
@@ -102,7 +100,7 @@ class NoteTagRepository:
 
     def delete_workspace_tags(self, workspace: str, owner_id: str) -> None:
         """Drop all tags + note_tags for a workspace (used before reindex)."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             tag_ids = select(Tag.id).where(Tag.workspace == workspace, Tag.owner_id == owner_id)
             session.execute(  # ty: ignore[deprecated] - DELETE statement
                 delete(NoteTag).where(col(NoteTag.tag_id).in_(tag_ids))
@@ -137,7 +135,7 @@ class NoteTagRepository:
         include_descendants: bool = True,
     ) -> set[str]:
         """Union of note ids matching any of ``paths`` (prefix-aware when requested)."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             tag_ids: set[str] = set()
             for path in paths:
                 tag_ids.update(
@@ -161,7 +159,7 @@ class NoteTagRepository:
         limit: int | None,
     ) -> list[dict]:
         """Notes carrying ``path`` (or its subtree), newest first."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             tag_ids = self._descendant_tag_ids(
                 session, workspace, owner_id, path, include_descendants
             )
@@ -198,7 +196,7 @@ class NoteTagRepository:
         """All tags with ``exact_count`` (direct links) and ``descendant_count``
         (distinct notes on the node or any descendant). Computed in Python from one
         ``(path, note_id)`` join — workspaces are small."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             paths = list(
                 session.exec(
                     select(Tag.path).where(Tag.workspace == workspace, Tag.owner_id == owner_id)
@@ -239,7 +237,7 @@ class NoteTagRepository:
         first. Optionally scoped to a folder: ``include_subfolders`` toggles between the
         folder's subtree (prefix match, like :meth:`list_under_folder`) and that folder
         exactly. Tags with no notes in scope are omitted. One join, aggregated in Python."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             q = (
                 select(Tag.path, NoteTag.note_id)
                 .join(NoteTag, col(NoteTag.tag_id) == col(Tag.id))

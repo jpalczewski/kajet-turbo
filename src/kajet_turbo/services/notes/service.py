@@ -106,12 +106,9 @@ class NoteService:
         except GitError:
             Path(filepath).unlink(missing_ok=True)
             raise
-        with timed("db_ms"):
-            self._crud_repo.insert(
-                note_id, ws_name, user_id, title, tags, now, now, content, folder
-            )
-            self._link_repo.replace_links(note_id, ws_name, user_id, target_ids)
-            self._tag_service.sync_tags(note_id, ws_name, user_id, tags, content)
+        self._crud_repo.insert(note_id, ws_name, user_id, title, tags, now, now, content, folder)
+        self._link_repo.replace_links(note_id, ws_name, user_id, target_ids)
+        self._tag_service.sync_tags(note_id, ws_name, user_id, tags, content)
         self._link_service.write_dangling(note_id, ws_name, user_id, broken_pairs)
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
@@ -218,22 +215,21 @@ class NoteService:
             raise
 
         # Phase 4: DB insert + link graph + tags.
-        with timed("db_ms"):
-            for s in valid:
-                self._crud_repo.insert(
-                    s["note_id"],
-                    ws_name,
-                    user_id,
-                    s["title"],
-                    s["tags"],
-                    now,
-                    now,
-                    s["content"],
-                    s["folder"],
-                )
-                self._link_repo.replace_links(s["note_id"], ws_name, user_id, s["target_ids"])
-                self._tag_service.sync_tags(s["note_id"], ws_name, user_id, s["tags"], s["content"])
-                self._link_service.write_dangling(s["note_id"], ws_name, user_id, s["broken_pairs"])
+        for s in valid:
+            self._crud_repo.insert(
+                s["note_id"],
+                ws_name,
+                user_id,
+                s["title"],
+                s["tags"],
+                now,
+                now,
+                s["content"],
+                s["folder"],
+            )
+            self._link_repo.replace_links(s["note_id"], ws_name, user_id, s["target_ids"])
+            self._tag_service.sync_tags(s["note_id"], ws_name, user_id, s["tags"], s["content"])
+            self._link_service.write_dangling(s["note_id"], ws_name, user_id, s["broken_pairs"])
 
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
@@ -397,18 +393,17 @@ class NoteService:
             )
             raise
 
-        with timed("db_ms"):
-            self._crud_repo.update(
-                note_id,
-                owner_id=owner_id,
-                title=new_title,
-                content=new_content,
-                tags=new_tags,
-                updated_at=now,
-                folder=new_folder,
-            )
-            self._link_repo.replace_links(note_id, note.workspace, owner_id, target_ids)
-            self._tag_service.sync_tags(note_id, note.workspace, owner_id, new_tags, new_content)
+        self._crud_repo.update(
+            note_id,
+            owner_id=owner_id,
+            title=new_title,
+            content=new_content,
+            tags=new_tags,
+            updated_at=now,
+            folder=new_folder,
+        )
+        self._link_repo.replace_links(note_id, note.workspace, owner_id, target_ids)
+        self._tag_service.sync_tags(note_id, note.workspace, owner_id, new_tags, new_content)
         self._link_service.write_dangling(note_id, note.workspace, owner_id, broken_pairs)
         if old_path != new_path:
             self._link_service.rewrite_backlinks(
@@ -470,7 +465,7 @@ class NoteService:
         self._tag_repo.delete_workspace_tags(ws_name, owner_id)
         # Atomic: chunk cleanup + note row deletion share one session.
         # FK ordering: chunks must be deleted before notes (note_chunks.note_id FK).
-        with Session(self._engine) as session:
+        with Session(self._engine) as session, timed("db_ms"):
             self._chunk_repo.delete_for_workspace(ws_name, owner_id, session)
             self._crud_repo.delete_for_workspace(ws_name, owner_id, session)
             session.commit()

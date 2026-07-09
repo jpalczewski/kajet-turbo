@@ -1,14 +1,12 @@
-from sqlalchemy import Engine, delete
+from sqlalchemy import delete
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlmodel import Session, col, select
+from sqlmodel import col, select
 
 from kajet_turbo.models import NoteLink
+from kajet_turbo.repositories import DbRepository
 
 
-class NoteLinkRepository:
-    def __init__(self, engine: Engine):
-        self._engine = engine
-
+class NoteLinkRepository(DbRepository):
     def replace_links(
         self,
         source_note_id: str,
@@ -17,7 +15,7 @@ class NoteLinkRepository:
         target_ids: set[str],
     ) -> None:
         """Replace the set of outgoing links for ``source_note_id`` (delete + reinsert)."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
                 delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id)
             )
@@ -38,7 +36,7 @@ class NoteLinkRepository:
         """Insert one outgoing edge, idempotently (ON CONFLICT DO NOTHING on the composite
         PK). Unlike replace_links, leaves the source's other edges intact — used by the
         reverse-heal job to add a single newly-resolved edge."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] — sqlite INSERT ON CONFLICT requires execute(), not exec()
                 sqlite_insert(NoteLink)
                 .values(
@@ -52,21 +50,21 @@ class NoteLinkRepository:
             session.commit()
 
     def delete_links_from(self, source_note_id: str) -> None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
                 delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id)
             )
             session.commit()
 
     def delete_links_to(self, target_note_id: str) -> None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
                 delete(NoteLink).where(col(NoteLink.target_note_id) == target_note_id)
             )
             session.commit()
 
     def delete_workspace_links(self, workspace: str, owner_id: str) -> None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
                 delete(NoteLink).where(
                     col(NoteLink.workspace) == workspace,
@@ -81,7 +79,7 @@ class NoteLinkRepository:
         When ``same_workspace`` is given, only returns links whose source note is
         in that workspace (filters cross-workspace backlinks out).
         """
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             query = select(NoteLink.source_note_id).where(NoteLink.target_note_id == target_note_id)
             if same_workspace is not None:
                 query = query.where(col(NoteLink.workspace) == same_workspace)
@@ -90,7 +88,7 @@ class NoteLinkRepository:
 
     def outlinks(self, source_note_id: str) -> list[str]:
         """Return target note_ids that ``source_note_id`` links to (uses the composite PK)."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             rows = session.exec(
                 select(NoteLink.target_note_id).where(NoteLink.source_note_id == source_note_id)
             ).all()

@@ -12,24 +12,22 @@ import json
 from datetime import UTC, datetime
 
 from nanoid import generate
-from sqlalchemy import CursorResult, Engine, text
+from sqlalchemy import CursorResult, text
 from sqlmodel import Session
 
 from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.log import logger
+from kajet_turbo.repositories import DbRepository
 
 
-class NoteChunkRepository:
-    def __init__(self, engine: Engine):
-        self._engine = engine
-
+class NoteChunkRepository(DbRepository):
     def ensure_vec_table(self, dim: int) -> None:
         """Lazily create the dim-sharded vec0 table for this dimension. ``dim`` MUST be a
         positive int — it is interpolated into DDL, so a non-int is rejected to keep the
         statement injection-proof."""
         if not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0:
             raise ValueError(f"dim must be a positive int, got {dim!r}")
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     f"CREATE VIRTUAL TABLE IF NOT EXISTS note_chunks_vec_{dim} USING vec0("
@@ -64,7 +62,7 @@ class NoteChunkRepository:
                     f"embeddings ({len(embeddings)}) must match chunks ({len(chunks)})"
                 )
         now = datetime.now(UTC).isoformat()
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             old = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "SELECT DISTINCT dim FROM note_chunks WHERE note_id = :nid AND dim IS NOT NULL"
@@ -153,7 +151,7 @@ class NoteChunkRepository:
             session.commit()
 
     def get_chunks(self, note_id: str) -> list[dict]:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "SELECT id, ordinal, header_path, content, char_start, char_end, dim"
@@ -181,7 +179,7 @@ class NoteChunkRepository:
 
     def search_fts(self, query: str, workspace: str, owner_id: str, limit: int = 50) -> list[dict]:
         try:
-            with Session(self._engine) as session:
+            with self.timed_session() as session:
                 rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                     text(
                         f"SELECT f.chunk_id AS chunk_id,{self._CHUNK_SELECT},"
@@ -207,7 +205,7 @@ class NoteChunkRepository:
         self, embedding: bytes, workspace: str, owner_id: str, dim: int, k: int = 50
     ) -> list[dict]:
         try:
-            with Session(self._engine) as session:
+            with self.timed_session() as session:
                 rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                     text(
                         f"SELECT v.chunk_id AS chunk_id,{self._CHUNK_SELECT},"
@@ -275,7 +273,7 @@ class NoteChunkRepository:
         return [{k: v for k, v in h.items() if k != "chunk_id"} for h in capped]
 
     def get_index_meta(self, owner_id: str) -> dict | None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             row = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("SELECT backend, model, dim FROM index_meta WHERE owner_id = :o"),
                 {"o": owner_id},
@@ -284,7 +282,7 @@ class NoteChunkRepository:
 
     def upsert_index_meta(self, owner_id: str, backend: str, model: str, dim: int) -> None:
         now = datetime.now(UTC).isoformat()
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT INTO index_meta (owner_id, backend, model, dim, updated_at)"

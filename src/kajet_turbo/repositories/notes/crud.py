@@ -1,10 +1,11 @@
 import json
 import re
 
-from sqlalchemy import Engine, func, text
+from sqlalchemy import func, text
 from sqlmodel import Session, col, select
 
 from kajet_turbo.models import Note
+from kajet_turbo.repositories import DbRepository
 
 _NUM_SPLIT = re.compile(r"(\d+)")
 
@@ -18,10 +19,7 @@ def _folder_sort_key(note: Note) -> tuple:
     return (is_readme, natural)
 
 
-class NoteRepository:
-    def __init__(self, engine: Engine):
-        self._engine = engine
-
+class NoteRepository(DbRepository):
     def insert(
         self,
         note_id: str,
@@ -34,7 +32,7 @@ class NoteRepository:
         content: str,
         folder: str = "",
     ) -> None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             note = Note(
                 id=note_id,
                 workspace=workspace,
@@ -50,7 +48,7 @@ class NoteRepository:
 
     def check_unique(self, workspace: str, owner_id: str, folder: str, title: str) -> bool:
         """Returns True if no note with this (workspace, owner_id, folder, title) exists."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             q = select(Note).where(
                 Note.workspace == workspace,
                 Note.owner_id == owner_id,
@@ -60,7 +58,7 @@ class NoteRepository:
             return session.exec(q).first() is None
 
     def get(self, note_id: str, owner_id: str | None = None) -> Note | None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             q = select(Note).where(Note.id == note_id)
             if owner_id is not None:
                 q = q.where(Note.owner_id == owner_id)
@@ -68,7 +66,7 @@ class NoteRepository:
 
     def get_by_path(self, workspace: str, owner_id: str, folder: str, title: str) -> Note | None:
         """Resolve a note by its workspace-relative (folder, title) natural key."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             q = select(Note).where(
                 Note.workspace == workspace,
                 Note.owner_id == owner_id,
@@ -79,7 +77,7 @@ class NoteRepository:
 
     def list_under_folder(self, workspace: str, owner_id: str, prefix: str) -> list[Note]:
         """All notes whose folder is ``prefix`` or a descendant of it."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             q = select(Note).where(
                 Note.workspace == workspace,
                 Note.owner_id == owner_id,
@@ -102,7 +100,7 @@ class NoteRepository:
         if not pairs:
             return {}
         wanted = set(pairs)
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             rows = session.exec(
                 select(Note.folder, Note.title, Note.id).where(
                     Note.workspace == workspace, Note.owner_id == owner_id
@@ -121,7 +119,7 @@ class NoteRepository:
         updated_at: str = "",
         folder: str | None = None,
     ) -> None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             q = select(Note).where(Note.id == note_id)
             if owner_id is not None:
                 q = q.where(Note.owner_id == owner_id)
@@ -142,7 +140,7 @@ class NoteRepository:
             session.commit()
 
     def delete(self, note_id: str, owner_id: str | None = None) -> None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             q = select(Note).where(Note.id == note_id)
             if owner_id is not None:
                 q = q.where(Note.owner_id == owner_id)
@@ -173,7 +171,7 @@ class NoteRepository:
             )
             if not allowed:
                 return []
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             q = select(Note).where(Note.workspace == workspace, Note.owner_id == owner_id)
             if folder is not None:
                 q = q.where(Note.folder == folder)
@@ -205,7 +203,7 @@ class NoteRepository:
         return result
 
     def list_folders(self, workspace: str, owner_id: str) -> list[str]:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "SELECT DISTINCT folder FROM notes"
@@ -218,7 +216,7 @@ class NoteRepository:
     def workspace_stats(self, owner_id: str, workspaces: list[str]) -> dict[str, dict]:
         if not workspaces:
             return {}
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             rows = session.exec(
                 select(
                     Note.workspace,
