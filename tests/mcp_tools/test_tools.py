@@ -230,6 +230,17 @@ async def test_search_notes_all_workspaces(workspaces_dir, mcp_server):
         assert "ws2" in text or "Notatka w ws2" in text
 
 
+async def test_grep_notes_finds_literal_line(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        await client.call_tool(
+            "save_note", {"title": "Notes", "content": "line one\nmafioso appears\nline three\n"}
+        )
+        result = await client.call_tool("grep_notes", {"pattern": "mafioso"})
+        assert "mafioso appears" in result.content[0].text
+
+
 async def test_reindex_workspace(workspaces_dir, mcp_server):
     from kajet_turbo.workspace import note_filepath, write_note_file
 

@@ -3,6 +3,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+import frontmatter
 from nanoid import generate
 from sqlmodel import Session
 
@@ -299,6 +300,70 @@ class NoteService:
             "chunk_count": len(chunks),
             "chunks": chunks,
         }
+
+    def grep(
+        self,
+        ws_name: str,
+        ws_path: str,
+        pattern: str,
+        folder: str | None = None,
+        case_sensitive: bool = False,
+        max_results: int = 100,
+    ) -> dict:
+        """Literal (non-semantic) substring search over raw note files, including
+        frontmatter — for exact-text lookups (refactors, "is this word still anywhere")
+        that search_notes' FTS/vector/metadata ranking cannot guarantee. Scoped to
+        folder's subtree when given. Does not touch the DB; the workspace's files on
+        disk are the source of truth for grep, same as scan_notes/reindex.
+        """
+        if not pattern.strip():
+            raise ValueError("Wzorzec wyszukiwania nie może być pusty.")
+        scope = normalize_folder(folder) if folder is not None else None
+        ws_root = Path(ws_path)
+        needle = pattern if case_sensitive else pattern.casefold()
+        matches: list[dict] = []
+        truncated = False
+        for filepath in sorted(ws_root.rglob("*.md")):
+            if ".git" in filepath.parts:
+                continue
+            rel_parent = filepath.relative_to(ws_root).parent
+            note_folder = str(rel_parent).replace("\\", "/")
+            if note_folder == ".":
+                note_folder = ""
+            if scope is not None and not (
+                note_folder == scope or note_folder.startswith(scope + "/")
+            ):
+                continue
+            raw = filepath.read_text(encoding="utf-8")
+            post = frontmatter.loads(raw)
+            note_id = str(post.get("id") or "")
+            title = str(post.get("title") or "")
+            # line_number is relative to the note body (what get_note returns as
+            # `content`), since that's the only view an agent can act on — a raw
+            # file line number would point at nothing in the API response. Offset
+            # by the frontmatter block's line count; a match inside the frontmatter
+            # itself (e.g. a tag) has no body line, so it reports 0.
+            fm_offset = len(raw[: raw.rfind(post.content)].splitlines()) if post.content else 0
+            for raw_line_number, line in enumerate(raw.splitlines(), start=1):
+                haystack = line if case_sensitive else line.casefold()
+                if needle not in haystack:
+                    continue
+                if len(matches) >= max_results:
+                    truncated = True
+                    break
+                matches.append(
+                    {
+                        "note_id": note_id,
+                        "title": title,
+                        "folder": note_folder,
+                        "line_number": max(0, raw_line_number - fm_offset),
+                        "line": line,
+                    }
+                )
+            if truncated:
+                break
+        logger.info("notes_grep", ws=ws_name, matches=len(matches), truncated=truncated)
+        return {"matches": matches, "truncated": truncated}
 
     def update(
         self,

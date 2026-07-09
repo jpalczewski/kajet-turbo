@@ -176,3 +176,18 @@ class Cancelled(BaseModel):
 
 class EditNoteSuccess(BaseModel):
     note_id: str
+
+
+class GrepMatch(BaseModel):
+    note_id: str
+    title: str
+    folder: str
+    line_number: int
+    line: str
+
+
+class GrepResult(BaseModel):
+    matches: list[GrepMatch]
+    truncated: bool = Field(
+        description="True if max_results was hit — more matches may exist beyond what's returned."
+    )

@@ -19,6 +19,8 @@ from kajet_turbo.mcp.notes.types import (
     DeletedNoteResult,
     EditNoteSuccess,
     FolderContext,
+    GrepMatch,
+    GrepResult,
     MovedNoteResult,
     NoteInput,
     NoteListItem,
@@ -385,6 +387,40 @@ def build_crud(
             tags=tags,
         )
         return [SearchChunkResult.model_validate(r) for r in results]
+
+    @srv.tool(**read_tool(tags={"notes", "search"}))
+    @logged_tool
+    async def grep_notes(
+        pattern: str,
+        folder: Annotated[
+            str | None,
+            Field(description="Zawęź do notatek w tym folderze i podfolderach."),
+        ] = None,
+        case_sensitive: bool = False,
+        max_results: int = 100,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> GrepResult:
+        """Literalny (nie semantyczny) grep po treści notatek, z numerami linii.
+        Użyj zamiast search_notes, gdy potrzebujesz pewności dokładnego dopasowania
+        stringa (refaktor nazwy, weryfikacja "czy fraza gdzieś jeszcze została") —
+        search_notes szuka znaczeniowo i nie gwarantuje trafienia literalnego tekstu.
+        Przeszukuje surowy plik notatki, łącznie z frontmatter (id/title/tags/daty)."""
+        try:
+            result = await run_sync(
+                note_service.grep,
+                ws.name,
+                ws.path,
+                pattern,
+                folder=folder,
+                case_sensitive=case_sensitive,
+                max_results=max_results,
+            )
+        except ValueError as e:
+            raise ToolError(str(e)) from e
+        return GrepResult(
+            matches=[GrepMatch.model_validate(m) for m in result["matches"]],
+            truncated=result["truncated"],
+        )
 
     @srv.tool(**write_tool(tags={"notes", "index"}, idempotent=True))
     @logged_tool
