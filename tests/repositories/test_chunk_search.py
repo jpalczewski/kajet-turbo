@@ -200,3 +200,29 @@ def test_hybrid_search_caps_chunks_per_note(database):
     repo.replace_chunks("n1", "ws", "u1", "Big", chunks, None, None)
     hits = repo.hybrid_search("keyword", "ws", "u1", embedding=None, limit=10, per_note_cap=2)
     assert sum(1 for h in hits if h["note_id"] == "n1") <= 2
+
+
+def test_hybrid_search_allowed_note_ids_filters_all_candidate_lists(database):
+    repo = _seed(database)
+    meta_hits = [
+        {
+            "note_id": "n2",
+            "title": "Veg",
+            "folder": "",
+            "updated_at": "2026-01-01",
+            "matched_on": ["title"],
+        }
+    ]
+    # "n1" (Fruit) would match FTS for "apple"; only "n2" is allowed — n1 must be excluded
+    # even though it ranks via full-text, and the meta hit for n2 (which has no FTS match
+    # for "apple") must still surface since n2 is in allowed_note_ids.
+    hits = repo.hybrid_search(
+        "apple",
+        "ws",
+        "u1",
+        embedding=None,
+        limit=10,
+        meta_hits=meta_hits,
+        allowed_note_ids={"n2"},
+    )
+    assert [h["note_id"] for h in hits] == ["n2"]

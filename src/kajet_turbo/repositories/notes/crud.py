@@ -87,6 +87,20 @@ class NoteRepository(DbRepository):
             )
             return list(session.exec(q).all())
 
+    def note_ids_under_folder(self, workspace: str, owner_id: str, prefix: str) -> set[str]:
+        """Note ids whose folder is ``prefix`` or a descendant of it (same predicate as
+        list_under_folder, projected to ids only — used to narrow search)."""
+        with self.timed_session() as session:
+            rows = session.exec(
+                select(Note.id).where(
+                    Note.workspace == workspace,
+                    Note.owner_id == owner_id,
+                    (col(Note.folder) == prefix)
+                    | col(Note.folder).startswith(prefix + "/", autoescape=True),
+                )
+            ).all()
+        return set(rows)
+
     def resolve_paths(
         self,
         workspace: str,

@@ -344,12 +344,27 @@ def build_crud(
         query: str,
         workspace: str = "active",
         limit: int = 10,
+        folder: Annotated[
+            str | None,
+            Field(
+                description="Zawęź wyszukiwanie do notatek w tym folderze i podfolderach, "
+                "np. 'Projekty/Klient A'."
+            ),
+        ] = None,
+        tags: Annotated[
+            list[str] | None,
+            Field(
+                description="Zawęź wyszukiwanie do notatek z tymi tagami (OR, hierarchiczne — "
+                "jak w list_notes)."
+            ),
+        ] = None,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> list[SearchChunkResult]:
         """Szuka notatek (chunk-level hybrid: FTS + semantic + dokładne dopasowanie
         tytułu/tagu/folderu).
         workspace='active' (domyślnie) — szuka tylko w aktywnym workspace.
         workspace='all' — szuka we wszystkich dostępnych workspace'ach (cross-workspace).
+        folder/tags zawężają wyszukiwanie do podzbioru notatek (przecięcie, gdy oba podane).
         Zwraca fragmenty (chunki): {note_id, title, folder, updated_at, header_path, content,
         score, matched_on}. matched_on obecne, gdy trafienie pochodzi z dokładnego
         dopasowania tytułu/tagu/folderu (nie tylko z rankingu FTS/semantycznego).
@@ -361,7 +376,13 @@ def build_crud(
         else:
             workspaces = [ws_param if ws_param != "active" else ws.name]
         results = await run_sync(
-            note_service.search, query, workspaces, owner_id=ws.owner_id, limit=limit
+            note_service.search,
+            query,
+            workspaces,
+            owner_id=ws.owner_id,
+            limit=limit,
+            folder=folder,
+            tags=tags,
         )
         return [SearchChunkResult.model_validate(r) for r in results]
 

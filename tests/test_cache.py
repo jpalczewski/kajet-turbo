@@ -43,7 +43,15 @@ class FakeChunkRepo:
         self.calls = 0
 
     def hybrid_search(
-        self, query, ws, owner_id, embedding=None, dim=None, limit=10, meta_hits=None
+        self,
+        query,
+        ws,
+        owner_id,
+        embedding=None,
+        dim=None,
+        limit=10,
+        meta_hits=None,
+        allowed_note_ids=None,
     ):
         self.calls += 1
         return [{"note_id": "n1", "title": "t"}]
@@ -73,7 +81,7 @@ def _make_search_svc(chunk_repo, cache):
         None,
     )
     search_service = NoteSearchService(
-        chunk_repo, cache, None, None, None, cast(NoteRepository, FakeCrudRepo())
+        chunk_repo, cache, None, None, None, cast(NoteRepository, FakeCrudRepo()), tag_repo
     )
     version_service = NoteVersionService(
         note_repo,

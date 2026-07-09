@@ -120,3 +120,23 @@ def test_search_metadata_respects_limit(database):
 def test_search_metadata_blank_query_returns_empty(database):
     repo = NoteRepository(database.engine)
     assert repo.search_metadata("ws", "u1", "   ") == []
+
+
+def test_note_ids_under_folder_matches_exact_and_descendants(database):
+    repo = NoteRepository(database.engine)
+    with Session(database.engine) as session:
+        session.add(_note("n1", "A", "książki/Angelika"))
+        session.add(_note("n2", "B", "książki/Angelika/2026"))
+        session.add(_note("n3", "C", "książki/Inna"))
+        session.add(_note("n4", "D", ""))
+        session.commit()
+    ids = repo.note_ids_under_folder("ws", "u1", "książki/Angelika")
+    assert ids == {"n1", "n2"}
+
+
+def test_note_ids_under_folder_root_prefix_matches_nothing_by_default(database):
+    repo = NoteRepository(database.engine)
+    with Session(database.engine) as session:
+        session.add(_note("n1", "A", "książki"))
+        session.commit()
+    assert repo.note_ids_under_folder("ws", "u1", "książki/Angelika") == set()

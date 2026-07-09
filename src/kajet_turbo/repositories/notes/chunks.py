@@ -240,13 +240,20 @@ class NoteChunkRepository(DbRepository):
         limit: int = 10,
         per_note_cap: int = 3,
         meta_hits: list[dict] | None = None,
+        allowed_note_ids: set[str] | None = None,
     ) -> list[dict]:
-        fts = self.search_fts(query, workspace, owner_id, limit=50)
+        candidate_limit = 200 if allowed_note_ids is not None else 50
+        fts = self.search_fts(query, workspace, owner_id, limit=candidate_limit)
         vec = (
-            self.search_chunks_vec(embedding, workspace, owner_id, dim=dim, k=50)
+            self.search_chunks_vec(embedding, workspace, owner_id, dim=dim, k=candidate_limit)
             if embedding is not None and dim is not None
             else []
         )
+        meta = meta_hits or []
+        if allowed_note_ids is not None:
+            fts = [h for h in fts if str(h["note_id"]) in allowed_note_ids]
+            vec = [h for h in vec if str(h["note_id"]) in allowed_note_ids]
+            meta = [h for h in meta if str(h["note_id"]) in allowed_note_ids]
 
         scores: dict[str, float] = {}
         by_id: dict[str, dict] = {}
@@ -264,7 +271,7 @@ class NoteChunkRepository(DbRepository):
                 best_chunk_for_note[nid] = (s, cid)
 
         meta_matched: dict[str, list[str]] = {}
-        for rank, hit in enumerate(meta_hits or []):
+        for rank, hit in enumerate(meta):
             nid = str(hit["note_id"])
             boost = 1.0 / (60 + rank)
             meta_matched.setdefault(nid, []).extend(hit["matched_on"])

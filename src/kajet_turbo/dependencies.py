@@ -121,6 +121,7 @@ _note_search_service = NoteSearchService(
     pooled_embedder_factory(),
     _query_cache,
     note_repo,
+    note_tag_repo,
 )
 _note_version_service = NoteVersionService(note_repo, _cache)
 folder_meta_repo = FolderMetaRepository(db.engine)

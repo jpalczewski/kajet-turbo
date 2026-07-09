@@ -3,7 +3,7 @@ import asyncio
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.log import logger
-from kajet_turbo.repositories.notes import NoteChunkRepository, NoteRepository
+from kajet_turbo.repositories.notes import NoteChunkRepository, NoteRepository, NoteTagRepository
 
 
 class NoteSearchService:
@@ -15,6 +15,7 @@ class NoteSearchService:
         build_embedder,
         query_cache,
         crud_repo: NoteRepository,
+        tag_repo: NoteTagRepository,
     ):
         self._chunk_repo = chunk_repo
         self._cache = cache
@@ -22,6 +23,7 @@ class NoteSearchService:
         self._build_embedder = build_embedder
         self._query_cache = query_cache
         self._crud_repo = crud_repo
+        self._tag_repo = tag_repo
 
     def search(
         self,
@@ -29,6 +31,8 @@ class NoteSearchService:
         workspaces: list[str],
         owner_id: str,
         limit: int = 10,
+        folder: str | None = None,
+        tags: list[str] | None = None,
     ) -> list[dict]:
         # Resolve the backend identity up front so it is part of the cache key: a config
         # change (backend switch / key add) must not keep serving the old backend's ranking
@@ -46,7 +50,17 @@ class NoteSearchService:
         key = None
         if self._cache is not None:
             epochs = tuple(self._cache.epoch(ws, owner_id) for ws in workspaces)
-            key = ("search", owner_id, tuple(workspaces), epochs, query, limit, backend_key)
+            key = (
+                "search",
+                owner_id,
+                tuple(workspaces),
+                epochs,
+                query,
+                limit,
+                backend_key,
+                folder,
+                tuple(tags or ()),
+            )
             cached = self._cache.get(key)
             if cached is not None:
                 return cached
@@ -62,6 +76,16 @@ class NoteSearchService:
         per_ws_limit = limit * 3 if len(workspaces) > 1 else limit
         results = []
         for ws in workspaces:
+            allowed: set[str] | None = None
+            if tags:
+                allowed = self._tag_repo.note_ids_for_tags(
+                    ws, owner_id, tags, include_descendants=True
+                )
+            if folder is not None:
+                folder_ids = self._crud_repo.note_ids_under_folder(ws, owner_id, folder)
+                allowed = folder_ids if allowed is None else allowed & folder_ids
+            if allowed is not None and not allowed:
+                continue
             meta_hits = self._crud_repo.search_metadata(ws, owner_id, query, limit=per_ws_limit)
             hits = self._chunk_repo.hybrid_search(
                 query,
@@ -71,6 +95,7 @@ class NoteSearchService:
                 dim=dim,
                 limit=per_ws_limit,
                 meta_hits=meta_hits,
+                allowed_note_ids=allowed,
             )
             results.extend(hits)
         results = results[:limit]

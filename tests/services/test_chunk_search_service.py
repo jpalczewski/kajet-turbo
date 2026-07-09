@@ -107,3 +107,31 @@ def test_search_cache_key_varies_by_backend(database, git_workspace_factory):
     )
     svc.search("alpha", ["ws"], owner_id="u1")
     assert calls["n"] == 2
+
+
+def test_search_narrows_by_folder(database, git_workspace_factory):
+    service = _service(database)
+    ws = git_workspace_factory("ws")
+    service.save("u1", "ws", str(ws), "In scope", "keyword here", tags=[], folder="a")
+    service.save("u1", "ws", str(ws), "Out of scope", "keyword here", tags=[], folder="b")
+    hits = service.search("keyword", ["ws"], owner_id="u1", limit=10, folder="a")
+    assert [h["title"] for h in hits] == ["In scope"]
+
+
+def test_search_narrows_by_tags(database, git_workspace_factory):
+    service = _service(database)
+    ws = git_workspace_factory("ws")
+    service.save("u1", "ws", str(ws), "Tagged", "keyword here", tags=["work"])
+    service.save("u1", "ws", str(ws), "Untagged", "keyword here", tags=[])
+    hits = service.search("keyword", ["ws"], owner_id="u1", limit=10, tags=["work"])
+    assert [h["title"] for h in hits] == ["Tagged"]
+
+
+def test_search_folder_and_tags_intersect(database, git_workspace_factory):
+    service = _service(database)
+    ws = git_workspace_factory("ws")
+    service.save("u1", "ws", str(ws), "Both", "keyword here", tags=["work"], folder="a")
+    service.save("u1", "ws", str(ws), "Only folder", "keyword here", tags=[], folder="a")
+    service.save("u1", "ws", str(ws), "Only tag", "keyword here", tags=["work"], folder="b")
+    hits = service.search("keyword", ["ws"], owner_id="u1", limit=10, folder="a", tags=["work"])
+    assert [h["title"] for h in hits] == ["Both"]

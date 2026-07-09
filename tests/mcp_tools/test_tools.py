@@ -193,6 +193,22 @@ async def test_search_notes_finds_note_by_tag_only(workspaces_dir, mcp_server):
         assert "Rozmowa" in result.content[0].text
 
 
+async def test_search_notes_folder_narrowing(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        await client.call_tool(
+            "save_note", {"title": "In scope", "content": "keyword here", "folder": "a"}
+        )
+        await client.call_tool(
+            "save_note", {"title": "Out of scope", "content": "keyword here", "folder": "b"}
+        )
+        result = await client.call_tool("search_notes", {"query": "keyword", "folder": "a"})
+        text = result.content[0].text
+        assert "In scope" in text
+        assert "Out of scope" not in text
+
+
 async def test_search_notes_all_workspaces(workspaces_dir, mcp_server):
     ws2 = workspaces_dir / "drugi-ws"
     ws2.mkdir()
