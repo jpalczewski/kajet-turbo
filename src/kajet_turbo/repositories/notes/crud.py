@@ -4,7 +4,8 @@ import re
 from sqlalchemy import func, text
 from sqlmodel import Session, col, select
 
-from kajet_turbo.models import Note
+from kajet_turbo.log import logger
+from kajet_turbo.models import Note, NoteTag, Tag
 from kajet_turbo.repositories import DbRepository
 
 _NUM_SPLIT = re.compile(r"(\d+)")
@@ -108,6 +109,84 @@ class NoteRepository(DbRepository):
             ).all()
         index = {(folder, title): note_id for folder, title, note_id in rows}
         return {pair: index[pair] for pair in wanted if pair in index}
+
+    def search_metadata(
+        self, workspace: str, owner_id: str, query: str, limit: int = 20
+    ) -> list[dict]:
+        """Deterministic note-level matches on title / folder / tag paths — every token in
+        ``query`` must be a casefold substring of the title, folder, or some tag path
+        (SQLite LIKE/lower() are ASCII-only, wrong for Polish text, so matching is Python-
+        side over two narrow SELECTs; workspaces are small enough for this to be cheap).
+        Covers what FTS/vector search structurally cannot: tags are stripped from
+        frontmatter before indexing, and folder paths are never indexed at all.
+        Ranked exact-title match first, then title-prefix match, then updated_at desc.
+        """
+        tokens = [t for t in query.casefold().split() if t]
+        if not tokens:
+            return []
+        query_cf = query.casefold()
+        with self.timed_session() as session:
+            notes = session.exec(
+                select(Note.id, Note.title, Note.folder, Note.updated_at).where(
+                    Note.workspace == workspace, Note.owner_id == owner_id
+                )
+            ).all()
+            tag_rows = session.exec(
+                select(NoteTag.note_id, Tag.path)
+                .join(Tag, col(NoteTag.tag_id) == col(Tag.id))
+                .where(Tag.workspace == workspace, Tag.owner_id == owner_id)
+            ).all()
+
+        tags_by_note: dict[str, list[str]] = {}
+        for note_id, path in tag_rows:
+            tags_by_note.setdefault(note_id, []).append(path.casefold())
+
+        hits: list[dict] = []
+        for note_id, title, folder, updated_at in notes:
+            title_cf = title.casefold()
+            folder_cf = folder.casefold()
+            note_tags_cf = tags_by_note.get(note_id, [])
+            matched_on: set[str] = set()
+            for token in tokens:
+                token_hit = False
+                if token in title_cf:
+                    matched_on.add("title")
+                    token_hit = True
+                if token in folder_cf:
+                    matched_on.add("folder")
+                    token_hit = True
+                if any(token in t for t in note_tags_cf):
+                    matched_on.add("tag")
+                    token_hit = True
+                if not token_hit:
+                    matched_on.clear()
+                    break
+            if not matched_on:
+                continue
+            hits.append(
+                {
+                    "note_id": note_id,
+                    "title": title,
+                    "folder": folder,
+                    "updated_at": updated_at,
+                    "matched_on": sorted(matched_on),
+                    "_exact_title": title_cf == query_cf,
+                    "_prefix_title": title_cf.startswith(query_cf),
+                }
+            )
+
+        # Stable multi-key sort: apply least-significant key first (Python sort is stable).
+        hits.sort(key=lambda h: h["updated_at"], reverse=True)
+        hits.sort(key=lambda h: h["_prefix_title"], reverse=True)
+        hits.sort(key=lambda h: h["_exact_title"], reverse=True)
+        for h in hits:
+            del h["_exact_title"]
+            del h["_prefix_title"]
+        results = hits[:limit]
+        logger.info(
+            "metadata_search", workspace=workspace, query_tokens=len(tokens), matches=len(results)
+        )
+        return results
 
     def update(
         self,
