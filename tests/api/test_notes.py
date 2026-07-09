@@ -218,6 +218,19 @@ def test_update_note_content(auth_client):
     assert updated.content == "new content"
 
 
+def test_update_note_response_matches_declared_schema(auth_client):
+    # note_service.update's return dict carries internal fields (e.g. "replaced", added for
+    # replace_all support) that this REST endpoint doesn't expose via request params — the
+    # response must stay pinned to UpdateNoteResponse's documented shape, not leak them.
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Orig", "old content", [])["note_id"]
+    resp = client.patch(
+        f"/api/workspaces/test-ws/notes/{note_id}",
+        json={"content": "new content"},
+    )
+    assert resp.json() == {"note_id": note_id}
+
+
 def test_update_note_title(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save("u1", "test-ws", ws_path, "Old Title", "c", [])["note_id"]

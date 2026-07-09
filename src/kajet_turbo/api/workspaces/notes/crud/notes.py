@@ -186,7 +186,11 @@ async def api_update_note(
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None
     except ValueError, FileNotFoundError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
-    return JSONResponse(result)
+    # note_service.update's dict gained a "replaced" key (Task 1: replace_text replace_all);
+    # this REST endpoint doesn't expose replace_all, so keep its response pinned to the
+    # documented UpdateNoteResponse contract instead of leaking that internal field —
+    # returning a raw JSONResponse bypasses response_model filtering.
+    return JSONResponse({"note_id": result["note_id"]})
 
 
 @router.post(
