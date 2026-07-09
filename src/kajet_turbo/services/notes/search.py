@@ -86,7 +86,12 @@ class NoteSearchService:
                 allowed = folder_ids if allowed is None else allowed & folder_ids
             if allowed is not None and not allowed:
                 continue
-            meta_hits = self._crud_repo.search_metadata(ws, owner_id, query, limit=per_ws_limit)
+            # When narrowing is active, widen the metadata window to match hybrid_search's own
+            # candidate_limit (200) for narrowed searches — otherwise an in-scope metadata match
+            # ranked below per_ws_limit globally gets truncated here before allowed_note_ids
+            # ever filters it in.
+            meta_limit = 200 if allowed is not None else per_ws_limit
+            meta_hits = self._crud_repo.search_metadata(ws, owner_id, query, limit=meta_limit)
             hits = self._chunk_repo.hybrid_search(
                 query,
                 ws,

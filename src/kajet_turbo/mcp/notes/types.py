@@ -123,7 +123,7 @@ class SearchChunkResult(BaseModel):
     matched_on: list[Literal["title", "tag", "folder"]] | None = Field(
         default=None,
         description=(
-            "Present when this hit was surfaced by an exact metadata match "
+            "Non-null when this hit was surfaced by an exact metadata match "
             "(title/tag/folder), not only full-text/semantic ranking."
         ),
     )

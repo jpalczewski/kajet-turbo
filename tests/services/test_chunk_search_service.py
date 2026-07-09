@@ -118,6 +118,19 @@ def test_search_narrows_by_folder(database, git_workspace_factory):
     assert [h["title"] for h in hits] == ["In scope"]
 
 
+def test_search_narrows_by_folder_widens_metadata_candidate_window(database, git_workspace_factory):
+    # search_metadata's own ranking (tiebreak: updated_at desc) would put the later-saved
+    # "b" note ahead of the earlier "a" note. With limit=1 and folder narrowing to "a", the
+    # metadata call must fetch a wide-enough window that the in-scope "a" note survives the
+    # allowed_note_ids filter in hybrid_search, rather than being truncated out beforehand.
+    service = _service(database)
+    ws = git_workspace_factory("ws")
+    service.save("u1", "ws", str(ws), "Early angelika note", "", tags=["angelika"], folder="a")
+    service.save("u1", "ws", str(ws), "Late angelika note", "", tags=["angelika"], folder="b")
+    hits = service.search("angelika", ["ws"], owner_id="u1", limit=1, folder="a")
+    assert [h["title"] for h in hits] == ["Early angelika note"]
+
+
 def test_search_narrows_by_tags(database, git_workspace_factory):
     service = _service(database)
     ws = git_workspace_factory("ws")
