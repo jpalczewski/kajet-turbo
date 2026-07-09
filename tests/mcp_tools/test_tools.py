@@ -292,6 +292,22 @@ async def test_grep_notes_finds_literal_line(workspaces_dir, mcp_server):
         assert "mafioso appears" in result.content[0].text
 
 
+async def test_export_folder(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        await client.call_tool(
+            "save_note", {"title": "One", "content": "body one", "folder": "docs"}
+        )
+        await client.call_tool(
+            "save_note", {"title": "Two", "content": "body two", "folder": "docs"}
+        )
+        result = await client.call_tool("export_folder", {"folder": "docs"})
+        text = result.content[0].text
+        assert "body one" in text
+        assert "body two" in text
+
+
 async def test_reindex_workspace(workspaces_dir, mcp_server):
     from kajet_turbo.workspace import note_filepath, write_note_file
 

@@ -24,6 +24,7 @@ from kajet_turbo.repositories.notes import (
     NoteLinkRepository,
     NoteRepository,
     NoteTagRepository,
+    folder_sort_key,
 )
 from kajet_turbo.services.notes.folders import NoteFolderService
 from kajet_turbo.services.notes.history import NoteVersionService
@@ -307,6 +308,50 @@ class NoteService:
             "preamble_chars": preamble_chars,
             "preamble_lines": preamble_lines,
             "sections": [asdict(s) for s in sections],
+        }
+
+    def export_folder(
+        self, ws_name: str, owner_id: str, ws_path: str, folder: str, max_chars: int = 80_000
+    ) -> dict:
+        """Concatenate a folder's subtree into one markdown document — for corpus-style
+        reading (analyze N related notes as one document) instead of N separate get_note
+        calls. Truncates at a note boundary once max_chars is exceeded; the first note is
+        always included in full so a folder starting with one huge note never exports empty.
+        """
+        scope = normalize_folder(folder)
+        notes = sorted(
+            self._crud_repo.list_under_folder(ws_name, owner_id, scope), key=folder_sort_key
+        )
+        parts: list[str] = []
+        omitted: list[dict] = []
+        total_chars = 0
+        truncated = False
+        for index, note in enumerate(notes):
+            filepath = note_filepath(ws_path, note.folder, note.title)
+            if not Path(filepath).exists():
+                continue
+            content = read_note_file(filepath)["content"]
+            heading_path = f"{note.folder}/{note.title}" if note.folder else note.title
+            tags = json.loads(note.tags or "[]")
+            tag_line = f"_Tagi: {', '.join(tags)}_\n\n" if tags else ""
+            section = f"# {heading_path}\n\n{tag_line}{content}".rstrip() + "\n"
+            if index > 0 and not truncated and total_chars + len(section) > max_chars:
+                truncated = True
+            if truncated and index > 0:
+                omitted.append({"note_id": note.id, "title": note.title, "chars": len(section)})
+                continue
+            parts.append(section)
+            total_chars += len(section)
+        markdown = "\n---\n\n".join(parts)
+        logger.info(
+            "folder_exported", ws=ws_name, folder=scope, note_count=len(parts), truncated=truncated
+        )
+        return {
+            "markdown": markdown,
+            "note_count": len(parts),
+            "total_chars": len(markdown),
+            "truncated": truncated,
+            "omitted": omitted,
         }
 
     def get_many(self, note_ids: list[str], owner_id: str, ws_path: str) -> list[NoteData | dict]:

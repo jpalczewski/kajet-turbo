@@ -19,6 +19,7 @@ from kajet_turbo.mcp.notes.types import (
     DeletedNoteResult,
     EditNoteSuccess,
     FolderContext,
+    FolderExportResult,
     GrepMatch,
     GrepResult,
     MovedNoteResult,
@@ -386,6 +387,28 @@ def build_crud(
             notes=[NoteListItem.model_validate(n) for n in notes],
             folder_context=folder_context,
         )
+
+    @srv.tool(**read_tool(tags={"notes", "crud"}))
+    @logged_tool
+    async def export_folder(
+        folder: str,
+        max_chars: int = 80_000,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> FolderExportResult:
+        """Eksportuje cały folder (rekursywnie, z podfolderami) jako jeden dokument
+        markdown — do analizy korpusu N powiązanych notatek naraz, zamiast N osobnych
+        wywołań get_note. Przy przekroczeniu max_chars ucina na granicy notatki (nigdy
+        w środku); pominięte notatki wraca omitted. Pierwsza notatka jest zawsze
+        w całości, nawet gdy sama przekracza max_chars."""
+        result = await run_sync(
+            note_service.export_folder,
+            ws.name,
+            owner_id=ws.owner_id,
+            ws_path=ws.path,
+            folder=folder,
+            max_chars=max_chars,
+        )
+        return FolderExportResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "search"}))
     @logged_tool

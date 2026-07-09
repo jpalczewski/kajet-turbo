@@ -224,3 +224,19 @@ class NoteOutlineResult(BaseModel):
     preamble_chars: int
     preamble_lines: int
     sections: list[OutlineSectionItem]
+
+
+class OmittedNote(BaseModel):
+    note_id: str
+    title: str
+    chars: int
+
+
+class FolderExportResult(BaseModel):
+    markdown: str
+    note_count: int
+    total_chars: int
+    truncated: bool
+    omitted: list[OmittedNote] = Field(
+        description="Notes excluded once max_chars was hit (empty when nothing was truncated)."
+    )

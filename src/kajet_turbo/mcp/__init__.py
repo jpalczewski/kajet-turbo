@@ -38,6 +38,15 @@ resolve within the active workspace.
 - list_folders returns folders with optional description
 - list_notes with folder= filter returns folder_context.instructions if set — follow them
 - set_folder_meta sets per-folder description and LLM instructions
+
+## Read ergonomics
+- grep_notes — literal substring search with line numbers; use instead of search_notes when
+  you need exact-text certainty (search_notes ranks semantically/FTS, no literal guarantee)
+- get_notes — read many note_ids in one call instead of N x get_note
+- get_note_outline → edit_note(target_heading=...) — inspect a note's headings without
+  loading its body, then edit just that section surgically
+- export_folder — concatenate a folder's subtree into one markdown corpus, for
+  reconnaissance across many related notes instead of N x get_note
 """
 
 
