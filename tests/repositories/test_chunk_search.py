@@ -67,6 +67,75 @@ def test_hybrid_search_fts_only_returns_chunks(database):
     assert "chunk_id" not in hits[0]  # internal field stripped from public shape
 
 
+def test_hybrid_search_returns_updated_at(database):
+    repo = _seed(database)
+    hits = repo.hybrid_search("banana", "ws", "u1", embedding=None, limit=10)
+    assert hits[0]["updated_at"] == "2026-01-01"
+
+
+def test_hybrid_search_meta_hit_boosts_existing_chunk(database):
+    repo = _seed(database)
+    # "Fruit" (n1) already ranks via FTS for "banana" — a meta hit for the same note must
+    # boost its score and attach matched_on, not duplicate the row.
+    meta_hits = [
+        {
+            "note_id": "n1",
+            "title": "Fruit",
+            "folder": "f",
+            "updated_at": "2026-01-01",
+            "matched_on": ["tag"],
+        }
+    ]
+    hits = repo.hybrid_search("banana", "ws", "u1", embedding=None, limit=10, meta_hits=meta_hits)
+    assert len(hits) == 1
+    assert hits[0]["note_id"] == "n1"
+    assert hits[0]["matched_on"] == ["tag"]
+
+
+def test_hybrid_search_synthesizes_row_for_note_without_chunks(database):
+    from kajet_turbo.models import Note
+
+    repo = _seed(database)
+    with Session(database.engine) as session:
+        session.add(
+            Note(
+                id="n3",
+                workspace="ws",
+                owner_id="u1",
+                title="Empty note",
+                folder="",
+                created_at="2026-01-01",
+                updated_at="2026-01-02",
+            )
+        )
+        session.commit()
+    meta_hits = [
+        {
+            "note_id": "n3",
+            "title": "Empty note",
+            "folder": "",
+            "updated_at": "2026-01-02",
+            "matched_on": ["title"],
+        }
+    ]
+    # Query that matches nothing in FTS (n3 has zero chunks — the exact "Angelika" bug shape:
+    # a note whose only match is metadata, never indexed as a chunk) — must still surface.
+    hits = repo.hybrid_search(
+        "zzznomatch", "ws", "u1", embedding=None, limit=10, meta_hits=meta_hits
+    )
+    assert [h["note_id"] for h in hits] == ["n3"]
+    assert hits[0]["header_path"] == []
+    assert hits[0]["content"] == ""
+    assert hits[0]["matched_on"] == ["title"]
+    assert hits[0]["title"] == "Empty note"
+
+
+def test_hybrid_search_without_meta_hits_has_none_matched_on(database):
+    repo = _seed(database)
+    hits = repo.hybrid_search("banana", "ws", "u1", embedding=None, limit=10)
+    assert hits[0]["matched_on"] is None
+
+
 def test_search_chunks_vec_knn(database):
     repo = NoteChunkRepository(database.engine)
     with Session(database.engine) as session:

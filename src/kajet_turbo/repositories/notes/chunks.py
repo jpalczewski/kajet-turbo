@@ -162,7 +162,7 @@ class NoteChunkRepository(DbRepository):
         return [dict(r._mapping) for r in rows]
 
     _CHUNK_SELECT = (
-        " c.note_id AS note_id, n.title AS title, n.folder AS folder,"
+        " c.note_id AS note_id, n.title AS title, n.folder AS folder, n.updated_at AS updated_at,"
         " c.header_path AS header_path, c.content AS content"
     )
 
@@ -172,6 +172,7 @@ class NoteChunkRepository(DbRepository):
             "note_id": m["note_id"],
             "title": m["title"],
             "folder": m["folder"],
+            "updated_at": m["updated_at"],
             "header_path": json.loads(m["header_path"]),
             "content": m["content"],
             "score": score,
@@ -238,28 +239,59 @@ class NoteChunkRepository(DbRepository):
         dim: int | None = None,
         limit: int = 10,
         per_note_cap: int = 3,
+        meta_hits: list[dict] | None = None,
     ) -> list[dict]:
         fts = self.search_fts(query, workspace, owner_id, limit=50)
-        if embedding is None or dim is None:
-            # Positional RRF-style scores so the public output always carries a numeric
-            # score, even in FTS-only mode (no vector backend available).
-            ranked = [{**hit, "score": 1.0 / (60 + rank)} for rank, hit in enumerate(fts)]
-        else:
-            vec = self.search_chunks_vec(embedding, workspace, owner_id, dim=dim, k=50)
-            scores: dict[str, float] = {}
-            by_id: dict[str, dict] = {}
-            for rank, hit in enumerate(fts):
-                cid = hit["chunk_id"]
-                scores[cid] = scores.get(cid, 0.0) + 1.0 / (60 + rank)
-                by_id[cid] = hit
-            for rank, hit in enumerate(vec):
+        vec = (
+            self.search_chunks_vec(embedding, workspace, owner_id, dim=dim, k=50)
+            if embedding is not None and dim is not None
+            else []
+        )
+
+        scores: dict[str, float] = {}
+        by_id: dict[str, dict] = {}
+        for candidate_list in (fts, vec):
+            for rank, hit in enumerate(candidate_list):
                 cid = hit["chunk_id"]
                 scores[cid] = scores.get(cid, 0.0) + 1.0 / (60 + rank)
                 by_id.setdefault(cid, hit)
-            ranked = [
-                {**by_id[cid], "score": s}
-                for cid, s in sorted(scores.items(), key=lambda x: x[1], reverse=True)
-            ]
+
+        # Best (highest-scoring) existing chunk per note, for meta-hit boosting below.
+        best_chunk_for_note: dict[str, tuple[float, str]] = {}
+        for cid, s in scores.items():
+            nid = str(by_id[cid]["note_id"])
+            if nid not in best_chunk_for_note or s > best_chunk_for_note[nid][0]:
+                best_chunk_for_note[nid] = (s, cid)
+
+        meta_matched: dict[str, list[str]] = {}
+        for rank, hit in enumerate(meta_hits or []):
+            nid = str(hit["note_id"])
+            boost = 1.0 / (60 + rank)
+            meta_matched.setdefault(nid, []).extend(hit["matched_on"])
+            if nid in best_chunk_for_note:
+                cid = best_chunk_for_note[nid][1]
+                scores[cid] = scores[cid] + boost
+            else:
+                # Note has no chunk candidate (e.g. empty content never produced chunks) —
+                # synthesize a note-level row so it still surfaces instead of being dropped.
+                synthetic_id = f"meta:{nid}"
+                scores[synthetic_id] = scores.get(synthetic_id, 0.0) + boost
+                by_id.setdefault(
+                    synthetic_id,
+                    {
+                        "note_id": nid,
+                        "title": hit["title"],
+                        "folder": hit["folder"],
+                        "updated_at": hit["updated_at"],
+                        "header_path": [],
+                        "content": "",
+                    },
+                )
+
+        ranked = [
+            {**by_id[cid], "score": s, "matched_on": meta_matched.get(str(by_id[cid]["note_id"]))}
+            for cid, s in sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        ]
         capped: list[dict] = []
         per_note: dict[str, int] = {}
         for hit in ranked:

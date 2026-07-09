@@ -26,7 +26,7 @@ def test_search_returns_chunk_shape_fts_only(database, git_workspace_factory):
     hits = service.search("tomato", ["ws"], owner_id="u1", limit=10)
     assert len(hits) >= 1
     h = hits[0]
-    assert set(h) >= {"note_id", "title", "header_path", "content", "score"}
+    assert set(h) >= {"note_id", "title", "header_path", "content", "score", "updated_at"}
     assert "tomato" in h["content"]
     assert h["header_path"][0] == "# Recipes"
     assert h["score"] is not None  # numeric score even in FTS-only mode
