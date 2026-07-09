@@ -271,6 +271,7 @@ def inproc_search_phase(tmp: Path) -> dict:
         query_resolver=None,
         build_embedder=None,
         query_cache=None,
+        crud_repo=note_repo,
     )
     version_service = NoteVersionService(note_repo, cache=None)
     folder_service = NoteFolderService(note_repo, link_service, cache=None)

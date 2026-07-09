@@ -39,6 +39,28 @@ def test_search_empty_when_no_match(database, git_workspace_factory):
     assert service.search("zzzznomatch", ["ws"], owner_id="u1", limit=10) == []
 
 
+def test_search_matches_tag_and_folder_for_contentless_note(database, git_workspace_factory):
+    service = _service(database)
+    ws = git_workspace_factory("ws")
+    service.save(
+        "u1", "ws", str(ws), "Rozmowa 3 marca", "", tags=["angelika"], folder="książki/Angelika"
+    )
+    hits = service.search("angelika", ["ws"], owner_id="u1", limit=10)
+    assert len(hits) == 1
+    assert set(hits[0]["matched_on"]) == {"folder", "tag"}
+    assert hits[0]["content"] == ""
+    assert hits[0]["header_path"] == []
+
+
+def test_search_matches_title_of_contentless_note(database, git_workspace_factory):
+    service = _service(database)
+    ws = git_workspace_factory("ws")
+    service.save("u1", "ws", str(ws), "Unikalny Tytul Beztresciowy", "", tags=[])
+    hits = service.search("Unikalny Tytul Beztresciowy", ["ws"], owner_id="u1", limit=10)
+    assert len(hits) == 1
+    assert hits[0]["matched_on"] == ["title"]
+
+
 def test_search_cache_key_varies_by_backend(database, git_workspace_factory):
     # A backend/key change must not keep serving the previous backend's cached ranking.
     chunk_repo = NoteChunkRepository(database.engine)

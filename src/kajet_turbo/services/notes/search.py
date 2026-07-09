@@ -3,7 +3,7 @@ import asyncio
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.log import logger
-from kajet_turbo.repositories.notes import NoteChunkRepository
+from kajet_turbo.repositories.notes import NoteChunkRepository, NoteRepository
 
 
 class NoteSearchService:
@@ -14,12 +14,14 @@ class NoteSearchService:
         query_resolver,
         build_embedder,
         query_cache,
+        crud_repo: NoteRepository,
     ):
         self._chunk_repo = chunk_repo
         self._cache = cache
         self._query_resolver = query_resolver
         self._build_embedder = build_embedder
         self._query_cache = query_cache
+        self._crud_repo = crud_repo
 
     def search(
         self,
@@ -60,8 +62,15 @@ class NoteSearchService:
         per_ws_limit = limit * 3 if len(workspaces) > 1 else limit
         results = []
         for ws in workspaces:
+            meta_hits = self._crud_repo.search_metadata(ws, owner_id, query, limit=per_ws_limit)
             hits = self._chunk_repo.hybrid_search(
-                query, ws, owner_id, embedding=embedding, dim=dim, limit=per_ws_limit
+                query,
+                ws,
+                owner_id,
+                embedding=embedding,
+                dim=dim,
+                limit=per_ws_limit,
+                meta_hits=meta_hits,
             )
             results.extend(hits)
         results = results[:limit]

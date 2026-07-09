@@ -120,6 +120,7 @@ _note_search_service = NoteSearchService(
     _profile_resolver.resolve_backend,
     pooled_embedder_factory(),
     _query_cache,
+    note_repo,
 )
 _note_version_service = NoteVersionService(note_repo, _cache)
 folder_meta_repo = FolderMetaRepository(db.engine)

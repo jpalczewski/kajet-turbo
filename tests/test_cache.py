@@ -42,9 +42,18 @@ class FakeChunkRepo:
     def __init__(self) -> None:
         self.calls = 0
 
-    def hybrid_search(self, query, ws, owner_id, embedding=None, dim=None, limit=10):
+    def hybrid_search(
+        self, query, ws, owner_id, embedding=None, dim=None, limit=10, meta_hits=None
+    ):
         self.calls += 1
         return [{"note_id": "n1", "title": "t"}]
+
+
+class FakeCrudRepo:
+    """Minimal crud repo double: only implements search_metadata for search tests."""
+
+    def search_metadata(self, workspace, owner_id, query, limit=20):
+        return []
 
 
 def _make_search_svc(chunk_repo, cache):
@@ -63,7 +72,9 @@ def _make_search_svc(chunk_repo, cache):
         None,
         None,
     )
-    search_service = NoteSearchService(chunk_repo, cache, None, None, None)
+    search_service = NoteSearchService(
+        chunk_repo, cache, None, None, None, cast(NoteRepository, FakeCrudRepo())
+    )
     version_service = NoteVersionService(
         note_repo,
         cache,

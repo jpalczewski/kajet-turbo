@@ -176,6 +176,23 @@ async def test_search_notes_fts_fallback(workspaces_dir, mcp_server):
         assert "JavaScript intro" not in result.content[0].text
 
 
+async def test_search_notes_finds_note_by_tag_only(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        await client.call_tool(
+            "save_note",
+            {
+                "title": "Rozmowa",
+                "content": "",
+                "tags": ["angelika"],
+                "folder": "książki/Angelika",
+            },
+        )
+        result = await client.call_tool("search_notes", {"query": "angelika"})
+        assert "Rozmowa" in result.content[0].text
+
+
 async def test_search_notes_all_workspaces(workspaces_dir, mcp_server):
     ws2 = workspaces_dir / "drugi-ws"
     ws2.mkdir()

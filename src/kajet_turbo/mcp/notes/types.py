@@ -5,9 +5,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class NoteInput(BaseModel):
     title: str = Field(description="Note title; unique within (workspace, folder)")
-    content: str = Field(default="", description="Markdown body; use [[Title]] or [[Folder/Title]] for wikilinks, [[note:ID]] for cross-workspace links")
+    content: str = Field(
+        default="",
+        description="Markdown body; use [[Title]] or [[Folder/Title]] for wikilinks, [[note:ID]] for cross-workspace links",
+    )
     tags: list[str] = Field(default=[], description="Tag list, e.g. ['work', 'work/projects']")
-    folder: str = Field(default="", description="Folder path, e.g. 'Projects/Client A'; empty string = workspace root")
+    folder: str = Field(
+        default="",
+        description="Folder path, e.g. 'Projects/Client A'; empty string = workspace root",
+    )
 
 
 class SavedNoteResult(BaseModel):
@@ -110,16 +116,29 @@ class SearchChunkResult(BaseModel):
     note_id: str
     title: str
     folder: str
+    updated_at: str
     header_path: list[str]
     content: str
     score: float
+    matched_on: list[Literal["title", "tag", "folder"]] | None = Field(
+        default=None,
+        description=(
+            "Present when this hit was surfaced by an exact metadata match "
+            "(title/tag/folder), not only full-text/semantic ranking."
+        ),
+    )
 
 
 class NoteLinkItem(BaseModel):
-    note_id: str = Field(description="Use in [[note:NOTE_ID]] to create a permanent cross-workspace link")
+    note_id: str = Field(
+        description="Use in [[note:NOTE_ID]] to create a permanent cross-workspace link"
+    )
     title: str
     folder: str
-    workspace: str | None = Field(default=None, description="Non-null and != active workspace means cross-workspace link; reference with [[note:note_id]]")
+    workspace: str | None = Field(
+        default=None,
+        description="Non-null and != active workspace means cross-workspace link; reference with [[note:note_id]]",
+    )
     tags: list[str] | None = None
     updated_at: str | None = None
 
@@ -142,12 +161,8 @@ class BatchNoteError(BaseModel):
 class ConfirmationRequired(BaseModel):
     note_id: str
     requires_confirmation: Literal[True]
-    would_remove_tags: list[str] = Field(
-        description="Tags that would be removed by this operation"
-    )
-    overwrites_content: bool = Field(
-        description="Whether non-empty content would be overwritten"
-    )
+    would_remove_tags: list[str] = Field(description="Tags that would be removed by this operation")
+    overwrites_content: bool = Field(description="Whether non-empty content would be overwritten")
     warning: str = Field(
         description="Human-readable warning; explain to the user what will change and ask to confirm"
     )
