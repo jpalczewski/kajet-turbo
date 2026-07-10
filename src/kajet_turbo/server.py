@@ -29,10 +29,24 @@ from kajet_turbo.mcp import build_mcp
 def _make_sweep_handler(event_repo, job_repo):
     def _sweep(payload: dict) -> None:
         swept = event_repo.sweep(3600.0)
-        logger.info("outbox_sweep", swept=swept)
+        purged = job_repo.sweep_done(86400.0)
+        logger.info("outbox_sweep", swept=swept, jobs_purged=purged)
         job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox", delay=900.0)
 
     return _sweep
+
+
+def register_job_handlers() -> None:
+    """Register every job kind the worker can run. Shared by the standalone worker
+    role and the combined app's in-process worker thread."""
+    from kajet_turbo.dependencies import embed_handler, event_repo, heal_handler, push_handler
+    from kajet_turbo.dependencies import job_repo as _job_repo
+    from kajet_turbo.worker import register_handler
+
+    register_handler("push_workspace", push_handler)
+    register_handler("heal_dangling", heal_handler)
+    register_handler("sweep_outbox", _make_sweep_handler(event_repo, _job_repo))
+    register_handler("embed_note", embed_handler)
 
 
 @asynccontextmanager
@@ -44,6 +58,9 @@ async def _app_lifespan(app: FastAPI):
     try:
         yield
     finally:
+        from kajet_turbo.dependencies import shared_embed_client
+
+        await shared_embed_client.aclose()
         db.close()
 
 
@@ -65,6 +82,35 @@ async def _sweep_outbox_lifespan(app: FastAPI):
 
     _job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox")
     yield
+
+
+@asynccontextmanager
+async def _worker_lifespan(app: FastAPI):
+    # Role "all" has no separate worker process, so drain the job queue in-process —
+    # otherwise deferred embeddings and auto-push silently never run in bare local dev.
+    import threading
+
+    from kajet_turbo.worker import run_worker
+
+    register_job_handlers()
+    stop = threading.Event()
+    thread = threading.Thread(
+        target=run_worker,
+        args=(db.engine,),
+        kwargs={
+            "poll_interval": float(os.getenv("KAJET_WORKER_POLL_INTERVAL", "1")),
+            "concurrency": int(os.getenv("KAJET_WORKER_CONCURRENCY", "4")),
+            "stop_event": stop,
+        },
+        daemon=True,
+        name="kajet-inprocess-worker",
+    )
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=10.0)
 
 
 class _SPAFiles:
@@ -163,7 +209,8 @@ def build_app() -> Any:
     mcp_app = _new_mcp_app()
     app = FastAPI(
         lifespan=combine_lifespans(
-            _app_lifespan, mcp_app.lifespan, _logging_lifespan, _sweep_outbox_lifespan
+            _app_lifespan, mcp_app.lifespan, _logging_lifespan, _sweep_outbox_lifespan,
+            _worker_lifespan,
         )
     )
     app.add_exception_handler(HTTPException, _http_exception_handler)  # ty: ignore[invalid-argument-type] — FastAPI accepts narrower exc type at runtime
@@ -274,8 +321,7 @@ def main() -> None:
     role = os.getenv("KAJET_ROLE", "all")
     if role == "worker":
         from kajet_turbo.db import Database
-        from kajet_turbo.dependencies import heal_handler, push_handler
-        from kajet_turbo.worker import register_handler, run_worker
+        from kajet_turbo.worker import run_worker
 
         # The worker returns before any uvicorn app is built, so it must init logging
         # itself — otherwise it falls back to loguru's default human sink (no `extra`
@@ -297,12 +343,9 @@ def main() -> None:
             except Exception as e:
                 logger.warning("startup_branch_migration_failed", error=str(e))
 
-        register_handler("push_workspace", push_handler)
-        register_handler("heal_dangling", heal_handler)
-        from kajet_turbo.dependencies import event_repo
         from kajet_turbo.dependencies import job_repo as _job_repo
 
-        register_handler("sweep_outbox", _make_sweep_handler(event_repo, _job_repo))
+        register_job_handlers()
         _job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox")
         db = Database()
         run_worker(

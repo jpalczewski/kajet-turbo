@@ -111,7 +111,6 @@ def test_end_to_end_dangling_then_target_created(
         chunk_repo_e2e,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda owner_id: None,
-        build_embedder=lambda cfg: None,
     )
     from tests.services.conftest import build_note_service
 

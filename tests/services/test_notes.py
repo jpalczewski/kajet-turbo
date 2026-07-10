@@ -1343,7 +1343,6 @@ def _make_service_with_validation(database, link_validation_enabled=None):
         chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda owner_id: None,
-        build_embedder=lambda cfg: None,
     )
     return build_note_service(
         database, indexer=indexer, link_validation_enabled=link_validation_enabled
@@ -1398,7 +1397,6 @@ def _make_service_with_dangling(database, link_validation_enabled=None):
         chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda owner_id: None,
-        build_embedder=lambda cfg: None,
     )
     dangling = DanglingLinkRepository(database.engine)
     return (

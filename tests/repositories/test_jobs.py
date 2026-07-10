@@ -295,3 +295,28 @@ def test_claim_null_dedup_key_not_serialized(database: Database):
     repo.enqueue("k", {}, now=1000.0)  # dedup_key None
     assert repo.claim("w1", now=1000.0) is not None
     assert repo.claim("w2", now=1000.0) is not None  # NULL dedup never blocks
+
+
+def test_sweep_done_purges_old_done_jobs_only(database: Database):
+    repo = JobRepository(database.engine)
+    old_done = repo.enqueue("k", {}, now=1000.0)
+    repo.claim("w1", now=1000.0)
+    repo.complete(old_done, now=1000.0)
+
+    fresh_done = repo.enqueue("k", {}, now=90000.0)
+    repo.claim("w1", now=90000.0)
+    repo.complete(fresh_done, now=90000.0)
+
+    failed = repo.enqueue("k2", {}, now=1000.0, max_attempts=1)
+    claimed = repo.claim("w1", now=1000.0)
+    assert claimed is not None and claimed.id == failed
+    repo.fail(failed, "boom", now=1000.0)  # max_attempts=1 -> terminal failed
+    pending = repo.enqueue("k", {}, now=1000.0)
+
+    swept = repo.sweep_done(older_than=86400.0, now=90001.0)
+
+    assert swept == 1
+    assert _get(database.engine, old_done) is None
+    assert _get_required(database.engine, fresh_done).status == "done"
+    assert _get_required(database.engine, pending).status == "pending"
+    assert _get_required(database.engine, failed).status == "failed"

@@ -50,7 +50,6 @@ def mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestCo
         note_chunk_repository,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
-        build_embedder=lambda c: None,
     )
     from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 

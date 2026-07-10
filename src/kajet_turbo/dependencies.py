@@ -12,6 +12,7 @@ from kajet_turbo.db import Database
 from kajet_turbo.embedding import build_embedder, pooled_embedder_factory
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbeddingCache
+from kajet_turbo.embedding.client import SharedEmbedderClient
 from kajet_turbo.embedding.resolver import ProfileResolver
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
@@ -33,6 +34,8 @@ from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.services.embed_enqueue import make_enqueue_embed
+from kajet_turbo.services.embed_handler import EmbedNoteHandler
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
 from kajet_turbo.services.heal_enqueue import make_enqueue_heal_on_commit
 from kajet_turbo.services.heal_handler import HealDanglingHandler
@@ -96,8 +99,19 @@ def _probe_dim(base_url: str, model: str, api_key: str | None) -> int:
 
 embedding_profile_service = EmbeddingProfileService(_profile_repo, _profile_cipher, _probe_dim)
 
+job_repo = JobRepository(db.engine)
+
+# Write path persists chunks + FTS inline; the embedding HTTP roundtrip is deferred
+# to an embed_note job (handled by the worker via embed_handler below).
 note_indexer = NoteIndexer(
     repo=note_chunk_repo,
+    cache=EmbeddingCacheRepository(db.engine),
+    resolve_backend=_profile_resolver.resolve_backend,
+    enqueue_embed=make_enqueue_embed(job_repo),
+)
+
+embed_handler = EmbedNoteHandler(
+    chunk_repo=note_chunk_repo,
     cache=EmbeddingCacheRepository(db.engine),
     resolve_backend=_profile_resolver.resolve_backend,
     build_embedder=pooled_embedder_factory(),
@@ -114,6 +128,10 @@ _link_validation = lambda ws, owner: workspace_service.get_settings(owner, ws)["
 
 _note_tag_service = NoteTagService(note_repo, note_tag_repo, _cache)
 _note_link_service = NoteLinkService(note_repo, note_link_repo, dangling_repo, _link_validation)
+# Long-lived client for query embedding: keep-alive across searches kills the
+# per-call TCP+TLS connect tail. Closed in the app lifespan (server.py).
+shared_embed_client = SharedEmbedderClient()
+
 _note_search_service = NoteSearchService(
     note_chunk_repo,
     _cache,
@@ -122,6 +140,7 @@ _note_search_service = NoteSearchService(
     _query_cache,
     note_repo,
     note_tag_repo,
+    async_build_embedder=lambda cfg: build_embedder(cfg, shared_embed_client.get()),
 )
 _note_version_service = NoteVersionService(note_repo, _cache)
 folder_meta_repo = FolderMetaRepository(db.engine)
@@ -144,7 +163,6 @@ note_service = NoteService(
 _ssh_key_repo = SshKeyRepository(db.engine)
 ssh_key_service = SshKeyService(_ssh_key_repo, lambda: cipher_for("ssh-key"))
 
-job_repo = JobRepository(db.engine)
 workspace_remote_repo = WorkspaceRemoteRepository(db.engine)
 push_handler = PushHandler(
     workspace_remote_repo,

@@ -230,6 +230,18 @@ class JobRepository:
             session.commit()
             return True
 
+    def sweep_done(self, older_than: float = 86400.0, *, now: float | None = None) -> int:
+        """Purge ``done`` rows older than ``older_than`` seconds. ``failed`` rows are
+        kept — they stay user-visible in the jobs API until retried or dismissed."""
+        now = time.time() if now is None else now
+        with Session(self._engine) as session:
+            result = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("DELETE FROM jobs WHERE status='done' AND updated_at < :cutoff"),
+                {"cutoff": now - older_than},
+            )
+            session.commit()
+            return result.rowcount  # ty: ignore[unresolved-attribute] - CursorResult has rowcount; ty loses it through Result[Any]
+
     def dismiss(self, job_id: str, user_id: str) -> bool:
         with Session(self._engine) as session:
             job = session.get(Job, job_id)

@@ -576,8 +576,9 @@ def build_crud(
             workspaces = await run_sync(workspace_service.list_accessible, ws.user_id)
         else:
             workspaces = [ws_param if ws_param != "active" else ws.name]
-        results = await run_sync(
-            note_service.search,
+        # search_async borrows a run_sync slot only for the ms-scale DB phases; the
+        # query-embedding HTTP call is awaited natively on the event loop.
+        results = await note_service.search_async(
             query,
             workspaces,
             owner_id=ws.owner_id,

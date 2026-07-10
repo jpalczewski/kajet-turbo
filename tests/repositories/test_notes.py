@@ -366,3 +366,20 @@ def test_list_notes_default_global_view_unchanged_recency_order(database):
         session.commit()
     notes = repo.list_notes("ws", "u1", limit=None)
     assert [n["title"] for n in notes] == ["Zebra", "Apple"]
+
+
+def test_count_stale_counts_only_stale_in_scope(database):
+    repo = NoteRepository(database.engine)
+    now = "2026-01-01"
+    repo.insert("s1", "ws", "u1", "Stale one", [], now, now, "body")
+    repo.insert("s2", "ws", "u1", "Indexed one", [], now, now, "body")
+    repo.insert("s3", "other-ws", "u1", "Other ws", [], now, now, "body")
+    repo.insert("s4", "ws", "u2", "Other owner", [], now, now, "body")
+    with Session(database.engine) as session:
+        session.execute(  # ty: ignore[deprecated] - raw SQL
+            text("UPDATE notes SET index_state='indexed' WHERE id='s2'")
+        )
+        session.commit()
+
+    # Only s1 counts: s2 is indexed, s3 is another workspace, s4 another owner.
+    assert repo.count_stale("ws", "u1") == 1

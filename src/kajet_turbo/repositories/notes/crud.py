@@ -101,6 +101,20 @@ class NoteRepository(DbRepository):
             ).all()
         return set(rows)
 
+    def count_stale(self, workspace: str, owner_id: str) -> int:
+        """Count notes awaiting deferred embedding. Folded into the search cache key so
+        a worker flipping notes stale→indexed (which bumps no epoch, possibly in another
+        process) invalidates cached vector-less rankings on the next search."""
+        with self.timed_session() as session:
+            count = session.exec(
+                select(func.count()).where(  # ty: ignore[invalid-argument-type] — count() is a valid selectable; ty narrows select() too eagerly
+                    Note.workspace == workspace,
+                    Note.owner_id == owner_id,
+                    Note.index_state == "stale",
+                )
+            ).one()
+        return int(count)
+
     def resolve_paths(
         self,
         workspace: str,

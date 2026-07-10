@@ -32,6 +32,7 @@ def build_note_service(
     build_embedder=None,
     query_cache=None,
     chunk_repo: NoteChunkRepository | None = None,
+    async_build_embedder=None,
 ) -> NoteService:
     """Construct a fully-wired NoteService from a Database for tests."""
     engine = database.engine
@@ -44,7 +45,14 @@ def build_note_service(
     tag_service = NoteTagService(crud_repo, tag_repo, cache)
     link_service = NoteLinkService(crud_repo, link_repo, dangling_repo, link_validation_enabled)
     search_service = NoteSearchService(
-        chunk_repo, cache, query_resolver, build_embedder, query_cache, crud_repo, tag_repo
+        chunk_repo,
+        cache,
+        query_resolver,
+        build_embedder,
+        query_cache,
+        crud_repo,
+        tag_repo,
+        async_build_embedder=async_build_embedder,
     )
     version_service = NoteVersionService(crud_repo, cache)
     folder_service = NoteFolderService(crud_repo, link_service, cache)
@@ -76,6 +84,5 @@ def service(database: Database) -> NoteService:
         chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda owner_id: None,  # FTS-only in tests (no network)
-        build_embedder=lambda cfg: None,
     )
     return build_note_service(database, indexer=indexer)

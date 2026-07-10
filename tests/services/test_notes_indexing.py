@@ -35,7 +35,6 @@ def test_save_writes_fts_via_indexer(database, git_workspace_factory):
         chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
-        build_embedder=lambda c: None,
     )
     service = build_note_service(database, indexer=indexer)
     ws = git_workspace_factory("ws")

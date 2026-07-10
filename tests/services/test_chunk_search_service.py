@@ -12,7 +12,6 @@ def _service(database):
         chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
-        build_embedder=lambda c: None,
     )
     return build_note_service(database, indexer=indexer)
 
@@ -68,7 +67,6 @@ def test_search_cache_key_varies_by_backend(database, git_workspace_factory):
         chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
-        build_embedder=lambda c: None,
     )
 
     calls = {"n": 0}
@@ -148,3 +146,162 @@ def test_search_folder_and_tags_intersect(database, git_workspace_factory):
     service.save("u1", "ws", str(ws), "Only tag", "keyword here", tags=["work"], folder="b")
     hits = service.search("keyword", ["ws"], owner_id="u1", limit=10, folder="a", tags=["work"])
     assert [h["title"] for h in hits] == ["Both"]
+
+
+def test_search_cache_invalidated_when_deferred_embed_lands(database, git_workspace_factory):
+    # save → search caches an FTS-only ranking (note still 'stale'); when the worker
+    # attaches vectors (stale → indexed), the next search must recompute instead of
+    # serving the vector-less ranking until the cache TTL expires.
+    chunk_repo = NoteChunkRepository(database.engine)
+    indexer = NoteIndexer(
+        chunk_repo,
+        EmbeddingCacheRepository(database.engine),
+        resolve_backend=lambda o: None,
+    )
+
+    calls = {"n": 0}
+    inner = chunk_repo.hybrid_search
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return inner(*a, **k)
+
+    chunk_repo.hybrid_search = counting  # type: ignore[method-assign]  # ty: ignore[invalid-assignment] - patch spy for cache-key regression
+
+    class _FakeEmbedder:
+        async def embed_query(self, text):
+            return [1.0, 0.0, 0.0]
+
+    cfg = EmbedderConfig(
+        backend_id="b", type="openai", model="m", dim=3, base_url="http://x", api_key="k"
+    )
+    svc = build_note_service(
+        database,
+        indexer=indexer,
+        cache=WorkspaceCache(),
+        query_resolver=lambda o: cfg,
+        build_embedder=lambda c: _FakeEmbedder(),
+        chunk_repo=chunk_repo,
+    )
+    ws = git_workspace_factory("ws")
+    res = svc.save("u1", "ws", str(ws), "T", "# T\n\nalpha\n", tags=[])
+
+    svc.search("alpha", ["ws"], owner_id="u1")
+    assert calls["n"] == 1
+    svc.search("alpha", ["ws"], owner_id="u1")
+    assert calls["n"] == 1  # cached
+
+    # Worker attaches vectors out-of-band: stale → indexed, no epoch bump.
+    chunk_repo.ensure_vec_table(3)
+    rows = chunk_repo.get_chunks(res["note_id"])
+    applied = chunk_repo.attach_vectors(
+        res["note_id"], "ws", "u1", 3, {r["id"]: [1.0, 0.0, 0.0] for r in rows}
+    )
+    assert applied is True
+
+    svc.search("alpha", ["ws"], owner_id="u1")
+    assert calls["n"] == 2  # stale-count changed → cache key changed → recompute
+
+
+class _AsyncCountingEmbedder:
+    def __init__(self):
+        self.calls = 0
+
+    async def embed_query(self, text):
+        self.calls += 1
+        return [1.0, 0.0, 0.0]
+
+
+def _async_service(database, chunk_repo=None, *, cache=None, query_cache=None):
+    """Service wired for async query embedding; the sync build_embedder seam raises so
+    a regression back to the run_sync-slot path is loud."""
+    if chunk_repo is None:
+        chunk_repo = NoteChunkRepository(database.engine)
+    indexer = NoteIndexer(
+        chunk_repo,
+        EmbeddingCacheRepository(database.engine),
+        resolve_backend=lambda o: None,
+    )
+    cfg = EmbedderConfig(
+        backend_id="b", type="openai", model="m", dim=3, base_url="http://x", api_key="k"
+    )
+    emb = _AsyncCountingEmbedder()
+
+    def _sync_seam_must_not_be_used(c):
+        raise AssertionError("sync build_embedder used on the async path")
+
+    svc = build_note_service(
+        database,
+        indexer=indexer,
+        cache=cache,
+        query_resolver=lambda o: cfg,
+        build_embedder=_sync_seam_must_not_be_used,
+        query_cache=query_cache,
+        chunk_repo=chunk_repo,
+        async_build_embedder=lambda c: emb,
+    )
+    return svc, emb
+
+
+async def test_search_async_matches_sync_shape(database, git_workspace_factory):
+    svc, _emb = _async_service(database)
+    ws = git_workspace_factory("ws")
+    svc.save("u1", "ws", str(ws), "Recipes", "# Recipes\n\ntomato basil soup\n", tags=[])
+    hits = await svc.search_async("tomato", ["ws"], owner_id="u1", limit=10)
+    assert len(hits) >= 1
+    assert set(hits[0]) >= {"note_id", "title", "header_path", "content", "score", "updated_at"}
+
+
+async def test_search_async_embeds_query_on_event_loop(database, git_workspace_factory):
+    svc, emb = _async_service(database)
+    ws = git_workspace_factory("ws")
+    svc.save("u1", "ws", str(ws), "T", "# T\n\nalpha\n", tags=[])
+    await svc.search_async("alpha", ["ws"], owner_id="u1")
+    assert emb.calls == 1
+
+
+async def test_search_async_result_cache_hit_skips_embed(database, git_workspace_factory):
+    svc, emb = _async_service(database, cache=WorkspaceCache())
+    ws = git_workspace_factory("ws")
+    svc.save("u1", "ws", str(ws), "T", "# T\n\nalpha\n", tags=[])
+    await svc.search_async("alpha", ["ws"], owner_id="u1")
+    await svc.search_async("alpha", ["ws"], owner_id="u1")
+    assert emb.calls == 1  # second search served from the result cache
+
+
+async def test_search_async_query_cache_hit_skips_embedder(database, git_workspace_factory):
+    from kajet_turbo.embedding.cache import QueryEmbeddingCache
+
+    svc, emb = _async_service(database, query_cache=QueryEmbeddingCache())
+    ws = git_workspace_factory("ws")
+    svc.save("u1", "ws", str(ws), "T", "# T\n\nalpha\n", tags=[])
+    # No result cache; a different limit cannot be served from it anyway — only the
+    # query-embedding LRU can dedupe the embed call.
+    await svc.search_async("alpha", ["ws"], owner_id="u1", limit=5)
+    await svc.search_async("alpha", ["ws"], owner_id="u1", limit=7)
+    assert emb.calls == 1
+
+
+async def test_search_async_embed_failure_degrades_to_fts(database, git_workspace_factory):
+    svc, emb = _async_service(database)
+
+    async def _boom(text):
+        raise RuntimeError("embedding endpoint down")
+
+    emb.embed_query = _boom  # type: ignore[method-assign]
+    ws = git_workspace_factory("ws")
+    svc.save("u1", "ws", str(ws), "T", "# T\n\nalpha\n", tags=[])
+    hits = await svc.search_async("alpha", ["ws"], owner_id="u1")
+    assert len(hits) >= 1  # FTS still answers
+
+
+async def test_search_async_falls_back_to_sync_without_async_embedder(
+    database, git_workspace_factory
+):
+    # Test doubles / legacy wiring without async_build_embedder keep working: the
+    # whole search runs through the sync path in a worker thread.
+    service = _service(database)
+    ws = git_workspace_factory("ws")
+    service.save("u1", "ws", str(ws), "Recipes", "# Recipes\n\ntomato soup\n", tags=[])
+    hits = await service.search_async("tomato", ["ws"], owner_id="u1", limit=10)
+    assert len(hits) >= 1
