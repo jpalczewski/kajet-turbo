@@ -95,6 +95,7 @@ export const NoteError = {
   NOTE_TITLE_REQUIRED: 'NOTE_TITLE_REQUIRED',
   BROKEN_WIKILINK: 'BROKEN_WIKILINK',
   NOTE_INVALID_INPUT: 'NOTE_INVALID_INPUT',
+  NOTE_STALE_VERSION: 'NOTE_STALE_VERSION',
 } as const;
 
 export type FolderError = typeof FolderError[keyof typeof FolderError];
@@ -203,6 +204,7 @@ export interface NoteHtmlResponse {
   created_at: string;
   updated_at: string;
   content_html: string;
+  sha: string;
 }
 
 export interface NoteItem {
@@ -225,6 +227,7 @@ export interface NoteMarkdownResponse {
   created_at: string;
   updated_at: string;
   content: string;
+  sha: string;
 }
 
 export interface NotesListResponse {

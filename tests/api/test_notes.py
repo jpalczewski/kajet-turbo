@@ -208,9 +208,10 @@ def test_create_note_returns_403_when_no_access(no_access_client):
 def test_update_note_content(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save("u1", "test-ws", ws_path, "Orig", "old content", [])["note_id"]
+    sha = note_svc.get_history(note_id, owner_id="u1", ws_path=ws_path)[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
-        json={"content": "new content"},
+        json={"content": "new content", "expected_sha": sha},
     )
     assert resp.status_code == 200
     assert resp.json()["note_id"] == note_id
@@ -224,9 +225,10 @@ def test_update_note_response_matches_declared_schema(auth_client):
     # response must stay pinned to UpdateNoteResponse's documented shape, not leak them.
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save("u1", "test-ws", ws_path, "Orig", "old content", [])["note_id"]
+    sha = note_svc.get_history(note_id, owner_id="u1", ws_path=ws_path)[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
-        json={"content": "new content"},
+        json={"content": "new content", "expected_sha": sha},
     )
     assert resp.json() == {"note_id": note_id}
 
@@ -234,9 +236,10 @@ def test_update_note_response_matches_declared_schema(auth_client):
 def test_update_note_title(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save("u1", "test-ws", ws_path, "Old Title", "c", [])["note_id"]
+    sha = note_svc.get_history(note_id, owner_id="u1", ws_path=ws_path)[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
-        json={"title": "New Title"},
+        json={"title": "New Title", "expected_sha": sha},
     )
     assert resp.status_code == 200
     updated = note_svc.get(note_id, owner_id="u1")
@@ -377,13 +380,34 @@ def test_create_note_valid_wikilink_succeeds(auth_client):
 def test_update_note_broken_wikilink_returns_422(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save("u1", "test-ws", ws_path, "Note", "body", [])["note_id"]
+    sha = note_svc.get_history(note_id, owner_id="u1", ws_path=ws_path)[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
-        json={"content": "[[Ghost]]"},
+        json={"content": "[[Ghost]]", "expected_sha": sha},
     )
     assert resp.status_code == 422
     assert resp.json()["detail"]["error"] == "BROKEN_WIKILINK"
     assert "Ghost" in resp.json()["detail"]["detail"]
+
+
+def test_update_note_stale_sha_returns_409(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Note", "v1", [])["note_id"]
+    stale_sha = note_svc.get_history(note_id, owner_id="u1", ws_path=ws_path)[0]["sha"]
+    client.patch(
+        f"/api/workspaces/test-ws/notes/{note_id}",
+        json={"content": "v2", "expected_sha": stale_sha},
+    )
+
+    resp = client.patch(
+        f"/api/workspaces/test-ws/notes/{note_id}",
+        json={"content": "v3", "expected_sha": stale_sha},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["error"] == "NOTE_STALE_VERSION"
+    updated = note_svc.get_with_content(note_id, owner_id="u1", ws_path=ws_path)
+    assert updated.content == "v2"
 
 
 def test_html_renders_clickable_wikilink(auth_client):

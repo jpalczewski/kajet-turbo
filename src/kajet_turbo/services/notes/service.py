@@ -275,6 +275,10 @@ class NoteService:
         if not Path(filepath).exists():
             return None
         note_data = read_note_file(filepath)
+        relative = str(Path(filepath).relative_to(ws_path))
+        history = GitRepository(ws_path).file_history(relative, limit=1)
+        if not history:
+            raise ValueError(f"Notatka {note_id} nie ma historii commitów (niespójny stan repo).")
         return NoteData(
             note_id=note.id,
             workspace=note.workspace,
@@ -285,6 +289,7 @@ class NoteService:
             created_at=note.created_at,
             updated_at=note.updated_at,
             content=note_data["content"],
+            sha=history[0]["sha"],
         )
 
     def get_outline(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
@@ -452,6 +457,7 @@ class NoteService:
         note_id: str,
         owner_id: str,
         ws_path: str,
+        expected_sha: str,
         title: str | None = None,
         content: str | None = None,
         tags: list[str] | None = None,
@@ -481,6 +487,17 @@ class NoteService:
 
         if not Path(old_path).exists():
             raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
+
+        history = GitRepository(ws_path).file_history(old_rel, limit=1)
+        current_sha = history[0]["sha"] if history else None
+        if not expected_sha or current_sha is None or not current_sha.startswith(expected_sha):
+            return {
+                "note_id": note_id,
+                "stale_sha": True,
+                "current_sha": current_sha,
+                "error": f"expected_sha nieaktualny dla {note_id}.",
+            }
+
         if old_path != new_path:
             if not self._crud_repo.check_unique(note.workspace, owner_id, new_folder, new_title):
                 raise FileExistsError(
@@ -602,19 +619,58 @@ class NoteService:
         for index, raw in enumerate(edits):
             note_id = str(raw.get("note_id", "")).strip()
             if not note_id:
-                errors.append({"index": index, "error": "note_id jest wymagany."})
+                errors.append(
+                    {"index": index, "note_id": note_id, "error": "note_id jest wymagany."}
+                )
                 continue
             if note_id in seen_ids:
-                errors.append({"index": index, "error": f"Duplikat note_id w batchu: '{note_id}'."})
+                errors.append(
+                    {
+                        "index": index,
+                        "note_id": note_id,
+                        "error": f"Duplikat note_id w batchu: '{note_id}'.",
+                    }
+                )
                 continue
             seen_ids.add(note_id)
             note = self._crud_repo.get(note_id, owner_id=user_id)
             if note is None:
-                errors.append({"index": index, "error": f"Notatka {note_id} nie znaleziona."})
+                errors.append(
+                    {
+                        "index": index,
+                        "note_id": note_id,
+                        "error": f"Notatka {note_id} nie znaleziona.",
+                    }
+                )
                 continue
             filepath = note_filepath(ws_path, note.folder, note.title)
             if not Path(filepath).exists():
-                errors.append({"index": index, "error": f"Plik notatki {note_id} nie znaleziony."})
+                errors.append(
+                    {
+                        "index": index,
+                        "note_id": note_id,
+                        "error": f"Plik notatki {note_id} nie znaleziony.",
+                    }
+                )
+                continue
+            relative = str(Path(filepath).relative_to(ws_path))
+            history = GitRepository(ws_path).file_history(relative, limit=1)
+            current_sha = history[0]["sha"] if history else None
+            expected_sha = str(raw.get("expected_sha", "")).strip()
+            if not expected_sha:
+                errors.append(
+                    {"index": index, "note_id": note_id, "error": "expected_sha jest wymagany."}
+                )
+                continue
+            if current_sha is None or not current_sha.startswith(expected_sha):
+                errors.append(
+                    {
+                        "index": index,
+                        "note_id": note_id,
+                        "error": f"expected_sha nieaktualny dla {note_id}.",
+                        "current_sha": current_sha,
+                    }
+                )
                 continue
             note_data = read_note_file(filepath)
             old_content = note_data["content"]
@@ -628,7 +684,7 @@ class NoteService:
                     old_content, mode, content, target_heading, old_text, replace_all=replace_all
                 )
             except ValueError as e:
-                errors.append({"index": index, "error": str(e)})
+                errors.append({"index": index, "note_id": note_id, "error": str(e)})
                 continue
             new_content = edit_result.body
             try:
@@ -636,7 +692,7 @@ class NoteService:
                     ws_name, user_id, new_content
                 )
             except BrokenWikilinkError as e:
-                errors.append({"index": index, "error": str(e)})
+                errors.append({"index": index, "note_id": note_id, "error": str(e)})
                 continue
             raw_tags = raw.get("tags")
             current_tags = NoteTagService.normalize_tags(note_data["tags"])
@@ -655,7 +711,7 @@ class NoteService:
                     "note_id": note_id,
                     "note": note,
                     "filepath": filepath,
-                    "relative": str(Path(filepath).relative_to(ws_path)),
+                    "relative": relative,
                     "old_content": old_content,
                     "old_tags": current_tags,
                     "new_content": new_content,
@@ -775,6 +831,111 @@ class NoteService:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_deleted", note_id=note_id)
 
+    def delete_many(
+        self,
+        user_id: str,
+        ws_name: str,
+        ws_path: str,
+        deletes: list[dict],
+    ) -> dict:
+        """Delete multiple notes in ONE atomic commit. All-or-nothing: any invalid
+        item (missing note, duplicate note_id, stale expected_sha) rejects the whole
+        batch — nothing is deleted. Each input dict: {note_id, expected_sha} — sha is
+        the note's current HEAD commit sha (from get_history), proving the caller has
+        seen the version it is about to destroy; a mismatch reports current_sha so the
+        caller can re-fetch and retry instead of deleting blind.
+        """
+        if not deletes:
+            raise ValueError("Batch usuwania nie może być pusty.")
+
+        seen_ids: set[str] = set()
+        errors: list[dict] = []
+        prepared: list[dict] = []
+        for index, raw in enumerate(deletes):
+            note_id = str(raw.get("note_id", "")).strip()
+            if not note_id:
+                errors.append(
+                    {"index": index, "note_id": note_id, "error": "note_id jest wymagany."}
+                )
+                continue
+            if note_id in seen_ids:
+                errors.append(
+                    {
+                        "index": index,
+                        "note_id": note_id,
+                        "error": f"Duplikat note_id w batchu: '{note_id}'.",
+                    }
+                )
+                continue
+            seen_ids.add(note_id)
+            note = self._crud_repo.get(note_id, owner_id=user_id)
+            if note is None:
+                errors.append(
+                    {
+                        "index": index,
+                        "note_id": note_id,
+                        "error": f"Notatka {note_id} nie znaleziona.",
+                    }
+                )
+                continue
+            filepath = note_filepath(ws_path, note.folder, note.title)
+            if not Path(filepath).exists():
+                errors.append(
+                    {
+                        "index": index,
+                        "note_id": note_id,
+                        "error": f"Plik notatki {note_id} nie znaleziony.",
+                    }
+                )
+                continue
+            relative = str(Path(filepath).relative_to(ws_path))
+            history = GitRepository(ws_path).file_history(relative, limit=1)
+            current_sha = history[0]["sha"] if history else None
+            expected_sha = str(raw.get("expected_sha", "")).strip()
+            if not expected_sha:
+                errors.append(
+                    {"index": index, "note_id": note_id, "error": "expected_sha jest wymagany."}
+                )
+                continue
+            if current_sha is None or not current_sha.startswith(expected_sha):
+                errors.append(
+                    {
+                        "index": index,
+                        "note_id": note_id,
+                        "error": f"expected_sha nieaktualny dla {note_id}.",
+                        "current_sha": current_sha,
+                    }
+                )
+                continue
+            prepared.append(
+                {"index": index, "note_id": note_id, "note": note, "relative": relative}
+            )
+
+        if errors:
+            return {"applied": False, "errors": errors}
+
+        n = len(prepared)
+        GitRepository(ws_path).delete_files(
+            [p["relative"] for p in prepared], f"note: delete {n} note{'' if n == 1 else 's'}"
+        )
+
+        for p in prepared:
+            note_id = p["note_id"]
+            note = p["note"]
+            self._tag_repo.delete_note_tags(note_id, note.workspace, user_id)
+            self._clear_index(note_id)
+            self._crud_repo.delete(note_id, owner_id=user_id)
+            self._link_repo.delete_links_from(note_id)
+            self._link_repo.delete_links_to(note_id)
+            self._link_service.delete_dangling_for_source(note_id)
+            logger.info("note_deleted", note_id=note_id)
+
+        if self._cache is not None:
+            self._cache.bump(ws_name, user_id)
+        logger.info("notes_deleted_batch", ws=ws_name, count=len(prepared))
+        results = [{"index": p["index"], "note_id": p["note_id"]} for p in prepared]
+        return {"applied": True, "results": results}
+
     def list_notes(
         self,
         ws_name: str,
@@ -870,9 +1031,23 @@ class NoteService:
 
     def restore_version(self, note_id: str, sha: str, owner_id: str, ws_path: str) -> dict:
         version = self._version_service.get_version(note_id, sha, owner_id, ws_path)
+        note = self._crud_repo.get(note_id, owner_id=owner_id)
+        if note is None:
+            raise ValueError(f"Notatka {note_id} nie znaleziona.")
+        relative = str(Path(note_filepath(ws_path, note.folder, note.title)).relative_to(ws_path))
+        history = GitRepository(ws_path).file_history(relative, limit=1)
+        current_sha = history[0]["sha"] if history else None
+        if current_sha is None:
+            raise ValueError(f"Notatka {note_id} nie ma historii commitów.")
         # Version restore is an explicit intent — always bypass the destructive-op gate.
+        # expected_sha is satisfied with the sha just read, not a staleness check.
         return self.update(
-            note_id, owner_id=owner_id, ws_path=ws_path, content=version["content"], confirm=True
+            note_id,
+            owner_id=owner_id,
+            ws_path=ws_path,
+            expected_sha=current_sha,
+            content=version["content"],
+            confirm=True,
         )
 
     # Delegation to peer services (public API unchanged):

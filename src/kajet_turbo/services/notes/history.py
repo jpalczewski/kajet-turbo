@@ -50,4 +50,5 @@ class NoteVersionService:
             "created_at": str(parsed.get("created_at", note.created_at)),
             "updated_at": str(parsed.get("updated_at", note.updated_at)),
             "content": parsed.content,
+            "sha": sha,
         }

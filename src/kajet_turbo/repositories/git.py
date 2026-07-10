@@ -152,6 +152,29 @@ class GitRepository:
                 raise GitError(str(e)) from e
         _fire_post_commit(self._workspace_path)
 
+    def delete_files(self, relative_paths: list[str], message: str) -> None:
+        """Unstage and commit removal of multiple files in a single commit (one lock,
+        one ref update). No-op on an empty list.
+        """
+        if not relative_paths:
+            return
+        with _workspace_lock(self._workspace_path):
+            try:
+                for rel in relative_paths:
+                    Path(self._workspace_path, rel).unlink(missing_ok=True)
+                porcelain.rm(self._workspace_path, paths=list(relative_paths))
+                porcelain.commit(
+                    self._workspace_path,
+                    message=message.encode(),
+                    author=COMMITTER,
+                    committer=COMMITTER,
+                )
+            except GitError:
+                raise
+            except Exception as e:
+                raise GitError(str(e)) from e
+        _fire_post_commit(self._workspace_path)
+
     def rename_file(self, old_rel: str, new_rel: str, message: str) -> None:
         with _workspace_lock(self._workspace_path):
             old_full = Path(self._workspace_path, old_rel)

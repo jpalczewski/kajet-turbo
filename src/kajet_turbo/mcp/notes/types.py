@@ -174,6 +174,15 @@ class Cancelled(BaseModel):
     message: str
 
 
+class StaleVersion(BaseModel):
+    note_id: str
+    error: str
+    current_sha: str | None = Field(
+        default=None,
+        description="Aktualny sha notatki — użyj go, by doczytać i spróbować ponownie.",
+    )
+
+
 class EditNoteSuccess(BaseModel):
     note_id: str
     replaced: int | None = None
@@ -245,6 +254,10 @@ class FolderExportResult(BaseModel):
 
 class NoteEditInput(BaseModel):
     note_id: str = Field(description="id notatki do edycji")
+    expected_sha: str = Field(
+        description="Aktualny HEAD sha notatki z get_note/get_note_history — dowód, że przed "
+        "edycją widziałeś bieżącą wersję. Niezgodność odrzuca cały batch."
+    )
     mode: Literal[
         "overwrite",
         "append",
@@ -280,7 +293,11 @@ class EditNotesApplied(BaseModel):
 
 class EditNotesError(BaseModel):
     index: int
+    note_id: str
     error: str
+    current_sha: str | None = Field(
+        default=None, description="Aktualny sha, gdy error to niezgodność expected_sha."
+    )
 
 
 class EditNotesRejected(BaseModel):
@@ -302,3 +319,32 @@ class EditNotesConfirmationRequired(BaseModel):
     requires_confirmation: Literal[True]
     items: list[EditNotesDestructiveItem]
     warning: str
+
+
+class NoteDeleteInput(BaseModel):
+    note_id: str = Field(description="id notatki do usunięcia")
+    expected_sha: str = Field(
+        description="Aktualny HEAD sha notatki z get_note_history — dowód, że przed "
+        "usunięciem widziałeś bieżącą wersję. Niezgodność odrzuca cały batch."
+    )
+
+
+class DeleteNotesApplied(BaseModel):
+    applied: Literal[True]
+    results: list[BatchNoteSuccess]
+
+
+class DeleteNotesError(BaseModel):
+    index: int
+    note_id: str
+    error: str
+    current_sha: str | None = Field(
+        default=None, description="Aktualny sha, gdy error to niezgodność expected_sha."
+    )
+
+
+class DeleteNotesRejected(BaseModel):
+    applied: Literal[False]
+    errors: list[DeleteNotesError] = Field(
+        description="Cały batch odrzucony — nic nie zostało usunięte."
+    )

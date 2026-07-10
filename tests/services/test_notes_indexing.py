@@ -68,10 +68,12 @@ def test_update_reindexes_with_new_content(database, git_workspace_factory):
     service = build_note_service(database, indexer=indexer)
     ws = git_workspace_factory("ws")
     res = service.save("u1", "ws", str(ws), "Title", "# Title\n\nold\n", tags=[])
+    sha = service.get_history(res["note_id"], owner_id="u1", ws_path=str(ws))[0]["sha"]
     service.update(
         res["note_id"],
         owner_id="u1",
         ws_path=str(ws),
+        expected_sha=sha,
         content="# Title\n\nbrand new body\n",
         confirm=True,
     )

@@ -113,6 +113,7 @@ def api_get_note_html(
                 slug=name,
                 xws_resolver=note_service.xws_link_resolver(user["id"]),
             ),
+            "sha": note.sha,
         }
     )
 
@@ -145,6 +146,7 @@ def api_get_note_markdown(
             "created_at": note.created_at,
             "updated_at": note.updated_at,
             "content": note.content,
+            "sha": note.sha,
         }
     )
 

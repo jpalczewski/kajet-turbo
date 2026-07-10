@@ -119,6 +119,7 @@ def test_update_git_error_reverts_file(service, workspace):
 
     result = service.save("u1", "ws", str(workspace), "Oryginał", "stara treść", [])
     note_id = result["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
     with (
         patch(
             "kajet_turbo.repositories.git.GitRepository.commit_file", side_effect=GitError("fail")
@@ -126,7 +127,12 @@ def test_update_git_error_reverts_file(service, workspace):
         pytest.raises(GitError),
     ):
         service.update(
-            note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść", confirm=True
+            note_id,
+            owner_id="u1",
+            ws_path=str(workspace),
+            expected_sha=sha,
+            content="nowa treść",
+            confirm=True,
         )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note.content == "stara treść"
@@ -134,8 +140,11 @@ def test_update_git_error_reverts_file(service, workspace):
 
 def test_update_title_renames_file(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Old title", "content", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
-    service.update(note_id, owner_id="u1", ws_path=str(workspace), title="New title")
+    service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="New title"
+    )
 
     assert not (workspace / "Old title.md").exists()
     assert (workspace / "New title.md").exists()
@@ -145,11 +154,13 @@ def test_update_append_mode_adds_to_section(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Dziennik", "## Zadania\n\n- Pierwsze", [])[
         "note_id"
     ]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     service.update(
         note_id,
         owner_id="u1",
         ws_path=str(workspace),
+        expected_sha=sha,
         content="- Drugie",
         mode="append",
         target_heading="## Zadania",
@@ -163,11 +174,13 @@ def test_update_append_mode_adds_to_section(service, workspace):
 
 def test_update_replace_text_mode(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notatka", "Hello world.", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     service.update(
         note_id,
         owner_id="u1",
         ws_path=str(workspace),
+        expected_sha=sha,
         content="earth",
         mode="replace_text",
         old_text="world",
@@ -179,11 +192,13 @@ def test_update_replace_text_mode(service, workspace):
 
 def test_update_insert_after_mode(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Lista", "- A\n- B\n", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     service.update(
         note_id,
         owner_id="u1",
         ws_path=str(workspace),
+        expected_sha=sha,
         content="- A.5",
         mode="insert_after",
         old_text="- A",
@@ -195,20 +210,28 @@ def test_update_insert_after_mode(service, workspace):
 
 def test_update_edit_mode_requires_content(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notatka", "treść", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     with pytest.raises(ValueError, match="content"):
         service.update(
-            note_id, owner_id="u1", ws_path=str(workspace), mode="append", target_heading=None
+            note_id,
+            owner_id="u1",
+            ws_path=str(workspace),
+            expected_sha=sha,
+            mode="append",
+            target_heading=None,
         )
 
 
 def test_update_replace_text_content_none_deletes(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notatka", "Hello world.", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     service.update(
         note_id,
         owner_id="u1",
         ws_path=str(workspace),
+        expected_sha=sha,
         content=None,
         mode="replace_text",
         old_text="world",
@@ -220,11 +243,13 @@ def test_update_replace_text_content_none_deletes(service, workspace):
 
 def test_update_delete_text_mode(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Lista", "- A\n- B\n- C\n", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     service.update(
         note_id,
         owner_id="u1",
         ws_path=str(workspace),
+        expected_sha=sha,
         mode="delete_text",
         old_text="- B\n",
     )
@@ -235,12 +260,14 @@ def test_update_delete_text_mode(service, workspace):
 
 def test_update_replace_text_ambiguous_raises(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notatka", "foo bar foo", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     with pytest.raises(ValueError):
         service.update(
             note_id,
             owner_id="u1",
             ws_path=str(workspace),
+            expected_sha=sha,
             content="qux",
             mode="replace_text",
             old_text="foo",
@@ -249,10 +276,12 @@ def test_update_replace_text_ambiguous_raises(service, workspace):
 
 def test_update_replace_text_replace_all_reports_count(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Doc", "foo bar foo baz foo", [])
+    sha = service.get_history(result["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"]
     updated = service.update(
         result["note_id"],
         owner_id="u1",
         ws_path=str(workspace),
+        expected_sha=sha,
         mode="replace_text",
         content="qux",
         old_text="foo",
@@ -265,10 +294,12 @@ def test_update_replace_text_replace_all_reports_count(service, workspace):
 
 def test_update_without_replace_all_replaced_is_none(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Doc", "unique text here", [])
+    sha = service.get_history(result["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"]
     updated = service.update(
         result["note_id"],
         owner_id="u1",
         ws_path=str(workspace),
+        expected_sha=sha,
         mode="replace_text",
         content="new",
         old_text="unique",
@@ -278,11 +309,13 @@ def test_update_without_replace_all_replaced_is_none(service, workspace):
 
 def test_update_replace_all_wrong_mode_raises(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Doc", "body text", [])
+    sha = service.get_history(result["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"]
     with pytest.raises(ValueError, match="replace_all"):
         service.update(
             result["note_id"],
             owner_id="u1",
             ws_path=str(workspace),
+            expected_sha=sha,
             mode="overwrite",
             content="new body",
             replace_all=True,
@@ -346,8 +379,11 @@ def test_move_note_rejects_unindexed_destination_file(service, workspace):
 def test_update_folder_only_keeps_path_creation_semantics(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Move me", "content", [])["note_id"]
     before = service.get(note_id, owner_id="u1")
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
-    service.update(note_id, owner_id="u1", ws_path=str(workspace), folder="archive")
+    service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, folder="archive"
+    )
 
     after = service.get(note_id, owner_id="u1")
     assert after["folder"] == "archive"
@@ -431,7 +467,15 @@ def test_reindex_finds_notes_in_subfolders(service, workspace, note_file_factory
 def test_get_history_returns_commits(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Historia", "v1", [])
     note_id = result["note_id"]
-    service.update(note_id, owner_id="u1", ws_path=str(workspace), content="v2", confirm=True)
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha,
+        content="v2",
+        confirm=True,
+    )
 
     history = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))
 
@@ -448,7 +492,9 @@ def test_get_version_returns_historical_content(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Historia", "treść oryginalna", [])
     note_id = result["note_id"]
     sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
-    service.update(note_id, owner_id="u1", ws_path=str(workspace), content="treść nowa")
+    service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha_v1, content="treść nowa"
+    )
 
     version = service.get_version(note_id, sha_v1, owner_id="u1", ws_path=str(workspace))
 
@@ -460,7 +506,9 @@ def test_restore_version_reverts_content(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Historia", "treść oryginalna", [])
     note_id = result["note_id"]
     sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
-    service.update(note_id, owner_id="u1", ws_path=str(workspace), content="treść nowa")
+    service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha_v1, content="treść nowa"
+    )
 
     service.restore_version(note_id, sha_v1, owner_id="u1", ws_path=str(workspace))
 
@@ -522,8 +570,11 @@ def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, worksp
 
     result = service.save("u1", "ws", str(workspace), "Note", "original", [])
     note_id = result["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
     with pytest.raises(BrokenWikilinkError):
-        service.update(note_id, owner_id="u1", ws_path=str(workspace), content="[[Ghost]]")
+        service.update(
+            note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, content="[[Ghost]]"
+        )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note.content == "original"
 
@@ -533,9 +584,15 @@ def test_update_append_mode_validates_after_apply_edit(service, workspace):
 
     result = service.save("u1", "ws", str(workspace), "Note", "body", [])
     note_id = result["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
     with pytest.raises(BrokenWikilinkError):
         service.update(
-            note_id, owner_id="u1", ws_path=str(workspace), content="[[Ghost]]", mode="append"
+            note_id,
+            owner_id="u1",
+            ws_path=str(workspace),
+            expected_sha=sha,
+            content="[[Ghost]]",
+            mode="append",
         )
 
 
@@ -543,8 +600,14 @@ def test_update_to_valid_wikilink_succeeds(service, workspace):
     service.save("u1", "ws", str(workspace), "Target", "t", [])
     result = service.save("u1", "ws", str(workspace), "Note", "body", [])
     note_id = result["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
     service.update(
-        note_id, owner_id="u1", ws_path=str(workspace), content="link [[Target]]", confirm=True
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha,
+        content="link [[Target]]",
+        confirm=True,
     )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert "[[Target]]" in note.content
@@ -561,7 +624,15 @@ def test_update_replaces_links(service, workspace):
     b = service.save("u1", "ws", str(workspace), "B", "b", [])["note_id"]
     sid = service.save("u1", "ws", str(workspace), "Source", "[[A]]", [])["note_id"]
     assert service._link_service._link_repo.backlinks(a) == [sid]
-    service.update(sid, owner_id="u1", ws_path=str(workspace), content="now [[B]]", confirm=True)
+    sha = service.get_history(sid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(
+        sid,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha,
+        content="now [[B]]",
+        confirm=True,
+    )
     assert service._link_service._link_repo.backlinks(a) == []
     assert service._link_service._link_repo.backlinks(b) == [sid]
 
@@ -604,7 +675,8 @@ def test_move_rewrites_backlink_path(service, workspace):
 def test_rename_via_update_rewrites_backlink(service, workspace):
     tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
     sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
-    service.update(tid, owner_id="u1", ws_path=str(workspace), title="Renamed")
+    sha = service.get_history(tid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(tid, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="Renamed")
     src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
     assert "[[Renamed]]" in src.content
 
@@ -646,8 +718,14 @@ def test_save_does_not_promote_inline_to_frontmatter(service, workspace):
 
 def test_update_resyncs_tags(service, workspace):
     res = service.save("u1", "ws", str(workspace), "Note", "body #old", ["keep"])
+    sha = service.get_history(res["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"]
     service.update(
-        res["note_id"], owner_id="u1", ws_path=str(workspace), content="body #new", confirm=True
+        res["note_id"],
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha,
+        content="body #new",
+        confirm=True,
     )
     paths = {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")}
     assert paths == {"keep", "new"}  # #old gone, #new added, frontmatter 'keep' stays
@@ -800,8 +878,11 @@ def test_set_tags_no_gate_when_superset(service, workspace):
 def test_update_requires_confirmation_on_content_overwrite(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notka", "stara treść", [])["note_id"]
     before = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
-    result = service.update(note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść")
+    result = service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, content="nowa treść"
+    )
 
     assert result["requires_confirmation"] is True
     assert result["overwrites_content"] is True
@@ -813,9 +894,15 @@ def test_update_requires_confirmation_on_content_overwrite(service, workspace):
 
 def test_update_confirm_applies_content_overwrite(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notka", "stara treść", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     service.update(
-        note_id, owner_id="u1", ws_path=str(workspace), content="nowa treść", confirm=True
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha,
+        content="nowa treść",
+        confirm=True,
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
@@ -824,9 +911,14 @@ def test_update_confirm_applies_content_overwrite(service, workspace):
 
 def test_update_no_gate_on_empty_body_overwrite(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notka", "", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     result = service.update(
-        note_id, owner_id="u1", ws_path=str(workspace), content="pierwsza treść"
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha,
+        content="pierwsza treść",
     )
 
     assert result.get("requires_confirmation") is None
@@ -836,11 +928,13 @@ def test_update_no_gate_on_empty_body_overwrite(service, workspace):
 
 def test_update_no_gate_on_surgical_append(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notka", "## H\n\n- a", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     result = service.update(
         note_id,
         owner_id="u1",
         ws_path=str(workspace),
+        expected_sha=sha,
         content="- b",
         mode="append",
         target_heading="## H",
@@ -853,11 +947,97 @@ def test_update_requires_confirmation_on_tag_drop(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python", "work"])[
         "note_id"
     ]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
-    result = service.update(note_id, owner_id="u1", ws_path=str(workspace), tags=["python"])
+    result = service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, tags=["python"]
+    )
 
     assert result["requires_confirmation"] is True
     assert result["would_remove_tags"] == ["work"]
+
+
+def test_update_rejects_stale_expected_sha(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "v1", [])["note_id"]
+    stale_sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=stale_sha,
+        content="v2",
+        confirm=True,
+    )
+
+    result = service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=stale_sha,
+        content="v3",
+        confirm=True,
+    )
+
+    assert result["stale_sha"] is True
+    assert result["current_sha"] is not None
+    assert result["current_sha"] != stale_sha
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note.content == "v2"
+
+
+def test_update_stale_sha_rejected_even_for_pure_append(service, workspace):
+    # Zero data-loss risk (surgical append), but staleness gate is independent of intent.
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "## H\n\n- a", [])["note_id"]
+    stale_sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=stale_sha,
+        content="- b",
+        mode="append",
+        target_heading="## H",
+    )
+
+    result = service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=stale_sha,
+        content="- c",
+        mode="append",
+        target_heading="## H",
+    )
+
+    assert result["stale_sha"] is True
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert "- c" not in note.content
+
+
+def test_update_fresh_sha_destructive_overwrite_still_requires_confirm(service, workspace):
+    # Fresh sha proves staleness isn't the issue — the intent gate still fires separately.
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "stara treść", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    result = service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, content="nowa treść"
+    )
+
+    assert result.get("stale_sha") is None
+    assert result["requires_confirmation"] is True
+
+
+def test_restore_version_still_works_after_expected_sha_added(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Historia", "oryginalna", [])["note_id"]
+    sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha_v1, content="nowa"
+    )
+
+    service.restore_version(note_id, sha_v1, owner_id="u1", ws_path=str(workspace))
+
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note.content == "oryginalna"
 
 
 # --- folder move / merge / prune ---
@@ -1261,8 +1441,14 @@ def test_resave_replaces_dangling_rows(database, workspace):
         database, link_validation_enabled=lambda ws, owner: False
     )
     r = svc.save("u1", "ws", str(workspace), "Source", "[[Ghost]]", tags=[])
+    sha = svc.get_history(r["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"]
     svc.update(
-        r["note_id"], owner_id="u1", ws_path=str(workspace), content="[[Other]]", confirm=True
+        r["note_id"],
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha,
+        content="[[Other]]",
+        confirm=True,
     )
     rows = dangling.list_for_workspace("u1", "ws")
     assert {(r2["target_folder"], r2["target_title"]) for r2 in rows} == {("", "Other")}
@@ -1414,7 +1600,10 @@ def test_rename_does_not_rewrite_cross_workspace_backlink(service, workspace):
     ]
 
     # Rename the ws-b note — rewrite_backlinks must not touch the ws-a file.
-    service.update(target_id, owner_id="u1", ws_path=str(workspace), title="New Title")
+    sha = service.get_history(target_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(
+        target_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="New Title"
+    )
 
     source = service.get_with_content(source_id, owner_id="u1", ws_path=str(workspace))
     assert source is not None
@@ -1526,8 +1715,18 @@ def test_edit_many_applies_all_in_one_commit(service, workspace):
         "ws",
         str(workspace),
         [
-            {"note_id": r1["note_id"], "mode": "append", "content": "more"},
-            {"note_id": r2["note_id"], "mode": "append", "content": "more"},
+            {
+                "note_id": r1["note_id"],
+                "mode": "append",
+                "content": "more",
+                "expected_sha": _head_sha(workspace, "First.md"),
+            },
+            {
+                "note_id": r2["note_id"],
+                "mode": "append",
+                "content": "more",
+                "expected_sha": _head_sha(workspace, "Second.md"),
+            },
         ],
     )
     assert result["applied"] is True
@@ -1549,12 +1748,18 @@ def test_edit_many_all_or_nothing_on_bad_anchor(service, workspace):
         "ws",
         str(workspace),
         [
-            {"note_id": r1["note_id"], "mode": "append", "content": "more"},
+            {
+                "note_id": r1["note_id"],
+                "mode": "append",
+                "content": "more",
+                "expected_sha": _head_sha(workspace, "First.md"),
+            },
             {
                 "note_id": r2["note_id"],
                 "mode": "replace_text",
                 "content": "x",
                 "old_text": "does-not-exist",
+                "expected_sha": _head_sha(workspace, "Second.md"),
             },
         ],
     )
@@ -1571,7 +1776,12 @@ def test_edit_many_rejects_duplicate_note_id(service, workspace):
         "ws",
         str(workspace),
         [
-            {"note_id": r1["note_id"], "mode": "append", "content": "a"},
+            {
+                "note_id": r1["note_id"],
+                "mode": "append",
+                "content": "a",
+                "expected_sha": _head_sha(workspace, "First.md"),
+            },
             {"note_id": r1["note_id"], "mode": "append", "content": "b"},
         ],
     )
@@ -1586,7 +1796,12 @@ def test_edit_many_missing_note_rejects_batch(service, workspace):
         "ws",
         str(workspace),
         [
-            {"note_id": r1["note_id"], "mode": "append", "content": "x"},
+            {
+                "note_id": r1["note_id"],
+                "mode": "append",
+                "content": "x",
+                "expected_sha": _head_sha(workspace, "First.md"),
+            },
             {"note_id": "does-not-exist", "mode": "append", "content": "y"},
         ],
     )
@@ -1599,7 +1814,14 @@ def test_edit_many_requires_confirmation_for_destructive_overwrite(service, work
         "u1",
         "ws",
         str(workspace),
-        [{"note_id": r1["note_id"], "mode": "overwrite", "content": "replaced"}],
+        [
+            {
+                "note_id": r1["note_id"],
+                "mode": "overwrite",
+                "content": "replaced",
+                "expected_sha": _head_sha(workspace, "First.md"),
+            }
+        ],
     )
     assert result["applied"] is False
     assert result["requires_confirmation"] is True
@@ -1613,7 +1835,14 @@ def test_edit_many_confirm_true_applies_destructive_overwrite(service, workspace
         "u1",
         "ws",
         str(workspace),
-        [{"note_id": r1["note_id"], "mode": "overwrite", "content": "replaced"}],
+        [
+            {
+                "note_id": r1["note_id"],
+                "mode": "overwrite",
+                "content": "replaced",
+                "expected_sha": _head_sha(workspace, "First.md"),
+            }
+        ],
         confirm=True,
     )
     assert result["applied"] is True
@@ -1634,6 +1863,7 @@ def test_edit_many_replace_all_reports_count_per_item(service, workspace):
                 "content": "bar",
                 "old_text": "foo",
                 "replace_all": True,
+                "expected_sha": _head_sha(workspace, "First.md"),
             }
         ],
     )
@@ -1647,7 +1877,15 @@ def test_edit_many_updates_tags(service, workspace):
         "u1",
         "ws",
         str(workspace),
-        [{"note_id": r1["note_id"], "mode": "append", "content": "x", "tags": ["new"]}],
+        [
+            {
+                "note_id": r1["note_id"],
+                "mode": "append",
+                "content": "x",
+                "tags": ["new"],
+                "expected_sha": _head_sha(workspace, "First.md"),
+            }
+        ],
         confirm=True,  # dropping "old" is a destructive tag change, same gate as update()
     )
     assert result["applied"] is True
@@ -1679,8 +1917,18 @@ def test_edit_many_git_error_rolls_back_all_files(service, workspace):
             "ws",
             str(workspace),
             [
-                {"note_id": r1["note_id"], "mode": "append", "content": "more"},
-                {"note_id": r2["note_id"], "mode": "append", "content": "more"},
+                {
+                    "note_id": r1["note_id"],
+                    "mode": "append",
+                    "content": "more",
+                    "expected_sha": _head_sha(workspace, "First.md"),
+                },
+                {
+                    "note_id": r2["note_id"],
+                    "mode": "append",
+                    "content": "more",
+                    "expected_sha": _head_sha(workspace, "Second.md"),
+                },
             ],
         )
 
@@ -1688,3 +1936,188 @@ def test_edit_many_git_error_rolls_back_all_files(service, workspace):
     note2 = service.get_with_content(r2["note_id"], "u1", str(workspace))
     assert note1.content == "one"
     assert note2.content == "two"
+
+
+def test_edit_many_stale_sha_rejects_whole_batch(service, workspace):
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    stale_sha = _head_sha(workspace, "First.md")
+    service.edit_many(
+        "u1",
+        "ws",
+        str(workspace),
+        [
+            {
+                "note_id": r1["note_id"],
+                "mode": "append",
+                "content": "bump",
+                "expected_sha": stale_sha,
+            }
+        ],
+    )
+
+    result = service.edit_many(
+        "u1",
+        "ws",
+        str(workspace),
+        [
+            {
+                "note_id": r1["note_id"],
+                "mode": "append",
+                "content": "more",
+                "expected_sha": stale_sha,
+            },
+            {
+                "note_id": r2["note_id"],
+                "mode": "append",
+                "content": "more",
+                "expected_sha": _head_sha(workspace, "Second.md"),
+            },
+        ],
+    )
+
+    assert result["applied"] is False
+    assert result["errors"][0]["current_sha"] is not None
+    note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
+    note2 = service.get_with_content(r2["note_id"], "u1", str(workspace))
+    assert "more" not in note1.content
+    assert "more" not in note2.content  # nothing written, including the valid second item
+
+
+def test_edit_many_requires_expected_sha(service, workspace):
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    result = service.edit_many(
+        "u1",
+        "ws",
+        str(workspace),
+        [{"note_id": r1["note_id"], "mode": "append", "content": "more"}],
+    )
+    assert result["applied"] is False
+    assert "wymagany" in result["errors"][0]["error"]
+
+
+def _head_sha(workspace, relative_path):
+    return GitRepository(str(workspace)).file_history(relative_path, limit=1)[0]["sha"]
+
+
+def test_delete_many_applies_all_in_one_commit(service, workspace):
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    sha1 = _head_sha(workspace, "First.md")
+    sha2 = _head_sha(workspace, "Second.md")
+
+    result = service.delete_many(
+        "u1",
+        "ws",
+        str(workspace),
+        [
+            {"note_id": r1["note_id"], "expected_sha": sha1},
+            {"note_id": r2["note_id"], "expected_sha": sha2},
+        ],
+    )
+
+    assert result["applied"] is True
+    assert [r["note_id"] for r in result["results"]] == [r1["note_id"], r2["note_id"]]
+    assert service.get_with_content(r1["note_id"], "u1", str(workspace)) is None
+    assert service.get_with_content(r2["note_id"], "u1", str(workspace)) is None
+    history = GitRepository(str(workspace)).file_history("First.md")
+    assert history[0]["message"].startswith("note: delete 2 notes")
+
+
+def test_delete_many_stale_sha_rejects_whole_batch(service, workspace):
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    sha1 = _head_sha(workspace, "First.md")
+
+    result = service.delete_many(
+        "u1",
+        "ws",
+        str(workspace),
+        [
+            {"note_id": r1["note_id"], "expected_sha": sha1},
+            {"note_id": r2["note_id"], "expected_sha": "0" * 40},
+        ],
+    )
+
+    assert result["applied"] is False
+    assert result["errors"][0]["index"] == 1
+    assert result["errors"][0]["current_sha"] is not None
+    # nothing deleted, including the valid first item
+    assert service.get_with_content(r1["note_id"], "u1", str(workspace)) is not None
+    assert service.get_with_content(r2["note_id"], "u1", str(workspace)) is not None
+
+
+def test_delete_many_missing_note_rejects_batch(service, workspace):
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    sha1 = _head_sha(workspace, "First.md")
+
+    result = service.delete_many(
+        "u1",
+        "ws",
+        str(workspace),
+        [
+            {"note_id": r1["note_id"], "expected_sha": sha1},
+            {"note_id": "does-not-exist", "expected_sha": "irrelevant"},
+        ],
+    )
+
+    assert result["applied"] is False
+    assert service.get_with_content(r1["note_id"], "u1", str(workspace)) is not None
+
+
+def test_delete_many_rejects_duplicate_note_id(service, workspace):
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    sha1 = _head_sha(workspace, "First.md")
+
+    result = service.delete_many(
+        "u1",
+        "ws",
+        str(workspace),
+        [
+            {"note_id": r1["note_id"], "expected_sha": sha1},
+            {"note_id": r1["note_id"], "expected_sha": sha1},
+        ],
+    )
+
+    assert result["applied"] is False
+    assert "Duplikat" in result["errors"][0]["error"]
+
+
+def test_delete_many_requires_expected_sha(service, workspace):
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+
+    result = service.delete_many("u1", "ws", str(workspace), [{"note_id": r1["note_id"]}])
+
+    assert result["applied"] is False
+    assert service.get_with_content(r1["note_id"], "u1", str(workspace)) is not None
+
+
+def test_delete_many_accepts_shortened_sha(service, workspace):
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    short_sha = _head_sha(workspace, "First.md")[:10]
+
+    result = service.delete_many(
+        "u1", "ws", str(workspace), [{"note_id": r1["note_id"], "expected_sha": short_sha}]
+    )
+
+    assert result["applied"] is True
+    assert service.get_with_content(r1["note_id"], "u1", str(workspace)) is None
+
+
+def test_delete_many_empty_batch_raises(service, workspace):
+    with pytest.raises(ValueError):
+        service.delete_many("u1", "ws", str(workspace), [])
+
+
+def test_delete_many_clears_tags_links_and_index(service, workspace):
+    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    r1 = service.save("u1", "ws", str(workspace), "First", "links [[Second]]\n", ["tag-a"])
+    sha1 = _head_sha(workspace, "First.md")
+
+    result = service.delete_many(
+        "u1", "ws", str(workspace), [{"note_id": r1["note_id"], "expected_sha": sha1}]
+    )
+
+    assert result["applied"] is True
+    assert service.backlinks(r2["note_id"], "u1") == []
+    assert service.get_with_content(r2["note_id"], "u1", str(workspace)) is not None

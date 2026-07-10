@@ -162,6 +162,7 @@ async def api_update_note(
     content = body.get("content")
     tags = body.get("tags")
     folder = body.get("folder")
+    expected_sha = body.get("expected_sha")
     ws_path = ws_service.workspace_path(user["id"], name)
     try:
         result = await run_sync(
@@ -169,6 +170,7 @@ async def api_update_note(
             note_id,
             owner_id=user["id"],
             ws_path=ws_path,
+            expected_sha=expected_sha,
             title=title,
             content=content,
             tags=tags,
@@ -186,6 +188,11 @@ async def api_update_note(
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None
     except ValueError, FileNotFoundError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
+    if result.get("stale_sha"):
+        raise HTTPException(
+            status_code=409,
+            detail={"error": str(NoteError.STALE_VERSION), "detail": result.get("current_sha")},
+        )
     # note_service.update's dict gained a "replaced" key (Task 1: replace_text replace_all);
     # this REST endpoint doesn't expose replace_all, so keep its response pinned to the
     # documented UpdateNoteResponse contract instead of leaking that internal field —

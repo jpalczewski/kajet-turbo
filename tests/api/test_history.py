@@ -1,7 +1,10 @@
 def test_note_history_returns_commits(auth_client):
     client, note_service, workspace = auth_client
     note_id = note_service.save("u1", "test-ws", workspace, "History", "v1", [])["note_id"]
-    note_service.update(note_id, owner_id="u1", ws_path=workspace, content="v2", confirm=True)
+    sha = note_service.get_history(note_id, owner_id="u1", ws_path=workspace)[0]["sha"]
+    note_service.update(
+        note_id, owner_id="u1", ws_path=workspace, expected_sha=sha, content="v2", confirm=True
+    )
 
     response = client.get(f"/api/workspaces/test-ws/notes/{note_id}/history")
 
@@ -28,7 +31,12 @@ def test_note_version_returns_historical_content(auth_client):
     note_id = note_service.save("u1", "test-ws", workspace, "Version", "old content", [])["note_id"]
     version = note_service.get_history(note_id, owner_id="u1", ws_path=workspace)[0]["sha"]
     note_service.update(
-        note_id, owner_id="u1", ws_path=workspace, content="new content", confirm=True
+        note_id,
+        owner_id="u1",
+        ws_path=workspace,
+        expected_sha=version,
+        content="new content",
+        confirm=True,
     )
 
     response = client.get(f"/api/workspaces/test-ws/notes/{note_id}/history/{version}")
@@ -42,7 +50,12 @@ def test_restore_note_version_reverts_content(auth_client):
     note_id = note_service.save("u1", "test-ws", workspace, "Restore", "original", [])["note_id"]
     version = note_service.get_history(note_id, owner_id="u1", ws_path=workspace)[0]["sha"]
     note_service.update(
-        note_id, owner_id="u1", ws_path=workspace, content="new content", confirm=True
+        note_id,
+        owner_id="u1",
+        ws_path=workspace,
+        expected_sha=version,
+        content="new content",
+        confirm=True,
     )
 
     response = client.post(f"/api/workspaces/test-ws/notes/{note_id}/history/{version}/restore")
@@ -61,7 +74,12 @@ def test_restore_note_version_response_matches_declared_schema(auth_client):
     note_id = note_service.save("u1", "test-ws", workspace, "Restore", "original", [])["note_id"]
     version = note_service.get_history(note_id, owner_id="u1", ws_path=workspace)[0]["sha"]
     note_service.update(
-        note_id, owner_id="u1", ws_path=workspace, content="new content", confirm=True
+        note_id,
+        owner_id="u1",
+        ws_path=workspace,
+        expected_sha=version,
+        content="new content",
+        confirm=True,
     )
 
     response = client.post(f"/api/workspaces/test-ws/notes/{note_id}/history/{version}/restore")

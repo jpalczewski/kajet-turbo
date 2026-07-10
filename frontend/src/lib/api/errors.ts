@@ -10,6 +10,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   NOTE_TITLE_REQUIRED: 'Tytuł jest wymagany.',
   BROKEN_WIKILINK: 'Nieznany wikilink.',
   NOTE_INVALID_INPUT: 'Nieprawidłowe dane notatki.',
+  NOTE_STALE_VERSION:
+    'Notatka została zmieniona w międzyczasie — odśwież stronę i spróbuj ponownie.',
   FOLDER_PATH_REQUIRED: 'Ścieżka jest wymagana.',
   FOLDER_PATH_INVALID: 'Niedozwolona ścieżka.',
   INVALID_FOLDER: 'Nieprawidłowy folder.',

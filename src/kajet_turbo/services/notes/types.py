@@ -11,3 +11,4 @@ class NoteData(BaseModel):
     created_at: str
     updated_at: str
     content: str
+    sha: str

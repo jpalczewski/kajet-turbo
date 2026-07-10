@@ -31,7 +31,7 @@
       await apiUpdateNoteApiWorkspacesNameNotesNoteIdPatch(
         slug,
         note.note_id,
-        jsonBody({ title: title.trim(), content, tags }),
+        jsonBody({ title: title.trim(), content, tags, expected_sha: note.sha }),
       );
       await invalidate('app:workspace-tree');
       goto(notePath(slug, note.note_id));

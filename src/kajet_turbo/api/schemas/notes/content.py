@@ -21,6 +21,7 @@ class NoteHtmlResponse(BaseModel):
     created_at: str
     updated_at: str
     content_html: str
+    sha: str
 
 
 class NoteMarkdownResponse(BaseModel):
@@ -31,6 +32,7 @@ class NoteMarkdownResponse(BaseModel):
     created_at: str
     updated_at: str
     content: str
+    sha: str
 
 
 class ChunkPreviewItem(BaseModel):

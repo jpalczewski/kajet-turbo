@@ -54,6 +54,9 @@ resolve within the active workspace.
 - edit_notes — edit multiple existing notes in one atomic commit, all-or-nothing: any
   invalid item rejects the whole batch before anything is written. Content + tags only,
   no renames (use edit_note for that); unlike save_notes, never leaves a partial batch
+- delete_notes — delete multiple notes in one atomic commit, all-or-nothing. Gated by
+  expected_sha per item (the note's HEAD sha from get_note_history) instead of a plain
+  confirm flag — a stale sha rejects the whole batch and reports current_sha to retry with
 """
 
 

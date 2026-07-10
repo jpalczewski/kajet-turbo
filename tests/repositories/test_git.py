@@ -60,6 +60,32 @@ def test_delete_file_removes_from_disk_and_commits(git_ws, tmp_path):
     assert b"note: delete" in commits[0].commit.message
 
 
+def test_delete_files_removes_all_in_single_commit(git_ws, tmp_path):
+    (tmp_path / "a.md").write_text("# A")
+    (tmp_path / "b.md").write_text("# B")
+    (tmp_path / "c.md").write_text("# C")
+    git_ws.commit_files(["a.md", "b.md", "c.md"], "note: add 3 notes")
+
+    git_ws.delete_files(["a.md", "b.md"], "note: delete 2 notes")
+
+    assert not (tmp_path / "a.md").exists()
+    assert not (tmp_path / "b.md").exists()
+    assert (tmp_path / "c.md").exists()
+    commits = list(DulwichRepo(str(tmp_path)).get_walker())
+    assert len(commits) == 2  # add + one batch-delete commit, not split per file
+    assert b"note: delete 2 notes" in commits[0].commit.message
+
+
+def test_delete_files_empty_is_noop(git_ws, tmp_path):
+    (tmp_path / "seed.md").write_text("# seed")
+    git_ws.commit_file("seed.md", "note: seed")
+
+    git_ws.delete_files([], "note: nothing")
+
+    assert (tmp_path / "seed.md").exists()
+    assert len(list(DulwichRepo(str(tmp_path)).get_walker())) == 1
+
+
 def test_rename_file_moves_file_and_commits(git_ws, tmp_path):
     old = tmp_path / "stara.md"
     old.write_text("content")

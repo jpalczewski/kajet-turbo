@@ -17,6 +17,8 @@ from kajet_turbo.mcp.notes.types import (
     Cancelled,
     ConfirmationRequired,
     DeletedNoteResult,
+    DeleteNotesApplied,
+    DeleteNotesRejected,
     EditNotesApplied,
     EditNotesConfirmationRequired,
     EditNotesRejected,
@@ -26,6 +28,7 @@ from kajet_turbo.mcp.notes.types import (
     GrepMatch,
     GrepResult,
     MovedNoteResult,
+    NoteDeleteInput,
     NoteEditInput,
     NoteInput,
     NoteListItem,
@@ -35,6 +38,7 @@ from kajet_turbo.mcp.notes.types import (
     ReindexResult,
     SavedNoteResult,
     SearchChunkResult,
+    StaleVersion,
 )
 from kajet_turbo.mcp.tooling import read_tool, write_tool
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
@@ -164,6 +168,13 @@ def build_crud(
     @logged_tool
     async def edit_note(
         note_id: str,
+        expected_sha: Annotated[
+            str,
+            Field(
+                description="Aktualny HEAD sha notatki z get_note/get_note_history — dowód, że "
+                "przed edycją widziałeś bieżącą wersję. Niezgodność odrzuca edycję."
+            ),
+        ],
         title: str | None = None,
         content: str | None = None,
         tags: list[str] | None = None,
@@ -217,12 +228,14 @@ def build_crud(
         ),
         ctx: Context = MCP_CONTEXT,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
-    ) -> EditNoteSuccess | ConfirmationRequired | Cancelled:
+    ) -> EditNoteSuccess | ConfirmationRequired | Cancelled | StaleVersion:
         """Edytuje notatkę. Domyślnie (mode='overwrite') podmienia całe body na content;
         tryby chirurgiczne pozwalają dopisać/podmienić fragment bez przepisywania całości.
         folder opcjonalny — jeśli podany, przenosi notatkę do nowego folderu.
         title/tags/folder można zmieniać niezależnie od trybu edycji content.
         content powinien zawierać rzeczywiste znaki nowej linii (\\n), nie literalne \\\\n.
+        expected_sha to sha z get_note/get_note_history — dowód, że widziałeś bieżącą wersję;
+        niezgodność zwraca StaleVersion z current_sha, żeby doczytać i spróbować ponownie.
         Nadpisanie niepustej treści lub utrata tagów wymagają potwierdzenia — elicitation gdy
         klient wspiera, inaczej zwraca ConfirmationRequired; zawołaj ponownie z confirm=true.
         replace_all=true z replace_text/delete_text podmienia/usuwa każde wystąpienie
@@ -233,6 +246,7 @@ def build_crud(
                 note_id,
                 owner_id=ws.owner_id,
                 ws_path=ws.path,
+                expected_sha=expected_sha,
                 title=title,
                 content=content,
                 tags=tags,
@@ -248,12 +262,16 @@ def build_crud(
         except GitError as e:
             raise ToolError(str(e)) from e
 
+        if result.get("stale_sha"):
+            return StaleVersion.model_validate(result)
+
         async def reapply() -> dict:
             return await run_sync(
                 note_service.update,
                 note_id,
                 owner_id=ws.owner_id,
                 ws_path=ws.path,
+                expected_sha=expected_sha,
                 title=title,
                 content=content,
                 tags=tags,
@@ -293,8 +311,11 @@ def build_crud(
     ) -> EditNotesApplied | EditNotesRejected | EditNotesConfirmationRequired:
         """Edytuje wiele notatek w jednym atomowym commicie. All-or-nothing: jeśli
         KTÓRAKOLWIEK edycja w batchu jest niepoprawna (zła notatka, błędny wikilink,
-        niejednoznaczny target_heading/old_text, duplikat note_id) — cały batch jest
-        odrzucany i NIC nie jest zapisywane; errors {index, error} per pozycja mówi co.
+        niejednoznaczny target_heading/old_text, duplikat note_id, nieaktualny
+        expected_sha) — cały batch jest odrzucany i NIC nie jest zapisywane;
+        errors {index, note_id, error, current_sha} per pozycja mówi co. Każda pozycja
+        wymaga expected_sha — sha notatki z get_note/get_note_history — dowodu, że
+        widziałeś bieżącą wersję przed edycją.
         Zakres: tylko content i tagi — bez zmiany title/folder (do tego użyj edit_note).
         Operacje destrukcyjne (utrata tagów, nadpisanie treści w mode='overwrite')
         wymagają confirm=true — bez elicitation per-item; sprawdź
@@ -403,6 +424,45 @@ def build_crud(
             ).model_dump(),
         )
         return DeletedNoteResult(note_id=note_id)
+
+    @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
+    @logged_tool
+    async def delete_notes(
+        deletes: list[NoteDeleteInput],
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> DeleteNotesApplied | DeleteNotesRejected:
+        """Usuwa wiele notatek w jednym atomowym commicie. All-or-nothing: jeśli
+        KTÓRAKOLWIEK pozycja w batchu jest niepoprawna (zła notatka, duplikat note_id,
+        nieaktualny expected_sha) — cały batch jest odrzucany i NIC nie jest usuwane;
+        errors {index, note_id, error, current_sha} per pozycja mówi co. Zamiast confirm
+        gating idzie po expected_sha — sha ostatniego commita notatki z get_note_history —
+        dowodząc, że wywołujący widział bieżącą wersję przed usunięciem. Niezgodność
+        zwraca current_sha, żeby dało się doczytać notatkę i spróbować ponownie. Max 50
+        usunięć na wywołanie."""
+        if not deletes:
+            raise ToolError("deletes nie może być puste.")
+        if len(deletes) > 50:
+            raise ToolError(f"Maksymalnie 50 usunięć na wywołanie (podano {len(deletes)}).")
+        result = await run_sync(
+            note_service.delete_many,
+            ws.owner_id,
+            ws.name,
+            ws.path,
+            [d.model_dump() for d in deletes],
+        )
+        if not result.get("applied"):
+            return DeleteNotesRejected.model_validate(result)
+        await run_sync(
+            event_repo.publish,
+            ws.owner_id,
+            "workspace_changed",
+            WorkspaceChangedEvent(
+                type="workspace_changed",
+                owner_id=ws.owner_id,
+                workspace=ws.name,
+            ).model_dump(),
+        )
+        return DeleteNotesApplied.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
     @logged_tool
