@@ -150,6 +150,72 @@ class NoteChunkRepository(DbRepository):
             )
             session.commit()
 
+    def attach_vectors(
+        self,
+        note_id: str,
+        workspace: str,
+        owner_id: str,
+        dim: int,
+        vectors: dict[str, list[float]],
+    ) -> bool:
+        """Attach vectors to a note's EXISTING chunk rows (deferred embedding path).
+        ``vectors`` maps chunk id → vector and must cover exactly the stored chunk-id
+        set, validated inside the same transaction: a mismatch means a concurrent edit
+        replaced the chunks between the caller's read and this write, so the attach
+        no-ops (returns False) and the note stays ``stale`` — the edit's own follow-up
+        job repairs it. On success old-dim vectors are purged and the note flips to
+        ``indexed``."""
+        if not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0:
+            raise ValueError(f"dim must be a positive int, got {dim!r}")
+        now = datetime.now(UTC).isoformat()
+        with self.timed_session() as session:
+            rows = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("SELECT id, rowid AS rowid FROM note_chunks WHERE note_id = :nid"),
+                {"nid": note_id},
+            ).fetchall()
+            if not rows or {r._mapping["id"] for r in rows} != set(vectors):
+                logger.info("vectors_attach_skipped", note_id=note_id, stored_chunks=len(rows))
+                return False
+            old = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "SELECT DISTINCT dim FROM note_chunks WHERE note_id = :nid AND dim IS NOT NULL"
+                ),
+                {"nid": note_id},
+            ).fetchall()
+            for (old_dim,) in old:
+                session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(f"DELETE FROM note_chunks_vec_{int(old_dim)} WHERE note_id = :nid"),
+                    {"nid": note_id},
+                )
+            for row in rows:
+                m = row._mapping
+                session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(
+                        f"INSERT INTO note_chunks_vec_{dim}"
+                        " (chunk_rowid, embedding, workspace, owner_id, note_id, chunk_id)"
+                        " VALUES (:rowid, :emb, :ws, :owner, :nid, :cid)"
+                    ),
+                    {
+                        "rowid": m["rowid"],
+                        "emb": pack_vector(vectors[m["id"]]),
+                        "ws": workspace,
+                        "owner": owner_id,
+                        "nid": note_id,
+                        "cid": m["id"],
+                    },
+                )
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("UPDATE note_chunks SET dim = :dim WHERE note_id = :nid"),
+                {"dim": dim, "nid": note_id},
+            )
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("UPDATE notes SET index_state = 'indexed', indexed_at = :at WHERE id = :nid"),
+                {"at": now, "nid": note_id},
+            )
+            session.commit()
+        logger.info("vectors_attached", note_id=note_id, dim=dim, chunks=len(vectors))
+        return True
+
     def get_chunks(self, note_id: str) -> list[dict]:
         with self.timed_session() as session:
             rows = session.execute(  # ty: ignore[deprecated] - raw SQL
