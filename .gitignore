@@ -10,3 +10,4 @@ openapi.json
 docker-compose.override.yml
 CLAUDE.local.md
 ops/
+.DS_Store
