@@ -73,8 +73,8 @@ class NoteService:
 
     def _index(self, note_id: str, ws_name: str, owner_id: str, title: str, content: str) -> None:
         # Chunks + FTS are the reliable search backbone (written by replace_chunks inside
-        # index_note); a real DB write error surfaces. Network embedding is best-effort and
-        # is swallowed *inside* index_note, never here.
+        # index_note); a real DB write error surfaces. The embedding HTTP roundtrip is
+        # deferred to an embed_note job — index_note only enqueues, never hits the network.
         if self._indexer is None:
             return
         self._indexer.index_note(note_id, ws_name, owner_id, title, content)

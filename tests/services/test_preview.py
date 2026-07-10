@@ -14,9 +14,7 @@ def _cfg():
 def test_preview_marks_embedded_from_cache(database):
     repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
-    indexer = NoteIndexer(
-        repo, cache, resolve_backend=lambda o: _cfg(), build_embedder=lambda c: None
-    )
+    indexer = NoteIndexer(repo, cache, resolve_backend=lambda o: _cfg())
     # Bodies are sized above the small-section merge threshold so the two sections stay
     # as separate chunks (a tiny "alpha body / beta body" pair would merge into one).
     body1 = "alpha " * 60
@@ -39,9 +37,7 @@ def test_preview_marks_embedded_from_cache(database):
 def test_preview_no_backend_all_false(database):
     repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
-    indexer = NoteIndexer(
-        repo, cache, resolve_backend=lambda o: None, build_embedder=lambda c: None
-    )
+    indexer = NoteIndexer(repo, cache, resolve_backend=lambda o: None)
     preview = indexer.preview("T", "# T\n\nbody\n", "u1")
     assert preview and all(p["embedded"] is False for p in preview)
 
@@ -49,7 +45,5 @@ def test_preview_no_backend_all_false(database):
 def test_preview_empty_content(database):
     repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
-    indexer = NoteIndexer(
-        repo, cache, resolve_backend=lambda o: None, build_embedder=lambda c: None
-    )
+    indexer = NoteIndexer(repo, cache, resolve_backend=lambda o: None)
     assert indexer.preview("T", "   \n", "u1") == []

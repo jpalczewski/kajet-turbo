@@ -7,23 +7,6 @@ from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
 
 
-class _FakeEmbedder:
-    name = "fake"
-    dim = 3
-    query_prefix = ""
-    passage_prefix = ""
-
-    def __init__(self):
-        self.calls = []
-
-    async def embed_documents(self, texts):
-        self.calls.append(list(texts))
-        return [[float(len(t)), 0.0, 1.0] for t in texts]
-
-    async def embed_query(self, text):
-        return [float(len(text)), 0.0, 1.0]
-
-
 def _note(database, note_id="n1", ws="ws", owner="u1"):
     with Session(database.engine) as session:
         session.add(
@@ -39,38 +22,41 @@ def _note(database, note_id="n1", ws="ws", owner="u1"):
         session.commit()
 
 
-def _cfg():
+def _cfg(api_key="k"):
     return EmbedderConfig(
-        backend_id="fake", type="fake", model="fake-m", dim=3, base_url="http://x", api_key="k"
+        backend_id="fake", type="fake", model="fake-m", dim=3, base_url="http://x", api_key=api_key
     )
 
 
-def _indexer(database, *, cfg=None, embedder=None):
+def _indexer(database, *, cfg=None):
+    """Indexer with a recording enqueue fake — embedding is deferred to the job queue,
+    so the unit under test here is chunk persistence + the enqueue decision."""
     repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
-    emb = embedder or _FakeEmbedder()
-    return (
-        NoteIndexer(
-            repo=repo,
-            cache=cache,
-            resolve_backend=lambda owner_id: cfg,
-            build_embedder=lambda c: emb,
-        ),
-        repo,
-        emb,
+    enqueued: list[tuple[str, str, str]] = []
+    indexer = NoteIndexer(
+        repo=repo,
+        cache=cache,
+        resolve_backend=lambda owner_id: cfg,
+        enqueue_embed=lambda nid, ws, owner: enqueued.append((nid, ws, owner)),
     )
+    return indexer, repo, enqueued
 
 
-def test_index_note_embeds_and_marks_indexed(database):
+def _index_state(database, note_id="n1") -> str:
+    with Session(database.engine) as session:
+        note = session.get(Note, note_id)
+        assert note is not None
+        return note.index_state
+
+
+def test_index_note_writes_chunks_stale_and_enqueues(database):
     _note(database)
-    indexer, repo, emb = _indexer(database, cfg=_cfg())
+    indexer, repo, enqueued = _indexer(database, cfg=_cfg())
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nhello world\n\n## S\n\nmore text here\n")
     assert len(repo.get_chunks("n1")) >= 1
-    with Session(database.engine) as session:
-        note = session.get(Note, "n1")
-        assert note is not None
-        assert note.index_state == "indexed"
-    assert len(emb.calls) == 1
+    assert _index_state(database) == "stale"  # vectors arrive out-of-band via the worker
+    assert enqueued == [("n1", "ws", "u1")]
 
 
 def test_index_note_resolver_error_degrades_to_stale(database):
@@ -78,87 +64,65 @@ def test_index_note_resolver_error_degrades_to_stale(database):
     _note(database)
     repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
+    enqueued: list = []
 
     def _boom(owner_id):
         raise ValueError("SECRET_KEY must be set")
 
     indexer = NoteIndexer(
-        repo=repo, cache=cache, resolve_backend=_boom, build_embedder=lambda c: _FakeEmbedder()
+        repo=repo,
+        cache=cache,
+        resolve_backend=_boom,
+        enqueue_embed=lambda *a: enqueued.append(a),
     )
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
     assert len(repo.get_chunks("n1")) >= 1
-    with Session(database.engine) as session:
-        note = session.get(Note, "n1")
-        assert note is not None
-        assert note.index_state == "stale"
+    assert _index_state(database) == "stale"
+    assert enqueued == []
 
 
-def test_index_note_uses_cache_to_skip_embedding(database):
+def test_index_note_no_backend_writes_chunks_and_skips_enqueue(database):
     _note(database)
-    indexer, _repo, emb = _indexer(database, cfg=_cfg())
-    text_ = "# T\n\nrepeated body\n"
-    indexer.index_note("n1", "ws", "u1", "T", text_)
-    first = len(emb.calls)
-    indexer.index_note("n1", "ws", "u1", "T", text_)
-    assert len(emb.calls) == first  # identical → all cache hits, no new embed call
-
-
-def test_index_note_no_backend_writes_chunks_stale(database):
-    _note(database)
-    indexer, repo, emb = _indexer(database, cfg=None)
+    indexer, repo, enqueued = _indexer(database, cfg=None)
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
     assert len(repo.get_chunks("n1")) >= 1
-    with Session(database.engine) as session:
-        note = session.get(Note, "n1")
-        assert note is not None
-        assert note.index_state == "stale"
-    assert emb.calls == []
+    assert _index_state(database) == "stale"
+    assert enqueued == []
 
 
-def test_index_note_keyless_profile_embeds(database):
-    # A keyless profile is a valid local/no-auth endpoint: it MUST still embed (the adapter
-    # omits the Authorization header), not silently degrade to FTS-only.
+def test_index_note_keyless_profile_enqueues(database):
+    # A keyless profile is a valid local/no-auth endpoint: it MUST still enqueue embedding
+    # (the adapter omits the Authorization header), not silently stay FTS-only.
     _note(database)
-    cfg = EmbedderConfig(
-        backend_id="fake", type="fake", model="fake-m", dim=3, base_url="http://x", api_key=None
+    indexer, _repo, enqueued = _indexer(database, cfg=_cfg(api_key=None))
+    indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
+    assert enqueued == [("n1", "ws", "u1")]
+
+
+def test_index_note_without_enqueue_callable_still_indexes(database):
+    _note(database)
+    repo = NoteChunkRepository(database.engine)
+    indexer = NoteIndexer(
+        repo=repo,
+        cache=EmbeddingCacheRepository(database.engine),
+        resolve_backend=lambda owner_id: _cfg(),
     )
-    indexer, repo, emb = _indexer(database, cfg=cfg)
-    indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
+    indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")  # must not raise
     assert len(repo.get_chunks("n1")) >= 1
-    with Session(database.engine) as session:
-        note = session.get(Note, "n1")
-        assert note is not None
-        assert note.index_state == "indexed"
-    assert len(emb.calls) == 1  # embedder was called despite no api_key
 
 
-def test_index_note_embedder_error_degrades_to_stale(database):
+def test_index_note_empty_content_clears_chunks_and_skips_enqueue(database):
     _note(database)
-
-    class _Boom(_FakeEmbedder):
-        async def embed_documents(self, texts):
-            raise RuntimeError("API down")
-
-    indexer, repo, _emb = _indexer(database, cfg=_cfg(), embedder=_Boom())
-    indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
-    assert len(repo.get_chunks("n1")) >= 1
-    with Session(database.engine) as session:
-        note = session.get(Note, "n1")
-        assert note is not None
-        assert note.index_state == "stale"
-
-
-def test_index_note_empty_content_clears_chunks(database):
-    _note(database)
-    indexer, repo, _emb = _indexer(database, cfg=_cfg())
+    indexer, repo, enqueued = _indexer(database, cfg=_cfg())
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
     indexer.index_note("n1", "ws", "u1", "T", "   \n\n  ")
     assert repo.get_chunks("n1") == []
+    assert enqueued == [("n1", "ws", "u1")]  # only the first, chunk-producing index
 
 
 def test_clear_note_removes_chunks(database):
     _note(database)
-    indexer, repo, _emb = _indexer(database, cfg=_cfg())
+    indexer, repo, _enqueued = _indexer(database, cfg=_cfg())
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
     indexer.clear_note("n1")
     assert repo.get_chunks("n1") == []

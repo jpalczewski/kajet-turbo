@@ -33,6 +33,8 @@ from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.services.embed_enqueue import make_enqueue_embed
+from kajet_turbo.services.embed_handler import EmbedNoteHandler
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
 from kajet_turbo.services.heal_enqueue import make_enqueue_heal_on_commit
 from kajet_turbo.services.heal_handler import HealDanglingHandler
@@ -96,8 +98,19 @@ def _probe_dim(base_url: str, model: str, api_key: str | None) -> int:
 
 embedding_profile_service = EmbeddingProfileService(_profile_repo, _profile_cipher, _probe_dim)
 
+job_repo = JobRepository(db.engine)
+
+# Write path persists chunks + FTS inline; the embedding HTTP roundtrip is deferred
+# to an embed_note job (handled by the worker via embed_handler below).
 note_indexer = NoteIndexer(
     repo=note_chunk_repo,
+    cache=EmbeddingCacheRepository(db.engine),
+    resolve_backend=_profile_resolver.resolve_backend,
+    enqueue_embed=make_enqueue_embed(job_repo),
+)
+
+embed_handler = EmbedNoteHandler(
+    chunk_repo=note_chunk_repo,
     cache=EmbeddingCacheRepository(db.engine),
     resolve_backend=_profile_resolver.resolve_backend,
     build_embedder=pooled_embedder_factory(),
@@ -144,7 +157,6 @@ note_service = NoteService(
 _ssh_key_repo = SshKeyRepository(db.engine)
 ssh_key_service = SshKeyService(_ssh_key_repo, lambda: cipher_for("ssh-key"))
 
-job_repo = JobRepository(db.engine)
 workspace_remote_repo = WorkspaceRemoteRepository(db.engine)
 push_handler = PushHandler(
     workspace_remote_repo,

@@ -12,7 +12,6 @@ def _service(database):
         chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
-        build_embedder=lambda c: None,
     )
     return build_note_service(database, indexer=indexer)
 
@@ -68,7 +67,6 @@ def test_search_cache_key_varies_by_backend(database, git_workspace_factory):
         chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
-        build_embedder=lambda c: None,
     )
 
     calls = {"n": 0}

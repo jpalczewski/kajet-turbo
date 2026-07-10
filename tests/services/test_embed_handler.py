@@ -1,5 +1,4 @@
 import pytest
-from kajet_turbo.services.embed_handler import EmbedNoteHandler
 from sqlalchemy import text as _text
 from sqlmodel import Session
 
@@ -8,6 +7,7 @@ from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
 from kajet_turbo.markdown import Chunk, embedded_text
 from kajet_turbo.models import Note
 from kajet_turbo.repositories.notes import NoteChunkRepository
+from kajet_turbo.services.embed_handler import EmbedNoteHandler
 
 
 class _FakeEmbedder:

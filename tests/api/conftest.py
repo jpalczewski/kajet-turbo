@@ -62,7 +62,6 @@ def api_client_factory(
             note_chunk_repository,
             EmbeddingCacheRepository(database.engine),
             resolve_backend=lambda owner_id: None,  # FTS-only in tests
-            build_embedder=lambda cfg: None,
         )
         note_service = build_note_service(database, indexer=note_indexer)
         workspace_service = WorkspaceService(

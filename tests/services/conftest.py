@@ -76,6 +76,5 @@ def service(database: Database) -> NoteService:
         chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda owner_id: None,  # FTS-only in tests (no network)
-        build_embedder=lambda cfg: None,
     )
     return build_note_service(database, indexer=indexer)

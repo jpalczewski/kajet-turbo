@@ -7,26 +7,20 @@ from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
 
 
-class _FakeEmbedder:
-    name = "fake"
-    dim = 3
-    query_prefix = ""
-    passage_prefix = ""
-
-    async def embed_documents(self, texts):
-        return [[1.0, 0.0, 0.0] for _ in texts]
-
-    async def embed_query(self, text):
-        return [1.0, 0.0, 0.0]
-
-
 def _indexer(database):
     repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
     cfg = EmbedderConfig(
         backend_id="fake", type="fake", model="m", dim=3, base_url="http://x", api_key="k"
     )
-    return NoteIndexer(repo, cache, lambda o: cfg, lambda c: _FakeEmbedder())
+    enqueued: list[tuple[str, str, str]] = []
+    indexer = NoteIndexer(
+        repo,
+        cache,
+        lambda o: cfg,
+        enqueue_embed=lambda nid, ws, owner: enqueued.append((nid, ws, owner)),
+    )
+    return indexer, enqueued
 
 
 def _seed_notes(database, n=3):
@@ -45,10 +39,10 @@ def _seed_notes(database, n=3):
         session.commit()
 
 
-def test_index_many_indexes_all(database):
+def test_index_many_indexes_all_and_enqueues_per_note(database):
     _seed_notes(database, 3)
     repo = NoteChunkRepository(database.engine)
-    indexer = _indexer(database)
+    indexer, enqueued = _indexer(database)
     notes = [
         {"id": f"n{i}", "title": f"T{i}", "content": f"# T{i}\n\nbody {i}\n"} for i in range(3)
     ]
@@ -58,13 +52,14 @@ def test_index_many_indexes_all(database):
         with Session(database.engine) as session:
             note = session.get(Note, f"n{i}")
             assert note is not None
-            assert note.index_state == "indexed"
+            assert note.index_state == "stale"  # embedding is deferred to the worker
+    assert sorted(enqueued) == [(f"n{i}", "ws", "u1") for i in range(3)]
 
 
 def test_index_many_one_failure_does_not_abort_batch(database):
     _seed_notes(database, 3)
     repo = NoteChunkRepository(database.engine)
-    indexer = _indexer(database)
+    indexer, enqueued = _indexer(database)
     # n9 has no Note row → replace_chunks UPDATE touches nothing but the chunk INSERT
     # FK to notes.id will fail for n9; the batch must still index n0 and n2.
     notes = [
@@ -75,3 +70,4 @@ def test_index_many_one_failure_does_not_abort_batch(database):
     indexer.index_many("ws", "u1", notes)  # must NOT raise
     assert len(repo.get_chunks("n0")) >= 1
     assert len(repo.get_chunks("n2")) >= 1
+    assert sorted(enqueued) == [("n0", "ws", "u1"), ("n2", "ws", "u1")]
