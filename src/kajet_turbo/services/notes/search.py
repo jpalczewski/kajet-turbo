@@ -50,11 +50,21 @@ class NoteSearchService:
         key = None
         if self._cache is not None:
             epochs = tuple(self._cache.epoch(ws, owner_id) for ws in workspaces)
+            # Deferred embedding lands out-of-band (worker flips notes stale→indexed
+            # without bumping any epoch, possibly in another process); folding the
+            # per-workspace stale counts into the key stops a cached vector-less
+            # ranking from outliving the vectors. Indexed COUNT, sub-ms.
+            stale_counts = (
+                tuple(self._crud_repo.count_stale(ws, owner_id) for ws in workspaces)
+                if embeddable
+                else None
+            )
             key = (
                 "search",
                 owner_id,
                 tuple(workspaces),
                 epochs,
+                stale_counts,
                 query,
                 limit,
                 backend_key,

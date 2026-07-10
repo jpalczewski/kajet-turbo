@@ -146,3 +146,58 @@ def test_search_folder_and_tags_intersect(database, git_workspace_factory):
     service.save("u1", "ws", str(ws), "Only tag", "keyword here", tags=["work"], folder="b")
     hits = service.search("keyword", ["ws"], owner_id="u1", limit=10, folder="a", tags=["work"])
     assert [h["title"] for h in hits] == ["Both"]
+
+
+def test_search_cache_invalidated_when_deferred_embed_lands(database, git_workspace_factory):
+    # save → search caches an FTS-only ranking (note still 'stale'); when the worker
+    # attaches vectors (stale → indexed), the next search must recompute instead of
+    # serving the vector-less ranking until the cache TTL expires.
+    chunk_repo = NoteChunkRepository(database.engine)
+    indexer = NoteIndexer(
+        chunk_repo,
+        EmbeddingCacheRepository(database.engine),
+        resolve_backend=lambda o: None,
+    )
+
+    calls = {"n": 0}
+    inner = chunk_repo.hybrid_search
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return inner(*a, **k)
+
+    chunk_repo.hybrid_search = counting  # type: ignore[method-assign]  # ty: ignore[invalid-assignment] - patch spy for cache-key regression
+
+    class _FakeEmbedder:
+        async def embed_query(self, text):
+            return [1.0, 0.0, 0.0]
+
+    cfg = EmbedderConfig(
+        backend_id="b", type="openai", model="m", dim=3, base_url="http://x", api_key="k"
+    )
+    svc = build_note_service(
+        database,
+        indexer=indexer,
+        cache=WorkspaceCache(),
+        query_resolver=lambda o: cfg,
+        build_embedder=lambda c: _FakeEmbedder(),
+        chunk_repo=chunk_repo,
+    )
+    ws = git_workspace_factory("ws")
+    res = svc.save("u1", "ws", str(ws), "T", "# T\n\nalpha\n", tags=[])
+
+    svc.search("alpha", ["ws"], owner_id="u1")
+    assert calls["n"] == 1
+    svc.search("alpha", ["ws"], owner_id="u1")
+    assert calls["n"] == 1  # cached
+
+    # Worker attaches vectors out-of-band: stale → indexed, no epoch bump.
+    chunk_repo.ensure_vec_table(3)
+    rows = chunk_repo.get_chunks(res["note_id"])
+    applied = chunk_repo.attach_vectors(
+        res["note_id"], "ws", "u1", 3, {r["id"]: [1.0, 0.0, 0.0] for r in rows}
+    )
+    assert applied is True
+
+    svc.search("alpha", ["ws"], owner_id="u1")
+    assert calls["n"] == 2  # stale-count changed → cache key changed → recompute
