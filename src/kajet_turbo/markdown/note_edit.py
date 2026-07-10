@@ -292,7 +292,7 @@ def apply_edit(
         raise ValueError(f"Tryb '{mode}' wymaga old_text.")
     if replace_all and mode not in ("replace_text", "delete_text"):
         raise ValueError("replace_all działa tylko z trybami 'replace_text'/'delete_text'.")
-    if not content and mode not in ("replace_text", "delete_text"):
+    if not content and mode != "delete_text":
         raise ValueError(f"content nie może być pusty dla trybu '{mode}'.")
 
     if mode == "overwrite":

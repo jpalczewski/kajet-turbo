@@ -241,6 +241,8 @@ def test_apply_edit_validation_errors():
         apply_edit("body", "replace_text", "x", None, None)
     with pytest.raises(ValueError, match="old_text"):
         apply_edit("body", "delete_text", "", None, None)
+    with pytest.raises(ValueError, match="pusty"):
+        apply_edit("body", "replace_text", "", None, "x")
     with pytest.raises(ValueError, match="overwrite"):
         apply_edit("body", "overwrite", "x", "## H", None)
     with pytest.raises(ValueError, match="pusty"):

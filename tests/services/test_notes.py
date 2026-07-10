@@ -223,22 +223,23 @@ def test_update_edit_mode_requires_content(service, workspace):
         )
 
 
-def test_update_replace_text_content_none_deletes(service, workspace):
+def test_update_replace_text_requires_content(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notatka", "Hello world.", [])["note_id"]
     sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
-    service.update(
-        note_id,
-        owner_id="u1",
-        ws_path=str(workspace),
-        expected_sha=sha,
-        content=None,
-        mode="replace_text",
-        old_text="world",
-    )
+    with pytest.raises(ValueError, match="content jest wymagany"):
+        service.update(
+            note_id,
+            owner_id="u1",
+            ws_path=str(workspace),
+            expected_sha=sha,
+            content=None,
+            mode="replace_text",
+            old_text="world",
+        )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note.content == "Hello ."
+    assert note.content == "Hello world."
 
 
 def test_update_delete_text_mode(service, workspace):

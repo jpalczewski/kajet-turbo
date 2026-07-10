@@ -139,7 +139,9 @@ def build_crud(
         note_id: str,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> NoteData:
-        """Zwraca notatkę jako obiekt ze wszystkimi polami. Błąd gdy notatka nie istnieje."""
+        """Zwraca notatkę jako obiekt ze wszystkimi polami. Błąd gdy notatka nie istnieje.
+        To jedyne źródło pełnej, aktualnej treści notatki — search_notes zwraca tylko
+        fragmenty (chunki), nie całość; po dokładny tekst zawsze wołaj get_note/get_notes."""
         result = await run_sync(
             note_service.get_with_content, note_id, owner_id=ws.owner_id, ws_path=ws.path
         )
@@ -563,6 +565,10 @@ def build_crud(
         Zwraca fragmenty (chunki): {note_id, title, folder, updated_at, header_path, content,
         score, matched_on}. matched_on obecne, gdy trafienie pochodzi z dokładnego
         dopasowania tytułu/tagu/folderu (nie tylko z rankingu FTS/semantycznego).
+        NIE zwraca pełnej notatki, nawet przy dokładnym trafieniu tytułu — to zawsze
+        fragment. Gdy potrzebujesz całej, aktualnej treści konkretnej notatki, użyj
+        search_notes tylko żeby znaleźć note_id, a samą treść pobierz przez get_note
+        (jedna) lub get_notes (kilka) — nigdy nie traktuj chunka jako całości notatki.
         note_id z innych workspace'ów możesz linkować przez [[note:NOTE_ID]].
         Pusty [] gdy brak wyników."""
         ws_param = workspace or "active"

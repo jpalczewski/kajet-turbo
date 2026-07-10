@@ -513,7 +513,7 @@ class NoteService:
         if mode == "overwrite":
             new_content = content if content is not None else old_content
         else:
-            if content is None and mode not in ("replace_text", "delete_text"):
+            if content is None and mode != "delete_text":
                 raise ValueError("content jest wymagany dla trybu edycji.")
             edit_result = apply_edit(
                 old_content, mode, content or "", target_heading, old_text, replace_all=replace_all
