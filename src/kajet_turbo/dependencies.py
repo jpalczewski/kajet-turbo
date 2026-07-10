@@ -12,6 +12,7 @@ from kajet_turbo.db import Database
 from kajet_turbo.embedding import build_embedder, pooled_embedder_factory
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbeddingCache
+from kajet_turbo.embedding.client import SharedEmbedderClient
 from kajet_turbo.embedding.resolver import ProfileResolver
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
@@ -127,6 +128,10 @@ _link_validation = lambda ws, owner: workspace_service.get_settings(owner, ws)["
 
 _note_tag_service = NoteTagService(note_repo, note_tag_repo, _cache)
 _note_link_service = NoteLinkService(note_repo, note_link_repo, dangling_repo, _link_validation)
+# Long-lived client for query embedding: keep-alive across searches kills the
+# per-call TCP+TLS connect tail. Closed in the app lifespan (server.py).
+shared_embed_client = SharedEmbedderClient()
+
 _note_search_service = NoteSearchService(
     note_chunk_repo,
     _cache,
@@ -135,6 +140,7 @@ _note_search_service = NoteSearchService(
     _query_cache,
     note_repo,
     note_tag_repo,
+    async_build_embedder=lambda cfg: build_embedder(cfg, shared_embed_client.get()),
 )
 _note_version_service = NoteVersionService(note_repo, _cache)
 folder_meta_repo = FolderMetaRepository(db.engine)

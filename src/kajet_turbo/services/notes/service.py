@@ -1118,6 +1118,19 @@ class NoteService:
             query, workspaces, owner_id, limit, folder=folder, tags=tags
         )
 
+    async def search_async(
+        self,
+        query: str,
+        workspaces: list[str],
+        owner_id: str,
+        limit: int = 10,
+        folder: str | None = None,
+        tags: list[str] | None = None,
+    ) -> list[dict]:
+        return await self._search_service.search_async(
+            query, workspaces, owner_id, limit, folder=folder, tags=tags
+        )
+
     def get_history(self, note_id: str, owner_id: str, ws_path: str, limit: int = 50) -> list[dict]:
         return self._version_service.get_history(note_id, owner_id, ws_path, limit)
 

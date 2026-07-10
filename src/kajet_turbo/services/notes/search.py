@@ -1,6 +1,9 @@
 import asyncio
+from collections.abc import Callable
 
 from kajet_turbo.cache import WorkspaceCache
+from kajet_turbo.concurrency import run_sync
+from kajet_turbo.embedding.base import Embedder, EmbedderConfig
 from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.log import logger
 from kajet_turbo.repositories.notes import NoteChunkRepository, NoteRepository, NoteTagRepository
@@ -16,6 +19,7 @@ class NoteSearchService:
         query_cache,
         crud_repo: NoteRepository,
         tag_repo: NoteTagRepository,
+        async_build_embedder: Callable[[EmbedderConfig], Embedder] | None = None,
     ):
         self._chunk_repo = chunk_repo
         self._cache = cache
@@ -24,6 +28,7 @@ class NoteSearchService:
         self._query_cache = query_cache
         self._crud_repo = crud_repo
         self._tag_repo = tag_repo
+        self._async_build_embedder = async_build_embedder
 
     def search(
         self,
@@ -34,6 +39,69 @@ class NoteSearchService:
         folder: str | None = None,
         tags: list[str] | None = None,
     ) -> list[dict]:
+        """Sync search: runs entirely on the calling (worker) thread, driving the
+        embedder with ``asyncio.run``. The MCP boundary uses ``search_async`` instead
+        so the query-embedding HTTP roundtrip doesn't pin a run_sync slot."""
+        cfg, key, cached = self._prepare(query, workspaces, owner_id, limit, folder, tags)
+        if cached is not None:
+            return cached
+        embedding = None
+        dim = None
+        if cfg is not None:
+            try:
+                vec = self._embed_query(cfg, query)
+                embedding = pack_vector(vec)
+                dim = cfg.dim
+            except Exception:
+                logger.warning("search_embed_failed", backend=cfg.backend_id)
+        return self._execute(key, query, workspaces, owner_id, limit, folder, tags, embedding, dim)
+
+    async def search_async(
+        self,
+        query: str,
+        workspaces: list[str],
+        owner_id: str,
+        limit: int = 10,
+        folder: str | None = None,
+        tags: list[str] | None = None,
+    ) -> list[dict]:
+        """Async search: DB phases (_prepare/_execute) borrow a run_sync slot only for
+        ms-scale work, while the query-embedding HTTP call is awaited natively on the
+        event loop through the shared client — a slow embedding endpoint no longer
+        occupies a limiter slot for its whole roundtrip."""
+        if self._async_build_embedder is None:
+            # No async embedder wired (test doubles / legacy wiring): run the whole
+            # sync search in one worker-thread slot, as before.
+            return await run_sync(self.search, query, workspaces, owner_id, limit, folder, tags)
+        cfg, key, cached = await run_sync(
+            self._prepare, query, workspaces, owner_id, limit, folder, tags
+        )
+        if cached is not None:
+            return cached
+        embedding = None
+        dim = None
+        if cfg is not None:
+            try:
+                vec = await self._embed_query_async(cfg, query)
+                embedding = pack_vector(vec)
+                dim = cfg.dim
+            except Exception:
+                logger.warning("search_embed_failed", backend=cfg.backend_id)
+        return await run_sync(
+            self._execute, key, query, workspaces, owner_id, limit, folder, tags, embedding, dim
+        )
+
+    def _prepare(
+        self,
+        query: str,
+        workspaces: list[str],
+        owner_id: str,
+        limit: int,
+        folder: str | None,
+        tags: list[str] | None,
+    ) -> tuple[EmbedderConfig | None, tuple | None, list[dict] | None]:
+        """Resolve the backend, build the cache key, and probe the result cache.
+        Returns ``(cfg, key, cached_results_or_None)``. Sync — cheap indexed DB reads."""
         # Resolve the backend identity up front so it is part of the cache key: a config
         # change (backend switch / key add) must not keep serving the old backend's ranking
         # from cache. resolve is a cheap indexed read, fine to run on cache hits too.
@@ -73,16 +141,22 @@ class NoteSearchService:
             )
             cached = self._cache.get(key)
             if cached is not None:
-                return cached
-        embedding = None
-        dim = None
-        if embeddable:
-            try:
-                vec = self._embed_query(cfg, query)
-                embedding = pack_vector(vec)
-                dim = cfg.dim
-            except Exception:
-                logger.warning("search_embed_failed", backend=cfg.backend_id)
+                return cfg, key, cached
+        return cfg, key, None
+
+    def _execute(
+        self,
+        key: tuple | None,
+        query: str,
+        workspaces: list[str],
+        owner_id: str,
+        limit: int,
+        folder: str | None,
+        tags: list[str] | None,
+        embedding: bytes | None,
+        dim: int | None,
+    ) -> list[dict]:
+        """Narrow, fuse (hybrid_search), cache, and log. Sync DB work."""
         per_ws_limit = limit * 3 if len(workspaces) > 1 else limit
         results = []
         for ws in workspaces:
@@ -130,6 +204,18 @@ class NoteSearchService:
         # build_embedder in the DI container; the None default is for cache-only test doubles.
         embedder = self._build_embedder(cfg)
         vec = asyncio.run(embedder.embed_query(query))
+        if self._query_cache is not None:
+            self._query_cache.put(query, cfg.backend_id, cfg.model, vec)
+        return vec
+
+    async def _embed_query_async(self, cfg, query: str) -> list[float]:
+        if self._query_cache is not None:
+            cached = self._query_cache.get(query, cfg.backend_id, cfg.model)
+            if cached is not None:
+                return cached
+        assert self._async_build_embedder is not None  # guarded by search_async
+        embedder = self._async_build_embedder(cfg)
+        vec = await embedder.embed_query(query)
         if self._query_cache is not None:
             self._query_cache.put(query, cfg.backend_id, cfg.model, vec)
         return vec

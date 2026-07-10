@@ -58,6 +58,9 @@ async def _app_lifespan(app: FastAPI):
     try:
         yield
     finally:
+        from kajet_turbo.dependencies import shared_embed_client
+
+        await shared_embed_client.aclose()
         db.close()
 
 
