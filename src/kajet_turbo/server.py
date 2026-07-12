@@ -30,7 +30,11 @@ def _make_sweep_handler(event_repo, job_repo):
     def _sweep(payload: dict) -> None:
         swept = event_repo.sweep(3600.0)
         purged = job_repo.sweep_done(86400.0)
-        logger.info("outbox_sweep", swept=swept, jobs_purged=purged)
+        # jobs_purged is normally 1 (this sweep job's own predecessor from 24h ago);
+        # only log at INFO when something beyond that steady state happened, so a
+        # quiet system doesn't emit a zeroed line every 15 minutes.
+        level = "info" if swept or purged > 1 else "debug"
+        logger.log(level.upper(), "outbox_sweep", swept=swept, jobs_purged=purged)
         job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox", delay=900.0)
 
     return _sweep

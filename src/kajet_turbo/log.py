@@ -53,13 +53,17 @@ def setup_logging() -> None:
     logger.remove()
     logger.add(_json_sink, level=level)
     logging.basicConfig(handlers=[_InterceptHandler()], level=0, force=True)
-    uvicorn_access_level = logging.DEBUG if level == "DEBUG" else logging.WARNING
-    logging.getLogger("uvicorn.access").setLevel(uvicorn_access_level)
+    # LoggingMiddleware already logs every non-health request as a structured "http"
+    # event; uvicorn's own access log is pure duplication and floods LOG_LEVEL=DEBUG
+    # with health-check lines. Always off.
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     sql_level = logging.DEBUG if os.getenv("LOG_SQL") else logging.WARNING
     logging.getLogger("sqlalchemy.engine").setLevel(sql_level)
-    # markdown-it-py emits per-token parser internals at DEBUG ("entering reference: ...")
-    # that flood the logs with zero diagnostic value; pin it above DEBUG unconditionally.
-    logging.getLogger("markdown_it").setLevel(logging.INFO)
+    # These libraries emit per-call/per-token internals at DEBUG with zero diagnostic
+    # value in our JSONL logs (raw SSE payload dumps, TCP/TLS connect traces, parser
+    # internals); pin them above DEBUG unconditionally, independent of LOG_LEVEL.
+    for noisy_logger in ("markdown_it", "httpx", "httpcore", "mcp", "asyncio"):
+        logging.getLogger(noisy_logger).setLevel(logging.INFO)
     # FastMCP uses stdlib logging with propagate=False and its own RichHandler.
     # Replace it with our InterceptHandler so FastMCP logs flow through loguru → JSONL.
     fastmcp_log = logging.getLogger("fastmcp")
