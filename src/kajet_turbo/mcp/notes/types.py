@@ -177,10 +177,6 @@ class Cancelled(BaseModel):
 class StaleVersion(BaseModel):
     note_id: str
     error: str
-    current_sha: str | None = Field(
-        default=None,
-        description="Aktualny sha notatki — użyj go, by doczytać i spróbować ponownie.",
-    )
 
 
 class EditNoteSuccess(BaseModel):
@@ -295,9 +291,6 @@ class EditNotesError(BaseModel):
     index: int
     note_id: str
     error: str
-    current_sha: str | None = Field(
-        default=None, description="Aktualny sha, gdy error to niezgodność expected_sha."
-    )
 
 
 class EditNotesRejected(BaseModel):
@@ -338,9 +331,6 @@ class DeleteNotesError(BaseModel):
     index: int
     note_id: str
     error: str
-    current_sha: str | None = Field(
-        default=None, description="Aktualny sha, gdy error to niezgodność expected_sha."
-    )
 
 
 class DeleteNotesRejected(BaseModel):

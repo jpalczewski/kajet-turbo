@@ -1,10 +1,13 @@
 import json
+import re
 
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from kajet_turbo.repositories.git import GitRepository
+
+_SHA_LIKE = re.compile(r"\b[0-9a-f]{7,40}\b")
 
 
 async def test_list_workspaces(workspaces_dir, mcp_server):
@@ -923,7 +926,7 @@ async def test_edit_note_stale_sha_rejected(workspaces_dir, mcp_server):
         )
 
         data = json.loads(result.content[0].text)
-        assert data["current_sha"] is not None
+        assert "current_sha" not in data
         note = await client.call_tool("get_note", {"note_id": note_id})
         assert "v3" not in note.content[0].text
 
@@ -954,7 +957,7 @@ async def test_edit_note_stale_sha_rejected_before_confirm_gate(workspaces_dir, 
         )
 
         data = json.loads(result.content[0].text)
-        assert data["current_sha"] is not None
+        assert "current_sha" not in data
         assert "requires_confirmation" not in data
 
 
@@ -1049,7 +1052,43 @@ async def test_delete_notes_batch_rejects_all_on_stale_sha(workspaces_dir, mcp_s
         )
         data = json.loads(result.content[0].text)
         assert data["applied"] is False
-        assert data["errors"][0]["current_sha"] is not None
+        assert "current_sha" not in data["errors"][0]
         # nothing deleted, including the valid first item
         get1 = await client.call_tool("get_note", {"note_id": id1})
         assert "First" in get1.content[0].text
+
+
+async def test_stale_sha_responses_never_leak_a_sha(workspaces_dir, mcp_server):
+    # Regression guard: a leaked sha (under any field name) lets an agent skip get_note
+    # entirely — read the error, retry with the leaked value, never see the content.
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        r1 = await client.call_tool("save_note", {"title": "First", "content": "one\n"})
+        r2 = await client.call_tool("save_note", {"title": "Second", "content": "two\n"})
+        id1 = json.loads(r1.content[0].text)["note_id"]
+        id2 = json.loads(r2.content[0].text)["note_id"]
+        sha2 = json.loads((await client.call_tool("get_note", {"note_id": id2})).content[0].text)[
+            "sha"
+        ]
+
+        edit_result = await client.call_tool(
+            "edit_note",
+            {"note_id": id1, "expected_sha": "0" * 40, "mode": "append", "content": "x"},
+        )
+        edit_notes_result = await client.call_tool(
+            "edit_notes",
+            {
+                "edits": [
+                    {"note_id": id1, "expected_sha": "0" * 40, "mode": "append", "content": "x"},
+                    {"note_id": id2, "expected_sha": sha2, "mode": "append", "content": "x"},
+                ]
+            },
+        )
+        delete_result = await client.call_tool(
+            "delete_notes",
+            {"deletes": [{"note_id": id1, "expected_sha": "0" * 40}]},
+        )
+
+        for result in (edit_result, edit_notes_result, delete_result):
+            assert not _SHA_LIKE.search(result.content[0].text)

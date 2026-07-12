@@ -494,8 +494,8 @@ class NoteService:
             return {
                 "note_id": note_id,
                 "stale_sha": True,
-                "current_sha": current_sha,
-                "error": f"expected_sha nieaktualny dla {note_id}.",
+                "error": f"expected_sha nieaktualny dla {note_id}. Wywołaj get_note, "
+                "by pobrać aktualną treść przed ponowną edycją.",
             }
 
         if old_path != new_path:
@@ -667,8 +667,8 @@ class NoteService:
                     {
                         "index": index,
                         "note_id": note_id,
-                        "error": f"expected_sha nieaktualny dla {note_id}.",
-                        "current_sha": current_sha,
+                        "error": f"expected_sha nieaktualny dla {note_id}. Wywołaj get_note, "
+                        "by pobrać aktualną treść przed ponowną edycją.",
                     }
                 )
                 continue
@@ -842,8 +842,8 @@ class NoteService:
         item (missing note, duplicate note_id, stale expected_sha) rejects the whole
         batch — nothing is deleted. Each input dict: {note_id, expected_sha} — sha is
         the note's current HEAD commit sha (from get_history), proving the caller has
-        seen the version it is about to destroy; a mismatch reports current_sha so the
-        caller can re-fetch and retry instead of deleting blind.
+        seen the version it is about to destroy; a mismatch rejects the item without
+        revealing the current sha, forcing a real re-read instead of a blind retry.
         """
         if not deletes:
             raise ValueError("Batch usuwania nie może być pusty.")
@@ -902,8 +902,8 @@ class NoteService:
                     {
                         "index": index,
                         "note_id": note_id,
-                        "error": f"expected_sha nieaktualny dla {note_id}.",
-                        "current_sha": current_sha,
+                        "error": f"expected_sha nieaktualny dla {note_id}. Wywołaj get_note, "
+                        "by pobrać aktualną treść przed ponowną edycją.",
                     }
                 )
                 continue

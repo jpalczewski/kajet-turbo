@@ -406,6 +406,7 @@ def test_update_note_stale_sha_returns_409(auth_client):
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["error"] == "NOTE_STALE_VERSION"
+    assert "detail" not in resp.json()["detail"]
     updated = note_svc.get_with_content(note_id, owner_id="u1", ws_path=ws_path)
     assert updated.content == "v2"
 

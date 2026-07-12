@@ -980,8 +980,7 @@ def test_update_rejects_stale_expected_sha(service, workspace):
     )
 
     assert result["stale_sha"] is True
-    assert result["current_sha"] is not None
-    assert result["current_sha"] != stale_sha
+    assert "current_sha" not in result
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note.content == "v2"
 
@@ -1976,7 +1975,7 @@ def test_edit_many_stale_sha_rejects_whole_batch(service, workspace):
     )
 
     assert result["applied"] is False
-    assert result["errors"][0]["current_sha"] is not None
+    assert "current_sha" not in result["errors"][0]
     note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
     note2 = service.get_with_content(r2["note_id"], "u1", str(workspace))
     assert "more" not in note1.content
@@ -2040,7 +2039,7 @@ def test_delete_many_stale_sha_rejects_whole_batch(service, workspace):
 
     assert result["applied"] is False
     assert result["errors"][0]["index"] == 1
-    assert result["errors"][0]["current_sha"] is not None
+    assert "current_sha" not in result["errors"][0]
     # nothing deleted, including the valid first item
     assert service.get_with_content(r1["note_id"], "u1", str(workspace)) is not None
     assert service.get_with_content(r2["note_id"], "u1", str(workspace)) is not None

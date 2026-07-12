@@ -237,7 +237,8 @@ def build_crud(
         title/tags/folder można zmieniać niezależnie od trybu edycji content.
         content powinien zawierać rzeczywiste znaki nowej linii (\\n), nie literalne \\\\n.
         expected_sha to sha z get_note/get_note_history — dowód, że widziałeś bieżącą wersję;
-        niezgodność zwraca StaleVersion z current_sha, żeby doczytać i spróbować ponownie.
+        niezgodność zwraca StaleVersion — zawołaj get_note, by doczytać aktualną treść, i spróbuj
+        ponownie z nowym sha.
         Nadpisanie niepustej treści lub utrata tagów wymagają potwierdzenia — elicitation gdy
         klient wspiera, inaczej zwraca ConfirmationRequired; zawołaj ponownie z confirm=true.
         replace_all=true z replace_text/delete_text podmienia/usuwa każde wystąpienie
@@ -315,9 +316,10 @@ def build_crud(
         KTÓRAKOLWIEK edycja w batchu jest niepoprawna (zła notatka, błędny wikilink,
         niejednoznaczny target_heading/old_text, duplikat note_id, nieaktualny
         expected_sha) — cały batch jest odrzucany i NIC nie jest zapisywane;
-        errors {index, note_id, error, current_sha} per pozycja mówi co. Każda pozycja
+        errors {index, note_id, error} per pozycja mówi co. Każda pozycja
         wymaga expected_sha — sha notatki z get_note/get_note_history — dowodu, że
-        widziałeś bieżącą wersję przed edycją.
+        widziałeś bieżącą wersję przed edycją. Przy nieaktualnym expected_sha zawołaj
+        get_note, by doczytać aktualną treść, i spróbuj ponownie.
         Zakres: tylko content i tagi — bez zmiany title/folder (do tego użyj edit_note).
         Operacje destrukcyjne (utrata tagów, nadpisanie treści w mode='overwrite')
         wymagają confirm=true — bez elicitation per-item; sprawdź
@@ -436,10 +438,10 @@ def build_crud(
         """Usuwa wiele notatek w jednym atomowym commicie. All-or-nothing: jeśli
         KTÓRAKOLWIEK pozycja w batchu jest niepoprawna (zła notatka, duplikat note_id,
         nieaktualny expected_sha) — cały batch jest odrzucany i NIC nie jest usuwane;
-        errors {index, note_id, error, current_sha} per pozycja mówi co. Zamiast confirm
+        errors {index, note_id, error} per pozycja mówi co. Zamiast confirm
         gating idzie po expected_sha — sha ostatniego commita notatki z get_note_history —
-        dowodząc, że wywołujący widział bieżącą wersję przed usunięciem. Niezgodność
-        zwraca current_sha, żeby dało się doczytać notatkę i spróbować ponownie. Max 50
+        dowodząc, że wywołujący widział bieżącą wersję przed usunięciem. Przy niezgodności
+        zawołaj get_note_history, by doczytać aktualną wersję, i spróbuj ponownie. Max 50
         usunięć na wywołanie."""
         if not deletes:
             raise ToolError("deletes nie może być puste.")

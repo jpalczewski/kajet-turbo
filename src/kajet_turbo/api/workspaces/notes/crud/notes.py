@@ -191,7 +191,7 @@ async def api_update_note(
     if result.get("stale_sha"):
         raise HTTPException(
             status_code=409,
-            detail={"error": str(NoteError.STALE_VERSION), "detail": result.get("current_sha")},
+            detail={"error": str(NoteError.STALE_VERSION)},
         )
     # note_service.update's dict gained a "replaced" key (Task 1: replace_text replace_all);
     # this REST endpoint doesn't expose replace_all, so keep its response pinned to the
