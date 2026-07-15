@@ -1,9 +1,10 @@
 """Expected-sha staleness checks shared by note write paths.
 
 expected_sha proves the caller has read the version it is about to mutate.
-``None`` at a service boundary means a trusted human-driven caller (REST API)
-and skips the check at the call site. A mismatch never reveals the current
-sha, forcing a real re-read instead of a blind retry.
+Callers that accept ``expected_sha: str | None`` treat ``None`` as a trusted
+human-driven caller (REST API) and skip the check before calling into this
+module. A mismatch never reveals the current sha, forcing a real re-read
+instead of a blind retry.
 """
 
 from kajet_turbo.repositories.git import GitRepository
