@@ -4,6 +4,7 @@ from key_value.aio.stores.memory import MemoryStore
 from kajet_turbo.auth import KajetOAuthProvider
 from kajet_turbo.mcp.context import configure_mcp_context
 from kajet_turbo.mcp.notes import build_notes
+from kajet_turbo.mcp.tooling import ServiceErrorMiddleware
 from kajet_turbo.mcp.workspaces import build_workspaces
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
@@ -77,6 +78,7 @@ def build_mcp(
         auth=provider,
         session_state_store=state_store,
     )
+    mcp.add_middleware(ServiceErrorMiddleware())
     mcp.mount(
         build_workspaces(
             workspace_service, oauth_repo, active_workspace_repo, state_store=state_store
