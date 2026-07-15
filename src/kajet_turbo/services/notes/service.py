@@ -30,6 +30,12 @@ from kajet_turbo.services.notes.folders import NoteFolderService
 from kajet_turbo.services.notes.history import NoteVersionService
 from kajet_turbo.services.notes.links import NoteLinkService
 from kajet_turbo.services.notes.search import NoteSearchService
+from kajet_turbo.services.notes.staleness import (
+    current_head_sha,
+    sha_is_fresh,
+    stale_error,
+    stale_payload,
+)
 from kajet_turbo.services.notes.tags import NoteTagService
 from kajet_turbo.services.notes.types import NoteData
 from kajet_turbo.workspace import (
@@ -488,15 +494,8 @@ class NoteService:
         if not Path(old_path).exists():
             raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
 
-        history = GitRepository(ws_path).file_history(old_rel, limit=1)
-        current_sha = history[0]["sha"] if history else None
-        if not expected_sha or current_sha is None or not current_sha.startswith(expected_sha):
-            return {
-                "note_id": note_id,
-                "stale_sha": True,
-                "error": f"expected_sha nieaktualny dla {note_id}. Wywołaj get_note, "
-                "by pobrać aktualną treść przed ponowną edycją.",
-            }
+        if not sha_is_fresh(current_head_sha(ws_path, old_rel), expected_sha):
+            return stale_payload(note_id)
 
         if old_path != new_path:
             if not self._crud_repo.check_unique(note.workspace, owner_id, new_folder, new_title):
@@ -654,23 +653,14 @@ class NoteService:
                 )
                 continue
             relative = str(Path(filepath).relative_to(ws_path))
-            history = GitRepository(ws_path).file_history(relative, limit=1)
-            current_sha = history[0]["sha"] if history else None
             expected_sha = str(raw.get("expected_sha", "")).strip()
             if not expected_sha:
                 errors.append(
                     {"index": index, "note_id": note_id, "error": "expected_sha jest wymagany."}
                 )
                 continue
-            if current_sha is None or not current_sha.startswith(expected_sha):
-                errors.append(
-                    {
-                        "index": index,
-                        "note_id": note_id,
-                        "error": f"expected_sha nieaktualny dla {note_id}. Wywołaj get_note, "
-                        "by pobrać aktualną treść przed ponowną edycją.",
-                    }
-                )
+            if not sha_is_fresh(current_head_sha(ws_path, relative), expected_sha):
+                errors.append({"index": index, "note_id": note_id, "error": stale_error(note_id)})
                 continue
             note_data = read_note_file(filepath)
             old_content = note_data["content"]
@@ -889,23 +879,14 @@ class NoteService:
                 )
                 continue
             relative = str(Path(filepath).relative_to(ws_path))
-            history = GitRepository(ws_path).file_history(relative, limit=1)
-            current_sha = history[0]["sha"] if history else None
             expected_sha = str(raw.get("expected_sha", "")).strip()
             if not expected_sha:
                 errors.append(
                     {"index": index, "note_id": note_id, "error": "expected_sha jest wymagany."}
                 )
                 continue
-            if current_sha is None or not current_sha.startswith(expected_sha):
-                errors.append(
-                    {
-                        "index": index,
-                        "note_id": note_id,
-                        "error": f"expected_sha nieaktualny dla {note_id}. Wywołaj get_note, "
-                        "by pobrać aktualną treść przed ponowną edycją.",
-                    }
-                )
+            if not sha_is_fresh(current_head_sha(ws_path, relative), expected_sha):
+                errors.append({"index": index, "note_id": note_id, "error": stale_error(note_id)})
                 continue
             prepared.append(
                 {"index": index, "note_id": note_id, "note": note, "relative": relative}
