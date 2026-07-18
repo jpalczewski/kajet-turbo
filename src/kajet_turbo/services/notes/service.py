@@ -979,18 +979,28 @@ class NoteService:
             "count": count,
         }
 
-    def restore_version(self, note_id: str, sha: str, owner_id: str, ws_path: str) -> dict:
+    def restore_version(
+        self,
+        note_id: str,
+        sha: str,
+        owner_id: str,
+        ws_path: str,
+        expected_sha: str | None = None,
+    ) -> dict:
+        """Restore a past version over HEAD. expected_sha (MCP callers) proves the
+        caller saw the HEAD it is about to overwrite; ``None`` (REST API) skips it."""
         version = self._version_service.get_version(note_id, sha, owner_id, ws_path)
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
             raise ValueError(f"Notatka {note_id} nie znaleziona.")
         relative = str(Path(note_filepath(ws_path, note.folder, note.title)).relative_to(ws_path))
-        history = GitRepository(ws_path).file_history(relative, limit=1)
-        current_sha = history[0]["sha"] if history else None
+        current_sha = current_head_sha(ws_path, relative)
         if current_sha is None:
             raise ValueError(f"Notatka {note_id} nie ma historii commitów.")
-        # Restore proves intent by construction: expected_sha is satisfied with
-        # the head sha just read, so update() applies without a staleness trip.
+        if expected_sha is not None and not sha_is_fresh(current_sha, expected_sha):
+            return stale_payload(note_id)
+        # Restore proves intent by construction: update()'s own staleness check is
+        # satisfied with the head sha just read.
         return self.update(
             note_id,
             owner_id=owner_id,

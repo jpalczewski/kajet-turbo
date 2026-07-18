@@ -1,5 +1,8 @@
+from typing import Annotated
+
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
@@ -9,6 +12,7 @@ from kajet_turbo.mcp.notes.types import (
     NoteLinkItem,
     NoteLinksResult,
     SavedNoteResult,
+    StaleVersion,
 )
 from kajet_turbo.mcp.tooling import read_tool, write_tool
 from kajet_turbo.services.notes import NoteData, NoteService
@@ -65,16 +69,29 @@ def build_history(
     async def restore_note_version(
         note_id: str,
         sha: str,
+        expected_sha: Annotated[
+            str,
+            Field(
+                description="Aktualny HEAD sha notatki z get_note/get_note_history — dowód, "
+                "że widziałeś wersję, którą restore nadpisze. Niezgodność zwraca StaleVersion."
+            ),
+        ],
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
-    ) -> SavedNoteResult:
+    ) -> SavedNoteResult | StaleVersion:
         """Przywraca notatkę do wersji z podanego commita.
-        sha: pełny lub skrócony hash z get_note_history."""
-        try:
-            result = await run_sync(
-                note_service.restore_version, note_id, sha, owner_id=ws.owner_id, ws_path=ws.path
-            )
-        except Exception as e:
-            raise ToolError(str(e)) from e
+        sha: pełny lub skrócony hash z get_note_history.
+        expected_sha: HEAD sha — dowód, że widziałeś bieżącą wersję przed nadpisaniem;
+        przy niezgodności zwraca StaleVersion."""
+        result = await run_sync(
+            note_service.restore_version,
+            note_id,
+            sha,
+            owner_id=ws.owner_id,
+            ws_path=ws.path,
+            expected_sha=expected_sha,
+        )
+        if result.get("stale_sha"):
+            return StaleVersion.model_validate(result)
         return SavedNoteResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "links"}))

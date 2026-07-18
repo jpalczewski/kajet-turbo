@@ -164,6 +164,36 @@ async def test_delete_note_stale_sha_returns_stale_version(workspaces_dir, mcp_s
         await client.call_tool("get_note", {"note_id": note_id})
 
 
+async def test_restore_note_version_stale_sha_returns_stale_version(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        saved = await client.call_tool("save_note", {"title": "Hist", "content": "v1"})
+        note_id = json.loads(saved.content[0].text)["note_id"]
+        sha1 = json.loads(
+            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
+        )["sha"]
+        await client.call_tool(
+            "edit_note", {"note_id": note_id, "expected_sha": sha1, "content": "v2"}
+        )
+        res = json.loads(
+            (
+                await client.call_tool(
+                    "restore_note_version",
+                    {"note_id": note_id, "sha": sha1, "expected_sha": "0" * 12},
+                )
+            )
+            .content[0]
+            .text
+        )
+        assert "nieaktualny" in res["error"]
+        # content unchanged
+        note = json.loads(
+            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
+        )
+        assert note["content"] == "v2"
+
+
 async def test_stale_sha_responses_never_leak_a_sha(workspaces_dir, mcp_server):
     # Regression guard: a leaked sha (under any field name) lets an agent skip get_note
     # entirely — read the error, retry with the leaked value, never see the content.

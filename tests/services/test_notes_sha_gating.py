@@ -164,3 +164,14 @@ def test_update_stale_sha_rejected_even_for_pure_append(service, workspace):
     assert result["stale_sha"] is True
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert "- c" not in note.content
+
+
+def test_restore_version_stale_expected_sha_rejected(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Hist", "v1", [])["note_id"]
+    sha1 = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace)).sha
+    service.update(note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha1, content="v2")
+    result = service.restore_version(
+        note_id, sha1, owner_id="u1", ws_path=str(workspace), expected_sha="0" * 12
+    )
+    assert result["stale_sha"] is True
+    assert service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace)).content == "v2"
