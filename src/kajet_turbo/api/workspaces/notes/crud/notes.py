@@ -175,7 +175,6 @@ async def api_update_note(
             content=content,
             tags=tags,
             folder=folder,
-            confirm=True,
         )
     except InvalidFolderError:
         raise HTTPException(status_code=422, detail=FolderError.INVALID_FOLDER) from None

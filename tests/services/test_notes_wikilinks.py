@@ -94,7 +94,6 @@ def test_update_to_valid_wikilink_succeeds(service, workspace):
         ws_path=str(workspace),
         expected_sha=sha,
         content="link [[Target]]",
-        confirm=True,
     )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert "[[Target]]" in note.content
@@ -118,7 +117,6 @@ def test_update_replaces_links(service, workspace):
         ws_path=str(workspace),
         expected_sha=sha,
         content="now [[B]]",
-        confirm=True,
     )
     assert service._link_service._link_repo.backlinks(a) == []
     assert service._link_service._link_repo.backlinks(b) == [sid]
@@ -313,7 +311,6 @@ def test_resave_replaces_dangling_rows(database, workspace):
         ws_path=str(workspace),
         expected_sha=sha,
         content="[[Other]]",
-        confirm=True,
     )
     rows = dangling.list_for_workspace("u1", "ws")
     assert {(r2["target_folder"], r2["target_title"]) for r2 in rows} == {("", "Other")}

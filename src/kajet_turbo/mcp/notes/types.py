@@ -158,22 +158,6 @@ class BatchNoteError(BaseModel):
     error: str
 
 
-class ConfirmationRequired(BaseModel):
-    note_id: str
-    requires_confirmation: Literal[True]
-    would_remove_tags: list[str] = Field(description="Tags that would be removed by this operation")
-    overwrites_content: bool = Field(description="Whether non-empty content would be overwritten")
-    warning: str = Field(
-        description="Human-readable warning; explain to the user what will change and ask to confirm"
-    )
-
-
-class Cancelled(BaseModel):
-    note_id: str
-    cancelled: Literal[True]
-    message: str
-
-
 class StaleVersion(BaseModel):
     note_id: str
     error: str
@@ -298,20 +282,6 @@ class EditNotesRejected(BaseModel):
     errors: list[EditNotesError] = Field(
         description="Cały batch odrzucony — nic nie zostało zapisane."
     )
-
-
-class EditNotesDestructiveItem(BaseModel):
-    index: int
-    note_id: str
-    would_remove_tags: list[str]
-    overwrites_content: bool
-
-
-class EditNotesConfirmationRequired(BaseModel):
-    applied: Literal[False]
-    requires_confirmation: Literal[True]
-    items: list[EditNotesDestructiveItem]
-    warning: str
 
 
 class NoteDeleteInput(BaseModel):

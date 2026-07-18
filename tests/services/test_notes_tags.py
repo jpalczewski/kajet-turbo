@@ -36,7 +36,6 @@ def test_update_resyncs_tags(service, workspace):
         ws_path=str(workspace),
         expected_sha=sha,
         content="body #new",
-        confirm=True,
     )
     paths = {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")}
     assert paths == {"keep", "new"}  # #old gone, #new added, frontmatter 'keep' stays
@@ -154,5 +153,4 @@ def test_set_tags_no_gate_when_superset(service, workspace):
 
     result = service.set_tags(note_id, "u1", str(workspace), ["python", "work"])
 
-    assert result.get("requires_confirmation") is None
     assert set(result["frontmatter_tags"]) == {"python", "work"}

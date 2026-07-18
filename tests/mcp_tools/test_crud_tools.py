@@ -104,7 +104,6 @@ async def test_edit_note_overwrite(workspaces_dir, mcp_server):
                 "expected_sha": sha,
                 "title": "Nowy tytuł",
                 "content": "nowa treść",
-                "confirm": True,
             },
         )
         get_result = await client.call_tool("get_note", {"note_id": note_id})

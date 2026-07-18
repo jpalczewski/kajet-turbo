@@ -471,7 +471,6 @@ class NoteService:
         mode: str = "overwrite",
         target_heading: str | None = None,
         old_text: str | None = None,
-        confirm: bool = False,
         replace_all: bool = False,
     ) -> dict:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
@@ -524,19 +523,6 @@ class NoteService:
         target_ids, broken_pairs = self._link_service.validate_wikilinks(
             note.workspace, owner_id, new_content
         )
-
-        old_fm_tags = NoteTagService.normalize_tags(note_data["tags"])
-        would_remove = (
-            [t for t in old_fm_tags if t not in set(new_tags)] if tags is not None else []
-        )
-        overwrites_content = (
-            mode == "overwrite"
-            and content is not None
-            and old_content.strip() != ""
-            and new_content != old_content
-        )
-        if (would_remove or overwrites_content) and not confirm:
-            return NoteTagService._confirmation_payload(note_id, would_remove, overwrites_content)
 
         repo = GitRepository(ws_path)
         try:
@@ -599,7 +585,6 @@ class NoteService:
         ws_name: str,
         ws_path: str,
         edits: list[dict],
-        confirm: bool = False,
     ) -> dict:
         """Apply multiple surgical edits in ONE atomic commit. All-or-nothing at
         validation: any invalid edit (missing note, duplicate note_id, broken wikilink,
@@ -689,12 +674,6 @@ class NoteService:
             new_tags = (
                 NoteTagService.normalize_tags(raw_tags) if raw_tags is not None else current_tags
             )
-            would_remove = (
-                [t for t in current_tags if t not in set(new_tags)] if raw_tags is not None else []
-            )
-            overwrites_content = (
-                mode == "overwrite" and old_content.strip() != "" and new_content != old_content
-            )
             prepared.append(
                 {
                     "index": index,
@@ -708,33 +687,12 @@ class NoteService:
                     "new_tags": new_tags,
                     "target_ids": target_ids,
                     "broken_pairs": broken_pairs,
-                    "would_remove": would_remove,
-                    "overwrites_content": overwrites_content,
                     "replaced": edit_result.replaced,
                 }
             )
 
         if errors:
             return {"applied": False, "errors": errors}
-
-        destructive = [p for p in prepared if p["would_remove"] or p["overwrites_content"]]
-        if destructive and not confirm:
-            items = [
-                {
-                    "index": p["index"],
-                    "note_id": p["note_id"],
-                    "would_remove_tags": p["would_remove"],
-                    "overwrites_content": p["overwrites_content"],
-                }
-                for p in destructive
-            ]
-            return {
-                "applied": False,
-                "requires_confirmation": True,
-                "items": items,
-                "warning": f"{len(destructive)} notatek wymaga potwierdzenia (utrata tagów lub "
-                "nadpisanie treści). Potwierdź z użytkownikiem i zawołaj ponownie z confirm=true.",
-            }
 
         now = datetime.now(UTC).isoformat()
         for p in prepared:
@@ -1020,15 +978,14 @@ class NoteService:
         current_sha = history[0]["sha"] if history else None
         if current_sha is None:
             raise ValueError(f"Notatka {note_id} nie ma historii commitów.")
-        # Version restore is an explicit intent — always bypass the destructive-op gate.
-        # expected_sha is satisfied with the sha just read, not a staleness check.
+        # Restore proves intent by construction: expected_sha is satisfied with
+        # the head sha just read, so update() applies without a staleness trip.
         return self.update(
             note_id,
             owner_id=owner_id,
             ws_path=ws_path,
             expected_sha=current_sha,
             content=version["content"],
-            confirm=True,
         )
 
     # Delegation to peer services (public API unchanged):

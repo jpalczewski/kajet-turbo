@@ -55,7 +55,7 @@ async def test_set_tags_stale_sha_returns_stale_version(workspaces_dir, mcp_serv
         assert sorted(note["tags"]) == ["docs", "extra"]
 
 
-async def test_edit_note_overwrite_gate_fallback(workspaces_dir, mcp_server):
+async def test_edit_note_overwrite_applies_with_fresh_sha(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
@@ -76,39 +76,11 @@ async def test_edit_note_overwrite_gate_fallback(workspaces_dir, mcp_server):
             .content[0]
             .text
         )
-        assert res["requires_confirmation"] is True
-        assert res["overwrites_content"] is True
-
-
-async def test_edit_note_overwrite_confirm_applies(workspaces_dir, mcp_server):
-    mcp, _ = mcp_server
-    async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id = json.loads(
-            (await client.call_tool("save_note", {"title": "E2", "content": "stara"}))
-            .content[0]
-            .text
-        )["note_id"]
-        sha = json.loads(
-            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
-        )["sha"]
-        res = json.loads(
-            (
-                await client.call_tool(
-                    "edit_note",
-                    {
-                        "note_id": note_id,
-                        "expected_sha": sha,
-                        "content": "nowa",
-                        "confirm": True,
-                    },
-                )
-            )
-            .content[0]
-            .text
-        )
-        assert res.get("requires_confirmation") is None
         assert res["note_id"] == note_id
+        note = json.loads(
+            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
+        )
+        assert note["content"] == "nowa"
 
 
 async def test_edit_note_stale_sha_rejected(workspaces_dir, mcp_server):
@@ -134,36 +106,6 @@ async def test_edit_note_stale_sha_rejected(workspaces_dir, mcp_server):
         assert "current_sha" not in data
         note = await client.call_tool("get_note", {"note_id": note_id})
         assert "v3" not in note.content[0].text
-
-
-async def test_edit_note_stale_sha_rejected_before_confirm_gate(workspaces_dir, mcp_server):
-    mcp, _ = mcp_server
-    async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        saved = await client.call_tool("save_note", {"title": "Stale2", "content": "stara"})
-        note_id = json.loads(saved.content[0].text)["note_id"]
-        stale_sha = json.loads(
-            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
-        )["sha"]
-        # Bump the sha with an unrelated edit so stale_sha is now out of date.
-        await client.call_tool(
-            "edit_note",
-            {
-                "note_id": note_id,
-                "expected_sha": stale_sha,
-                "mode": "append",
-                "content": " bump",
-            },
-        )
-
-        result = await client.call_tool(
-            "edit_note",
-            {"note_id": note_id, "expected_sha": stale_sha, "content": "nowa"},
-        )
-
-        data = json.loads(result.content[0].text)
-        assert "current_sha" not in data
-        assert "requires_confirmation" not in data
 
 
 async def test_edit_notes_batch_stale_sha_rejects_all(workspaces_dir, mcp_server):

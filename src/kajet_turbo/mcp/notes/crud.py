@@ -1,26 +1,21 @@
-import time
 from typing import Annotated, Literal
 
-from fastmcp import Context, FastMCP
+from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from kajet_turbo.api.schemas.ws import NoteUpdatedEvent, WorkspaceChangedEvent
+from kajet_turbo.api.schemas.ws import WorkspaceChangedEvent
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import event_repo
 from kajet_turbo.log import logged_tool
-from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, MCP_CONTEXT, ActiveWorkspace
-from kajet_turbo.mcp.notes._helpers import confirm_and_apply
+from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
 from kajet_turbo.mcp.notes.types import (
     BatchNoteError,
     BatchNoteSuccess,
-    Cancelled,
-    ConfirmationRequired,
     DeletedNoteResult,
     DeleteNotesApplied,
     DeleteNotesRejected,
     EditNotesApplied,
-    EditNotesConfirmationRequired,
     EditNotesRejected,
     EditNoteSuccess,
     FolderContext,
@@ -40,7 +35,13 @@ from kajet_turbo.mcp.notes.types import (
     SearchChunkResult,
     StaleVersion,
 )
-from kajet_turbo.mcp.tooling import read_tool, write_tool
+from kajet_turbo.mcp.tooling import (
+    check_batch,
+    publish_note_updated,
+    publish_workspace_changed,
+    read_tool,
+    write_tool,
+)
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteData, NoteService
@@ -223,14 +224,8 @@ def build_crud(
                 "podmian."
             ),
         ] = False,
-        confirm: bool = Field(
-            False,
-            description="Potwierdzenie destrukcyjnego nadpisania "
-            "(utrata tagów / nadpisanie treści).",
-        ),
-        ctx: Context = MCP_CONTEXT,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
-    ) -> EditNoteSuccess | ConfirmationRequired | Cancelled | StaleVersion:
+    ) -> EditNoteSuccess | StaleVersion:
         """Edytuje notatkę. Domyślnie (mode='overwrite') podmienia całe body na content;
         tryby chirurgiczne pozwalają dopisać/podmienić fragment bez przepisywania całości.
         folder opcjonalny — jeśli podany, przenosi notatkę do nowego folderu.
@@ -239,79 +234,34 @@ def build_crud(
         expected_sha to sha z get_note/get_note_history — dowód, że widziałeś bieżącą wersję;
         niezgodność zwraca StaleVersion — zawołaj get_note, by doczytać aktualną treść, i spróbuj
         ponownie z nowym sha.
-        Nadpisanie niepustej treści lub utrata tagów wymagają potwierdzenia — elicitation gdy
-        klient wspiera, inaczej zwraca ConfirmationRequired; zawołaj ponownie z confirm=true.
         replace_all=true z replace_text/delete_text podmienia/usuwa każde wystąpienie
         old_text (zamiast wymagać unikalności) i zwraca replaced z liczbą podmian."""
-        try:
-            result = await run_sync(
-                note_service.update,
-                note_id,
-                owner_id=ws.owner_id,
-                ws_path=ws.path,
-                expected_sha=expected_sha,
-                title=title,
-                content=content,
-                tags=tags,
-                folder=folder,
-                mode=mode,
-                target_heading=target_heading,
-                old_text=old_text,
-                confirm=confirm,
-                replace_all=replace_all,
-            )
-        except (ValueError, FileNotFoundError, FileExistsError) as e:
-            raise ToolError(str(e)) from e
-        except GitError as e:
-            raise ToolError(str(e)) from e
-
+        result = await run_sync(
+            note_service.update,
+            note_id,
+            owner_id=ws.owner_id,
+            ws_path=ws.path,
+            expected_sha=expected_sha,
+            title=title,
+            content=content,
+            tags=tags,
+            folder=folder,
+            mode=mode,
+            target_heading=target_heading,
+            old_text=old_text,
+            replace_all=replace_all,
+        )
         if result.get("stale_sha"):
             return StaleVersion.model_validate(result)
-
-        async def reapply() -> dict:
-            return await run_sync(
-                note_service.update,
-                note_id,
-                owner_id=ws.owner_id,
-                ws_path=ws.path,
-                expected_sha=expected_sha,
-                title=title,
-                content=content,
-                tags=tags,
-                folder=folder,
-                mode=mode,
-                target_heading=target_heading,
-                old_text=old_text,
-                confirm=True,
-                replace_all=replace_all,
-            )
-
-        data = await confirm_and_apply(ctx, result, reapply)
-        if data.get("requires_confirmation"):
-            return ConfirmationRequired.model_validate(data)
-        if data.get("cancelled"):
-            return Cancelled.model_validate(data)
-        await run_sync(
-            event_repo.publish,
-            ws.owner_id,
-            "note_updated",
-            NoteUpdatedEvent(
-                type="note_updated",
-                owner_id=ws.owner_id,
-                workspace=ws.name,
-                note_id=data["note_id"],
-                updated_at=time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
-            ).model_dump(),
-        )
-        return EditNoteSuccess.model_validate(data)
+        await publish_note_updated(ws, result["note_id"])
+        return EditNoteSuccess.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
     @logged_tool
     async def edit_notes(
         edits: list[NoteEditInput],
-        confirm: bool = False,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
-    ) -> EditNotesApplied | EditNotesRejected | EditNotesConfirmationRequired:
+    ) -> EditNotesApplied | EditNotesRejected:
         """Edytuje wiele notatek w jednym atomowym commicie. All-or-nothing: jeśli
         KTÓRAKOLWIEK edycja w batchu jest niepoprawna (zła notatka, błędny wikilink,
         niejednoznaczny target_heading/old_text, duplikat note_id, nieaktualny
@@ -321,39 +271,18 @@ def build_crud(
         widziałeś bieżącą wersję przed edycją. Przy nieaktualnym expected_sha zawołaj
         get_note, by doczytać aktualną treść, i spróbuj ponownie.
         Zakres: tylko content i tagi — bez zmiany title/folder (do tego użyj edit_note).
-        Operacje destrukcyjne (utrata tagów, nadpisanie treści w mode='overwrite')
-        wymagają confirm=true — bez elicitation per-item; sprawdź
-        requires_confirmation w odpowiedzi, potwierdź z użytkownikiem i zawołaj
-        ponownie z confirm=true dla całego batcha. Max 50 edycji na wywołanie."""
-        if not edits:
-            raise ToolError("edits nie może być puste.")
-        if len(edits) > 50:
-            raise ToolError(f"Maksymalnie 50 edycji na wywołanie (podano {len(edits)}).")
-        try:
-            result = await run_sync(
-                note_service.edit_many,
-                ws.owner_id,
-                ws.name,
-                ws.path,
-                [e.model_dump() for e in edits],
-                confirm=confirm,
-            )
-        except GitError as e:
-            raise ToolError(str(e)) from e
-        if result.get("requires_confirmation"):
-            return EditNotesConfirmationRequired.model_validate(result)
+        Max 50 edycji na wywołanie."""
+        check_batch(edits, "edits", "edycji")
+        result = await run_sync(
+            note_service.edit_many,
+            ws.owner_id,
+            ws.name,
+            ws.path,
+            [e.model_dump() for e in edits],
+        )
         if not result.get("applied"):
             return EditNotesRejected.model_validate(result)
-        await run_sync(
-            event_repo.publish,
-            ws.owner_id,
-            "workspace_changed",
-            WorkspaceChangedEvent(
-                type="workspace_changed",
-                owner_id=ws.owner_id,
-                workspace=ws.name,
-            ).model_dump(),
-        )
+        await publish_workspace_changed(ws)
         return EditNotesApplied.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))

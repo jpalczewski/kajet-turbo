@@ -41,7 +41,6 @@ def test_get_history_returns_commits(service, workspace):
         ws_path=str(workspace),
         expected_sha=sha,
         content="v2",
-        confirm=True,
     )
 
     history = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))

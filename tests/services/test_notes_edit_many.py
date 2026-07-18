@@ -108,7 +108,7 @@ def test_edit_many_missing_note_rejects_batch(service, workspace):
     assert result["applied"] is False
 
 
-def test_edit_many_requires_confirmation_for_destructive_overwrite(service, workspace):
+def test_edit_many_applies_destructive_overwrite_with_fresh_sha(service, workspace):
     r1 = service.save("u1", "ws", str(workspace), "First", "existing content\n", [])
     result = service.edit_many(
         "u1",
@@ -122,28 +122,6 @@ def test_edit_many_requires_confirmation_for_destructive_overwrite(service, work
                 "expected_sha": _head_sha(workspace, "First.md"),
             }
         ],
-    )
-    assert result["applied"] is False
-    assert result["requires_confirmation"] is True
-    note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
-    assert note1.content == "existing content"
-
-
-def test_edit_many_confirm_true_applies_destructive_overwrite(service, workspace):
-    r1 = service.save("u1", "ws", str(workspace), "First", "existing content\n", [])
-    result = service.edit_many(
-        "u1",
-        "ws",
-        str(workspace),
-        [
-            {
-                "note_id": r1["note_id"],
-                "mode": "overwrite",
-                "content": "replaced",
-                "expected_sha": _head_sha(workspace, "First.md"),
-            }
-        ],
-        confirm=True,
     )
     assert result["applied"] is True
     note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
@@ -186,7 +164,6 @@ def test_edit_many_updates_tags(service, workspace):
                 "expected_sha": _head_sha(workspace, "First.md"),
             }
         ],
-        confirm=True,  # dropping "old" is a destructive tag change, same gate as update()
     )
     assert result["applied"] is True
     note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))

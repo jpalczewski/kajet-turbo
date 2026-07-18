@@ -25,36 +25,15 @@ def test_set_tags_none_sha_skips_check(service, workspace):
     assert result["frontmatter_tags"] == ["docs"]
 
 
-def test_update_requires_confirmation_on_content_overwrite(service, workspace):
+def test_update_fresh_sha_applies_content_overwrite(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notka", "stara treść", [])["note_id"]
-    before = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
     sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     result = service.update(
         note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, content="nowa treść"
     )
 
-    assert result["requires_confirmation"] is True
-    assert result["overwrites_content"] is True
-    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note.content == "stara treść"
-    after = len(service.get_history(note_id, owner_id="u1", ws_path=str(workspace)))
-    assert after == before
-
-
-def test_update_confirm_applies_content_overwrite(service, workspace):
-    note_id = service.save("u1", "ws", str(workspace), "Notka", "stara treść", [])["note_id"]
-    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
-
-    service.update(
-        note_id,
-        owner_id="u1",
-        ws_path=str(workspace),
-        expected_sha=sha,
-        content="nowa treść",
-        confirm=True,
-    )
-
+    assert result == {"note_id": note_id, "replaced": None}
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note.content == "nowa treść"
 
@@ -71,7 +50,7 @@ def test_update_no_gate_on_empty_body_overwrite(service, workspace):
         content="pierwsza treść",
     )
 
-    assert result.get("requires_confirmation") is None
+    assert result == {"note_id": note_id, "replaced": None}
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note.content == "pierwsza treść"
 
@@ -90,21 +69,21 @@ def test_update_no_gate_on_surgical_append(service, workspace):
         target_heading="## H",
     )
 
-    assert result.get("requires_confirmation") is None
+    assert result == {"note_id": note_id, "replaced": None}
 
 
-def test_update_requires_confirmation_on_tag_drop(service, workspace):
+def test_update_fresh_sha_applies_tag_drop(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python", "work"])[
         "note_id"
     ]
     sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
-    result = service.update(
+    service.update(
         note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, tags=["python"]
     )
 
-    assert result["requires_confirmation"] is True
-    assert result["would_remove_tags"] == ["work"]
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note.tags == ["python"]
 
 
 def test_update_rejects_stale_expected_sha(service, workspace):
@@ -116,7 +95,6 @@ def test_update_rejects_stale_expected_sha(service, workspace):
         ws_path=str(workspace),
         expected_sha=stale_sha,
         content="v2",
-        confirm=True,
     )
 
     result = service.update(
@@ -125,7 +103,6 @@ def test_update_rejects_stale_expected_sha(service, workspace):
         ws_path=str(workspace),
         expected_sha=stale_sha,
         content="v3",
-        confirm=True,
     )
 
     assert result["stale_sha"] is True
@@ -161,16 +138,3 @@ def test_update_stale_sha_rejected_even_for_pure_append(service, workspace):
     assert result["stale_sha"] is True
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert "- c" not in note.content
-
-
-def test_update_fresh_sha_destructive_overwrite_still_requires_confirm(service, workspace):
-    # Fresh sha proves staleness isn't the issue — the intent gate still fires separately.
-    note_id = service.save("u1", "ws", str(workspace), "Notka", "stara treść", [])["note_id"]
-    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
-
-    result = service.update(
-        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, content="nowa treść"
-    )
-
-    assert result.get("stale_sha") is None
-    assert result["requires_confirmation"] is True

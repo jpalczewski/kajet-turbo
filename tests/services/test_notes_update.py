@@ -23,7 +23,6 @@ def test_update_git_error_reverts_file(service, workspace):
             ws_path=str(workspace),
             expected_sha=sha,
             content="nowa treść",
-            confirm=True,
         )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note.content == "stara treść"

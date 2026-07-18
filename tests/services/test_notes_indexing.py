@@ -74,7 +74,6 @@ def test_update_reindexes_with_new_content(database, git_workspace_factory):
         ws_path=str(ws),
         expected_sha=sha,
         content="# Title\n\nbrand new body\n",
-        confirm=True,
     )
     assert any("brand new body" in c for _, _, c in indexer.indexed)
 

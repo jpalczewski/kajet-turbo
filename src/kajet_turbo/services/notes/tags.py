@@ -191,27 +191,3 @@ class NoteTagService:
         return self._apply_tag_change(
             note_id, owner_id, ws_path, lambda current, content: (normalized, warnings)
         )
-
-    @staticmethod
-    def _confirmation_payload(
-        note_id: str,
-        would_remove: list[str],
-        overwrites_content: bool,
-    ) -> dict:
-        """Non-applied result telling the caller a destructive op needs confirmation."""
-        parts: list[str] = []
-        if would_remove:
-            parts.append(f"usunie tagi: {', '.join(would_remove)}")
-        if overwrites_content:
-            parts.append("nadpisze istniejącą treść notatki")
-        return {
-            "note_id": note_id,
-            "requires_confirmation": True,
-            "would_remove_tags": would_remove,
-            "overwrites_content": overwrites_content,
-            "warning": (
-                "Operacja destrukcyjna: "
-                + "; ".join(parts)
-                + ". Potwierdź z użytkownikiem i zawołaj ponownie z confirm=true."
-            ),
-        }
