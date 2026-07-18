@@ -141,7 +141,7 @@ def test_set_tags_overwrites_frontmatter(service, workspace):
         "note_id"
     ]
 
-    result = service.set_tags(note_id, "u1", str(workspace), ["#Docs", "docs", "a b"], confirm=True)
+    result = service.set_tags(note_id, "u1", str(workspace), ["#Docs", "docs", "a b"])
 
     assert result["frontmatter_tags"] == ["docs"]  # normalized, deduped, invalid dropped
     assert len(result["warnings"]) == 1  # 'a b' warned

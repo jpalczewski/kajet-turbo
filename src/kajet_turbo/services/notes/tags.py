@@ -7,6 +7,7 @@ from kajet_turbo.log import logger
 from kajet_turbo.markdown import extract_inline_tags, normalize
 from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
+from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
 from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
 
 type TaggedPairs = list[tuple[str, str]]
@@ -169,36 +170,27 @@ class NoteTagService:
         owner_id: str,
         ws_path: str,
         tags: list[str],
-        confirm: bool = False,
+        expected_sha: str | None = None,
     ) -> dict:
         """Replace the note's frontmatter tag list.
 
-        If tags would be removed and confirm is False, returns a requires_confirmation
-        payload instead of writing. The _ConfirmationRequired exception-as-control-flow
-        from the old implementation is replaced with an explicit early-return pattern.
+        Destructive (may drop tags); gated by expected_sha — proof the caller
+        read the current version. ``None`` (REST API) skips the check.
         """
         normalized, warnings = NoteTagService.normalize_with_warnings(tags)
-        new_set = set(normalized)
-
-        def mutate(current: list[str], content: str) -> tuple[list[str] | None, list[str]]:
-            would_remove = [t for t in current if t not in new_set]
-            if would_remove and not confirm:
-                return None, would_remove  # signal: early return needed
-            return normalized, warnings
-
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
             raise ValueError(f"Notatka {note_id} nie znaleziona.")
         filepath = note_filepath(ws_path, note.folder, note.title)
         if not Path(filepath).exists():
             raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
-        data = read_note_file(filepath)
-        current = NoteTagService.normalize_tags(data["tags"])
-        new_tags, extra = mutate(current, data["content"])
-        if new_tags is None:
-            # extra is the would_remove list
-            return NoteTagService._confirmation_payload(note_id, extra, False)
-        return self._apply_tag_change(note_id, owner_id, ws_path, lambda c, _: (new_tags, warnings))
+        if expected_sha is not None:
+            relative = str(Path(filepath).relative_to(ws_path))
+            if not sha_is_fresh(current_head_sha(ws_path, relative), expected_sha):
+                return stale_payload(note_id)
+        return self._apply_tag_change(
+            note_id, owner_id, ws_path, lambda current, content: (normalized, warnings)
+        )
 
     @staticmethod
     def _confirmation_payload(

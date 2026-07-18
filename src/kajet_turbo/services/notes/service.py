@@ -1060,9 +1060,14 @@ class NoteService:
         return self._tag_service.remove_tags(note_id, owner_id, ws_path, tags)
 
     def set_tags(
-        self, note_id: str, owner_id: str, ws_path: str, tags: list[str], confirm: bool = False
+        self,
+        note_id: str,
+        owner_id: str,
+        ws_path: str,
+        tags: list[str],
+        expected_sha: str | None = None,
     ) -> dict:
-        return self._tag_service.set_tags(note_id, owner_id, ws_path, tags, confirm)
+        return self._tag_service.set_tags(note_id, owner_id, ws_path, tags, expected_sha)
 
     def tag_tree(self, ws_name: str, owner_id: str) -> list[dict]:
         return self._tag_repo.tag_tree(ws_name, owner_id)

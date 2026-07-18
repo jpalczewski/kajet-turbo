@@ -1,14 +1,13 @@
 from typing import Annotated
 
-from fastmcp import Context, FastMCP
+from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
-from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, MCP_CONTEXT, ActiveWorkspace
-from kajet_turbo.mcp.notes._helpers import confirm_and_apply
-from kajet_turbo.mcp.notes.types import Cancelled, ConfirmationRequired, TagItem, TagOperationResult
+from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
+from kajet_turbo.mcp.notes.types import StaleVersion, TagItem, TagOperationResult
 from kajet_turbo.mcp.tooling import read_tool, write_tool
 from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteService
@@ -57,30 +56,27 @@ def build_tags(
     async def set_tags(
         note_id: str,
         tags: list[str],
-        confirm: bool = False,
-        ctx: Context = MCP_CONTEXT,
+        expected_sha: Annotated[
+            str,
+            Field(
+                description="Aktualny HEAD sha notatki z get_note/get_note_history — dowód, "
+                "że przed nadpisaniem tagów widziałeś bieżącą wersję. "
+                "Niezgodność zwraca StaleVersion."
+            ),
+        ],
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
-    ) -> TagOperationResult | ConfirmationRequired | Cancelled:
+    ) -> TagOperationResult | StaleVersion:
         """Nadpisuje frontmatter tagów notatki podaną listą, bez ruszania treści.
-        Destrukcyjne: jeśli usunęłoby istniejące tagi, prosi o potwierdzenie (elicitation;
-        gdy klient nie wspiera — zwraca ConfirmationRequired; zawołaj ponownie z confirm=true).
+        Destrukcyjne (może usunąć istniejące tagi) — wymaga expected_sha z
+        get_note/get_note_history; przy niezgodności zwraca StaleVersion — doczytaj
+        notatkę i spróbuj ponownie z nowym sha.
         Sukces: TagOperationResult {note_id, tags, frontmatter_tags, warnings}."""
-        try:
-            result = await run_sync(
-                note_service.set_tags, note_id, ws.owner_id, ws.path, tags, confirm
-            )
-        except (GitError, ValueError, FileNotFoundError) as e:
-            raise ToolError(str(e)) from e
-
-        async def reapply() -> dict:
-            return await run_sync(note_service.set_tags, note_id, ws.owner_id, ws.path, tags, True)
-
-        data = await confirm_and_apply(ctx, result, reapply)
-        if data.get("requires_confirmation"):
-            return ConfirmationRequired.model_validate(data)
-        if data.get("cancelled"):
-            return Cancelled.model_validate(data)
-        return TagOperationResult.model_validate(data)
+        result = await run_sync(
+            note_service.set_tags, note_id, ws.owner_id, ws.path, tags, expected_sha
+        )
+        if result.get("stale_sha"):
+            return StaleVersion.model_validate(result)
+        return TagOperationResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "tags"}))
     @logged_tool

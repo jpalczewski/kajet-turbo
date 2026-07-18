@@ -37,10 +37,14 @@ async def test_tag_tools_add_remove_set(workspaces_dir, mcp_server):
         )
         assert any("inline" in w for w in rem_inline["warnings"])  # inline-only -> warning
 
+        note = json.loads(
+            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
+        )
         st = json.loads(
             (
                 await client.call_tool(
-                    "set_tags", {"note_id": note_id, "tags": ["docs"], "confirm": True}
+                    "set_tags",
+                    {"note_id": note_id, "tags": ["docs"], "expected_sha": note["sha"]},
                 )
             )
             .content[0]

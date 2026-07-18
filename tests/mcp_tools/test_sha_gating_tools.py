@@ -7,45 +7,22 @@ from fastmcp import Client
 from tests.mcp_tools.helpers import SHA_LIKE
 
 
-async def test_set_tags_gate_fallback_without_elicitation(workspaces_dir, mcp_server):
-    mcp, _ = mcp_server
-    async with Client(mcp) as client:  # no elicitation_handler -> no capability
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id = json.loads(
-            (
-                await client.call_tool(
-                    "save_note", {"title": "T", "content": "x", "tags": ["python", "work"]}
-                )
-            )
-            .content[0]
-            .text
-        )["note_id"]
-        res = json.loads(
-            (await client.call_tool("set_tags", {"note_id": note_id, "tags": ["docs"]}))
-            .content[0]
-            .text
-        )
-        assert res["requires_confirmation"] is True
-        assert set(res["would_remove_tags"]) == {"python", "work"}
+async def _save_and_get_sha(client, title: str, content: str, tags: list[str]) -> tuple[str, str]:
+    saved = await client.call_tool("save_note", {"title": title, "content": content, "tags": tags})
+    note_id = json.loads(saved.content[0].text)["note_id"]
+    note = json.loads((await client.call_tool("get_note", {"note_id": note_id})).content[0].text)
+    return note_id, note["sha"]
 
 
-async def test_set_tags_gate_confirm_flag_applies(workspaces_dir, mcp_server):
+async def test_set_tags_applies_with_fresh_sha(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id = json.loads(
-            (
-                await client.call_tool(
-                    "save_note", {"title": "T2", "content": "x", "tags": ["python", "work"]}
-                )
-            )
-            .content[0]
-            .text
-        )["note_id"]
+        note_id, sha = await _save_and_get_sha(client, "Tagged", "body", ["docs", "extra"])
         res = json.loads(
             (
                 await client.call_tool(
-                    "set_tags", {"note_id": note_id, "tags": ["docs"], "confirm": True}
+                    "set_tags", {"note_id": note_id, "tags": ["docs"], "expected_sha": sha}
                 )
             )
             .content[0]
@@ -54,61 +31,28 @@ async def test_set_tags_gate_confirm_flag_applies(workspaces_dir, mcp_server):
         assert res["frontmatter_tags"] == ["docs"]
 
 
-async def test_set_tags_gate_elicit_accept_applies(workspaces_dir, mcp_server):
+async def test_set_tags_stale_sha_returns_stale_version(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
-
-    async def accept(message, response_type, params, context):
-        return {"value": "potwierdzam"}
-
-    async with Client(mcp, elicitation_handler=accept) as client:
+    async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id = json.loads(
+        note_id, _sha = await _save_and_get_sha(client, "Tagged2", "body", ["docs", "extra"])
+        res = json.loads(
             (
                 await client.call_tool(
-                    "save_note", {"title": "T3", "content": "x", "tags": ["python", "work"]}
+                    "set_tags",
+                    {"note_id": note_id, "tags": ["docs"], "expected_sha": "0" * 12},
                 )
             )
             .content[0]
             .text
-        )["note_id"]
-        res = json.loads(
-            (await client.call_tool("set_tags", {"note_id": note_id, "tags": ["docs"]}))
-            .content[0]
-            .text
         )
-        assert res["frontmatter_tags"] == ["docs"]  # elicit accepted -> applied without confirm
-
-
-async def test_set_tags_gate_elicit_decline_keeps(workspaces_dir, mcp_server):
-    from fastmcp.client.elicitation import ElicitResult
-
-    mcp, _ = mcp_server
-
-    async def decline(message, response_type, params, context):
-        return ElicitResult(action="decline")
-
-    async with Client(mcp, elicitation_handler=decline) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id = json.loads(
-            (
-                await client.call_tool(
-                    "save_note", {"title": "T4", "content": "x", "tags": ["python", "work"]}
-                )
-            )
-            .content[0]
-            .text
-        )["note_id"]
-        res = json.loads(
-            (await client.call_tool("set_tags", {"note_id": note_id, "tags": ["docs"]}))
-            .content[0]
-            .text
-        )
-        assert res.get("cancelled") is True
-        # unchanged
+        assert "nieaktualny" in res["error"]
+        assert not SHA_LIKE.search(res["error"])  # never leak the current sha
+        # nothing changed
         note = json.loads(
             (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
         )
-        assert set(note["tags"]) == {"python", "work"}
+        assert sorted(note["tags"]) == ["docs", "extra"]
 
 
 async def test_edit_note_overwrite_gate_fallback(workspaces_dir, mcp_server):
