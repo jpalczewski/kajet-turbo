@@ -761,13 +761,23 @@ class NoteService:
         logger.info("notes_edited_batch", ws=ws_name, count=len(prepared))
         return {"applied": True, "results": results}
 
-    def delete(self, note_id: str, owner_id: str, ws_path: str) -> None:
+    def delete(
+        self, note_id: str, owner_id: str, ws_path: str, expected_sha: str | None = None
+    ) -> dict:
+        """Delete a note. expected_sha (MCP callers) must match the note's HEAD
+        commit; ``None`` (REST API) skips the check. A missing file (orphaned DB
+        row) also skips it — there is no version the caller could have read, and
+        the delete is then pure index cleanup."""
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
             raise ValueError(f"Notatka {note_id} nie znaleziona.")
         filepath = note_filepath(ws_path, note.folder, note.title)
         if Path(filepath).exists():
             relative = str(Path(filepath).relative_to(ws_path))
+            if expected_sha is not None and not sha_is_fresh(
+                current_head_sha(ws_path, relative), expected_sha
+            ):
+                return stale_payload(note_id)
             GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
         self._tag_repo.delete_note_tags(note_id, note.workspace, owner_id)
         self._clear_index(note_id)
@@ -778,6 +788,7 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_deleted", note_id=note_id)
+        return {"note_id": note_id}
 
     def delete_many(
         self,

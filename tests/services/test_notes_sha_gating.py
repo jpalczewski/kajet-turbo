@@ -111,6 +111,32 @@ def test_update_rejects_stale_expected_sha(service, workspace):
     assert note.content == "v2"
 
 
+def test_delete_stale_sha_rejected(service, workspace):
+    note_id = service.save("u1", "test-ws", str(workspace), "Del", "body", [])["note_id"]
+    result = service.delete(note_id, owner_id="u1", ws_path=str(workspace), expected_sha="0" * 12)
+    assert result["stale_sha"] is True
+    assert service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace)) is not None
+
+
+def test_delete_none_sha_skips_check(service, workspace):
+    note_id = service.save("u1", "test-ws", str(workspace), "Del2", "body", [])["note_id"]
+    result = service.delete(note_id, owner_id="u1", ws_path=str(workspace))
+    assert result == {"note_id": note_id}
+
+
+def test_delete_missing_file_skips_sha_check(service, workspace):
+    """Orphaned DB row (file deleted out-of-band): sha check is skipped, delete proceeds
+    as pure index/DB cleanup — there is no version the caller could have read."""
+    note_id = service.save("u1", "test-ws", str(workspace), "Del3", "body", [])["note_id"]
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    (workspace / note.title).with_suffix(".md").unlink()
+
+    result = service.delete(note_id, owner_id="u1", ws_path=str(workspace), expected_sha="0" * 12)
+
+    assert result == {"note_id": note_id}
+    assert service.get(note_id, owner_id="u1") is None
+
+
 def test_update_stale_sha_rejected_even_for_pure_append(service, workspace):
     # Zero data-loss risk (surgical append), but staleness gate is independent of intent.
     note_id = service.save("u1", "ws", str(workspace), "Notka", "## H\n\n- a", [])["note_id"]

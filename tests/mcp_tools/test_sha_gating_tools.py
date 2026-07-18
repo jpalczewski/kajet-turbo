@@ -147,6 +147,23 @@ async def test_edit_notes_batch_stale_sha_rejects_all(workspaces_dir, mcp_server
         assert "more" not in note2.content[0].text
 
 
+async def test_delete_note_stale_sha_returns_stale_version(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        save_result = await client.call_tool("save_note", {"title": "Zostaje", "content": "treść"})
+        note_id = json.loads(save_result.content[0].text)["note_id"]
+        res = json.loads(
+            (await client.call_tool("delete_note", {"note_id": note_id, "expected_sha": "0" * 12}))
+            .content[0]
+            .text
+        )
+        assert "nieaktualny" in res["error"]
+        assert not SHA_LIKE.search(res["error"])
+        # still there
+        await client.call_tool("get_note", {"note_id": note_id})
+
+
 async def test_stale_sha_responses_never_leak_a_sha(workspaces_dir, mcp_server):
     # Regression guard: a leaked sha (under any field name) lets an agent skip get_note
     # entirely — read the error, retry with the leaked value, never see the content.

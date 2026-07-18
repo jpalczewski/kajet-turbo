@@ -339,23 +339,28 @@ def build_crud(
     @logged_tool
     async def delete_note(
         note_id: str,
+        expected_sha: Annotated[
+            str,
+            Field(
+                description="Aktualny HEAD sha notatki z get_note/get_note_history — dowód, "
+                "że przed usunięciem widziałeś bieżącą wersję. Niezgodność zwraca StaleVersion."
+            ),
+        ],
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
-    ) -> DeletedNoteResult:
-        """Usuwa notatkę. Błąd gdy notatka nie istnieje."""
-        try:
-            await run_sync(note_service.delete, note_id, owner_id=ws.owner_id, ws_path=ws.path)
-        except ValueError as e:
-            raise ToolError(str(e)) from e
-        await run_sync(
-            event_repo.publish,
-            ws.owner_id,
-            "workspace_changed",
-            WorkspaceChangedEvent(
-                type="workspace_changed",
-                owner_id=ws.owner_id,
-                workspace=ws.name,
-            ).model_dump(),
+    ) -> DeletedNoteResult | StaleVersion:
+        """Usuwa notatkę. Błąd gdy notatka nie istnieje. Wymaga expected_sha z
+        get_note/get_note_history; przy niezgodności zwraca StaleVersion — doczytaj
+        aktualną wersję i spróbuj ponownie z nowym sha."""
+        result = await run_sync(
+            note_service.delete,
+            note_id,
+            owner_id=ws.owner_id,
+            ws_path=ws.path,
+            expected_sha=expected_sha,
         )
+        if result.get("stale_sha"):
+            return StaleVersion.model_validate(result)
+        await publish_workspace_changed(ws)
         return DeletedNoteResult(note_id=note_id)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))

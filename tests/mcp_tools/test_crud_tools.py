@@ -81,7 +81,10 @@ async def test_delete_note(workspaces_dir, mcp_server):
             "save_note", {"title": "Do usunięcia", "content": "treść"}
         )
         note_id = json.loads(save_result.content[0].text)["note_id"]
-        await client.call_tool("delete_note", {"note_id": note_id})
+        sha = json.loads(
+            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
+        )["sha"]
+        await client.call_tool("delete_note", {"note_id": note_id, "expected_sha": sha})
         with pytest.raises(ToolError):
             await client.call_tool("get_note", {"note_id": note_id})
 
