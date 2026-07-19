@@ -34,8 +34,8 @@ class McpTestContext:
         yield self.database
 
 
-@pytest.fixture
-def mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestContext:
+def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestContext:
+    from kajet_turbo.repositories.folder_meta import FolderMetaRepository
     from kajet_turbo.repositories.notes import NoteChunkRepository as _NoteChunkRepo
     from tests.services.conftest import build_note_service
 
@@ -51,8 +51,6 @@ def mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestCo
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
     )
-    from kajet_turbo.repositories.folder_meta import FolderMetaRepository
-
     note_service_inst = build_note_service(database, indexer=indexer)
     server = build_mcp(
         note_service_inst,
@@ -75,9 +73,14 @@ def mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestCo
 
 
 @pytest.fixture
-def authed_mcp_server(
-    mcp_server: McpTestContext, monkeypatch: pytest.MonkeyPatch
-) -> McpTestContext:
+def tokenless_mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestContext:
+    """A bare MCP context: no user seeded, no access token patched. Use for tests that
+    assert tools reject unauthenticated callers."""
+    return _build_context(database, monkeypatch)
+
+
+@pytest.fixture
+def mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestContext:
     """mcp_server with a seeded authenticated user 'u1' (client 'cl1').
 
     MCP tools resolve identity via get_access_token() -> client_id -> user_id.
@@ -90,7 +93,8 @@ def authed_mcp_server(
 
     from kajet_turbo.models import User
 
-    with Session(mcp_server.database.engine) as session:
+    ctx = _build_context(database, monkeypatch)
+    with Session(ctx.database.engine) as session:
         session.add(
             User(
                 id="u1",
@@ -100,38 +104,25 @@ def authed_mcp_server(
             )
         )
         session.commit()
-    mcp_server.oauth_repo.record_client_authorization("cl1", "u1")
-    mcp_server.workspace_repo.grant_access("u1", "test-ws")
+    ctx.oauth_repo.record_client_authorization("cl1", "u1")
+    ctx.workspace_repo.grant_access("u1", "test-ws")
     monkeypatch.setattr(
         "kajet_turbo.mcp.context.get_access_token",
         lambda: SimpleNamespace(client_id="cl1"),
     )
-    return mcp_server
+    return ctx
 
 
 @pytest.fixture
 def workspaces_dir(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     mcp_server: McpTestContext,
     git_workspace_factory: Callable[[str], Path],
 ) -> Path:
-    del mcp_server
-    workspace = git_workspace_factory("workspaces/test-ws")
-    monkeypatch.setenv("WORKSPACES_DIR", str(workspace.parent))
-    return workspace.parent
-
-
-@pytest.fixture
-def authed_workspaces_dir(
-    monkeypatch: pytest.MonkeyPatch,
-    authed_mcp_server: McpTestContext,
-    git_workspace_factory: Callable[[str], Path],
-) -> Path:
     """Workspace dir for authenticated user 'u1' — paths are user-scoped:
     WORKSPACES_DIR/u1/test-ws."""
-    del authed_mcp_server
+    del mcp_server
     workspace = git_workspace_factory("workspaces/u1/test-ws")
     workspaces_root = workspace.parent.parent  # .../workspaces
     monkeypatch.setenv("WORKSPACES_DIR", str(workspaces_root))
-    return workspaces_root
+    return workspaces_root / "u1"

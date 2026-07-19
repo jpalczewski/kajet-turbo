@@ -4,7 +4,7 @@ from starlette.testclient import TestClient
 
 from kajet_turbo.api.ssh_keys import router
 from kajet_turbo.crypto import cipher_for
-from kajet_turbo.dependencies import get_ssh_key_service
+from kajet_turbo.dependencies import get_required_user, get_ssh_key_service
 from kajet_turbo.models import User
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
 from kajet_turbo.services.ssh_keys import SshKeyService
@@ -22,10 +22,8 @@ def _app(database, monkeypatch, *, user_id="u1"):
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_ssh_key_service] = lambda: svc
-    monkeypatch.setattr(
-        "kajet_turbo.api.ssh_keys.get_session_user",
-        lambda _r: {"id": user_id} if user_id else None,
-    )
+    if user_id:
+        app.dependency_overrides[get_required_user] = lambda: {"id": user_id}
     return TestClient(app)
 
 

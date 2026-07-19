@@ -84,6 +84,7 @@ async def test_search_notes_all_workspaces(workspaces_dir, mcp_server):
     ws2 = workspaces_dir / "drugi-ws"
     ws2.mkdir()
     GitRepository.init(str(ws2))
+    mcp_server.workspace_repo.grant_access("u1", "drugi-ws")
 
     mcp, _ = mcp_server
     async with Client(mcp) as client:

@@ -3,7 +3,12 @@ from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import LoginResponse, OkResponse, SessionResponse
 from kajet_turbo.auth import verify_password
-from kajet_turbo.dependencies import get_provider, get_session_repo, get_session_user, get_user_repo
+from kajet_turbo.dependencies import (
+    get_provider,
+    get_required_user,
+    get_session_repo,
+    get_user_repo,
+)
 from kajet_turbo.repositories.sessions import SessionRepository
 from kajet_turbo.repositories.users import UserRepository
 
@@ -50,13 +55,7 @@ async def api_login(
 
 
 @router.get("/api/session", response_model=SessionResponse)
-async def api_session_get(
-    request: Request,
-    session_repo: SessionRepository = Depends(get_session_repo),
-) -> Response:
-    user = get_session_user(request)
-    if not user:
-        return JSONResponse({"error": "Not logged in"}, status_code=401)
+async def api_session_get(user: dict = Depends(get_required_user)) -> Response:
     return JSONResponse({"email": user["email"]})
 
 

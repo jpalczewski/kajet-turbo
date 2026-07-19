@@ -3,6 +3,7 @@ import functools
 import os
 
 import httpx
+from fastapi import HTTPException
 from starlette.requests import Request
 
 from kajet_turbo.auth import KajetOAuthProvider, create_auth
@@ -14,6 +15,7 @@ from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbeddingCache
 from kajet_turbo.embedding.client import SharedEmbedderClient
 from kajet_turbo.embedding.resolver import ProfileResolver
+from kajet_turbo.errors import AuthError
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
@@ -258,10 +260,6 @@ def get_session_user(request: Request) -> dict | None:
 
 
 def get_required_user(request: Request) -> dict:
-    from fastapi import HTTPException
-
-    from kajet_turbo.errors import AuthError
-
     user = get_session_user(request)
     if not user:
         raise HTTPException(status_code=401, detail=AuthError.NOT_AUTHENTICATED)

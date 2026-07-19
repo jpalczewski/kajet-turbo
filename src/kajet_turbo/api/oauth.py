@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import ConsentResponse, PendingInfoResponse
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.dependencies import get_provider, get_session_user
+from kajet_turbo.dependencies import get_provider, get_required_user
 
 router = APIRouter()
 
@@ -11,11 +11,9 @@ router = APIRouter()
 @router.post("/api/consent", response_model=ConsentResponse)
 async def api_consent(
     request: Request,
+    user: dict = Depends(get_required_user),
     provider=Depends(get_provider),
 ) -> Response:
-    user = get_session_user(request)
-    if not user:
-        return JSONResponse({"error": "Not logged in"}, status_code=401)
     try:
         body = await request.json()
     except Exception:

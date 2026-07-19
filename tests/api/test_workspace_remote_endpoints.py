@@ -3,17 +3,16 @@ from sqlmodel import Session
 from starlette.testclient import TestClient
 
 from kajet_turbo.api.workspace_remote import router
-from kajet_turbo.dependencies import get_workspace_remote_service, get_workspace_service
+from kajet_turbo.dependencies import (
+    get_required_user,
+    get_workspace_remote_service,
+    get_workspace_service,
+)
 from kajet_turbo.models import SshKey, User
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.services.workspace_remote import WorkspaceRemoteService
-
-
-class _AccessStub:
-    def has_access(self, _user_id, _workspace):
-        return True
 
 
 def _app(database, monkeypatch, tmp_path, *, user_id="u1", access=True):
@@ -49,10 +48,8 @@ def _app(database, monkeypatch, tmp_path, *, user_id="u1", access=True):
             return access
 
     app.dependency_overrides[get_workspace_service] = _Access
-    monkeypatch.setattr(
-        "kajet_turbo.api.workspace_remote.get_session_user",
-        lambda _r: {"id": user_id} if user_id else None,
-    )
+    if user_id:
+        app.dependency_overrides[get_required_user] = lambda: {"id": user_id}
     return TestClient(app)
 
 

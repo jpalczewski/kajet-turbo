@@ -5,7 +5,6 @@ import pytest
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.workspace import (
     create_workspace,
-    list_workspaces,
     normalize_folder,
     note_filepath,
     read_note_file,
@@ -16,28 +15,8 @@ from kajet_turbo.workspace import (
 
 
 @pytest.fixture
-def workspaces_dir(tmp_path):
-    return tmp_path / "workspaces"
-
-
-@pytest.fixture
 def workspace(git_workspace_factory):
     return git_workspace_factory("workspaces/moj-projekt")
-
-
-def test_list_workspaces(workspace, workspaces_dir):
-    (workspaces_dir / "drugi-projekt").mkdir()
-    names = list_workspaces(str(workspaces_dir))
-    assert "moj-projekt" in names
-    assert "drugi-projekt" in names
-
-
-def test_list_workspaces_with_user_id(tmp_path):
-    user_dir = tmp_path / "u1"
-    (user_dir / "ws-a").mkdir(parents=True)
-    (user_dir / "ws-b").mkdir()
-    names = list_workspaces(str(tmp_path), user_id="u1")
-    assert set(names) == {"ws-a", "ws-b"}
 
 
 # --- title_to_windows_filename ---
@@ -207,13 +186,6 @@ def test_scan_notes_ignores_non_note_md(workspace):
     assert ids == ["r1"]
 
 
-def test_create_workspace(tmp_path):
-    ws_path = create_workspace("nowy-projekt", str(tmp_path))
-    assert (tmp_path / "nowy-projekt").is_dir()
-    assert (tmp_path / "nowy-projekt" / ".git").is_dir()
-    assert ws_path == str(tmp_path / "nowy-projekt")
-
-
 def test_create_workspace_with_user_id(tmp_path):
     ws_path = create_workspace("moj-ws", str(tmp_path), user_id="u42")
     assert (tmp_path / "u42" / "moj-ws" / ".git").is_dir()
@@ -222,15 +194,15 @@ def test_create_workspace_with_user_id(tmp_path):
 
 def test_create_workspace_rejects_invalid_name(tmp_path):
     with pytest.raises(ValueError):
-        create_workspace("foo/bar", str(tmp_path))
+        create_workspace("foo/bar", str(tmp_path), user_id="u1")
     with pytest.raises(ValueError):
-        create_workspace("", str(tmp_path))
+        create_workspace("", str(tmp_path), user_id="u1")
 
 
 def test_create_workspace_rejects_duplicate(tmp_path):
-    create_workspace("duplikat", str(tmp_path))
+    create_workspace("duplikat", str(tmp_path), user_id="u1")
     with pytest.raises(FileExistsError):
-        create_workspace("duplikat", str(tmp_path))
+        create_workspace("duplikat", str(tmp_path), user_id="u1")
 
 
 def test_rename_file_commit(workspace):

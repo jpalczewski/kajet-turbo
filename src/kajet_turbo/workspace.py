@@ -122,21 +122,10 @@ def remove_empty_tree(ws_path: str, folder: str) -> list[str]:
     return removed
 
 
-def workspace_path(name: str, workspaces_dir: str | None = None, user_id: str | None = None) -> str:
+def workspace_path(name: str, workspaces_dir: str | None = None, *, user_id: str) -> str:
     """Returns the filesystem path for a workspace directory."""
     base = Path(workspaces_dir or os.getenv("WORKSPACES_DIR", "/workspaces"))
-    if user_id:
-        base = base / user_id
-    return str(base / name)
-
-
-def list_workspaces(workspaces_dir: str | None = None, user_id: str | None = None) -> list[str]:
-    base = Path(workspaces_dir or os.getenv("WORKSPACES_DIR", "/workspaces"))
-    if user_id:
-        base = base / user_id
-    if not base.exists():
-        return []
-    return [p.name for p in base.iterdir() if p.is_dir()]
+    return str(base / user_id / name)
 
 
 def note_filepath(ws_path: str, folder: str, title: str) -> str:
@@ -192,9 +181,7 @@ def scan_notes(workspace_path: str) -> list[dict]:
     return results
 
 
-def create_workspace(
-    name: str, workspaces_dir: str | None = None, user_id: str | None = None
-) -> str:
+def create_workspace(name: str, workspaces_dir: str | None = None, *, user_id: str) -> str:
     """Creates a new workspace directory with git repo. Returns the workspace path."""
     if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,49}$", name):
         raise ValueError(

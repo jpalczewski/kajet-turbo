@@ -102,6 +102,7 @@ async def test_get_note_links_exclude_cross_workspace(workspaces_dir, mcp_server
         ws_path = workspaces_dir / ws_name
         ws_path.mkdir()
         GitRepository.init(str(ws_path))
+        mcp_server.workspace_repo.grant_access("u1", ws_name)
 
     mcp, _ = mcp_server
     async with Client(mcp) as client:

@@ -3,7 +3,7 @@ from sqlmodel import Session
 from starlette.testclient import TestClient
 
 from kajet_turbo.api.jobs import router
-from kajet_turbo.dependencies import get_job_service
+from kajet_turbo.dependencies import get_job_service, get_required_user
 from kajet_turbo.models import User
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.services.jobs import JobService
@@ -17,10 +17,8 @@ def _app(database, monkeypatch, *, user_id="u1"):
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_job_service] = lambda: JobService(JobRepository(database.engine))
-    monkeypatch.setattr(
-        "kajet_turbo.api.jobs.get_session_user",
-        lambda _r: {"id": user_id} if user_id else None,
-    )
+    if user_id:
+        app.dependency_overrides[get_required_user] = lambda: {"id": user_id}
     return TestClient(app), JobRepository(database.engine)
 
 

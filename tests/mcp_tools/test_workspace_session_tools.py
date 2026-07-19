@@ -33,12 +33,12 @@ async def test_activate_nonexistent_workspace(workspaces_dir, mcp_server):
 
 
 async def test_fresh_authenticated_session_inherits_workspace_within_ttl(
-    authed_workspaces_dir, authed_mcp_server
+    workspaces_dir, mcp_server
 ):
     """The claude.ai connector opens a fresh MCP session per tool call (upstream bug: it
     never echoes back Mcp-Session-Id), so session-scoped state can't survive to the next
     call. The per-user DB fallback bridges that gap for a bounded TTL window."""
-    mcp, _ = authed_mcp_server
+    mcp, _ = mcp_server
     async with Client(mcp) as client_a:
         await client_a.call_tool("activate_workspace", {"name": "test-ws"})
 
@@ -48,11 +48,11 @@ async def test_fresh_authenticated_session_inherits_workspace_within_ttl(
 
 
 async def test_two_authenticated_sessions_keep_separate_workspaces(
-    authed_workspaces_dir, authed_mcp_server, git_workspace_factory
+    workspaces_dir, mcp_server, git_workspace_factory
 ):
-    mcp, _ = authed_mcp_server
+    mcp, _ = mcp_server
     git_workspace_factory("workspaces/u1/drugi-ws")
-    authed_mcp_server.workspace_repo.grant_access("u1", "drugi-ws")
+    mcp_server.workspace_repo.grant_access("u1", "drugi-ws")
 
     async with Client(mcp) as client_a:
         await client_a.call_tool("activate_workspace", {"name": "test-ws"})
@@ -79,32 +79,19 @@ async def test_two_authenticated_sessions_keep_separate_workspaces(
     assert "First" in first_note.content[0].text
 
 
-async def test_anon_no_cross_session_persistence(workspaces_dir, mcp_server):
-    """Unauthenticated sessions get no cross-session persistence (IDOR-safe)."""
+async def test_authenticated_session_writes_to_user_scoped_path(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
-    async with Client(mcp) as client_a:
-        await client_a.call_tool("activate_workspace", {"name": "test-ws"})
-
-    async with Client(mcp) as client_b:
-        with pytest.raises(ToolError, match="activate_workspace"):
-            await client_b.call_tool("save_note", {"title": "Should fail", "content": "body"})
-
-
-async def test_authenticated_session_writes_to_user_scoped_path(
-    authed_workspaces_dir, authed_mcp_server
-):
-    mcp, _ = authed_mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool("save_note", {"title": "Scoped note", "content": "body"})
 
-    ws_path = authed_workspaces_dir / "u1" / "test-ws"
+    ws_path = workspaces_dir / "test-ws"
     files = [p for p in ws_path.rglob("*.md") if ".git" not in str(p)]
     assert len(files) == 1
 
 
-async def test_search_all_scope_after_session_activation(authed_workspaces_dir, authed_mcp_server):
-    mcp, _ = authed_mcp_server
+async def test_search_all_scope_after_session_activation(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         search_result = await client.call_tool(
@@ -113,10 +100,10 @@ async def test_search_all_scope_after_session_activation(authed_workspaces_dir, 
     assert not search_result.is_error
 
 
-async def test_search_all_scope_without_prior_activation(authed_workspaces_dir, authed_mcp_server):
+async def test_search_all_scope_without_prior_activation(workspaces_dir, mcp_server):
     """workspace='all' searches across every accessible workspace for an authenticated
     caller's identity alone — it must not require activate_workspace() first."""
-    mcp, _ = authed_mcp_server
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         search_result = await client.call_tool(
             "search_notes", {"query": "anything", "workspace": "all"}
@@ -124,9 +111,9 @@ async def test_search_all_scope_without_prior_activation(authed_workspaces_dir, 
     assert not search_result.is_error
 
 
-async def test_same_session_fast_path_unchanged(authed_workspaces_dir, authed_mcp_server):
+async def test_same_session_fast_path_unchanged(workspaces_dir, mcp_server):
     """Single-session activate+save still works (Claude Code path, no DB needed on read)."""
-    mcp, _ = authed_mcp_server
+    mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         save_result = await client.call_tool(

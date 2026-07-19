@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from kajet_turbo.api.schemas import WorkspaceRemoteResponse
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
-    get_session_user,
+    get_required_user,
     get_workspace_remote_service,
     get_workspace_service,
 )
@@ -15,26 +15,22 @@ from kajet_turbo.services.workspaces import WorkspaceService
 router = APIRouter()
 
 
-def _guard(request: Request, name: str, ws_service: WorkspaceService):
-    """Return (user, None) on success or (None, JSONResponse) on auth/access failure."""
-    user = get_session_user(request)
-    if not user:
-        return None, JSONResponse({"error": "Not logged in"}, status_code=401)
+def _guard(user: dict, name: str, ws_service: WorkspaceService) -> JSONResponse | None:
+    """Return None on success, or a 403 JSONResponse when the user lacks workspace access."""
     if not ws_service.has_access(user["id"], name):
-        return None, JSONResponse({"error": "Brak dostępu."}, status_code=403)
-    return user, None
+        return JSONResponse({"error": "Brak dostępu."}, status_code=403)
+    return None
 
 
 @router.get("/api/workspaces/{name}/remote", response_model=WorkspaceRemoteResponse)
 @logged_route
 def api_get_workspace_remote(
     name: str,
-    request: Request,
+    user: dict = Depends(get_required_user),
     svc: WorkspaceRemoteService = Depends(get_workspace_remote_service),
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:
-    user, deny = _guard(request, name, ws_service)
-    if deny:
+    if deny := _guard(user, name, ws_service):
         return deny
     return JSONResponse({"remote": svc.get(user["id"], name)})
 
@@ -44,11 +40,11 @@ def api_get_workspace_remote(
 async def api_set_workspace_remote(
     name: str,
     request: Request,
+    user: dict = Depends(get_required_user),
     svc: WorkspaceRemoteService = Depends(get_workspace_remote_service),
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:
-    user, deny = _guard(request, name, ws_service)
-    if deny:
+    if deny := _guard(user, name, ws_service):
         return deny
     try:
         body = await request.json()
@@ -72,12 +68,11 @@ async def api_set_workspace_remote(
 @logged_route
 def api_delete_workspace_remote(
     name: str,
-    request: Request,
+    user: dict = Depends(get_required_user),
     svc: WorkspaceRemoteService = Depends(get_workspace_remote_service),
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:
-    user, deny = _guard(request, name, ws_service)
-    if deny:
+    if deny := _guard(user, name, ws_service):
         return deny
     if not svc.delete(user["id"], name):
         return JSONResponse({"error": "Not found"}, status_code=404)
@@ -88,12 +83,11 @@ def api_delete_workspace_remote(
 @logged_route
 def api_trigger_workspace_push(
     name: str,
-    request: Request,
+    user: dict = Depends(get_required_user),
     svc: WorkspaceRemoteService = Depends(get_workspace_remote_service),
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:
-    user, deny = _guard(request, name, ws_service)
-    if deny:
+    if deny := _guard(user, name, ws_service):
         return deny
     if not svc.trigger_push(user["id"], name):
         return JSONResponse({"error": "No enabled remote configured"}, status_code=400)

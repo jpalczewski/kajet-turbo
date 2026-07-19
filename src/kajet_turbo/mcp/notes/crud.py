@@ -11,7 +11,7 @@ from kajet_turbo.mcp.context import (
     MCP_CONTEXT,
     ActiveWorkspace,
     active_workspace,
-    resolve_user_id,
+    require_user_id,
 )
 from kajet_turbo.mcp.notes.types import (
     BatchNoteError,
@@ -462,14 +462,10 @@ def build_crud(
         Pusty [] gdy brak wyników."""
         ws_param = workspace or "active"
         if ws_param == "all":
-            # 'all' only needs identity (user_id/owner_id), not a chosen active workspace —
-            # for a logged-in caller owner_id always equals user_id (see activate_workspace's
-            # owner_id assignment in mcp/workspaces/meta.py), so activate_workspace() isn't
-            # required first. Anon/no-auth sessions have no such invariant (owner_id is a
-            # random per-session id), so they still need the active-workspace session state.
-            user_id = await resolve_user_id()
-            owner_id = user_id if user_id is not None else (await active_workspace(ctx)).owner_id
-            workspaces = await run_sync(workspace_service.list_accessible, user_id)
+            # 'all' needs identity only, not a chosen active workspace — activate_workspace()
+            # isn't required first.
+            owner_id = await require_user_id()
+            workspaces = await run_sync(workspace_service.list_accessible, owner_id)
         else:
             ws = await active_workspace(ctx)
             workspaces = [ws_param if ws_param != "active" else ws.name]

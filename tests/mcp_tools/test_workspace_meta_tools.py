@@ -4,16 +4,16 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 
-async def test_list_workspaces_returns_objects(authed_workspaces_dir, authed_mcp_server):
-    mcp = authed_mcp_server.server
+async def test_list_workspaces_returns_objects(workspaces_dir, mcp_server):
+    mcp = mcp_server.server
     async with Client(mcp) as client:
         result = await client.call_tool("list_workspaces")
     data = json.loads(result.content[0].text)
     assert {"name": "test-ws", "description": "", "folder": "", "tags": []} in data["workspaces"]
 
 
-async def test_update_workspace_sets_description_and_tags(authed_workspaces_dir, authed_mcp_server):
-    mcp = authed_mcp_server.server
+async def test_update_workspace_sets_description_and_tags(workspaces_dir, mcp_server):
+    mcp = mcp_server.server
     async with Client(mcp) as client:
         await client.call_tool(
             "update_workspace",
@@ -24,8 +24,8 @@ async def test_update_workspace_sets_description_and_tags(authed_workspaces_dir,
     assert ws["description"] == "Do researchu" and ws["tags"] == ["praca"]
 
 
-async def test_update_workspace_no_access(authed_workspaces_dir, authed_mcp_server):
-    mcp = authed_mcp_server.server
+async def test_update_workspace_no_access(workspaces_dir, mcp_server):
+    mcp = mcp_server.server
     async with Client(mcp) as client:
         try:
             await client.call_tool("update_workspace", {"name": "nope", "description": "x"})
@@ -37,8 +37,8 @@ async def test_update_workspace_no_access(authed_workspaces_dir, authed_mcp_serv
             raise AssertionError("Expected ToolError")
 
 
-async def test_update_workspace_rejects_bad_tag(authed_workspaces_dir, authed_mcp_server):
-    mcp = authed_mcp_server.server
+async def test_update_workspace_rejects_bad_tag(workspaces_dir, mcp_server):
+    mcp = mcp_server.server
     async with Client(mcp) as client:
         try:
             await client.call_tool("update_workspace", {"name": "test-ws", "tags": ["bad tag"]})
@@ -48,10 +48,8 @@ async def test_update_workspace_rejects_bad_tag(authed_workspaces_dir, authed_mc
             raise AssertionError("Expected ToolError")
 
 
-async def test_create_workspace_description_appears_in_list(
-    authed_workspaces_dir, authed_mcp_server
-):
-    mcp = authed_mcp_server.server
+async def test_create_workspace_description_appears_in_list(workspaces_dir, mcp_server):
+    mcp = mcp_server.server
     async with Client(mcp) as client:
         await client.call_tool(
             "create_workspace",

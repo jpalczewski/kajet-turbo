@@ -7,7 +7,6 @@ from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.workspace import create_workspace as _create_workspace
-from kajet_turbo.workspace import list_workspaces as _list_workspaces
 from kajet_turbo.workspace import normalize_folder
 from kajet_turbo.workspace import workspace_path as _workspace_path
 
@@ -25,21 +24,18 @@ class WorkspaceService:
         self._note_repo = note_repo
         self._meta_repo = meta_repo
 
-    def create(self, name: str, user_id: str | None, *, description: str = "") -> None:
+    def create(self, name: str, user_id: str, *, description: str = "") -> None:
         _create_workspace(name, user_id=user_id)
-        if user_id:
-            self._repo.grant_access(user_id, name)
-            self._meta_repo.ensure(user_id, name)
-            if description:
-                self._meta_repo.set(user_id, name, description=description)
+        self._repo.grant_access(user_id, name)
+        self._meta_repo.ensure(user_id, name)
+        if description:
+            self._meta_repo.set(user_id, name, description=description)
 
-    def workspace_path(self, user_id: str | None, name: str) -> str:
+    def workspace_path(self, user_id: str, name: str) -> str:
         return _workspace_path(name, user_id=user_id)
 
-    def list_accessible(self, user_id: str | None) -> list[str]:
-        if user_id:
-            return self._repo.list_user_workspaces(user_id)
-        return _list_workspaces()
+    def list_accessible(self, user_id: str) -> list[str]:
+        return self._repo.list_user_workspaces(user_id)
 
     def set_meta(
         self,
@@ -67,17 +63,13 @@ class WorkspaceService:
         assert row is not None  # set() just upserted the row
         return row
 
-    def list_meta(self, user_id: str | None) -> list[dict]:
+    def list_meta(self, user_id: str) -> list[dict]:
         names = self.list_accessible(user_id)
-        meta = self._meta_repo.get_many(user_id, names) if user_id else {}
+        meta = self._meta_repo.get_many(user_id, names)
         return [{"name": n, **meta.get(n, _EMPTY_META)} for n in names]
 
-    def list_with_details(self, user_id: str | None) -> list[dict]:
+    def list_with_details(self, user_id: str) -> list[dict]:
         names = self.list_accessible(user_id)
-        if not names or not user_id:
-            return [
-                {"name": n, "file_count": 0, "last_commit_at": None, **_EMPTY_META} for n in names
-            ]
         stats = self._note_repo.workspace_stats(user_id, names)
         meta = self._meta_repo.get_many(user_id, names)
         result = []

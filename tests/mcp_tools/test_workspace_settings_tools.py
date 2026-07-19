@@ -4,8 +4,8 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 
-async def test_list_workspace_settings_shape(authed_workspaces_dir, authed_mcp_server):
-    mcp = authed_mcp_server.server
+async def test_list_workspace_settings_shape(workspaces_dir, mcp_server):
+    mcp = mcp_server.server
     async with Client(mcp) as client:
         result = await client.call_tool("list_workspace_settings", {"name": "test-ws"})
     data = json.loads(result.content[0].text)
@@ -18,8 +18,8 @@ async def test_list_workspace_settings_shape(authed_workspaces_dir, authed_mcp_s
     assert vl["type"] == "bool"
 
 
-async def test_list_workspace_settings_no_access(authed_workspaces_dir, authed_mcp_server):
-    mcp = authed_mcp_server.server
+async def test_list_workspace_settings_no_access(workspaces_dir, mcp_server):
+    mcp = mcp_server.server
     async with Client(mcp) as client:
         try:
             await client.call_tool("list_workspace_settings", {"name": "no-such-ws"})
@@ -31,8 +31,8 @@ async def test_list_workspace_settings_no_access(authed_workspaces_dir, authed_m
             raise AssertionError("Expected ToolError")
 
 
-async def test_set_workspace_setting_flips_value(authed_workspaces_dir, authed_mcp_server):
-    mcp = authed_mcp_server.server
+async def test_set_workspace_setting_flips_value(workspaces_dir, mcp_server):
+    mcp = mcp_server.server
     async with Client(mcp) as client:
         result = await client.call_tool(
             "set_workspace_setting",
@@ -44,8 +44,8 @@ async def test_set_workspace_setting_flips_value(authed_workspaces_dir, authed_m
     assert "message" in data
 
 
-async def test_set_workspace_setting_persists(authed_workspaces_dir, authed_mcp_server):
-    mcp = authed_mcp_server.server
+async def test_set_workspace_setting_persists(workspaces_dir, mcp_server):
+    mcp = mcp_server.server
     async with Client(mcp) as client:
         await client.call_tool(
             "set_workspace_setting",
@@ -58,8 +58,8 @@ async def test_set_workspace_setting_persists(authed_workspaces_dir, authed_mcp_
     assert vl["value"] is False
 
 
-async def test_set_workspace_setting_no_access(authed_workspaces_dir, authed_mcp_server):
-    mcp = authed_mcp_server.server
+async def test_set_workspace_setting_no_access(workspaces_dir, mcp_server):
+    mcp = mcp_server.server
     async with Client(mcp) as client:
         try:
             await client.call_tool(

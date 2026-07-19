@@ -27,7 +27,6 @@ class ActiveWorkspace:
     owner_id: str
     name: str
     path: str
-    user_id: str | None
 
 
 class McpContextDeps:
@@ -50,40 +49,30 @@ def configure_mcp_context(
     deps.active_workspace_repo = active_workspace_repo
 
 
-def resolve_user() -> str | None:
+def _resolve_user() -> str:
     """Sync identity resolver; run via run_sync at the MCP boundary."""
     token = get_access_token()
     if token is None:
-        return None
+        raise ToolError("Wymagane zalogowanie.")
     assert deps.oauth_repo is not None
     user_id = deps.oauth_repo.get_user_id_by_client(token.client_id)
     if user_id is None:
-        raise ToolError("unauthorized")
-    return user_id
-
-
-async def resolve_user_id() -> str | None:
-    return await run_sync(resolve_user)
-
-
-async def require_user_id() -> str:
-    user_id = await resolve_user_id()
-    if user_id is None:
+        logger.warning("mcp_token_without_user", client_id=token.client_id)
         raise ToolError("Wymagane zalogowanie.")
     return user_id
 
 
-async def require_workspace_access(name: str, user_id: str | None) -> list[str]:
+async def require_user_id() -> str:
+    return await run_sync(_resolve_user)
+
+
+async def require_workspace_access(name: str, user_id: str) -> list[str]:
     assert deps.workspace_service is not None
     available = await run_sync(deps.workspace_service.list_accessible, user_id)
     if name in available:
         return available
-    msg = (
-        "Workspace '{name}' nie istnieje lub brak dostępu."
-        if user_id
-        else "Workspace '{name}' nie istnieje."
-    )
-    raise ToolError(json.dumps({"error": msg.format(name=name), "available": available}))
+    msg = f"Workspace '{name}' nie istnieje lub brak dostępu."
+    raise ToolError(json.dumps({"error": msg, "available": available}))
 
 
 async def _rehydrate_from_db(
@@ -92,13 +81,11 @@ async def _rehydrate_from_db(
     assert deps.workspace_service is not None
     await ctx.set_state("active_workspace", db_name)
     await ctx.set_state("active_user_id", user_id)
-    await ctx.set_state("active_owner_id", user_id)
     logger.info("active_workspace_resolved", source=source, ws=db_name, scope=scope)
     return ActiveWorkspace(
         owner_id=user_id,
         name=db_name,
         path=deps.workspace_service.workspace_path(user_id, db_name),
-        user_id=user_id,
     )
 
 
@@ -108,41 +95,32 @@ async def active_workspace(ctx: Context = MCP_CONTEXT) -> ActiveWorkspace:
     assert deps.workspace_service is not None
     name = await ctx.get_state("active_workspace")
     if name:
-        owner_id: str = await ctx.get_state("active_owner_id")
-        user_id: str | None = await ctx.get_state("active_user_id")
+        user_id: str = await ctx.get_state("active_user_id")
         logger.debug("active_workspace_resolved", source="session", ws=name)
         return ActiveWorkspace(
-            owner_id=owner_id,
+            owner_id=user_id,
             name=name,
             path=deps.workspace_service.workspace_path(user_id, name),
-            user_id=user_id,
         )
 
-    user_id = await resolve_user_id()
-    if user_id is not None and deps.active_workspace_repo is not None:
-        scope = active_workspace_scope(ctx)
-        if scope is not None:
-            db_name = await run_sync(deps.active_workspace_repo.get, user_id, scope)
-            if db_name:
-                return await _rehydrate_from_db(
-                    ctx, user_id, db_name, source="session_db_fallback", scope=scope
-                )
-
-        db_name = await run_sync(
-            deps.active_workspace_repo.get, user_id, USER_SCOPE, USER_SCOPE_TTL
-        )
+    user_id = await require_user_id()
+    assert deps.active_workspace_repo is not None
+    scope = active_workspace_scope(ctx)
+    if scope is not None:
+        db_name = await run_sync(deps.active_workspace_repo.get, user_id, scope)
         if db_name:
             return await _rehydrate_from_db(
-                ctx, user_id, db_name, source="user_scope_fallback", scope=USER_SCOPE
+                ctx, user_id, db_name, source="session_db_fallback", scope=scope
             )
 
-    logger.info("active_workspace_miss", authenticated=user_id is not None)
+    db_name = await run_sync(deps.active_workspace_repo.get, user_id, USER_SCOPE, USER_SCOPE_TTL)
+    if db_name:
+        return await _rehydrate_from_db(
+            ctx, user_id, db_name, source="user_scope_fallback", scope=USER_SCOPE
+        )
+
+    logger.info("active_workspace_miss")
     raise ToolError("Wywołaj activate_workspace() najpierw.")
-
-
-async def get_active_workspace(ctx: Context) -> tuple[str, str, str]:
-    ws = await active_workspace(ctx)
-    return ws.owner_id, ws.name, ws.path
 
 
 def active_workspace_scope(ctx: Context) -> str | None:
