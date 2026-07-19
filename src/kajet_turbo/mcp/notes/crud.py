@@ -1,11 +1,18 @@
 from typing import Annotated, Literal
 
 from fastmcp import FastMCP
+from fastmcp.server.context import Context
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
-from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
+from kajet_turbo.mcp.context import (
+    ACTIVE_WORKSPACE,
+    MCP_CONTEXT,
+    ActiveWorkspace,
+    active_workspace,
+    resolve_user_id,
+)
 from kajet_turbo.mcp.notes.types import (
     BatchNoteError,
     BatchNoteSuccess,
@@ -437,7 +444,7 @@ def build_crud(
                 "jak w list_notes)."
             ),
         ] = None,
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        ctx: Context = MCP_CONTEXT,
     ) -> list[SearchChunkResult]:
         """Szuka notatek (chunk-level hybrid: FTS + semantic + dokładne dopasowanie
         tytułu/tagu/folderu).
@@ -455,15 +462,24 @@ def build_crud(
         Pusty [] gdy brak wyników."""
         ws_param = workspace or "active"
         if ws_param == "all":
-            workspaces = await run_sync(workspace_service.list_accessible, ws.user_id)
+            # 'all' only needs identity (user_id/owner_id), not a chosen active workspace —
+            # for a logged-in caller owner_id always equals user_id (see activate_workspace's
+            # owner_id assignment in mcp/workspaces/meta.py), so activate_workspace() isn't
+            # required first. Anon/no-auth sessions have no such invariant (owner_id is a
+            # random per-session id), so they still need the active-workspace session state.
+            user_id = await resolve_user_id()
+            owner_id = user_id if user_id is not None else (await active_workspace(ctx)).owner_id
+            workspaces = await run_sync(workspace_service.list_accessible, user_id)
         else:
+            ws = await active_workspace(ctx)
             workspaces = [ws_param if ws_param != "active" else ws.name]
+            owner_id = ws.owner_id
         # search_async borrows a run_sync slot only for the ms-scale DB phases; the
         # query-embedding HTTP call is awaited natively on the event loop.
         results = await note_service.search_async(
             query,
             workspaces,
-            owner_id=ws.owner_id,
+            owner_id=owner_id,
             limit=limit,
             folder=folder,
             tags=tags,

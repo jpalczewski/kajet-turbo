@@ -54,7 +54,7 @@ class FakeChunkRepo:
         allowed_note_ids=None,
     ):
         self.calls += 1
-        return [{"note_id": "n1", "title": "t"}]
+        return [{"note_id": "n1", "title": "t", "score": 1.0}]
 
 
 class FakeCrudRepo:

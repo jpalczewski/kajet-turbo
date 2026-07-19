@@ -187,6 +187,10 @@ class NoteSearchService:
                 allowed_note_ids=allowed,
             )
             results.extend(hits)
+        # score is an RRF rank within each workspace, not a globally calibrated relevance
+        # signal — but sorting by it beats leaving results in arbitrary workspace-iteration
+        # order. No-op for the single-workspace case (hybrid_search already returns sorted).
+        results.sort(key=lambda r: r["score"], reverse=True)
         results = results[:limit]
         if self._cache is not None and key is not None:
             self._cache.put(key, results)

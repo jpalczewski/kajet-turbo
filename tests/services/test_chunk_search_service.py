@@ -107,6 +107,25 @@ def test_search_cache_key_varies_by_backend(database, git_workspace_factory):
     assert calls["n"] == 2
 
 
+def test_search_across_workspaces_sorts_by_score_globally(database, git_workspace_factory):
+    # Iteration order is ["ws1", "ws2"], but the higher-scored hit lives in ws2 (title match
+    # boosts its score above ws1's content-only match) — a global top-k must still surface it
+    # even though the buggy code (concat-then-truncate, no cross-workspace sort) would keep
+    # whatever landed first from ws1 instead.
+    service = _service(database)
+    ws1 = git_workspace_factory("ws1")
+    ws2 = git_workspace_factory("ws2")
+    service.save(
+        "u1", "ws1", str(ws1), "Alpha document", "# Alpha document\n\nfindmequery here\n", tags=[]
+    )
+    service.save(
+        "u1", "ws2", str(ws2), "findmequery", "# findmequery\n\nfindmequery here too\n", tags=[]
+    )
+    hits = service.search("findmequery", ["ws1", "ws2"], owner_id="u1", limit=1)
+    assert len(hits) == 1
+    assert hits[0]["title"] == "findmequery"
+
+
 def test_search_narrows_by_folder(database, git_workspace_factory):
     service = _service(database)
     ws = git_workspace_factory("ws")

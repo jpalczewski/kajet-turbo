@@ -113,6 +113,17 @@ async def test_search_all_scope_after_session_activation(authed_workspaces_dir, 
     assert not search_result.is_error
 
 
+async def test_search_all_scope_without_prior_activation(authed_workspaces_dir, authed_mcp_server):
+    """workspace='all' searches across every accessible workspace for an authenticated
+    caller's identity alone — it must not require activate_workspace() first."""
+    mcp, _ = authed_mcp_server
+    async with Client(mcp) as client:
+        search_result = await client.call_tool(
+            "search_notes", {"query": "anything", "workspace": "all"}
+        )
+    assert not search_result.is_error
+
+
 async def test_same_session_fast_path_unchanged(authed_workspaces_dir, authed_mcp_server):
     """Single-session activate+save still works (Claude Code path, no DB needed on read)."""
     mcp, _ = authed_mcp_server
