@@ -33,10 +33,15 @@ def test_default_since_is_24h(monkeypatch):
     assert args.since == "24h"
 
 
-def test_source_loki_with_log_path_errors(monkeypatch):
+def test_source_loki_with_log_path_errors(monkeypatch, capsys):
     import pytest
 
     monkeypatch.setattr(sys, "argv", ["analyze-logs.py", "ops/logs/some.log", "--source", "loki"])
     with pytest.raises(SystemExit) as exc_info:
         analyze_logs.parse_args()
     assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert (
+        "a log file path was given but --source loki was also specified; drop one of the two"
+        in captured.err
+    )

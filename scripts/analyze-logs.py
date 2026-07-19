@@ -335,7 +335,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         args.source = "docker-logs" if args.log else "loki"
 
     if args.log and args.source == "loki":
-        parser.error("cannot specify both a log file path and --source loki; drop one of the two")
+        parser.error(
+            "a log file path was given but --source loki was also specified; drop one of the two"
+        )
 
     return args
 
