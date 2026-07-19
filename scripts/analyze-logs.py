@@ -290,7 +290,7 @@ def mode_fields(events: list[dict], fields: list[str]) -> None:
 MODES = ("sessions", "workspaces", "errors", "tools", "events", "http", "all")
 
 
-def main() -> None:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze kajet-turbo ops logs")
     parser.add_argument("log", nargs="?", help="Log file path (default: latest produkcja_mcp*)")
     parser.add_argument(
@@ -317,7 +317,26 @@ def main() -> None:
         help="Print only these fields as columns (comma-separated); use with --msg or alone",
     )
     parser.add_argument("--min-level", default="warning", help="Minimum log level for errors mode")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--source",
+        choices=("loki", "docker-logs"),
+        default=None,
+        help="Event source (default: loki, unless a log file path is given -> docker-logs)",
+    )
+    parser.add_argument(
+        "--since", default="24h", help="Loki query start (e.g. 1h, 24h, 7d, ISO timestamp)"
+    )
+    parser.add_argument("--until", default="now", help="Loki query end (default: now)")
+    args = parser.parse_args(argv)
+
+    if args.source is None:
+        args.source = "docker-logs" if args.log else "loki"
+
+    return args
+
+
+def main() -> None:
+    args = parse_args()
 
     env = args.env
     if env in ("prod", "production"):
@@ -325,9 +344,28 @@ def main() -> None:
     elif env in ("dev", "development"):
         env = "develop"
 
-    path = Path(args.log) if args.log else latest_log(args.role, env)
-    print(f"→ {path}\n")
-    events = parse_log(path)
+    if args.source == "docker-logs":
+        path = Path(args.log) if args.log else latest_log(args.role, env)
+        print(f"→ {path}\n")
+        events = parse_log(path)
+    else:
+        print(f"→ loki: role={args.role} env={env} since={args.since} until={args.until}\n")
+        import loki_source
+
+        msg_filter_for_query = [m.strip() for m in args.msg.split(",")] if args.msg else None
+        min_level_for_query = args.min_level if args.mode == "errors" else None
+        try:
+            events = loki_source.fetch_events(
+                args.role,
+                env,
+                since=args.since,
+                until=args.until,
+                min_level=min_level_for_query,
+                msg_filter=msg_filter_for_query,
+            )
+        except loki_source.LokiUnreachableError as e:
+            sys.exit(str(e))
+
     print(f"  {len(events)} events parsed\n")
 
     fields = [f.strip() for f in args.fields.split(",")] if args.fields else None
