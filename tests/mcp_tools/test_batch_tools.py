@@ -30,8 +30,6 @@ async def test_edit_notes_batch_applies_together(workspaces_dir, mcp_server):
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         saved = await client.call_tool("save_note", {"title": "First", "content": "one\n"})
-        import json
-
         note_id = json.loads(saved.content[0].text)["note_id"]
         sha = json.loads(
             (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
@@ -61,8 +59,6 @@ async def test_edit_notes_batch_rejects_all_on_one_bad_item(workspaces_dir, mcp_
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         r1 = await client.call_tool("save_note", {"title": "First", "content": "one\n"})
         r2 = await client.call_tool("save_note", {"title": "Second", "content": "two\n"})
-        import json
-
         id1 = json.loads(r1.content[0].text)["note_id"]
         id2 = json.loads(r2.content[0].text)["note_id"]
         sha1 = json.loads((await client.call_tool("get_note", {"note_id": id1})).content[0].text)[

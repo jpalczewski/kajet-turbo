@@ -15,8 +15,8 @@ def current_head_sha(ws_path: str, relative: str) -> str | None:
     return history[0]["sha"] if history else None
 
 
-def sha_is_fresh(current_sha: str | None, expected_sha: str) -> bool:
-    expected = expected_sha.strip()
+def sha_is_fresh(current_sha: str | None, expected_sha: str | None) -> bool:
+    expected = (expected_sha or "").strip()
     return bool(expected) and current_sha is not None and current_sha.startswith(expected)
 
 

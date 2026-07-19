@@ -411,6 +411,21 @@ def test_update_note_stale_sha_returns_409(auth_client):
     assert updated.content == "v2"
 
 
+def test_update_note_missing_expected_sha_returns_409_not_500(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Note", "v1", [])["note_id"]
+
+    resp = client.patch(
+        f"/api/workspaces/test-ws/notes/{note_id}",
+        json={"content": "v2"},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["error"] == "NOTE_STALE_VERSION"
+    updated = note_svc.get_with_content(note_id, owner_id="u1", ws_path=ws_path)
+    assert updated.content == "v1"
+
+
 def test_html_renders_clickable_wikilink(auth_client):
     client, note_svc, ws_path = auth_client
     note_svc.save("u1", "test-ws", ws_path, "Target", "t", [], folder="A")

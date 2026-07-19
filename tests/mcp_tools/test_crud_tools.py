@@ -53,8 +53,6 @@ async def test_get_note_outline(workspaces_dir, mcp_server):
         saved = await client.call_tool(
             "save_note", {"title": "Doc", "content": "# Doc\n\n## Tasks\n\ncontent\n"}
         )
-        import json
-
         note_id = json.loads(saved.content[0].text)["note_id"]
         result = await client.call_tool("get_note_outline", {"note_id": note_id})
         text = result.content[0].text
@@ -172,8 +170,6 @@ async def test_edit_note_replace_all_reports_count(workspaces_dir, mcp_server):
         saved = await client.call_tool(
             "save_note", {"title": "Doc", "content": "foo bar foo baz foo"}
         )
-        import json
-
         note_id = json.loads(saved.content[0].text)["note_id"]
         sha = json.loads(
             (await client.call_tool("get_note", {"note_id": note_id})).content[0].text

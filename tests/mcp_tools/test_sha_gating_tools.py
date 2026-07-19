@@ -1,4 +1,4 @@
-"""set_tags/edit_note confirmation gates and stale expected_sha / sha-leak regressions."""
+"""expected_sha gating for set_tags/edit_note/delete_note/restore_note_version + sha-leak checks."""
 
 import json
 
