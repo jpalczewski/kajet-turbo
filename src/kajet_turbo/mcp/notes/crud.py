@@ -331,11 +331,10 @@ def build_crud(
         """Usuwa wiele notatek w jednym atomowym commicie. All-or-nothing: jeśli
         KTÓRAKOLWIEK pozycja w batchu jest niepoprawna (zła notatka, duplikat note_id,
         nieaktualny expected_sha) — cały batch jest odrzucany i NIC nie jest usuwane;
-        errors {index, note_id, error} per pozycja mówi co. Zamiast confirm
-        gating idzie po expected_sha — sha ostatniego commita notatki z get_note_history —
-        dowodząc, że wywołujący widział bieżącą wersję przed usunięciem. Przy niezgodności
-        zawołaj get_note_history, by doczytać aktualną wersję, i spróbuj ponownie. Max 50
-        usunięć na wywołanie."""
+        errors {index, note_id, error} per pozycja mówi co. Gating idzie po expected_sha
+        — sha ostatniego commita notatki z get_note_history — dowodząc, że wywołujący
+        widział bieżącą wersję przed usunięciem. Przy niezgodności zawołaj get_note_history,
+        by doczytać aktualną wersję, i spróbuj ponownie. Max 50 usunięć na wywołanie."""
         check_batch(deletes, "deletes", "usunięć")
         result = await run_sync(
             note_service.delete_many,
