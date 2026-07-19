@@ -142,6 +142,17 @@ class _Tunnel:
         )
 
 
+def _warn_if_capped(events: list[dict]) -> None:
+    """Warn if a Loki query result was capped at 5000 entries."""
+    if len(events) == 5000:
+        print(
+            "warning: Loki result capped at 5000 entries — the window may be truncated "
+            "(missing older events). Narrow --since, or add --mode errors / --msg to "
+            "filter server-side.",
+            file=sys.stderr,
+        )
+
+
 def fetch_events(
     role: str,
     env: str,
@@ -172,7 +183,9 @@ def fetch_events(
         ) from e
     finally:
         tunnel.close()
-    return parse_query_range_response(data)
+    events = parse_query_range_response(data)
+    _warn_if_capped(events)
+    return events
 
 
 def _to_unix_ns(spec: str) -> int:

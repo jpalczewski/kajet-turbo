@@ -4,7 +4,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
-from loki_source import _to_unix_ns, build_selector, parse_query_range_response
+from loki_source import (
+    _to_unix_ns,
+    _warn_if_capped,
+    build_selector,
+    parse_query_range_response,
+)
 
 
 def test_build_selector_base():
@@ -103,3 +108,28 @@ def test_to_unix_ns_iso_timestamp():
     assert _to_unix_ns("2026-01-01T00:00:00") == int(
         __import__("datetime").datetime.fromisoformat("2026-01-01T00:00:00").timestamp() * 1e9
     )
+
+
+def test_warn_if_capped_warns_on_5000_entries(capsys):
+    """Verify warning is printed to stderr when result is exactly 5000 entries."""
+    events = [{"msg": f"event_{i}"} for i in range(5000)]
+    _warn_if_capped(events)
+    captured = capsys.readouterr()
+    assert "warning: Loki result capped at 5000 entries" in captured.err
+    assert "Narrow --since, or add --mode errors" in captured.err
+
+
+def test_warn_if_capped_no_warning_under_5000(capsys):
+    """Verify no warning when result is under 5000 entries."""
+    events = [{"msg": f"event_{i}"} for i in range(4999)]
+    _warn_if_capped(events)
+    captured = capsys.readouterr()
+    assert captured.err == ""
+
+
+def test_warn_if_capped_no_warning_over_5000(capsys):
+    """Verify no warning when result is over 5000 entries (shouldn't happen but be safe)."""
+    events = [{"msg": f"event_{i}"} for i in range(5001)]
+    _warn_if_capped(events)
+    captured = capsys.readouterr()
+    assert captured.err == ""
