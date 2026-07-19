@@ -36,7 +36,7 @@ def test_service_errors_tuple_is_exact():
 
 
 def test_check_batch_rejects_empty():
-    with pytest.raises(ToolError, match="note_ids nie może być puste."):
+    with pytest.raises(ToolError, match=r"note_ids nie może być puste\."):
         check_batch([], "note_ids", "note_id")
 
 
@@ -54,5 +54,5 @@ def test_require_found_passes_value_through():
 
 
 def test_require_found_raises_on_none():
-    with pytest.raises(ToolError, match="Notatka id1 nie znaleziona."):
+    with pytest.raises(ToolError, match=r"Notatka id1 nie znaleziona\."):
         require_found(None, "id1")
