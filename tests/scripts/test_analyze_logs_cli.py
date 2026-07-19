@@ -31,3 +31,12 @@ def test_default_since_is_24h(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["analyze-logs.py"])
     args = analyze_logs.parse_args()
     assert args.since == "24h"
+
+
+def test_source_loki_with_log_path_errors(monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(sys, "argv", ["analyze-logs.py", "ops/logs/some.log", "--source", "loki"])
+    with pytest.raises(SystemExit) as exc_info:
+        analyze_logs.parse_args()
+    assert exc_info.value.code == 2

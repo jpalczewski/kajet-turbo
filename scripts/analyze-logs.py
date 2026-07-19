@@ -1,8 +1,10 @@
 """Analyze kajet-turbo JSONL logs from ops/logs/.
 
 Usage:
-    uv run python scripts/analyze-logs.py                        # latest log, all modes
-    uv run python scripts/analyze-logs.py ops/logs/foo.log       # specific file
+    uv run python scripts/analyze-logs.py                        # Loki: 24h, produkcja, mcp
+    uv run python scripts/analyze-logs.py ops/logs/foo.log       # file → docker-logs
+    uv run python scripts/analyze-logs.py --source docker-logs   # docker-logs: latest in ops/logs/
+    uv run python scripts/analyze-logs.py --since 6h --env develop
     uv run python scripts/analyze-logs.py --mode sessions        # session timeline
     uv run python scripts/analyze-logs.py --mode workspaces      # workspace switches + scope
     uv run python scripts/analyze-logs.py --mode errors          # warnings and above
@@ -332,6 +334,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.source is None:
         args.source = "docker-logs" if args.log else "loki"
 
+    if args.log and args.source == "loki":
+        parser.error("cannot specify both a log file path and --source loki; drop one of the two")
+
     return args
 
 
@@ -350,6 +355,7 @@ def main() -> None:
         events = parse_log(path)
     else:
         print(f"→ loki: role={args.role} env={env} since={args.since} until={args.until}\n")
+        # lazy import: keeps the SSH/socket/subprocess surface out of pure docker-logs runs
         import loki_source
 
         msg_filter_for_query = [m.strip() for m in args.msg.split(",")] if args.msg else None
