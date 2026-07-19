@@ -1,7 +1,6 @@
 from typing import Annotated
 
 from fastmcp import FastMCP
-from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
@@ -14,7 +13,7 @@ from kajet_turbo.mcp.notes.types import (
     SavedNoteResult,
     StaleVersion,
 )
-from kajet_turbo.mcp.tooling import read_tool, write_tool
+from kajet_turbo.mcp.tooling import read_tool, require_found, write_tool
 from kajet_turbo.services.notes import NoteData, NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -35,16 +34,13 @@ def build_history(
     ) -> list[HistoryEntry]:
         """Zwraca historię wersji notatki.
         Każdy wpis: {sha, message, timestamp}."""
-        try:
-            entries = await run_sync(
-                note_service.get_history,
-                note_id,
-                owner_id=ws.owner_id,
-                ws_path=ws.path,
-                limit=limit,
-            )
-        except ValueError as e:
-            raise ToolError(str(e)) from e
+        entries = await run_sync(
+            note_service.get_history,
+            note_id,
+            owner_id=ws.owner_id,
+            ws_path=ws.path,
+            limit=limit,
+        )
         return [HistoryEntry.model_validate(e) for e in entries]
 
     @srv.tool(**read_tool(tags={"notes", "history"}))
@@ -56,12 +52,13 @@ def build_history(
     ) -> NoteData:
         """Zwraca treść notatki z konkretnego commita git.
         sha: pełny lub skrócony hash commita z get_note_history."""
-        try:
-            version = await run_sync(
-                note_service.get_version, note_id, sha, owner_id=ws.owner_id, ws_path=ws.path
-            )
-        except Exception as e:
-            raise ToolError(str(e)) from e
+        # Narrower than before: only SERVICE_ERRORS (via ServiceErrorMiddleware) become
+        # ToolError now. This deliberately drops the old blanket `except Exception` —
+        # unexpected exceptions surface as internal errors instead of being swallowed
+        # into a polite ToolError.
+        version = await run_sync(
+            note_service.get_version, note_id, sha, owner_id=ws.owner_id, ws_path=ws.path
+        )
         return NoteData.model_validate(version)
 
     @srv.tool(**write_tool(tags={"notes", "history"}, destructive=True))
@@ -109,11 +106,12 @@ def build_history(
         include_cross_workspace=False ogranicza backlinks tylko do tego samego workspace.
         Gdy wpis ma workspace != aktywny — to link cross-workspace; by go zapisać w treści
         użyj [[note:NOTE_ID]] (np. [[note:abc-123]]) zamiast [[Title]]."""
-        result = await run_sync(
-            note_service.links, note_id, ws.owner_id, include_meta, include_cross_workspace
+        result = require_found(
+            await run_sync(
+                note_service.links, note_id, ws.owner_id, include_meta, include_cross_workspace
+            ),
+            note_id,
         )
-        if result is None:
-            raise ToolError(f"Notatka {note_id} nie znaleziona.")
         return NoteLinksResult(
             outlinks=[NoteLinkItem.model_validate(link) for link in result["outlinks"]],
             backlinks=[NoteLinkItem.model_validate(link) for link in result["backlinks"]],

@@ -1,12 +1,9 @@
 from typing import Annotated
 
 from fastmcp import FastMCP
-from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from kajet_turbo.api.schemas.ws import WorkspaceChangedEvent
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.dependencies import event_repo
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
 from kajet_turbo.mcp.notes.types import (
@@ -17,9 +14,8 @@ from kajet_turbo.mcp.notes.types import (
     MovedFolderResult,
     PrunedFoldersResult,
 )
-from kajet_turbo.mcp.tooling import read_tool, write_tool
+from kajet_turbo.mcp.tooling import publish_workspace_changed, read_tool, write_tool
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
-from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.workspace import normalize_folder
@@ -55,15 +51,21 @@ def build_folders(
     async def set_folder_meta(
         folder: Annotated[
             str,
-            Field(description="Folder path, e.g. 'Projekty/Klient A'. Empty string = workspace root."),
+            Field(
+                description="Folder path, e.g. 'Projekty/Klient A'. Empty string = workspace root."
+            ),
         ],
         description: Annotated[
             str | None,
-            Field(description="Short description of what this folder contains. Omit to keep existing."),
+            Field(
+                description="Short description of what this folder contains. Omit to keep existing."
+            ),
         ] = None,
         instructions: Annotated[
             str | None,
-            Field(description="LLM instructions shown when listing notes in this folder. Omit to keep existing."),
+            Field(
+                description="LLM instructions shown when listing notes in this folder. Omit to keep existing."
+            ),
         ] = None,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> FolderContext:
@@ -84,6 +86,25 @@ def build_folders(
         assert meta is not None
         return FolderContext.model_validate(meta)
 
+    async def _move_folder(
+        src: str, dst: str, ws: ActiveWorkspace
+    ) -> MovedFolderResult | FolderConflictResult:
+        result = await run_sync(
+            note_service.move_folder,
+            src,
+            dst,
+            owner_id=ws.owner_id,
+            ws_path=ws.path,
+            workspace=ws.name,
+        )
+        if "conflicts" in result:
+            return FolderConflictResult(
+                error=result["error"],
+                conflicts=[ConflictItem.model_validate(c) for c in result["conflicts"]],
+            )
+        await publish_workspace_changed(ws)
+        return MovedFolderResult.model_validate(result)
+
     @srv.tool(**write_tool(tags={"notes", "folders"}))
     @logged_tool
     async def move_folder(
@@ -95,33 +116,7 @@ def build_folders(
         Jeśli dst istnieje, foldery są scalane. Przy kolizji nazw notatek nic nie jest
         przenoszone i zwracana jest lista kolizji.
         Sukces: {moved, src, dst}. Kolizja: {error, conflicts: [{title, folder}]}."""
-        try:
-            result = await run_sync(
-                note_service.move_folder,
-                src,
-                dst,
-                owner_id=ws.owner_id,
-                ws_path=ws.path,
-                workspace=ws.name,
-            )
-        except (ValueError, FileNotFoundError, FileExistsError, GitError) as e:
-            raise ToolError(str(e)) from e
-        if "conflicts" in result:
-            return FolderConflictResult(
-                error=result["error"],
-                conflicts=[ConflictItem.model_validate(c) for c in result["conflicts"]],
-            )
-        await run_sync(
-            event_repo.publish,
-            ws.owner_id,
-            "workspace_changed",
-            WorkspaceChangedEvent(
-                type="workspace_changed",
-                owner_id=ws.owner_id,
-                workspace=ws.name,
-            ).model_dump(),
-        )
-        return MovedFolderResult.model_validate(result)
+        return await _move_folder(src, dst, ws)
 
     @srv.tool(**write_tool(tags={"notes", "folders"}))
     @logged_tool
@@ -135,33 +130,7 @@ def build_folders(
         Sukces: {moved, src, dst}. Kolizja: {error, conflicts: [{title, folder}]}."""
         parent = folder.rsplit("/", 1)[0] if "/" in folder.strip("/") else ""
         dst = f"{parent}/{new_name}" if parent else new_name
-        try:
-            result = await run_sync(
-                note_service.move_folder,
-                folder,
-                dst,
-                owner_id=ws.owner_id,
-                ws_path=ws.path,
-                workspace=ws.name,
-            )
-        except (ValueError, FileNotFoundError, FileExistsError, GitError) as e:
-            raise ToolError(str(e)) from e
-        if "conflicts" in result:
-            return FolderConflictResult(
-                error=result["error"],
-                conflicts=[ConflictItem.model_validate(c) for c in result["conflicts"]],
-            )
-        await run_sync(
-            event_repo.publish,
-            ws.owner_id,
-            "workspace_changed",
-            WorkspaceChangedEvent(
-                type="workspace_changed",
-                owner_id=ws.owner_id,
-                workspace=ws.name,
-            ).model_dump(),
-        )
-        return MovedFolderResult.model_validate(result)
+        return await _move_folder(folder, dst, ws)
 
     @srv.tool(**write_tool(tags={"notes", "folders"}, idempotent=True))
     @logged_tool
@@ -171,16 +140,7 @@ def build_folders(
         """Usuwa puste katalogi (osierocone po przenoszeniu notatek).
         Foldery z .gitkeep są zachowane."""
         result = await run_sync(note_service.prune_empty_folders, ws.path)
-        await run_sync(
-            event_repo.publish,
-            ws.owner_id,
-            "workspace_changed",
-            WorkspaceChangedEvent(
-                type="workspace_changed",
-                owner_id=ws.owner_id,
-                workspace=ws.name,
-            ).model_dump(),
-        )
+        await publish_workspace_changed(ws)
         return PrunedFoldersResult.model_validate(result)
 
     return srv

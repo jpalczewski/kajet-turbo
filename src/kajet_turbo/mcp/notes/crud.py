@@ -1,12 +1,9 @@
 from typing import Annotated, Literal
 
 from fastmcp import FastMCP
-from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from kajet_turbo.api.schemas.ws import WorkspaceChangedEvent
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.dependencies import event_repo
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
 from kajet_turbo.mcp.notes.types import (
@@ -40,10 +37,10 @@ from kajet_turbo.mcp.tooling import (
     publish_note_updated,
     publish_workspace_changed,
     read_tool,
+    require_found,
     write_tool,
 )
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
-from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteData, NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.workspace import normalize_folder
@@ -70,29 +67,17 @@ def build_crud(
         folder: opcjonalna ścieżka np. 'Projekty/Klient A'.
         Uwaga: content powinien zawierać rzeczywiste znaki nowej linii (\\n),
         nie literalne \\\\n."""
-        try:
-            result = await run_sync(
-                note_service.save,
-                ws.owner_id,
-                ws.name,
-                ws.path,
-                title,
-                content,
-                tags or [],
-                folder=folder,
-            )
-        except (GitError, ValueError) as e:
-            raise ToolError(str(e)) from e
-        await run_sync(
-            event_repo.publish,
+        result = await run_sync(
+            note_service.save,
             ws.owner_id,
-            "workspace_changed",
-            WorkspaceChangedEvent(
-                type="workspace_changed",
-                owner_id=ws.owner_id,
-                workspace=ws.name,
-            ).model_dump(),
+            ws.name,
+            ws.path,
+            title,
+            content,
+            tags or [],
+            folder=folder,
         )
+        await publish_workspace_changed(ws)
         return SavedNoteResult(note_id=result["note_id"])
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
@@ -107,26 +92,14 @@ def build_crud(
         BatchNoteSuccess {index, note_id} lub BatchNoteError {index, error}.
         Wikilinki do notatek z tego samego batcha rozwiązują się niezależnie
         od kolejności. content z prawdziwymi znakami nowej linii (\\n), nie literalnymi \\\\n."""
-        try:
-            results = await run_sync(
-                note_service.save_many,
-                ws.owner_id,
-                ws.name,
-                ws.path,
-                [n.model_dump() for n in notes],
-            )
-        except GitError as e:
-            raise ToolError(str(e)) from e
-        await run_sync(
-            event_repo.publish,
+        results = await run_sync(
+            note_service.save_many,
             ws.owner_id,
-            "workspace_changed",
-            WorkspaceChangedEvent(
-                type="workspace_changed",
-                owner_id=ws.owner_id,
-                workspace=ws.name,
-            ).model_dump(),
+            ws.name,
+            ws.path,
+            [n.model_dump() for n in notes],
         )
+        await publish_workspace_changed(ws)
         return [
             BatchNoteSuccess(index=r["index"], note_id=r["note_id"])
             if "note_id" in r
@@ -143,12 +116,12 @@ def build_crud(
         """Zwraca notatkę jako obiekt ze wszystkimi polami. Błąd gdy notatka nie istnieje.
         To jedyne źródło pełnej, aktualnej treści notatki — search_notes zwraca tylko
         fragmenty (chunki), nie całość; po dokładny tekst zawsze wołaj get_note/get_notes."""
-        result = await run_sync(
-            note_service.get_with_content, note_id, owner_id=ws.owner_id, ws_path=ws.path
+        return require_found(
+            await run_sync(
+                note_service.get_with_content, note_id, owner_id=ws.owner_id, ws_path=ws.path
+            ),
+            note_id,
         )
-        if result is None:
-            raise ToolError(f"Notatka {note_id} nie znaleziona.")
-        return result
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
     @logged_tool
@@ -158,10 +131,7 @@ def build_crud(
     ) -> list[NoteData | NoteReadError]:
         """Czyta wiele notatek jednym wywołaniem zamiast N x get_note. Max 50 na raz.
         Nieznalezione id → NoteReadError {note_id, error} zamiast przerwania całości."""
-        if not note_ids:
-            raise ToolError("note_ids nie może być puste.")
-        if len(note_ids) > 50:
-            raise ToolError(f"Maksymalnie 50 note_id na wywołanie (podano {len(note_ids)}).")
+        check_batch(note_ids, "note_ids", "note_id")
         results = await run_sync(
             note_service.get_many, note_ids, owner_id=ws.owner_id, ws_path=ws.path
         )
@@ -297,11 +267,12 @@ def build_crud(
         target_heading=...). ambiguous=true → ten nagłówek powtarza się w dokumencie,
         target_heading nie zadziała (edit_note zwróci błąd niejednoznaczności) — użyj
         wtedy innego trybu (np. replace_text)."""
-        result = await run_sync(
-            note_service.get_outline, note_id, owner_id=ws.owner_id, ws_path=ws.path
+        result = require_found(
+            await run_sync(
+                note_service.get_outline, note_id, owner_id=ws.owner_id, ws_path=ws.path
+            ),
+            note_id,
         )
-        if result is None:
-            raise ToolError(f"Notatka {note_id} nie znaleziona.")
         return NoteOutlineResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
@@ -313,26 +284,14 @@ def build_crud(
     ) -> MovedNoteResult:
         """Przenosi notatkę do folderu w aktywnym workspace, tworząc brakującą ścieżkę.
         folder: pełna ścieżka folderu lub pusty string dla root."""
-        try:
-            result = await run_sync(
-                note_service.move,
-                note_id,
-                owner_id=ws.owner_id,
-                ws_path=ws.path,
-                folder=folder,
-            )
-        except (ValueError, FileNotFoundError, FileExistsError, GitError) as e:
-            raise ToolError(str(e)) from e
-        await run_sync(
-            event_repo.publish,
-            ws.owner_id,
-            "workspace_changed",
-            WorkspaceChangedEvent(
-                type="workspace_changed",
-                owner_id=ws.owner_id,
-                workspace=ws.name,
-            ).model_dump(),
+        result = await run_sync(
+            note_service.move,
+            note_id,
+            owner_id=ws.owner_id,
+            ws_path=ws.path,
+            folder=folder,
         )
+        await publish_workspace_changed(ws)
         return MovedNoteResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
@@ -377,10 +336,7 @@ def build_crud(
         dowodząc, że wywołujący widział bieżącą wersję przed usunięciem. Przy niezgodności
         zawołaj get_note_history, by doczytać aktualną wersję, i spróbuj ponownie. Max 50
         usunięć na wywołanie."""
-        if not deletes:
-            raise ToolError("deletes nie może być puste.")
-        if len(deletes) > 50:
-            raise ToolError(f"Maksymalnie 50 usunięć na wywołanie (podano {len(deletes)}).")
+        check_batch(deletes, "deletes", "usunięć")
         result = await run_sync(
             note_service.delete_many,
             ws.owner_id,
@@ -390,16 +346,7 @@ def build_crud(
         )
         if not result.get("applied"):
             return DeleteNotesRejected.model_validate(result)
-        await run_sync(
-            event_repo.publish,
-            ws.owner_id,
-            "workspace_changed",
-            WorkspaceChangedEvent(
-                type="workspace_changed",
-                owner_id=ws.owner_id,
-                workspace=ws.name,
-            ).model_dump(),
-        )
+        await publish_workspace_changed(ws)
         return DeleteNotesApplied.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
@@ -541,18 +488,15 @@ def build_crud(
         stringa (refaktor nazwy, weryfikacja "czy fraza gdzieś jeszcze została") —
         search_notes szuka znaczeniowo i nie gwarantuje trafienia literalnego tekstu.
         Przeszukuje surowy plik notatki, łącznie z frontmatter (id/title/tags/daty)."""
-        try:
-            result = await run_sync(
-                note_service.grep,
-                ws.name,
-                ws.path,
-                pattern,
-                folder=folder,
-                case_sensitive=case_sensitive,
-                max_results=max_results,
-            )
-        except ValueError as e:
-            raise ToolError(str(e)) from e
+        result = await run_sync(
+            note_service.grep,
+            ws.name,
+            ws.path,
+            pattern,
+            folder=folder,
+            case_sensitive=case_sensitive,
+            max_results=max_results,
+        )
         return GrepResult(
             matches=[GrepMatch.model_validate(m) for m in result["matches"]],
             truncated=result["truncated"],

@@ -1,7 +1,6 @@
 from typing import Annotated
 
 from fastmcp import FastMCP
-from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
@@ -9,7 +8,6 @@ from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
 from kajet_turbo.mcp.notes.types import StaleVersion, TagItem, TagOperationResult
 from kajet_turbo.mcp.tooling import read_tool, write_tool
-from kajet_turbo.repositories.git import GitError
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -30,10 +28,7 @@ def build_tags(
     ) -> TagOperationResult:
         """Dodaje tagi do frontmattera notatki (idempotentnie), bez ruszania treści.
         Uwaga: rusza tylko tagi z frontmattera; inline #hashtagi siedzą w treści."""
-        try:
-            result = await run_sync(note_service.add_tags, note_id, ws.owner_id, ws.path, tags)
-        except (GitError, ValueError, FileNotFoundError) as e:
-            raise ToolError(str(e)) from e
+        result = await run_sync(note_service.add_tags, note_id, ws.owner_id, ws.path, tags)
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, idempotent=True))
@@ -45,10 +40,7 @@ def build_tags(
     ) -> TagOperationResult:
         """Usuwa tagi z frontmattera notatki (idempotentnie), bez ruszania treści.
         Tag obecny tylko jako inline #hashtag nie zniknie — wróci jako warning."""
-        try:
-            result = await run_sync(note_service.remove_tags, note_id, ws.owner_id, ws.path, tags)
-        except (GitError, ValueError, FileNotFoundError) as e:
-            raise ToolError(str(e)) from e
+        result = await run_sync(note_service.remove_tags, note_id, ws.owner_id, ws.path, tags)
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, destructive=True))
