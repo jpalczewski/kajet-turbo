@@ -22,7 +22,7 @@ from kajet_turbo.dependencies import (
     workspace_service,
 )
 from kajet_turbo.health import add_health_routes
-from kajet_turbo.log import LoggingMiddleware, logger, setup_logging
+from kajet_turbo.log import LoggingMiddleware, install_loop_exception_handler, logger, setup_logging
 from kajet_turbo.mcp import build_mcp
 
 
@@ -75,6 +75,7 @@ async def _logging_lifespan(app: FastAPI):
     # setup_logging() replaces that handler with our _InterceptHandler so
     # FastMCP's internal messages flow through loguru and out as JSONL.
     setup_logging()
+    install_loop_exception_handler()
     gil_enabled = sys._is_gil_enabled() if hasattr(sys, "_is_gil_enabled") else True
     logger.info("runtime", python=sys.version.split()[0], free_threading=not gil_enabled)
     yield
@@ -158,7 +159,14 @@ class _MCPPathFix:
 
 
 def _new_mcp_app() -> Any:
-    mcp = build_mcp(note_service, workspace_service, folder_meta_repo, oauth_repo, active_workspace_repo, provider)
+    mcp = build_mcp(
+        note_service,
+        workspace_service,
+        folder_meta_repo,
+        oauth_repo,
+        active_workspace_repo,
+        provider,
+    )
     return mcp.http_app(path="/")
 
 
@@ -213,7 +221,10 @@ def build_app() -> Any:
     mcp_app = _new_mcp_app()
     app = FastAPI(
         lifespan=combine_lifespans(
-            _app_lifespan, mcp_app.lifespan, _logging_lifespan, _sweep_outbox_lifespan,
+            _app_lifespan,
+            mcp_app.lifespan,
+            _logging_lifespan,
+            _sweep_outbox_lifespan,
             _worker_lifespan,
         )
     )

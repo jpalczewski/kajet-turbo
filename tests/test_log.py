@@ -194,3 +194,67 @@ def test_logging_middleware_logs_failed_health_as_warning(capsys, monkeypatch, t
     assert http_entries[0]["level"] == "warning"
     assert http_entries[0]["path"] == "/readyz"
     assert http_entries[0]["status"] == 503
+
+
+# Stand-in for websockets.exceptions.ConnectionClosedError — matched by class name
+# in _handle_loop_exception, not isinstance, since websockets is only a transitive
+# dependency. Named exactly "ConnectionClosedError" (via type(), not a class
+# statement) so the name-based check in the code under test actually matches.
+_FakeConnectionClosedError = type("ConnectionClosedError", (Exception,), {})
+
+
+def test_handle_loop_exception_downgrades_shielded_connection_closed(capsys):
+    from kajet_turbo.log import _handle_loop_exception, setup_logging
+
+    setup_logging()
+    exc = _FakeConnectionClosedError("sent 1011 (internal error) keepalive ping timeout")
+    context = {"message": "ConnectionClosedError exception in shielded future", "exception": exc}
+    calls = []
+    fake_loop = type(
+        "FakeLoop", (), {"default_exception_handler": lambda self, c: calls.append(c)}
+    )()
+
+    _handle_loop_exception(fake_loop, context)
+
+    assert calls == []
+    captured = capsys.readouterr()
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
+    entry = json.loads(lines[-1])
+    assert entry["msg"] == "ws_shielded_connection_closed"
+    assert entry["level"] == "warning"
+    assert entry["error_type"] == "ConnectionClosedError"
+
+
+def test_handle_loop_exception_delegates_other_exceptions(capsys):
+    from kajet_turbo.log import _handle_loop_exception, setup_logging
+
+    setup_logging()
+    context = {"message": "exception in shielded future", "exception": ValueError("boom")}
+    calls = []
+    fake_loop = type(
+        "FakeLoop", (), {"default_exception_handler": lambda self, c: calls.append(c)}
+    )()
+
+    _handle_loop_exception(fake_loop, context)
+
+    assert calls == [context]
+    captured = capsys.readouterr()
+    assert captured.err.strip() == ""
+
+
+def test_handle_loop_exception_delegates_non_shielded_connection_closed(capsys):
+    from kajet_turbo.log import _handle_loop_exception, setup_logging
+
+    setup_logging()
+    exc = _FakeConnectionClosedError("some other failure, not from asyncio.shield")
+    context = {"message": "Task exception was never retrieved", "exception": exc}
+    calls = []
+    fake_loop = type(
+        "FakeLoop", (), {"default_exception_handler": lambda self, c: calls.append(c)}
+    )()
+
+    _handle_loop_exception(fake_loop, context)
+
+    assert calls == [context]
+    captured = capsys.readouterr()
+    assert captured.err.strip() == ""

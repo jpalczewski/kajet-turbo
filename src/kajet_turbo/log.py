@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 import json
 import logging
@@ -70,6 +71,34 @@ def setup_logging() -> None:
     fastmcp_log.handlers.clear()
     fastmcp_log.addHandler(_InterceptHandler())
     fastmcp_log.propagate = False
+
+
+def _handle_loop_exception(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+    """Downgrade asyncio's own ERROR-level default handler for a ConnectionClosedError
+    surfacing via asyncio.shield() (see asyncio.tasks._log_on_exception) to a warning.
+    This is routine WebSocket keepalive churn — client-side idle-connection reapers,
+    backgrounded mobile clients — not an application bug: by the time the shielded ping
+    task fails, nothing is left awaiting it, so asyncio's default handler logs it at
+    ERROR unconditionally. Every other exception still goes through that default handler,
+    untouched.
+    """
+    exc = context.get("exception")
+    message = context.get("message", "")
+    if (
+        exc is not None
+        and type(exc).__name__ == "ConnectionClosedError"
+        and "shielded future" in message
+    ):
+        logger.warning(
+            "ws_shielded_connection_closed", error_type=type(exc).__name__, error_msg=str(exc)
+        )
+        return
+    loop.default_exception_handler(context)
+
+
+def install_loop_exception_handler() -> None:
+    """Must be called from a running event loop (e.g. an ASGI lifespan)."""
+    asyncio.get_running_loop().set_exception_handler(_handle_loop_exception)
 
 
 def _is_framework_param(param: inspect.Parameter) -> bool:
