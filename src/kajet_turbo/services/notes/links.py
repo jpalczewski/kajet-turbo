@@ -194,8 +194,21 @@ class NoteLinkService:
         Only same-workspace backlinks are rewritten: cross-workspace links use ``[[note:ID]]``
         syntax which is ID-stable and needs no path update.
 
-        Each affected source is committed separately; the link graph edges are unchanged
-        (``target_note_id`` stays the same), so no link-table update is needed.
+        Each affected source is committed separately, via a raw write — deliberately not the
+        full ``NoteService.update()`` pipeline. Four steps ``update()`` runs are skipped here,
+        each for its own reason:
+
+        - ``replace_links``: no-op by construction. A link's graph edge is keyed on
+          ``(source_note_id, target_note_id)``; rewriting the path text doesn't change the
+          target's identity, so the edge is already correct.
+        - ``sync_tags``: the rewrite only touches wikilink path text, never frontmatter tags.
+        - ``write_dangling``: this only rewrites links that already resolved (they're in the
+          link graph in the first place), so no pair moves between resolved/dangling.
+        - Search reindexing (chunks/FTS/embeddings): genuinely skipped, not a no-op. This
+          method has no indexer reference, so a rewritten source note's search index keeps
+          the OLD link text until that note's next real edit or a workspace-wide reindex.
+          Accepted as a cosmetic, self-healing gap — not worth threading an indexer through
+          this call for a stale snippet/chunk-offset window that closes on the next edit.
         """
         source_ids = self._link_repo.backlinks(note_id, same_workspace=ws_name)
         if not source_ids:

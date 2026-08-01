@@ -157,6 +157,28 @@ def test_move_rewrites_backlink_path(service, workspace):
     assert service._link_service._link_repo.backlinks(tid) == [sid]
 
 
+def test_move_rewrite_leaves_source_outlinks_and_dangling_unchanged(database, workspace):
+    """rewrite_backlinks() deliberately skips replace_links/write_dangling for the rewritten
+    source note (see its docstring) — pin that the skip is actually harmless: the source's
+    own outgoing-link graph and dangling-link bookkeeping are unaffected by the move."""
+    svc, dangling = _make_service_with_dangling(
+        database, link_validation_enabled=lambda ws, owner: False
+    )
+    svc.save("u1", "ws", str(workspace), "Target", "t", [], folder="Old")
+    svc.save("u1", "ws", str(workspace), "Ghost link", "irrelevant", [])
+    sid = svc.save("u1", "ws", str(workspace), "Source", "see [[Old/Target|T]] and [[Nope]]", [])[
+        "note_id"
+    ]
+    tid = svc._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
+    outlinks_before = sorted(svc._link_service._link_repo.outlinks(sid))
+    dangling_before = dangling.list_for_workspace("u1", "ws")
+
+    svc.move(tid, owner_id="u1", ws_path=str(workspace), folder="New")
+
+    assert sorted(svc._link_service._link_repo.outlinks(sid)) == outlinks_before
+    assert dangling.list_for_workspace("u1", "ws") == dangling_before
+
+
 def test_rename_via_update_rewrites_backlink(service, workspace):
     tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
     sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
