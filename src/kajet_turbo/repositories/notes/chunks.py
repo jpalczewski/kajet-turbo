@@ -259,10 +259,10 @@ class NoteChunkRepository(DbRepository):
                     ),
                     {"q": query, "ws": workspace, "o": owner_id, "limit": limit},
                 ).fetchall()
-        except Exception:
+        except Exception as e:
             # FTS5 MATCH raises on malformed user query syntax (the common, expected case);
             # log so a genuine DB/table error isn't indistinguishable from "no results".
-            logger.warning("search_fts_failed", workspace=workspace)
+            logger.opt(exception=e).warning("search_fts_failed", workspace=workspace)
             return []
         return [
             {"chunk_id": r._mapping["chunk_id"], **self._chunk_row(r._mapping, None)} for r in rows
@@ -286,11 +286,13 @@ class NoteChunkRepository(DbRepository):
                     ),
                     {"emb": embedding, "k": k, "ws": workspace, "o": owner_id},
                 ).fetchall()
-        except Exception:
+        except Exception as e:
             # The dim-sharded vec table is created lazily at index time; if the user has a
             # backend configured but nothing embedded at this dim yet, the table is absent —
             # degrade to FTS-only rather than crashing the search.
-            logger.warning("search_chunks_vec_failed", workspace=workspace, dim=dim)
+            logger.opt(exception=e).warning(
+                "search_chunks_vec_failed", workspace=workspace, dim=dim
+            )
             return []
         return [
             {"chunk_id": r._mapping["chunk_id"], **self._chunk_row(r._mapping, None)} for r in rows

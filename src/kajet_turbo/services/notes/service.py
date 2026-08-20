@@ -964,8 +964,8 @@ class NoteService:
                         if n["id"]
                     ],
                 )
-            except Exception:
-                logger.warning("reindex_chunk_index_failed", ws=ws_name)
+            except Exception as e:
+                logger.opt(exception=e).warning("reindex_chunk_index_failed", ws=ws_name)
         if self._cache is not None:
             self._cache.bump(ws_name, owner_id)
         logger.info(

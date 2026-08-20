@@ -277,7 +277,10 @@ class GitRepository:
             for entry in walker:
                 return entry.commit.author_time
             return None
-        except Exception:
+        except Exception as e:
+            logger.opt(exception=e).warning(
+                "last_commit_time_failed", workspace=self._workspace_path
+            )
             return None
 
     def file_history(self, relative_path: str, limit: int = 50) -> list[dict]:

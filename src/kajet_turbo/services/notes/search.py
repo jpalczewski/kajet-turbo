@@ -52,8 +52,8 @@ class NoteSearchService:
                 vec = self._embed_query(cfg, query)
                 embedding = pack_vector(vec)
                 dim = cfg.dim
-            except Exception:
-                logger.warning("search_embed_failed", backend=cfg.backend_id)
+            except Exception as e:
+                logger.opt(exception=e).warning("search_embed_failed", backend=cfg.backend_id)
         return self._execute(key, query, workspaces, owner_id, limit, folder, tags, embedding, dim)
 
     async def search_async(
@@ -85,8 +85,8 @@ class NoteSearchService:
                 vec = await self._embed_query_async(cfg, query)
                 embedding = pack_vector(vec)
                 dim = cfg.dim
-            except Exception:
-                logger.warning("search_embed_failed", backend=cfg.backend_id)
+            except Exception as e:
+                logger.opt(exception=e).warning("search_embed_failed", backend=cfg.backend_id)
         return await run_sync(
             self._execute, key, query, workspaces, owner_id, limit, folder, tags, embedding, dim
         )
@@ -109,7 +109,8 @@ class NoteSearchService:
         if self._query_resolver is not None:
             try:
                 cfg = self._query_resolver(owner_id)
-            except Exception:
+            except Exception as e:
+                logger.opt(exception=e).warning("search_resolve_failed", owner_id=owner_id)
                 cfg = None
         # An active profile (even keyless — a local/no-auth endpoint) drives vector search.
         embeddable = cfg is not None

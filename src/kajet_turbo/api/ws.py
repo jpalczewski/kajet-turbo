@@ -41,8 +41,8 @@ async def ws_endpoint(
             await asyncio.sleep(2.0)
             try:
                 events = await run_sync(event_repo.claim, user["id"], _WS_KINDS)
-            except Exception:
-                logger.warning("ws_claim_error", user_id=user["id"])
+            except Exception as e:
+                logger.opt(exception=e).warning("ws_claim_error", user_id=user["id"])
                 continue
             for event in events:
                 await websocket.send_json(json.loads(event.payload))

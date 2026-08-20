@@ -61,8 +61,8 @@ class NoteIndexer:
         # local/no-auth endpoint and DOES embed — the adapter omits the auth header.
         try:
             return self._resolve_backend(owner_id)
-        except Exception:
-            logger.warning("index_resolve_failed", owner_id=owner_id)
+        except Exception as e:
+            logger.opt(exception=e).warning("index_resolve_failed", owner_id=owner_id)
             return None
 
     def preview(self, title: str, content: str, owner_id: str) -> list[dict]:
@@ -117,8 +117,8 @@ class NoteIndexer:
                 if has_chunks and embeddable:
                     assert self._enqueue_embed is not None  # narrowed by `embeddable`
                     self._enqueue_embed(note_id, workspace, owner_id)
-            except Exception:
-                logger.warning("reindex_note_failed", note_id=note.get("id"))
+            except Exception as e:
+                logger.opt(exception=e).warning("reindex_note_failed", note_id=note.get("id"))
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             list(pool.map(_one, notes))
