@@ -273,7 +273,15 @@ class NoteService:
             "updated_at": note.updated_at,
         }
 
-    def get_with_content(self, note_id: str, owner_id: str, ws_path: str) -> NoteData | None:
+    def get_with_content(
+        self,
+        note_id: str,
+        owner_id: str,
+        ws_path: str,
+        git_repo: GitRepository | None = None,
+    ) -> NoteData | None:
+        """``git_repo`` lets batch callers (get_many) reuse one open repo across
+        N reads instead of re-opening the workspace per note; ``None`` opens it here."""
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
             return None
@@ -282,7 +290,8 @@ class NoteService:
             return None
         note_data = read_note_file(filepath)
         relative = str(Path(filepath).relative_to(ws_path))
-        history = GitRepository(ws_path).file_history(relative, limit=1)
+        repo = git_repo if git_repo is not None else GitRepository(ws_path)
+        history = repo.file_history(relative, limit=1)
         if not history:
             raise ValueError(f"Notatka {note_id} nie ma historii commitów (niespójny stan repo).")
         return NoteData(
@@ -368,9 +377,10 @@ class NoteService:
     def get_many(self, note_ids: list[str], owner_id: str, ws_path: str) -> list[NoteData | dict]:
         """Read multiple notes in one call. Best-effort per id: a missing note becomes
         {"note_id": ..., "error": ...} instead of failing the whole call. Order-preserving."""
+        git_repo = GitRepository(ws_path)
         results: list[NoteData | dict] = []
         for note_id in note_ids:
-            data = self.get_with_content(note_id, owner_id, ws_path)
+            data = self.get_with_content(note_id, owner_id, ws_path, git_repo=git_repo)
             if data is None:
                 results.append({"note_id": note_id, "error": f"Notatka {note_id} nie znaleziona."})
             else:
@@ -597,6 +607,9 @@ class NoteService:
         if not edits:
             raise ValueError("Batch edycji nie może być pusty.")
 
+        # One open repo for the whole batch: staleness checks during validation and
+        # the single atomic commit afterwards, instead of re-opening per item.
+        git_repo = GitRepository(ws_path)
         seen_ids: set[str] = set()
         errors: list[dict] = []
         prepared: list[dict] = []
@@ -644,7 +657,7 @@ class NoteService:
                     {"index": index, "note_id": note_id, "error": "expected_sha jest wymagany."}
                 )
                 continue
-            if not sha_is_fresh(current_head_sha(ws_path, relative), expected_sha):
+            if not sha_is_fresh(current_head_sha(ws_path, relative, git_repo), expected_sha):
                 errors.append({"index": index, "note_id": note_id, "error": stale_error(note_id)})
                 continue
             note_data = read_note_file(filepath)
@@ -707,7 +720,7 @@ class NoteService:
             )
         try:
             n = len(prepared)
-            GitRepository(ws_path).commit_files(
+            git_repo.commit_files(
                 [p["relative"] for p in prepared], f"note: edit {n} note{'' if n == 1 else 's'}"
             )
         except GitError:
@@ -807,6 +820,9 @@ class NoteService:
         if not deletes:
             raise ValueError("Batch usuwania nie może być pusty.")
 
+        # One open repo for the whole batch: staleness checks during validation and
+        # the single atomic commit afterwards, instead of re-opening per item.
+        git_repo = GitRepository(ws_path)
         seen_ids: set[str] = set()
         errors: list[dict] = []
         prepared: list[dict] = []
@@ -854,7 +870,7 @@ class NoteService:
                     {"index": index, "note_id": note_id, "error": "expected_sha jest wymagany."}
                 )
                 continue
-            if not sha_is_fresh(current_head_sha(ws_path, relative), expected_sha):
+            if not sha_is_fresh(current_head_sha(ws_path, relative, git_repo), expected_sha):
                 errors.append({"index": index, "note_id": note_id, "error": stale_error(note_id)})
                 continue
             prepared.append(
@@ -865,7 +881,7 @@ class NoteService:
             return {"applied": False, "errors": errors}
 
         n = len(prepared)
-        GitRepository(ws_path).delete_files(
+        git_repo.delete_files(
             [p["relative"] for p in prepared], f"note: delete {n} note{'' if n == 1 else 's'}"
         )
 

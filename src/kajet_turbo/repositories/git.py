@@ -106,7 +106,12 @@ class GitRepository:
     def __init__(self, workspace_path: str) -> None:
         self._workspace_path = workspace_path
         try:
-            Repo(workspace_path)
+            # Opened once and reused by the read methods below. Reuse is safe for
+            # freshness: dulwich reads refs from disk on each access and discovers
+            # new loose/pack objects on cache miss, so commits made after
+            # construction are still visible. Batch callers (get_many, edit_many,
+            # delete_many) rely on this — one open per batch, not per note.
+            self._repo = Repo(workspace_path)
         except (NotGitRepository, Exception) as e:
             raise GitError(str(e)) from e
 
@@ -272,8 +277,7 @@ class GitRepository:
 
     def last_commit_time(self) -> int | None:
         try:
-            repo = Repo(self._workspace_path)
-            walker = repo.get_walker(max_entries=1)
+            walker = self._repo.get_walker(max_entries=1)
             for entry in walker:
                 return entry.commit.author_time
             return None
@@ -285,8 +289,7 @@ class GitRepository:
 
     def file_history(self, relative_path: str, limit: int = 50) -> list[dict]:
         try:
-            repo = Repo(self._workspace_path)
-            walker = repo.get_walker(paths=[relative_path.encode()], max_entries=limit)
+            walker = self._repo.get_walker(paths=[relative_path.encode()], max_entries=limit)
             return [
                 {
                     "sha": entry.commit.id.decode("ascii"),
@@ -302,7 +305,7 @@ class GitRepository:
 
     def file_content_at_commit(self, relative_path: str, sha: str) -> str:
         try:
-            repo = Repo(self._workspace_path)
+            repo = self._repo
             commit = repo[sha.encode("ascii")]
             # repo[<commit sha>] yields a Commit; anything else is a bad sha
             # and surfaces as GitError via the except below.
