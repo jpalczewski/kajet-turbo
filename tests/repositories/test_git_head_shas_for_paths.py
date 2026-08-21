@@ -8,16 +8,9 @@ in matching logic (not just a wrong answer) gets caught.
 from pathlib import Path
 from unittest import mock
 
-import pytest
 from dulwich.walk import WalkEntry
 
 from kajet_turbo.repositories.git import GitRepository
-
-
-@pytest.fixture
-def git_ws(tmp_path, git_workspace_factory):
-    git_workspace_factory(".")
-    return GitRepository(str(tmp_path))
 
 
 def _expected(git_ws: GitRepository, paths: list[str]) -> dict[str, str | None]:
@@ -133,7 +126,7 @@ def test_parity_prefix_named_siblings_do_not_cross_contaminate(git_ws, tmp_path)
     """A path that is a string-prefix of another must not steal its match. This is
     the reachable slice of the file<->directory-prefix concern: two notes whose
     relatives share a leading run of bytes ("a.md" vs "ab.md") or where one sits in
-    a folder whose name starts like another note ("a.md" vs "a/b.md"). _pop_matching
+    a folder whose name starts like another note ("a.md" vs "a/b.md"). _matching_followed
     replicates dulwich's directory-boundary rule (prefix match only at a "/" edge),
     so none of these collide. A naive startswith without the boundary byte would
     mis-assign "ab.md"'s history to "a.md" and this parity check would catch it.
@@ -203,7 +196,7 @@ def test_early_exit_stops_walk_once_all_paths_resolved(git_ws, tmp_path):
     filler commits sits behind them. A working early exit never looks past the
     targets. Without it, the walk would inspect every filler commit too.
     """
-    FILLER_COUNT = 200
+    FILLER_COUNT = 60
     (tmp_path / "filler.md").write_text("filler v0")
     git_ws.commit_file("filler.md", "note: add filler")
     for i in range(FILLER_COUNT):
@@ -233,7 +226,7 @@ def test_early_exit_stops_walk_once_all_paths_resolved(git_ws, tmp_path):
 
     assert result == expected
     # a.md (HEAD) then 8 filler + b.md ≈ 10 commits to resolve both. A regression to
-    # walking the full history would visit FILLER_COUNT + 10 ≈ 210 — the gap between
+    # walking the full history would visit FILLER_COUNT + 10 ≈ 70 — the gap between
     # these two numbers is wide enough that this threshold is not flaky.
     assert len(visited) <= 15, (
         f"walked {len(visited)} commits to resolve 2 shallow paths — "

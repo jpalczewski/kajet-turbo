@@ -16,8 +16,7 @@ def current_head_sha(
     """``git_repo`` lets batch callers reuse one open repo across N checks
     instead of re-opening the workspace per item; ``None`` opens it here."""
     repo = git_repo if git_repo is not None else GitRepository(ws_path)
-    history = repo.file_history(relative, limit=1)
-    return history[0]["sha"] if history else None
+    return repo.head_shas_for_paths([relative])[relative]
 
 
 def sha_is_fresh(current_sha: str | None, expected_sha: str | None) -> bool:

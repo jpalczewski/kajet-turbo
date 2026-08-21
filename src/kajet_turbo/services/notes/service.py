@@ -88,10 +88,8 @@ class NoteService:
         # shared engine for cross-repo atomic transactions (reindex)
         self._engine = crud_repo._engine if crud_repo is not None else None
 
-    def _locate(self, note_id: str, owner_id: str, ws_path: str) -> _LocatedNote | None:
-        note = self._crud_repo.get(note_id, owner_id=owner_id)
-        if note is None:
-            return None
+    @staticmethod
+    def _to_located(note: Note, ws_path: str) -> _LocatedNote:
         filepath = note_filepath(ws_path, note.folder, note.title)
         return _LocatedNote(
             note=note,
@@ -100,29 +98,31 @@ class NoteService:
             file_exists=Path(filepath).exists(),
         )
 
+    def _locate(self, note_id: str, owner_id: str, ws_path: str) -> _LocatedNote | None:
+        note = self._crud_repo.get(note_id, owner_id=owner_id)
+        if note is None:
+            return None
+        return self._to_located(note, ws_path)
+
     def _locate_batch(
         self, note_ids: list[str], owner_id: str, ws_path: str, git_repo: GitRepository
     ) -> tuple[dict[str, _LocatedNote], dict[str, str | None]]:
         """Resolve every note in a batch and compute all head shas in ONE git walk,
-        before per-item validation. Only paths that exist on disk enter the walk —
-        a nonexistent file has no sha to resolve and would force a full-history
-        walk with no early exit.
+        before per-item validation. One DB query for all rows, one git walk for all
+        head shas, instead of N of each. Only paths that exist on disk enter the
+        walk — a nonexistent file has no sha to resolve and would force a
+        full-history walk with no early exit.
 
-        DB row and Path.exists() are read once here instead of per-item inside the
+        DB rows and Path.exists() are read once here instead of per-item inside the
         validation loop, which shifts the TOCTOU window slightly relative to a
         concurrent write landing mid-batch. This is a conscious, acceptable change:
         the sha-freshness check was already advisory outside the workspace lock
         (a commit only takes the lock in commit_files/delete_files), so the class of
         guarantee callers get is unchanged — only the window's exact size shifts.
         """
-        located: dict[str, _LocatedNote] = {}
-        for raw_id in note_ids:
-            note_id = raw_id.strip()
-            if not note_id or note_id in located:
-                continue
-            loc = self._locate(note_id, owner_id, ws_path)
-            if loc is not None:
-                located[note_id] = loc
+        stripped_ids = [n for raw_id in note_ids if (n := raw_id.strip())]
+        notes = self._crud_repo.get_many(stripped_ids, owner_id)
+        located = {note.id: self._to_located(note, ws_path) for note in notes}
         head_shas = git_repo.head_shas_for_paths(
             [loc.relative for loc in located.values() if loc.file_exists]
         )
@@ -343,22 +343,13 @@ class NoteService:
             "updated_at": note.updated_at,
         }
 
-    def get_with_content(
-        self,
-        note_id: str,
-        owner_id: str,
-        ws_path: str,
-        git_repo: GitRepository | None = None,
-    ) -> NoteData | None:
-        """Single-note read: ``file_history(limit=1)`` on one path. ``git_repo`` lets
-        callers reuse an already-open repo; ``None`` opens it here. Batch reads go
-        through ``get_many``/``_locate_batch`` instead — a shared walk beats N of these."""
+    def get_with_content(self, note_id: str, owner_id: str, ws_path: str) -> NoteData | None:
+        """Single-note read. Batch reads go through ``get_many``/``_locate_batch``
+        instead — a shared git walk beats N of these."""
         loc = self._locate(note_id, owner_id, ws_path)
         if loc is None or not loc.file_exists:
             return None
-        repo = git_repo if git_repo is not None else GitRepository(ws_path)
-        history = repo.file_history(loc.relative, limit=1)
-        return self._note_data(loc, history[0]["sha"] if history else None)
+        return self._note_data(loc, current_head_sha(ws_path, loc.relative))
 
     def get_outline(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
         """Note structure (headings + section sizes) without content — for picking a
@@ -433,10 +424,10 @@ class NoteService:
         All head shas come from ONE shared git walk (head_shas_for_paths) instead of a
         per-note history walk — cost is the deepest note's history, not the sum."""
         git_repo = GitRepository(ws_path)
-        located, head_shas = self._locate_batch(list(note_ids), owner_id, ws_path, git_repo)
+        located, head_shas = self._locate_batch(note_ids, owner_id, ws_path, git_repo)
         results: list[NoteData | dict] = []
         for note_id in note_ids:
-            loc = located.get(str(note_id).strip())
+            loc = located.get(note_id.strip())
             if loc is None or not loc.file_exists:
                 results.append({"note_id": note_id, "error": f"Notatka {note_id} nie znaleziona."})
             else:
@@ -666,14 +657,12 @@ class NoteService:
         # One open repo for the whole batch: staleness checks during validation and
         # the single atomic commit afterwards, instead of re-opening per item.
         git_repo = GitRepository(ws_path)
-        located, head_shas = self._locate_batch(
-            [str(raw.get("note_id", "")).strip() for raw in edits], user_id, ws_path, git_repo
-        )
+        note_ids = [str(raw.get("note_id", "")).strip() for raw in edits]
+        located, head_shas = self._locate_batch(note_ids, user_id, ws_path, git_repo)
         seen_ids: set[str] = set()
         errors: list[dict] = []
         prepared: list[dict] = []
-        for index, raw in enumerate(edits):
-            note_id = str(raw.get("note_id", "")).strip()
+        for index, (raw, note_id) in enumerate(zip(edits, note_ids, strict=True)):
             if not note_id:
                 errors.append(
                     {"index": index, "note_id": note_id, "error": "note_id jest wymagany."}
@@ -708,19 +697,16 @@ class NoteService:
                     }
                 )
                 continue
-            note = loc.note
-            filepath = loc.filepath
-            relative = loc.relative
             expected_sha = str(raw.get("expected_sha", "")).strip()
             if not expected_sha:
                 errors.append(
                     {"index": index, "note_id": note_id, "error": "expected_sha jest wymagany."}
                 )
                 continue
-            if not sha_is_fresh(head_shas.get(relative), expected_sha):
+            if not sha_is_fresh(head_shas.get(loc.relative), expected_sha):
                 errors.append({"index": index, "note_id": note_id, "error": stale_error(note_id)})
                 continue
-            note_data = read_note_file(filepath)
+            note_data = read_note_file(loc.filepath)
             old_content = note_data["content"]
             mode = raw.get("mode", "append")
             content = raw.get("content", "")
@@ -751,9 +737,9 @@ class NoteService:
                 {
                     "index": index,
                     "note_id": note_id,
-                    "note": note,
-                    "filepath": filepath,
-                    "relative": relative,
+                    "note": loc.note,
+                    "filepath": loc.filepath,
+                    "relative": loc.relative,
                     "old_content": old_content,
                     "old_tags": current_tags,
                     "new_content": new_content,
@@ -883,14 +869,12 @@ class NoteService:
         # One open repo for the whole batch: staleness checks during validation and
         # the single atomic commit afterwards, instead of re-opening per item.
         git_repo = GitRepository(ws_path)
-        located, head_shas = self._locate_batch(
-            [str(raw.get("note_id", "")).strip() for raw in deletes], user_id, ws_path, git_repo
-        )
+        note_ids = [str(raw.get("note_id", "")).strip() for raw in deletes]
+        located, head_shas = self._locate_batch(note_ids, user_id, ws_path, git_repo)
         seen_ids: set[str] = set()
         errors: list[dict] = []
         prepared: list[dict] = []
-        for index, raw in enumerate(deletes):
-            note_id = str(raw.get("note_id", "")).strip()
+        for index, (raw, note_id) in enumerate(zip(deletes, note_ids, strict=True)):
             if not note_id:
                 errors.append(
                     {"index": index, "note_id": note_id, "error": "note_id jest wymagany."}
@@ -925,18 +909,17 @@ class NoteService:
                     }
                 )
                 continue
-            relative = loc.relative
             expected_sha = str(raw.get("expected_sha", "")).strip()
             if not expected_sha:
                 errors.append(
                     {"index": index, "note_id": note_id, "error": "expected_sha jest wymagany."}
                 )
                 continue
-            if not sha_is_fresh(head_shas.get(relative), expected_sha):
+            if not sha_is_fresh(head_shas.get(loc.relative), expected_sha):
                 errors.append({"index": index, "note_id": note_id, "error": stale_error(note_id)})
                 continue
             prepared.append(
-                {"index": index, "note_id": note_id, "note": loc.note, "relative": relative}
+                {"index": index, "note_id": note_id, "note": loc.note, "relative": loc.relative}
             )
 
         if errors:

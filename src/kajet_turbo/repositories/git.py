@@ -313,9 +313,9 @@ class GitRepository:
             return None
 
     def file_history(self, relative_path: str, limit: int = 50) -> list[dict]:
-        return self.file_histories([relative_path], limit).get(relative_path, [])
+        return self.file_histories([relative_path], limit)[relative_path]
 
-    def file_histories(self, relative_paths: list[str], limit: int = 1) -> dict[str, list[dict]]:
+    def file_histories(self, relative_paths: list[str], limit: int) -> dict[str, list[dict]]:
         """Up to ``limit`` newest history entries per path, resolved in ONE walk.
 
         Semantically identical to {p: file_history(p, limit)} run independently —
@@ -327,7 +327,10 @@ class GitRepository:
         it, an exhausted path stops being followed, and the walk stops as soon as
         every budget hits zero. No global max_entries cap — a capped shared walk
         could return fewer entries than the per-path walk would, changing
-        semantics. Paths never touched by any commit map to [].
+        semantics. Paths never touched by any commit map to []. ``limit`` has no
+        default: this is the shared mechanism behind both file_history (default
+        50) and head_shas_for_paths (always 1) — a default here would just be
+        one wrapper's preference leaking into the general primitive.
         """
         result: dict[str, list[dict]] = {p: [] for p in relative_paths}
         by_bytes = {p.encode(): p for p in relative_paths}
@@ -339,23 +342,26 @@ class GitRepository:
             for entry in walker:
                 # A commit is one history entry per matched path no matter how
                 # many of its changes touch that path (e.g. a modify carries the
-                # path in both change.new and change.old) — collect the matched
-                # set first, then credit each path once.
+                # same path in both change.new and change.old) — collect the
+                # distinct changed paths first, so a modify only gets matched once.
+                changed_paths = {
+                    tree_entry.path
+                    for change in _flat_changes(entry)
+                    for tree_entry in (change.new, change.old)
+                    if tree_entry is not None
+                }
                 matched: set[bytes] = set()
-                for change in _flat_changes(entry):
-                    for tree_entry in (change.new, change.old):
-                        if tree_entry is not None:
-                            matched.update(_matching_followed(remaining, tree_entry.path))
+                for changed_path in changed_paths:
+                    matched.update(_matching_followed(remaining, changed_path))
+                if not matched:
+                    continue
+                history_entry = {
+                    "sha": entry.commit.id.decode("ascii"),
+                    "message": entry.commit.message.decode("utf-8", errors="replace").strip(),
+                    "timestamp": entry.commit.author_time,
+                }
                 for followed in matched:
-                    result[by_bytes[followed]].append(
-                        {
-                            "sha": entry.commit.id.decode("ascii"),
-                            "message": entry.commit.message.decode(
-                                "utf-8", errors="replace"
-                            ).strip(),
-                            "timestamp": entry.commit.author_time,
-                        }
-                    )
+                    result[by_bytes[followed]].append(history_entry)
                     remaining[followed] -= 1
                     if remaining[followed] == 0:
                         del remaining[followed]

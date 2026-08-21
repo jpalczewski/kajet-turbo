@@ -4,16 +4,6 @@ file_history(p, limit) calls. head_shas_for_paths and file_history are thin
 wrappers over it, so this file pins the generalized per-path-countdown walk
 directly — interleaved histories, per-path limits, and entry shape."""
 
-import pytest
-
-from kajet_turbo.repositories.git import GitRepository
-
-
-@pytest.fixture
-def git_ws(tmp_path, git_workspace_factory):
-    git_workspace_factory(".")
-    return GitRepository(str(tmp_path))
-
 
 def test_limit_two_returns_each_paths_two_newest_without_cross_mixing(git_ws, tmp_path):
     # Interleave commits to a.md and b.md so a walk that mis-assigns matches or
