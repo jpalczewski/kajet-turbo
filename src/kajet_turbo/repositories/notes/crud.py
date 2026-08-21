@@ -65,6 +65,15 @@ class NoteRepository(DbRepository):
                 q = q.where(Note.owner_id == owner_id)
             return session.exec(q).first()
 
+    def get_many(self, note_ids: list[str], owner_id: str) -> list[Note]:
+        """Batch of ``get`` for many ids in one query. Missing ids are simply
+        absent from the result — callers already handle that shape from ``get``."""
+        if not note_ids:
+            return []
+        with self.timed_session() as session:
+            q = select(Note).where(col(Note.id).in_(note_ids), Note.owner_id == owner_id)
+            return list(session.exec(q).all())
+
     def get_by_path(self, workspace: str, owner_id: str, folder: str, title: str) -> Note | None:
         """Resolve a note by its workspace-relative (folder, title) natural key."""
         with self.timed_session() as session:
