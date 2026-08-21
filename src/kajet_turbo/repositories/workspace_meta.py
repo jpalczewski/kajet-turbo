@@ -104,6 +104,14 @@ class WorkspaceMetaRepository:
             ).first()
         return row.settings if row else None
 
+    def delete(self, user_id: str, workspace: str) -> None:
+        with Session(self._engine) as session:
+            row = session.get(WorkspaceMeta, (user_id, workspace))
+            if row is None:
+                return
+            session.delete(row)
+            session.commit()
+
     def set_settings(self, user_id: str, workspace: str, settings_json: str) -> None:
         now = datetime.now(UTC).isoformat()
         with Session(self._engine) as session:

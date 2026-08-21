@@ -5,12 +5,18 @@ import pytest
 
 from kajet_turbo.db import Database
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
+from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
+from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
+from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
     NoteRepository,
     NoteTagRepository,
 )
+from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
+from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
+from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import (
     NoteFolderService,
@@ -20,6 +26,7 @@ from kajet_turbo.services.notes import (
     NoteTagService,
     NoteVersionService,
 )
+from kajet_turbo.services.workspaces import WorkspaceService
 
 
 def build_note_service(
@@ -68,6 +75,24 @@ def build_note_service(
         version_service,
         folder_service,
         indexer=indexer,
+        cache=cache,
+    )
+
+
+def build_workspace_service(database: Database, *, cache=None) -> WorkspaceService:
+    """Construct a fully-wired WorkspaceService from a Database for tests."""
+    engine = database.engine
+    return WorkspaceService(
+        WorkspaceRepository(engine),
+        NoteRepository(engine),
+        WorkspaceMetaRepository(engine),
+        NoteLinkRepository(engine),
+        NoteTagRepository(engine),
+        NoteChunkRepository(engine),
+        DanglingLinkRepository(engine),
+        FolderMetaRepository(engine),
+        WorkspaceRemoteRepository(engine),
+        ActiveWorkspaceRepository(engine),
         cache=cache,
     )
 

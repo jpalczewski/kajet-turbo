@@ -62,6 +62,10 @@ export interface DeleteNoteResponse {
   ok: boolean;
 }
 
+export interface DeleteWorkspaceResponse {
+  name: string;
+}
+
 export interface EmbeddingProfileItem {
   id: string;
   name: string;
@@ -724,6 +728,59 @@ export const apiUpdateWorkspaceApiWorkspacesNamePatch = async (name: string, opt
   {
     ...options,
     method: 'PATCH'
+
+
+  }
+);}
+
+
+
+export type apiDeleteWorkspaceApiWorkspacesNameDeleteResponse200 = {
+  data: DeleteWorkspaceResponse
+  status: 200
+}
+
+export type apiDeleteWorkspaceApiWorkspacesNameDeleteResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiDeleteWorkspaceApiWorkspacesNameDeleteResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiDeleteWorkspaceApiWorkspacesNameDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiDeleteWorkspaceApiWorkspacesNameDeleteResponseSuccess = (apiDeleteWorkspaceApiWorkspacesNameDeleteResponse200) & {
+  headers: Headers;
+};
+export type apiDeleteWorkspaceApiWorkspacesNameDeleteResponseError = (apiDeleteWorkspaceApiWorkspacesNameDeleteResponse401 | apiDeleteWorkspaceApiWorkspacesNameDeleteResponse403 | apiDeleteWorkspaceApiWorkspacesNameDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type apiDeleteWorkspaceApiWorkspacesNameDeleteResponse = (apiDeleteWorkspaceApiWorkspacesNameDeleteResponseSuccess | apiDeleteWorkspaceApiWorkspacesNameDeleteResponseError)
+
+export const getApiDeleteWorkspaceApiWorkspacesNameDeleteUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}`
+}
+
+/**
+ * @summary Api Delete Workspace
+ */
+export const apiDeleteWorkspaceApiWorkspacesNameDelete = async (name: string, options?: RequestInit): Promise<apiDeleteWorkspaceApiWorkspacesNameDeleteResponse> => {
+
+  return customFetch<apiDeleteWorkspaceApiWorkspacesNameDeleteResponse>(getApiDeleteWorkspaceApiWorkspacesNameDeleteUrl(name),
+  {
+    ...options,
+    method: 'DELETE'
 
 
   }

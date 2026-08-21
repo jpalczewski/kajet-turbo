@@ -23,3 +23,7 @@ class UpdateWorkspaceResponse(BaseModel):
     description: str
     folder: str
     tags: list[str]
+
+
+class DeleteWorkspaceResponse(BaseModel):
+    name: str

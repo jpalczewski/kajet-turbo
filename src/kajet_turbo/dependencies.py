@@ -122,7 +122,6 @@ embed_handler = EmbedNoteHandler(
 _query_cache = QueryEmbeddingCache()
 
 workspace_meta_repo = WorkspaceMetaRepository(db.engine)
-workspace_service = WorkspaceService(workspace_repo, note_repo, workspace_meta_repo)
 dangling_repo = DanglingLinkRepository(db.engine)
 
 _cache = WorkspaceCache() if cache_enabled() else None
@@ -166,6 +165,19 @@ _ssh_key_repo = SshKeyRepository(db.engine)
 ssh_key_service = SshKeyService(_ssh_key_repo, lambda: cipher_for("ssh-key"))
 
 workspace_remote_repo = WorkspaceRemoteRepository(db.engine)
+workspace_service = WorkspaceService(
+    workspace_repo,
+    note_repo,
+    workspace_meta_repo,
+    note_link_repo,
+    note_tag_repo,
+    note_chunk_repo,
+    dangling_repo,
+    folder_meta_repo,
+    workspace_remote_repo,
+    active_workspace_repo,
+    cache=_cache,
+)
 push_handler = PushHandler(
     workspace_remote_repo,
     _ssh_key_repo,

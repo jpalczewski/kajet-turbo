@@ -83,3 +83,13 @@ class DanglingLinkRepository:
                 delete(DanglingLink).where(col(DanglingLink.source_note_id) == source_note_id)
             )
             session.commit()
+
+    def delete_for_workspace(self, owner_id: str, workspace: str) -> None:
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+                delete(DanglingLink).where(
+                    col(DanglingLink.owner_id) == owner_id,
+                    col(DanglingLink.workspace) == workspace,
+                )
+            )
+            session.commit()

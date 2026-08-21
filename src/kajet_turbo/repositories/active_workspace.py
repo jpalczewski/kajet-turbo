@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Engine
-from sqlmodel import Session, select
+from sqlalchemy import Engine, delete
+from sqlmodel import Session, col, select
 
 from kajet_turbo.models import ActiveWorkspace
 
@@ -52,3 +52,14 @@ class ActiveWorkspaceRepository:
         ):
             return None
         return row.workspace
+
+    def delete_for_workspace(self, user_id: str, workspace: str) -> None:
+        """Clear any active-workspace pointer (any scope) for a deleted workspace."""
+        with Session(self._engine) as session:
+            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+                delete(ActiveWorkspace).where(
+                    col(ActiveWorkspace.user_id) == user_id,
+                    col(ActiveWorkspace.workspace) == workspace,
+                )
+            )
+            session.commit()

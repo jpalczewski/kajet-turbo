@@ -10,6 +10,8 @@
     confirmVariant,
     onconfirm,
     trigger,
+    confirmText,
+    confirmTextLabel,
   }: {
     title: string;
     message: string;
@@ -17,10 +19,18 @@
     confirmVariant: 'primary' | 'danger';
     onconfirm: () => Promise<void>;
     trigger: Snippet<[{ open: () => void }]>;
+    /** When set, the confirm button stays disabled until the user types this
+     * value exactly — a GitHub-style safeguard for high-blast-radius actions. */
+    confirmText?: string;
+    confirmTextLabel?: string;
   } = $props();
 
   let modal: Modal;
   const action = useAsyncAction();
+  let typedText = $state('');
+  const confirmDisabled = $derived(
+    action.busy || (confirmText !== undefined && typedText !== confirmText),
+  );
 
   async function handleConfirm() {
     await action.run(async () => {
@@ -37,9 +47,23 @@
   {title}
   onclose={() => {
     action.clearError();
+    typedText = '';
   }}
 >
   <p class="message">{message}</p>
+  {#if confirmText !== undefined}
+    <label class="confirm-text">
+      {#if confirmTextLabel}<span class="confirm-text__label">{confirmTextLabel}</span>{/if}
+      <input
+        type="text"
+        bind:value={typedText}
+        placeholder={confirmText}
+        autocomplete="off"
+        spellcheck="false"
+        disabled={action.busy}
+      />
+    </label>
+  {/if}
   {#if action.error}
     <p class="error">{action.error}</p>
   {/if}
@@ -47,7 +71,7 @@
     <button class="btn btn--secondary" onclick={() => modal.close()} disabled={action.busy}>
       Anuluj
     </button>
-    <button class="btn btn--{confirmVariant}" onclick={handleConfirm} disabled={action.busy}>
+    <button class="btn btn--{confirmVariant}" onclick={handleConfirm} disabled={confirmDisabled}>
       {action.busy ? '…' : confirmLabel}
     </button>
   {/snippet}
@@ -61,6 +85,44 @@
     font-family: v.$font-mono;
     font-size: 0.85rem;
     color: v.$text-secondary;
+  }
+
+  .confirm-text {
+    display: flex;
+    flex-direction: column;
+    gap: v.$space-xs;
+
+    &__label {
+      font-family: v.$font-mono;
+      font-size: 0.78rem;
+      color: v.$text-secondary;
+    }
+
+    input {
+      padding: 9px 12px;
+      background: v.$bg-surface;
+      border: 1px solid v.$border;
+      border-radius: v.$radius-md;
+      color: v.$text-primary;
+      font-size: 0.9rem;
+      font-family: v.$font-mono;
+      transition:
+        border-color 0.15s,
+        box-shadow 0.15s;
+
+      &:focus {
+        outline: none;
+        border-color: v.$accent;
+        box-shadow: 0 0 0 2px rgba(240, 184, 0, 0.12);
+      }
+
+      &::placeholder {
+        color: v.$text-muted;
+      }
+      &:disabled {
+        opacity: 0.5;
+      }
+    }
   }
 
   .error {

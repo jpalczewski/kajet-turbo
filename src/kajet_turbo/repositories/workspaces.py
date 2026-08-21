@@ -21,6 +21,19 @@ class WorkspaceRepository:
             session.add(WorkspaceAccess(user_id=user_id, workspace=workspace, role=role))
             session.commit()
 
+    def revoke_access(self, user_id: str, workspace: str) -> None:
+        with Session(self._engine) as session:
+            row = session.exec(
+                select(WorkspaceAccess).where(
+                    WorkspaceAccess.user_id == user_id,
+                    WorkspaceAccess.workspace == workspace,
+                )
+            ).first()
+            if row is None:
+                return
+            session.delete(row)
+            session.commit()
+
     def list_user_workspaces(self, user_id: str) -> list[str]:
         with Session(self._engine) as session:
             rows = session.exec(

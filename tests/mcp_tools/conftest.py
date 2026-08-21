@@ -35,8 +35,11 @@ class McpTestContext:
 
 
 def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestContext:
+    from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
     from kajet_turbo.repositories.folder_meta import FolderMetaRepository
     from kajet_turbo.repositories.notes import NoteChunkRepository as _NoteChunkRepo
+    from kajet_turbo.repositories.notes import NoteLinkRepository, NoteTagRepository
+    from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
     from tests.services.conftest import build_note_service
 
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
@@ -46,6 +49,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
     oauth_repository = OAuthRepository(database.engine)
     provider = create_auth(oauth_repository)
     note_chunk_repository = _NoteChunkRepo(database.engine)
+    folder_meta_repository = FolderMetaRepository(database.engine)
     indexer = NoteIndexer(
         note_chunk_repository,
         EmbeddingCacheRepository(database.engine),
@@ -55,9 +59,18 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
     server = build_mcp(
         note_service_inst,
         WorkspaceService(
-            workspace_repository, note_repository, WorkspaceMetaRepository(database.engine)
+            workspace_repository,
+            note_repository,
+            WorkspaceMetaRepository(database.engine),
+            NoteLinkRepository(database.engine),
+            NoteTagRepository(database.engine),
+            note_chunk_repository,
+            DanglingLinkRepository(database.engine),
+            folder_meta_repository,
+            WorkspaceRemoteRepository(database.engine),
+            active_workspace_repository,
         ),
-        FolderMetaRepository(database.engine),
+        folder_meta_repository,
         oauth_repository,
         active_workspace_repository,
         provider,

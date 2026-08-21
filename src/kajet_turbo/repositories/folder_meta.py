@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from sqlalchemy import CursorResult, delete
 from sqlmodel import col, or_, select
 
 from kajet_turbo.log import logger
@@ -116,3 +117,16 @@ class FolderMetaRepository(DbRepository):
             dst=dst,
             count=count,
         )
+
+    def delete_for_workspace(self, owner_id: str, workspace: str) -> None:
+        with self.timed_session() as session:
+            result = session.execute(  # ty: ignore[deprecated] - DELETE statement
+                delete(FolderMeta).where(
+                    col(FolderMeta.owner_id) == owner_id,
+                    col(FolderMeta.workspace) == workspace,
+                )
+            )
+            assert isinstance(result, CursorResult)
+            count = result.rowcount
+            session.commit()
+        logger.info("folder_meta_deleted_workspace", owner_id=owner_id, ws=workspace, count=count)

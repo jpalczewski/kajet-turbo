@@ -13,8 +13,12 @@ from kajet_turbo.db import Database
 from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.models import User
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
+from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
+from kajet_turbo.repositories.folder_meta import FolderMetaRepository
+from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository, NoteTagRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
+from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
@@ -65,7 +69,16 @@ def api_client_factory(
         )
         note_service = build_note_service(database, indexer=note_indexer)
         workspace_service = WorkspaceService(
-            workspace_repository, note_repository, WorkspaceMetaRepository(database.engine)
+            workspace_repository,
+            note_repository,
+            WorkspaceMetaRepository(database.engine),
+            NoteLinkRepository(database.engine),
+            NoteTagRepository(database.engine),
+            note_chunk_repository,
+            DanglingLinkRepository(database.engine),
+            FolderMetaRepository(database.engine),
+            WorkspaceRemoteRepository(database.engine),
+            ActiveWorkspaceRepository(database.engine),
         )
 
         if user_id is not None:

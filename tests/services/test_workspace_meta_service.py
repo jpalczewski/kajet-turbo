@@ -1,19 +1,13 @@
 import pytest
 
 from kajet_turbo.db import Database
-from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.users import UserRepository
-from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
-from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.workspaces import WorkspaceService
+from tests.services.conftest import build_workspace_service
 
 
 def _service(database: Database) -> WorkspaceService:
-    return WorkspaceService(
-        WorkspaceRepository(database.engine),
-        NoteRepository(database.engine),
-        WorkspaceMetaRepository(database.engine),
-    )
+    return build_workspace_service(database)
 
 
 def _user(database: Database) -> str:
@@ -22,11 +16,7 @@ def _user(database: Database) -> str:
 
 @pytest.fixture
 def workspace_service(database: Database) -> WorkspaceService:
-    return WorkspaceService(
-        WorkspaceRepository(database.engine),
-        NoteRepository(database.engine),
-        WorkspaceMetaRepository(database.engine),
-    )
+    return build_workspace_service(database)
 
 
 @pytest.fixture
