@@ -6,8 +6,10 @@ in matching logic (not just a wrong answer) gets caught.
 """
 
 from pathlib import Path
+from unittest import mock
 
 import pytest
+from dulwich.walk import WalkEntry
 
 from kajet_turbo.repositories.git import GitRepository
 
@@ -157,3 +159,55 @@ def test_parity_prefix_named_siblings_do_not_cross_contaminate(git_ws, tmp_path)
     assert git_ws.head_shas_for_paths(paths) == expected
     # All three resolve to distinct commits — proves no accidental sharing.
     assert len(set(expected.values())) == 3
+
+
+def test_early_exit_stops_walk_once_all_paths_resolved(git_ws, tmp_path):
+    """The entire performance point of head_shas_for_paths is that the shared walk
+    stops as soon as every requested path is resolved, instead of touring the rest
+    of history — mutation testing on this fix found that removing the `break` passes
+    every OTHER test unnoticed, because correctness doesn't depend on it, only
+    performance does. Proven here by counting how many commits the walk actually
+    visits (WalkEntry.changes is called exactly once per commit the walker inspects,
+    matching or not — see git.py's _flat_changes) rather than by wall-clock timing,
+    which would be flaky.
+
+    Two targets are buried at shallow depth near HEAD; a long run of unrelated
+    filler commits sits behind them. A working early exit never looks past the
+    targets. Without it, the walk would inspect every filler commit too.
+    """
+    FILLER_COUNT = 200
+    (tmp_path / "filler.md").write_text("filler v0")
+    git_ws.commit_file("filler.md", "note: add filler")
+    for i in range(FILLER_COUNT):
+        (tmp_path / "filler.md").write_text(f"filler v{i + 1}")
+        git_ws.commit_file("filler.md", f"note: update filler {i}")
+
+    (tmp_path / "b.md").write_text("b v1")
+    git_ws.commit_file("b.md", "note: add b")
+    for i in range(8):
+        (tmp_path / "filler.md").write_text(f"filler v{FILLER_COUNT + i + 1}")
+        git_ws.commit_file("filler.md", f"note: update filler {FILLER_COUNT + i}")
+    (tmp_path / "a.md").write_text("a v1")
+    git_ws.commit_file("a.md", "note: add a")
+
+    paths = ["a.md", "b.md"]
+    expected = _expected(git_ws, paths)
+
+    visited: list[object] = []
+    real_changes = WalkEntry.changes
+
+    def counting_changes(self, *args, **kwargs):
+        visited.append(self)
+        return real_changes(self, *args, **kwargs)
+
+    with mock.patch.object(WalkEntry, "changes", counting_changes):
+        result = git_ws.head_shas_for_paths(paths)
+
+    assert result == expected
+    # a.md (HEAD) then 8 filler + b.md ≈ 10 commits to resolve both. A regression to
+    # walking the full history would visit FILLER_COUNT + 10 ≈ 210 — the gap between
+    # these two numbers is wide enough that this threshold is not flaky.
+    assert len(visited) <= 15, (
+        f"walked {len(visited)} commits to resolve 2 shallow paths — "
+        "the early exit does not appear to be stopping the walk"
+    )
