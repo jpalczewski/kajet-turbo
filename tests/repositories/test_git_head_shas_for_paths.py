@@ -161,6 +161,34 @@ def test_parity_prefix_named_siblings_do_not_cross_contaminate(git_ws, tmp_path)
     assert len(set(expected.values())) == 3
 
 
+def test_parity_when_one_change_matches_multiple_followed_paths(git_ws, tmp_path):
+    """One TreeChange can match SEVERAL followed paths at once: after file a.md is
+    deleted and a.md/b.md is committed (a.md now a directory), the add-change's
+    path b"a.md/b.md" is an exact match for followed "a.md/b.md" AND a
+    directory-prefix match for followed "a.md" — dulwich's per-path walk yields
+    that commit for BOTH, so the shared walk must credit both from the single
+    change. A matcher that pops only the first hit resolves "a.md" one commit too
+    deep (at its delete commit). Found by adversarial review; unreachable through
+    the notes service today, but the walk must be correct on its own."""
+    (tmp_path / "a.md").write_text("a as a file")
+    git_ws.commit_file("a.md", "note: add a")
+    Path(tmp_path / "a.md").unlink()
+    git_ws.delete_file("a.md", "note: delete a")
+    (tmp_path / "a.md").mkdir()
+    (tmp_path / "a.md" / "b.md").write_text("b inside a directory named a.md")
+    git_ws.commit_file("a.md/b.md", "note: add b under dir a.md")
+
+    paths = ["a.md", "a.md/b.md"]
+    expected = _expected(git_ws, paths)
+    result = git_ws.head_shas_for_paths(paths)
+
+    assert result == expected
+    # Both resolve to the SAME commit — the one that added a.md/b.md — because a
+    # change under a directory also counts as touching the directory path.
+    assert result["a.md"] == result["a.md/b.md"]
+    assert result["a.md"] == git_ws.file_history("a.md/b.md", limit=1)[0]["sha"]
+
+
 def test_early_exit_stops_walk_once_all_paths_resolved(git_ws, tmp_path):
     """The entire performance point of head_shas_for_paths is that the shared walk
     stops as soon as every requested path is resolved, instead of touring the rest

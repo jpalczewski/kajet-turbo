@@ -3,7 +3,7 @@ import fcntl
 import os
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
 from dulwich import porcelain
@@ -46,18 +46,18 @@ def _flat_changes(entry) -> Iterator[TreeChange]:
             yield item
 
 
-def _pop_matching(unresolved: dict[bytes, str], changed_path: bytes) -> str | None:
-    """Pop and return the followed path matched by ``changed_path``, replicating
-    dulwich Walker._path_matches: exact match or directory-prefix match — so the
-    result is bit-for-bit identical to a per-path walk even in the pathological
-    file<->directory-rename case."""
-    exact = unresolved.pop(changed_path, None)
-    if exact is not None:
-        return exact
-    for followed in unresolved:
-        if changed_path.startswith(followed) and changed_path[len(followed)] == ord("/"):
-            return unresolved.pop(followed)
-    return None
+def _matching_followed(followed: Iterable[bytes], changed_path: bytes) -> list[bytes]:
+    """All followed paths matched by ``changed_path``, replicating dulwich
+    Walker._path_matches: exact match or directory-prefix match at a "/" edge.
+    Returns EVERY match, not just the first — in the pathological
+    file<->directory case (file a.md deleted, then a.md/b.md added) a single
+    TreeChange matches "a.md/b.md" exactly AND "a.md" by prefix, and a per-path
+    walk yields the commit for both, so the shared walk must credit both."""
+    return [
+        f
+        for f in followed
+        if changed_path == f or (changed_path.startswith(f) and changed_path[len(f)] == ord("/"))
+    ]
 
 
 _REPO_LOCKS: dict[str, threading.Lock] = {}
@@ -313,53 +313,69 @@ class GitRepository:
             return None
 
     def file_history(self, relative_path: str, limit: int = 50) -> list[dict]:
+        return self.file_histories([relative_path], limit).get(relative_path, [])
+
+    def file_histories(self, relative_paths: list[str], limit: int = 1) -> dict[str, list[dict]]:
+        """Up to ``limit`` newest history entries per path, resolved in ONE walk.
+
+        Semantically identical to {p: file_history(p, limit)} run independently —
+        a live walk from HEAD, no caching; dulwich counts max_entries only on
+        commits that pass the path filter, and the per-path countdown here counts
+        matches the same way. The cost is the walk depth needed by the
+        slowest-to-resolve path instead of the sum over all paths: each path
+        starts with a budget of ``limit`` entries, a matching commit decrements
+        it, an exhausted path stops being followed, and the walk stops as soon as
+        every budget hits zero. No global max_entries cap — a capped shared walk
+        could return fewer entries than the per-path walk would, changing
+        semantics. Paths never touched by any commit map to [].
+        """
+        result: dict[str, list[dict]] = {p: [] for p in relative_paths}
+        by_bytes = {p.encode(): p for p in relative_paths}
+        remaining = dict.fromkeys(by_bytes, limit)
+        if not remaining or limit <= 0:
+            return result  # guard: paths=[] would mean "no filter" to dulwich
         try:
-            walker = self._repo.get_walker(paths=[relative_path.encode()], max_entries=limit)
-            return [
-                {
-                    "sha": entry.commit.id.decode("ascii"),
-                    "message": entry.commit.message.decode("utf-8", errors="replace").strip(),
-                    "timestamp": entry.commit.author_time,
-                }
-                for entry in walker
-            ]
+            walker = self._repo.get_walker(paths=list(remaining))
+            for entry in walker:
+                # A commit is one history entry per matched path no matter how
+                # many of its changes touch that path (e.g. a modify carries the
+                # path in both change.new and change.old) — collect the matched
+                # set first, then credit each path once.
+                matched: set[bytes] = set()
+                for change in _flat_changes(entry):
+                    for tree_entry in (change.new, change.old):
+                        if tree_entry is not None:
+                            matched.update(_matching_followed(remaining, tree_entry.path))
+                for followed in matched:
+                    result[by_bytes[followed]].append(
+                        {
+                            "sha": entry.commit.id.decode("ascii"),
+                            "message": entry.commit.message.decode(
+                                "utf-8", errors="replace"
+                            ).strip(),
+                            "timestamp": entry.commit.author_time,
+                        }
+                    )
+                    remaining[followed] -= 1
+                    if remaining[followed] == 0:
+                        del remaining[followed]
+                if not remaining:
+                    break  # early exit — the whole point of the shared walk
         except KeyError:
-            return []
+            return result  # empty repo (no HEAD) — mirrors the per-path walk's []
         except Exception as e:
             raise GitError(str(e)) from e
+        return result
 
     def head_shas_for_paths(self, relative_paths: list[str]) -> dict[str, str | None]:
         """Sha of the most recent commit touching each path, resolved in ONE walk.
 
         Semantically identical to {p: file_history(p, limit=1)[0]["sha"] or None}
-        — a live walk from HEAD, no caching — but the cost is the history depth of
-        the *deepest* path in the batch instead of the sum of all depths: the walk
-        stops as soon as every path has been resolved. Paths never touched by any
-        commit map to None. No max_entries cap: a capped walk could report None
-        where the per-path walk would find a sha, changing staleness semantics.
+        — file_histories does the shared walk with a per-path budget of one entry.
+        Paths never touched by any commit map to None.
         """
-        result: dict[str, str | None] = dict.fromkeys(relative_paths)
-        unresolved = {p.encode(): p for p in relative_paths}
-        if not unresolved:
-            return result  # guard: paths=[] would mean "no filter" to dulwich
-        try:
-            walker = self._repo.get_walker(paths=list(unresolved))
-            for entry in walker:
-                sha = entry.commit.id.decode("ascii")
-                for change in _flat_changes(entry):
-                    for tree_entry in (change.new, change.old):
-                        if tree_entry is None:
-                            continue
-                        matched = _pop_matching(unresolved, tree_entry.path)
-                        if matched is not None:
-                            result[matched] = sha
-                if not unresolved:
-                    break  # early exit — the whole point of the shared walk
-        except KeyError:
-            return result  # empty repo (no HEAD) — mirrors file_history's []
-        except Exception as e:
-            raise GitError(str(e)) from e
-        return result
+        histories = self.file_histories(relative_paths, limit=1)
+        return {p: (h[0]["sha"] if h else None) for p, h in histories.items()}
 
     def file_content_at_commit(self, relative_path: str, sha: str) -> str:
         try:
