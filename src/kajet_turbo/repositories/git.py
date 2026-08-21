@@ -421,8 +421,19 @@ def delete_workspace_tree(workspace_path: str) -> None:
     if not path.exists():
         return
     trash = path.parent / f".trash-{path.name}-{generate()}"
-    with _workspace_lock(workspace_path):
-        path.rename(trash)
+    try:
+        with _workspace_lock(workspace_path):
+            path.rename(trash)
+    except FileNotFoundError:
+        # A concurrent delete_workspace_tree call already renamed this path away
+        # between our exists() check and the lock/rename above — already gone.
+        return
     with _REPO_LOCKS_GUARD:
         _REPO_LOCKS.pop(_lock_key(workspace_path), None)
-    shutil.rmtree(trash, ignore_errors=True)
+    try:
+        shutil.rmtree(trash)
+    except OSError as e:
+        # Best-effort reclaim: the workspace is already gone from the DB and from
+        # its canonical path, so this failure doesn't undo the delete — but it must
+        # not be silent, or a leftover .trash-* directory becomes invisible forever.
+        logger.warning("workspace_trash_reclaim_failed", trash=str(trash), error=str(e))

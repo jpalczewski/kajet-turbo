@@ -37,6 +37,7 @@ class McpTestContext:
 def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestContext:
     from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
     from kajet_turbo.repositories.folder_meta import FolderMetaRepository
+    from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.repositories.notes import NoteChunkRepository as _NoteChunkRepo
     from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
     from tests.services.conftest import build_note_service
@@ -68,6 +69,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
             folder_meta_repository,
             WorkspaceRemoteRepository(database.engine),
             active_workspace_repository,
+            JobRepository(database.engine),
         ),
         folder_meta_repository,
         oauth_repository,

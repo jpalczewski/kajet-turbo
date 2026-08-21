@@ -174,6 +174,7 @@ workspace_service = WorkspaceService(
     folder_meta_repo,
     workspace_remote_repo,
     active_workspace_repo,
+    job_repo,
     cache=_cache,
 )
 push_handler = PushHandler(

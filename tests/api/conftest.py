@@ -14,6 +14,7 @@ from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
+from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
@@ -77,6 +78,7 @@ def api_client_factory(
             FolderMetaRepository(database.engine),
             WorkspaceRemoteRepository(database.engine),
             ActiveWorkspaceRepository(database.engine),
+            JobRepository(database.engine),
         )
 
         if user_id is not None:

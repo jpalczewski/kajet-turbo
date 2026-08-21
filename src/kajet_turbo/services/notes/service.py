@@ -979,6 +979,7 @@ class NoteService:
             self._crud_repo.delete_for_workspace(ws_name, owner_id, session)
             session.commit()
         self._link_repo.delete_workspace_links(ws_name, owner_id)
+        logger.info("workspace_data_cleared", ws=ws_name, owner_id=owner_id)
 
     def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
         start = time.monotonic()

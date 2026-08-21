@@ -10,6 +10,7 @@ from kajet_turbo.models import User
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
+from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
@@ -109,6 +110,7 @@ def build_workspace_service(database: Database) -> WorkspaceService:
         FolderMetaRepository(engine),
         WorkspaceRemoteRepository(engine),
         ActiveWorkspaceRepository(engine),
+        JobRepository(engine),
     )
 
 

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from sqlalchemy import func
 from sqlmodel import Session, col, select
 
 from kajet_turbo.markdown import Chunk
@@ -8,6 +9,7 @@ from kajet_turbo.models import (
     ActiveWorkspace,
     DanglingLink,
     FolderMeta,
+    Job,
     Note,
     NoteLink,
     NoteTag,
@@ -19,6 +21,7 @@ from kajet_turbo.models import (
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
+from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
@@ -75,6 +78,37 @@ def _seed_full_workspace(database, *, user_id: str, name: str) -> None:
     active_repo.set(user_id, name)
     active_repo.set(user_id, name, scope="mcp-session-1")
 
+    job_repo = JobRepository(database.engine)
+    job_repo.enqueue(
+        "push_workspace",
+        {"user_id": user_id, "workspace": name, "ws_path": f"/workspaces/{user_id}/{name}"},
+        dedup_key=f"{user_id}:{name}",
+        user_id=user_id,
+    )
+    job_repo.enqueue(
+        "heal_dangling",
+        {"user_id": user_id, "workspace": name},
+        dedup_key=f"heal:{user_id}:{name}",
+        user_id=user_id,
+    )
+    job_repo.enqueue(
+        "embed_note",
+        {"note_id": f"{user_id}-n1", "workspace": name, "owner_id": user_id},
+        dedup_key=f"{user_id}:{name}:{user_id}-n1",
+        user_id=user_id,
+    )
+
+
+def _job_count(session: Session, *, workspace: str, owner_id: str) -> int:
+    return len(
+        session.exec(
+            select(Job).where(
+                col(Job.user_id) == owner_id,
+                func.json_extract(col(Job.payload), "$.workspace") == workspace,
+            )
+        ).all()
+    )
+
 
 def _counts(database, *, workspace: str, owner_id: str) -> dict[str, int]:
     with Session(database.engine) as session:
@@ -102,6 +136,7 @@ def _counts(database, *, workspace: str, owner_id: str) -> dict[str, int]:
             "active_workspace": count(ActiveWorkspace, workspace=workspace, user_id=owner_id),
             "workspace_access": count(WorkspaceAccess, workspace=workspace, user_id=owner_id),
             "workspace_meta": count(WorkspaceMeta, workspace=workspace, user_id=owner_id),
+            "jobs": _job_count(session, workspace=workspace, owner_id=owner_id),
         }
 
 
@@ -111,6 +146,9 @@ def test_delete_wipes_every_table_and_the_directory(
     monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path))
     ws_dir = git_workspace_factory("u1/ws")
     _seed_full_workspace(database, user_id="u1", name="ws")
+    global_job_id = JobRepository(database.engine).enqueue(
+        "sweep_outbox", {}, dedup_key="sweep_outbox"
+    )
     svc = build_workspace_service(database)
     svc._repo.grant_access("u1", "ws")
     svc._meta_repo.ensure("u1", "ws")
@@ -124,6 +162,9 @@ def test_delete_wipes_every_table_and_the_directory(
     assert all(v == 0 for v in after.values()), after
     assert not ws_dir.exists()
     assert svc.has_access("u1", "ws") is False
+    # global (user_id=None, no payload.workspace) jobs must not be swept up
+    with Session(database.engine) as session:
+        assert session.get(Job, global_job_id) is not None
 
 
 def test_delete_is_owner_scoped(

@@ -8,6 +8,7 @@ from kajet_turbo.markdown import tags as tagutil
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
+from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
@@ -31,6 +32,7 @@ class WorkspaceService:
         folder_meta_repo: FolderMetaRepository,
         remote_repo: WorkspaceRemoteRepository,
         active_repo: ActiveWorkspaceRepository,
+        job_repo: JobRepository,
         cache: WorkspaceCache | None = None,
     ) -> None:
         self._repo = workspace_repo
@@ -41,6 +43,7 @@ class WorkspaceService:
         self._folder_meta_repo = folder_meta_repo
         self._remote_repo = remote_repo
         self._active_repo = active_repo
+        self._job_repo = job_repo
         self._cache = cache
 
     def create(self, name: str, user_id: str, *, description: str = "") -> None:
@@ -53,19 +56,25 @@ class WorkspaceService:
     def delete(self, user_id: str, name: str) -> None:
         """Wipes a workspace: every workspace-scoped DB row plus the on-disk git repo.
 
+        `events` are deliberately left alone: the outbox is self-cleaning (claim()
+        deletes on read, and anything unclaimed is swept hourly), so a stray
+        workspace_changed/note_updated event naming a deleted workspace is harmless
+        and short-lived.
+
         Data tables go first and are all idempotent (no-op on 0 matching rows), so a
-        delete that fails partway can simply be retried. workspace_access/workspace_meta
-        go last, deliberately: as long as either row survives, has_access() still sees
-        the workspace as present and the caller can retry the whole operation.
+        delete that fails partway can simply be retried. revoke_access() is
+        deliberately last: has_access() only reads workspace_access, so as long as
+        that row survives, the caller can retry the whole operation.
         """
         self._note_service.clear_workspace_data(name, user_id)
         self._dangling_repo.delete_for_workspace(user_id, name)
         self._folder_meta_repo.delete_for_workspace(user_id, name)
         self._remote_repo.delete(user_id, name)
         self._active_repo.delete_for_workspace(user_id, name)
+        self._job_repo.delete_for_workspace(user_id, name)
         delete_workspace_directory(name, user_id=user_id)
-        self._repo.revoke_access(user_id, name)
         self._meta_repo.delete(user_id, name)
+        self._repo.revoke_access(user_id, name)
         if self._cache is not None:
             self._cache.bump(name, user_id)
         logger.info("workspace_deleted", ws=name, owner_id=user_id)

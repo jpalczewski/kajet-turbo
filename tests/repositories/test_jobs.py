@@ -320,3 +320,61 @@ def test_sweep_done_purges_old_done_jobs_only(database: Database):
     assert _get_required(database.engine, fresh_done).status == "done"
     assert _get_required(database.engine, pending).status == "pending"
     assert _get_required(database.engine, failed).status == "failed"
+
+
+def test_delete_for_workspace_targets_only_matching_owner_and_payload(database: Database):
+    repo = JobRepository(database.engine)
+    _ensure_user(database.engine, "u1")
+    _ensure_user(database.engine, "u2")
+
+    running = repo.enqueue(
+        "heal_dangling",
+        {"user_id": "u1", "workspace": "ws"},
+        user_id="u1",
+        dedup_key="u1:ws:2",
+        now=1000.0,
+    )
+    repo.claim("w", now=1000.0)  # sole pending row at this point -> becomes `running`
+    pending = repo.enqueue(
+        "push_workspace",
+        {"user_id": "u1", "workspace": "ws"},
+        user_id="u1",
+        dedup_key="u1:ws:1",
+        now=1000.0,
+    )
+    failed = repo.enqueue(
+        "embed_note",
+        {"note_id": "n1", "workspace": "ws", "owner_id": "u1"},
+        user_id="u1",
+        max_attempts=1,
+        now=999.0,  # earlier than `pending` -> deterministically the next claim
+    )
+    repo.claim("w", now=999.0)
+    repo.fail(failed, "boom", now=999.0)  # max_attempts=1 -> terminal failed
+    # different owner, same workspace name — must survive
+    other_owner = repo.enqueue(
+        "push_workspace", {"user_id": "u2", "workspace": "ws"}, user_id="u2", dedup_key="u2:ws"
+    )
+    # same owner, different workspace — must survive
+    other_ws = repo.enqueue(
+        "push_workspace",
+        {"user_id": "u1", "workspace": "other"},
+        user_id="u1",
+        dedup_key="u1:other",
+    )
+    # global job (no user_id, no payload.workspace) — must survive
+    global_job = repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox")
+
+    repo.delete_for_workspace("u1", "ws")
+
+    assert _get(database.engine, running) is None
+    assert _get(database.engine, pending) is None
+    assert _get(database.engine, failed) is None
+    assert _get(database.engine, other_owner) is not None
+    assert _get(database.engine, other_ws) is not None
+    assert _get(database.engine, global_job) is not None
+
+
+def test_delete_for_workspace_nonexistent_is_a_noop(database: Database):
+    repo = JobRepository(database.engine)
+    repo.delete_for_workspace("nobody", "nowhere")  # must not raise
