@@ -90,3 +90,70 @@ def test_parity_single_path_degenerate_case(git_ws, tmp_path):
 
     expected = _expected(git_ws, ["a.md"])
     assert git_ws.head_shas_for_paths(["a.md"]) == expected
+
+
+def test_duplicate_path_in_input_collapses_to_one_key(git_ws, tmp_path):
+    (tmp_path / "a.md").write_text("a v1")
+    git_ws.commit_file("a.md", "note: add a")
+    (tmp_path / "a.md").write_text("a v2")
+    git_ws.commit_file("a.md", "note: update a")
+
+    # The dict-keyed result collapses duplicates; one shared walk still resolves them.
+    expected = _expected(git_ws, ["a.md"])
+    assert git_ws.head_shas_for_paths(["a.md", "a.md"]) == expected
+
+
+def test_parity_for_path_deleted_and_recreated_returns_newest(git_ws, tmp_path):
+    # Two distinct files have lived at a.md over history: an original that was
+    # deleted, then a fresh one created under the same name. The head sha must be
+    # the NEWEST commit touching a.md, not the oldest — parity against
+    # file_history(limit=1) pins that the walk stops at the most recent match.
+    (tmp_path / "a.md").write_text("a original")
+    git_ws.commit_file("a.md", "note: add a")
+    Path(tmp_path / "a.md").unlink()
+    git_ws.delete_file("a.md", "note: delete a")
+    (tmp_path / "a.md").write_text("a recreated")
+    git_ws.commit_file("a.md", "note: recreate a")
+    for i in range(3):
+        (tmp_path / "a.md").write_text(f"a recreated v{i + 2}")
+        git_ws.commit_file("a.md", f"note: update a {i}")
+
+    paths = ["a.md"]
+    expected = _expected(git_ws, paths)
+    result = git_ws.head_shas_for_paths(paths)
+
+    assert result == expected
+    # Explicitly assert "newest, not oldest": it must equal the most recent commit.
+    assert result["a.md"] == git_ws.file_history("a.md", limit=1)[0]["sha"]
+
+
+def test_parity_prefix_named_siblings_do_not_cross_contaminate(git_ws, tmp_path):
+    """A path that is a string-prefix of another must not steal its match. This is
+    the reachable slice of the file<->directory-prefix concern: two notes whose
+    relatives share a leading run of bytes ("a.md" vs "ab.md") or where one sits in
+    a folder whose name starts like another note ("a.md" vs "a/b.md"). _pop_matching
+    replicates dulwich's directory-boundary rule (prefix match only at a "/" edge),
+    so none of these collide. A naive startswith without the boundary byte would
+    mis-assign "ab.md"'s history to "a.md" and this parity check would catch it.
+    """
+    (tmp_path / "a.md").write_text("a v1")
+    git_ws.commit_file("a.md", "note: add a")
+    (tmp_path / "ab.md").write_text("ab v1")
+    git_ws.commit_file("ab.md", "note: add ab")
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "b.md").write_text("a/b v1")
+    git_ws.commit_file("a/b.md", "note: add a/b")
+
+    # Bury each path at a different depth so a cross-match would surface as a wrong sha.
+    (tmp_path / "ab.md").write_text("ab v2")
+    git_ws.commit_file("ab.md", "note: update ab")
+    for i in range(3):
+        (tmp_path / "a.md").write_text(f"a v{i + 2}")
+        git_ws.commit_file("a.md", f"note: update a {i}")
+
+    paths = ["a.md", "ab.md", "a/b.md"]
+    expected = _expected(git_ws, paths)
+
+    assert git_ws.head_shas_for_paths(paths) == expected
+    # All three resolve to distinct commits — proves no accidental sharing.
+    assert len(set(expected.values())) == 3
