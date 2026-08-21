@@ -4,7 +4,7 @@ from pathlib import Path
 
 import frontmatter
 
-from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.repositories.git import GitRepository, delete_workspace_tree
 
 WORKSPACES_DIR = os.getenv("WORKSPACES_DIR", "/workspaces")
 
@@ -197,3 +197,11 @@ def create_workspace(name: str, workspaces_dir: str | None = None, *, user_id: s
     ws_path.parent.mkdir(parents=True, exist_ok=True)
     GitRepository.init(str(ws_path))
     return str(ws_path)
+
+
+def delete_workspace_directory(
+    name: str, workspaces_dir: str | None = None, *, user_id: str
+) -> None:
+    """Removes a workspace's on-disk git repo. Idempotent."""
+    ws_path = workspace_path(name, workspaces_dir=workspaces_dir, user_id=user_id)
+    delete_workspace_tree(ws_path)

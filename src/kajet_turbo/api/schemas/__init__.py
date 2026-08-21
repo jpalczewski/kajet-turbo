@@ -38,6 +38,7 @@ from .ssh_keys import SshKeyItem, SshKeysResponse
 from .workspace_remote import WorkspaceRemoteResponse, WorkspaceRemoteView
 from .workspaces import (
     CreateWorkspaceResponse,
+    DeleteWorkspaceResponse,
     SettingDefinition,
     UpdateWorkspaceResponse,
     UpdateWorkspaceSettingsResponse,
@@ -58,6 +59,7 @@ __all__ = [
     "CreateNoteResponse",
     "CreateWorkspaceResponse",
     "DeleteNoteResponse",
+    "DeleteWorkspaceResponse",
     "EmbeddingProfileItem",
     "EmbeddingProfilesResponse",
     "ErrorResponse",

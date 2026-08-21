@@ -1,6 +1,7 @@
 import contextlib
 import fcntl
 import os
+import shutil
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
@@ -12,6 +13,7 @@ from dulwich.errors import NotGitRepository
 from dulwich.object_store import tree_lookup_path
 from dulwich.objects import Blob, Commit
 from dulwich.repo import Repo
+from nanoid import generate
 
 from kajet_turbo.log import logger
 from kajet_turbo.perf import record
@@ -64,8 +66,12 @@ _REPO_LOCKS: dict[str, threading.Lock] = {}
 _REPO_LOCKS_GUARD = threading.Lock()
 
 
+def _lock_key(workspace_path: str) -> str:
+    return str(Path(workspace_path).resolve())
+
+
 def _repo_lock(workspace_path: str) -> threading.Lock:
-    key = str(Path(workspace_path).resolve())
+    key = _lock_key(workspace_path)
     with _REPO_LOCKS_GUARD:
         lock = _REPO_LOCKS.get(key)
         if lock is None:
@@ -396,3 +402,38 @@ class GitRepository:
             return blob.data.decode("utf-8")
         except Exception as e:
             raise GitError(str(e)) from e
+
+
+def delete_workspace_tree(workspace_path: str) -> None:
+    """Removes a workspace's git repo from disk. Idempotent (no-op if already gone,
+    so a retried WorkspaceService.delete is safe).
+
+    Renames off the canonical path under _workspace_lock instead of rmtree-ing in
+    place: _cross_process_lock reopens its lock file by path (os.open(..., O_CREAT))
+    on every acquisition, so an in-place rmtree racing a writer in a *different*
+    process could unlink the lock file mid-delete, letting that writer mint a fresh
+    inode, flock it uncontended, and write into the tree we're deleting — invisible
+    to us. After the rename, workspace_path no longer exists, so a would-be writer's
+    O_CREAT open fails fast (no parent dir) instead of silently succeeding. The
+    actual rmtree runs outside the lock, against the now-unreachable trash path.
+    """
+    path = Path(workspace_path)
+    if not path.exists():
+        return
+    trash = path.parent / f".trash-{path.name}-{generate()}"
+    try:
+        with _workspace_lock(workspace_path):
+            path.rename(trash)
+    except FileNotFoundError:
+        # A concurrent delete_workspace_tree call already renamed this path away
+        # between our exists() check and the lock/rename above — already gone.
+        return
+    with _REPO_LOCKS_GUARD:
+        _REPO_LOCKS.pop(_lock_key(workspace_path), None)
+    try:
+        shutil.rmtree(trash)
+    except OSError as e:
+        # Best-effort reclaim: the workspace is already gone from the DB and from
+        # its canonical path, so this failure doesn't undo the delete — but it must
+        # not be silent, or a leftover .trash-* directory becomes invisible forever.
+        logger.warning("workspace_trash_reclaim_failed", trash=str(trash), error=str(e))

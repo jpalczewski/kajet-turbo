@@ -1,5 +1,6 @@
 from .meta import (
     CreateWorkspaceResponse,
+    DeleteWorkspaceResponse,
     UpdateWorkspaceResponse,
     WorkspaceInfo,
     WorkspacesListResponse,
@@ -8,6 +9,7 @@ from .settings import SettingDefinition, UpdateWorkspaceSettingsResponse, Worksp
 
 __all__ = [
     "CreateWorkspaceResponse",
+    "DeleteWorkspaceResponse",
     "SettingDefinition",
     "UpdateWorkspaceResponse",
     "UpdateWorkspaceSettingsResponse",

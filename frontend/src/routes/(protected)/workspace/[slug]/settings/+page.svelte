@@ -1,16 +1,29 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import {
+    apiDeleteWorkspaceApiWorkspacesNameDelete,
     apiReindexWorkspaceApiWorkspacesNameReindexPost,
     apiGetWorkspaceSettingsApiWorkspacesNameSettingsGet as getSettings,
     apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatch as patchSettings,
     type SettingDefinition,
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
+  import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+  import { workspacesPath } from '$lib/routes';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
 
   const slug = $derived(page.params.slug as string);
+
+  async function deleteWorkspace() {
+    try {
+      await apiDeleteWorkspaceApiWorkspacesNameDelete(slug);
+    } catch (e) {
+      throw new Error(apiErrorMessage(e, 'Nie udało się usunąć workspace.'), { cause: e });
+    }
+    await goto(workspacesPath(), { invalidateAll: true });
+  }
 
   const reindexAction = useAsyncAction();
   let reindexMsg = $state('');
@@ -89,6 +102,28 @@
     {#if reindexAction.error}<p class="reindex__error">{reindexAction.error}</p>{/if}
     {#if reindexMsg}<p class="reindex__msg">{reindexMsg}</p>{/if}
   </section>
+
+  <section class="danger">
+    <h2>Strefa niebezpieczna</h2>
+    <p class="hint">
+      Usuwa workspace <strong>{slug}</strong> bezpowrotnie: wszystkie notatki, historię git i ustawienia.
+      Tej operacji nie da się cofnąć.
+    </p>
+    <ConfirmDialog
+      title="Usuń workspace"
+      message={`Usunąć workspace "${slug}" wraz z całą zawartością i historią? Tej operacji nie da się cofnąć.`}
+      confirmLabel="Usuń workspace"
+      confirmVariant="danger"
+      confirmText={slug}
+      onconfirm={deleteWorkspace}
+    >
+      {#snippet trigger({ open })}
+        <button type="button" class="btn-danger danger__btn" onclick={open}>
+          Usuń workspace
+        </button>
+      {/snippet}
+    </ConfirmDialog>
+  </section>
 </main>
 
 <style lang="scss">
@@ -163,6 +198,25 @@
       font-size: 0.85rem;
       font-family: v.$font-mono;
       color: v.$text-secondary;
+    }
+  }
+
+  .danger {
+    margin-top: v.$space-lg;
+    padding-top: v.$space-lg;
+    border-top: 1px solid v.$border;
+
+    h2 {
+      font-size: 1.1rem;
+      margin-bottom: v.$space-sm;
+      color: v.$error;
+    }
+
+    &__btn {
+      width: auto;
+      padding: 9px 18px;
+      white-space: nowrap;
+      margin-top: v.$space-sm;
     }
   }
 </style>

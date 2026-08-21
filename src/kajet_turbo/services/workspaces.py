@@ -2,12 +2,20 @@ import json
 from datetime import UTC, datetime
 
 from kajet_turbo import workspace_settings
+from kajet_turbo.cache import WorkspaceCache
+from kajet_turbo.log import logger
 from kajet_turbo.markdown import tags as tagutil
+from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
+from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
+from kajet_turbo.repositories.folder_meta import FolderMetaRepository
+from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
+from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.services.notes import NoteService
 from kajet_turbo.workspace import create_workspace as _create_workspace
-from kajet_turbo.workspace import normalize_folder
+from kajet_turbo.workspace import delete_workspace_directory, normalize_folder
 from kajet_turbo.workspace import workspace_path as _workspace_path
 
 _EMPTY_META = {"description": "", "folder": "", "tags": []}
@@ -19,10 +27,24 @@ class WorkspaceService:
         workspace_repo: WorkspaceRepository,
         note_repo: NoteRepository,
         meta_repo: WorkspaceMetaRepository,
+        note_service: NoteService,
+        dangling_repo: DanglingLinkRepository,
+        folder_meta_repo: FolderMetaRepository,
+        remote_repo: WorkspaceRemoteRepository,
+        active_repo: ActiveWorkspaceRepository,
+        job_repo: JobRepository,
+        cache: WorkspaceCache | None = None,
     ) -> None:
         self._repo = workspace_repo
         self._note_repo = note_repo
         self._meta_repo = meta_repo
+        self._note_service = note_service
+        self._dangling_repo = dangling_repo
+        self._folder_meta_repo = folder_meta_repo
+        self._remote_repo = remote_repo
+        self._active_repo = active_repo
+        self._job_repo = job_repo
+        self._cache = cache
 
     def create(self, name: str, user_id: str, *, description: str = "") -> None:
         _create_workspace(name, user_id=user_id)
@@ -30,6 +52,32 @@ class WorkspaceService:
         self._meta_repo.ensure(user_id, name)
         if description:
             self._meta_repo.set(user_id, name, description=description)
+
+    def delete(self, user_id: str, name: str) -> None:
+        """Wipes a workspace: every workspace-scoped DB row plus the on-disk git repo.
+
+        `events` are deliberately left alone: the outbox is self-cleaning (claim()
+        deletes on read, and anything unclaimed is swept hourly), so a stray
+        workspace_changed/note_updated event naming a deleted workspace is harmless
+        and short-lived.
+
+        Data tables go first and are all idempotent (no-op on 0 matching rows), so a
+        delete that fails partway can simply be retried. revoke_access() is
+        deliberately last: has_access() only reads workspace_access, so as long as
+        that row survives, the caller can retry the whole operation.
+        """
+        self._note_service.clear_workspace_data(name, user_id)
+        self._dangling_repo.delete_for_workspace(user_id, name)
+        self._folder_meta_repo.delete_for_workspace(user_id, name)
+        self._remote_repo.delete(user_id, name)
+        self._active_repo.delete_for_workspace(user_id, name)
+        self._job_repo.delete_for_workspace(user_id, name)
+        delete_workspace_directory(name, user_id=user_id)
+        self._meta_repo.delete(user_id, name)
+        self._repo.revoke_access(user_id, name)
+        if self._cache is not None:
+            self._cache.bump(name, user_id)
+        logger.info("workspace_deleted", ws=name, owner_id=user_id)
 
     def workspace_path(self, user_id: str, name: str) -> str:
         return _workspace_path(name, user_id=user_id)

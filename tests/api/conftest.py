@@ -5,16 +5,19 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from sqlmodel import Session
 from starlette.testclient import TestClient
 
 from kajet_turbo.api.workspaces import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
-from kajet_turbo.models import User
+from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
+from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
+from kajet_turbo.repositories.folder_meta import FolderMetaRepository
+from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
+from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
@@ -51,7 +54,7 @@ def api_client_factory(
 
     def create(*, user_id: str | None = "u1", grant_access: bool = True) -> ApiTestContext:
         from kajet_turbo.repositories.notes import NoteChunkRepository as _NoteChunkRepo
-        from tests.services.conftest import build_note_service
+        from tests.services.conftest import build_note_service, seed_user
 
         monkeypatch.setenv("WORKSPACES_DIR", str(workspace.parent.parent))
         database = database_factory(f"api-{len(contexts)}.db")
@@ -63,22 +66,23 @@ def api_client_factory(
             EmbeddingCacheRepository(database.engine),
             resolve_backend=lambda owner_id: None,  # FTS-only in tests
         )
-        note_service = build_note_service(database, indexer=note_indexer)
+        note_service = build_note_service(
+            database, indexer=note_indexer, chunk_repo=note_chunk_repository
+        )
         workspace_service = WorkspaceService(
-            workspace_repository, note_repository, WorkspaceMetaRepository(database.engine)
+            workspace_repository,
+            note_repository,
+            WorkspaceMetaRepository(database.engine),
+            note_service,
+            DanglingLinkRepository(database.engine),
+            FolderMetaRepository(database.engine),
+            WorkspaceRemoteRepository(database.engine),
+            ActiveWorkspaceRepository(database.engine),
+            JobRepository(database.engine),
         )
 
         if user_id is not None:
-            with Session(database.engine) as session:
-                session.add(
-                    User(
-                        id=user_id,
-                        email=f"{user_id}@test.com",
-                        password_hash="x",
-                        created_at="2026-01-01",
-                    )
-                )
-                session.commit()
+            seed_user(database, user_id)
             if grant_access:
                 workspace_repository.grant_access(user_id, "test-ws")
 

@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import (
     CreateWorkspaceResponse,
+    DeleteWorkspaceResponse,
     UpdateWorkspaceResponse,
     WorkspacesListResponse,
 )
@@ -82,7 +83,7 @@ async def api_update_workspace(
     user: dict = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
+    if not await run_sync(ws_service.has_access, user["id"], name):
         raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
     try:
         body = await request.json()
@@ -103,3 +104,19 @@ async def api_update_workspace(
     except ValueError:
         raise HTTPException(status_code=422, detail=WorkspaceError.INVALID_INPUT) from None
     return JSONResponse({"name": name, **result})
+
+
+@router.delete(
+    "/api/workspaces/{name}",
+    response_model=DeleteWorkspaceResponse,
+)
+@logged_route
+async def api_delete_workspace(
+    name: str,
+    user: dict = Depends(get_required_user),
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+) -> JSONResponse:
+    if not await run_sync(ws_service.has_access, user["id"], name):
+        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
+    await run_sync(ws_service.delete, user["id"], name)
+    return JSONResponse({"name": name})

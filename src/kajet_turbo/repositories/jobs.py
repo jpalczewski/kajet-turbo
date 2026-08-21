@@ -6,11 +6,13 @@ import json
 import time
 
 from nanoid import generate
-from sqlalchemy import Engine, text
+from sqlalchemy import text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, col, select
 
+from kajet_turbo.log import logger
 from kajet_turbo.models import Job
+from kajet_turbo.repositories import DbRepository
 
 
 def backoff_seconds(attempts: int, base: float = 2.0, cap: float = 300.0) -> float:
@@ -49,10 +51,7 @@ _CLAIM_SQL = text(
 )
 
 
-class JobRepository:
-    def __init__(self, engine: Engine):
-        self._engine = engine
-
+class JobRepository(DbRepository):
     def enqueue(
         self,
         kind: str,
@@ -250,3 +249,21 @@ class JobRepository:
             session.delete(job)
             session.commit()
             return True
+
+    def delete_for_workspace(self, user_id: str, workspace: str) -> None:
+        """Drop every job (any status) scoped to a deleted workspace. Jobs carry no
+        workspace column — payload.workspace is the invariant every workspace-scoped
+        kind (push_workspace/heal_dangling/embed_note) shares, and what JobService
+        already relies on to render the dashboard. Global jobs (sweep_outbox) have a
+        NULL user_id and no payload.workspace, so they're structurally excluded."""
+        with self.timed_session() as session:
+            result = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "DELETE FROM jobs WHERE user_id=:user_id"
+                    " AND json_extract(payload, '$.workspace')=:workspace"
+                ),
+                {"user_id": user_id, "workspace": workspace},
+            )
+            count = result.rowcount  # ty: ignore[unresolved-attribute] - CursorResult has rowcount; ty loses it through Result[Any]
+            session.commit()
+        logger.info("jobs_deleted_for_workspace", owner_id=user_id, ws=workspace, count=count)
