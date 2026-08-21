@@ -11,6 +11,8 @@ Usage:
     uv run python scripts/analyze-logs.py --mode tools           # tool call summary
     uv run python scripts/analyze-logs.py --mode events          # published events pipeline
     uv run python scripts/analyze-logs.py --mode http            # HTTP requests
+    uv run python scripts/analyze-logs.py --mode percentiles --pct-field db_ms --group-by tool
+    # p50/p95/p99; --pct-field also takes duration_ms/fts_ms/vec_ms/meta_ms
     uv run python scripts/analyze-logs.py --grep save_note       # filter by substring
     uv run python scripts/analyze-logs.py --grep "note_upd|ws_c" --re  # regex grep
     uv run python scripts/analyze-logs.py --msg save_note        # filter by msg field
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from collections import Counter, defaultdict
@@ -266,6 +269,59 @@ def mode_msg(events: list[dict], msg_filter: set[str], fields: list[str] | None)
         mode_grep(matched, "", use_re=False)
 
 
+def _percentile(sorted_vals: list[float], p: float) -> float | None:
+    """Nearest-rank percentile (no interpolation, dependency-free, deterministic)."""
+    if not sorted_vals:
+        return None
+    k = math.ceil(p / 100 * len(sorted_vals)) - 1
+    return sorted_vals[max(0, min(k, len(sorted_vals) - 1))]
+
+
+def percentile_summary(
+    events: list[dict], field: str, group_by: str
+) -> dict[str, dict[str, float | int | None]]:
+    """Group events by ``group_by`` and summarize numeric ``field`` per group.
+
+    Only completion lines carry these fields; slow_sync is threshold-gated and
+    survivorship-biased, so it is intentionally NOT the source here."""
+    buckets: dict[str, list[float]] = defaultdict(list)
+    for e in events:
+        g = e.get(group_by)
+        v = e.get(field)
+        if g is None or not isinstance(v, (int, float)) or isinstance(v, bool):
+            continue
+        buckets[str(g)].append(float(v))
+    summary: dict[str, dict[str, float | int | None]] = {}
+    for g, vals in buckets.items():
+        vals.sort()
+        summary[g] = {
+            "count": len(vals),
+            "p50": _percentile(vals, 50),
+            "p95": _percentile(vals, 95),
+            "p99": _percentile(vals, 99),
+            "max": vals[-1],
+        }
+    return summary
+
+
+def mode_percentiles(events: list[dict], field: str, group_by: str) -> None:
+    summary = percentile_summary(events, field, group_by)
+    if not summary:
+        print(f"No events with numeric {field!r} grouped by {group_by!r}.")
+        return
+    print(f"{group_by:<30}  {'count':>6}  {'p50':>7}  {'p95':>7}  {'p99':>7}  {'max':>7}")
+    print("-" * 74)
+
+    def _f(x: float | None) -> str:
+        return f"{x:.0f}" if x is not None else "-"
+
+    for g, s in sorted(summary.items(), key=lambda kv: kv[1]["p95"] or 0, reverse=True):
+        print(
+            f"{g:<30}  {s['count']:>6}  {_f(s['p50']):>7}  {_f(s['p95']):>7}  "
+            f"{_f(s['p99']):>7}  {_f(s['max']):>7}"
+        )
+
+
 def mode_fields(events: list[dict], fields: list[str]) -> None:
     """Print all events with only the specified fields as columns."""
     header = "  ".join(f"{f:<20}" for f in fields)
@@ -289,7 +345,7 @@ def mode_fields(events: list[dict], fields: list[str]) -> None:
 
 # ── main ───────────────────────────────────────────────────────────────────────
 
-MODES = ("sessions", "workspaces", "errors", "tools", "events", "http", "all")
+MODES = ("sessions", "workspaces", "errors", "tools", "events", "http", "percentiles", "all")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -319,6 +375,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Print only these fields as columns (comma-separated); use with --msg or alone",
     )
     parser.add_argument("--min-level", default="warning", help="Minimum log level for errors mode")
+    parser.add_argument(
+        "--pct-field",
+        default="duration_ms",
+        help="Numeric field for percentiles mode (default: duration_ms; also db_ms/fts_ms/vec_ms)",
+    )
+    parser.add_argument(
+        "--group-by",
+        default="tool",
+        help="Grouping field for percentiles mode (default: tool; e.g. op, path)",
+    )
     parser.add_argument(
         "--source",
         choices=("loki", "docker-logs"),
@@ -417,6 +483,9 @@ def main() -> None:
 
     if args.mode == "http":
         mode_http(events)
+
+    if args.mode == "percentiles":
+        mode_percentiles(events, args.pct_field, args.group_by)
 
     if args.mode == "errors" or args.mode == "all":
         print("═══ ERRORS / WARNINGS ═══")
