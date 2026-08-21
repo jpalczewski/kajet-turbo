@@ -202,6 +202,33 @@ def test_hybrid_search_caps_chunks_per_note(database):
     assert sum(1 for h in hits if h["note_id"] == "n1") <= 2
 
 
+def test_phase_fields_isolated_fts_only(database):
+    from kajet_turbo import perf
+
+    repo = _seed(database)
+    with perf.perf_span() as span:
+        repo.search_fts("banana", "ws", "u1", limit=10)
+    assert "fts_ms" in span.fields
+    assert "db_ms" in span.fields  # additive: db_ms still emitted alongside the phase field
+    assert "vec_ms" not in span.fields  # untouched phase stays absent
+
+
+def test_phase_fields_isolated_vec_only(database):
+    from kajet_turbo import perf
+    from kajet_turbo.embedding.cache import pack_vector
+
+    repo = NoteChunkRepository(database.engine)
+    # Missing vec table (dim never indexed) degrades to [] via the except branch, but
+    # timed("vec_ms") wraps the session and its `finally` fires before that except runs —
+    # so vec_ms is still recorded on this path, with no need to seed a real vec table.
+    hits = None
+    with perf.perf_span() as span:
+        hits = repo.search_chunks_vec(pack_vector([1.0, 0.0]), "ws", "u1", dim=999, k=10)
+    assert hits == []
+    assert "vec_ms" in span.fields
+    assert "fts_ms" not in span.fields
+
+
 def test_hybrid_search_allowed_note_ids_filters_all_candidate_lists(database):
     repo = _seed(database)
     meta_hits = [

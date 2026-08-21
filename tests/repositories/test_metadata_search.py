@@ -122,6 +122,19 @@ def test_search_metadata_blank_query_returns_empty(database):
     assert repo.search_metadata("ws", "u1", "   ") == []
 
 
+def test_search_metadata_records_meta_ms_and_db_ms(database):
+    from kajet_turbo import perf
+
+    repo = NoteRepository(database.engine)
+    with Session(database.engine) as session:
+        session.add(_note("n1", "Angelika", ""))
+        session.commit()
+    with perf.perf_span() as span:
+        repo.search_metadata("ws", "u1", "angelika")
+    assert "meta_ms" in span.fields
+    assert "db_ms" in span.fields  # additive: SELECTs still emit db_ms via timed_session
+
+
 def test_note_ids_under_folder_matches_exact_and_descendants(database):
     repo = NoteRepository(database.engine)
     with Session(database.engine) as session:
