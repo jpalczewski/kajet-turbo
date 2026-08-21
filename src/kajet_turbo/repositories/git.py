@@ -3,10 +3,11 @@ import fcntl
 import os
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 from dulwich import porcelain
+from dulwich.diff_tree import TreeChange
 from dulwich.errors import NotGitRepository
 from dulwich.object_store import tree_lookup_path
 from dulwich.objects import Blob, Commit
@@ -33,6 +34,30 @@ def _fire_post_commit(workspace_path: str) -> None:
             hook(workspace_path)
         except Exception as e:
             logger.warning("post_commit_hook_failed", error=str(e))
+
+
+def _flat_changes(entry) -> Iterator[TreeChange]:
+    """entry.changes() is list[TreeChange] for linear commits and
+    list[list[TreeChange]] for merges; yield a flat stream of TreeChange."""
+    for item in entry.changes():
+        if isinstance(item, list):
+            yield from item
+        else:
+            yield item
+
+
+def _pop_matching(unresolved: dict[bytes, str], changed_path: bytes) -> str | None:
+    """Pop and return the followed path matched by ``changed_path``, replicating
+    dulwich Walker._path_matches: exact match or directory-prefix match — so the
+    result is bit-for-bit identical to a per-path walk even in the pathological
+    file<->directory-rename case."""
+    exact = unresolved.pop(changed_path, None)
+    if exact is not None:
+        return exact
+    for followed in unresolved:
+        if changed_path.startswith(followed) and changed_path[len(followed)] == ord("/"):
+            return unresolved.pop(followed)
+    return None
 
 
 _REPO_LOCKS: dict[str, threading.Lock] = {}
@@ -302,6 +327,39 @@ class GitRepository:
             return []
         except Exception as e:
             raise GitError(str(e)) from e
+
+    def head_shas_for_paths(self, relative_paths: list[str]) -> dict[str, str | None]:
+        """Sha of the most recent commit touching each path, resolved in ONE walk.
+
+        Semantically identical to {p: file_history(p, limit=1)[0]["sha"] or None}
+        — a live walk from HEAD, no caching — but the cost is the history depth of
+        the *deepest* path in the batch instead of the sum of all depths: the walk
+        stops as soon as every path has been resolved. Paths never touched by any
+        commit map to None. No max_entries cap: a capped walk could report None
+        where the per-path walk would find a sha, changing staleness semantics.
+        """
+        result: dict[str, str | None] = dict.fromkeys(relative_paths)
+        unresolved = {p.encode(): p for p in relative_paths}
+        if not unresolved:
+            return result  # guard: paths=[] would mean "no filter" to dulwich
+        try:
+            walker = self._repo.get_walker(paths=list(unresolved))
+            for entry in walker:
+                sha = entry.commit.id.decode("ascii")
+                for change in _flat_changes(entry):
+                    for tree_entry in (change.new, change.old):
+                        if tree_entry is None:
+                            continue
+                        matched = _pop_matching(unresolved, tree_entry.path)
+                        if matched is not None:
+                            result[matched] = sha
+                if not unresolved:
+                    break  # early exit — the whole point of the shared walk
+        except KeyError:
+            return result  # empty repo (no HEAD) — mirrors file_history's []
+        except Exception as e:
+            raise GitError(str(e)) from e
+        return result
 
     def file_content_at_commit(self, relative_path: str, sha: str) -> str:
         try:
