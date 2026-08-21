@@ -38,6 +38,16 @@ def test_span_resets_after_block():
     assert perf.current() is None
 
 
+def test_peek_returns_running_sum_and_zero_without_span():
+    assert perf.peek("db_ms") == 0.0  # no span
+    with perf.perf_span():
+        assert perf.peek("db_ms") == 0.0
+        perf.record("db_ms", 12.0)
+        assert perf.peek("db_ms") == 12.0
+        perf.record("db_ms", 8.0)
+        assert perf.peek("db_ms") == 20.0
+
+
 async def test_logged_tool_merges_span_fields(capsys):
     from kajet_turbo.log import logged_tool, setup_logging
 

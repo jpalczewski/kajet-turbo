@@ -33,6 +33,12 @@ class PerfSpan:
         with self._lock:
             self.fields[field] = self.fields.get(field, 0) + value
 
+    def value(self, field: str) -> float | int:
+        # Free-threaded 3.14t: dict.get without a lock is not guaranteed atomic against a
+        # concurrent add() on the same field, so read under the same lock.
+        with self._lock:
+            return self.fields.get(field, 0)
+
 
 def current() -> PerfSpan | None:
     return _span.get()
@@ -43,6 +49,15 @@ def record(field: str, ms: float) -> None:
     span = _span.get()
     if span is not None:
         span.add(field, round(ms, 1))
+
+
+def peek(field: str) -> float:
+    """Current accumulated value of ``field`` on the active span (0.0 if none).
+
+    Read-side twin of ``record``: lets a caller snapshot a running sum before/after a
+    sub-operation to attribute just that delta (see run_sync's per-dispatch db_ms)."""
+    span = _span.get()
+    return float(span.value(field)) if span is not None else 0.0
 
 
 def incr(field: str, n: int = 1) -> None:

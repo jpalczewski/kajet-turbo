@@ -22,7 +22,7 @@ import anyio.to_thread
 from anyio import CapacityLimiter
 from loguru import logger
 
-from kajet_turbo.perf import record
+from kajet_turbo.perf import peek, record
 
 _LIMIT = 10
 _limiters: dict[Any, CapacityLimiter] = {}
@@ -57,18 +57,32 @@ async def run_sync[**P, T](fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwa
     async with limiter:
         wait_ms = (time.monotonic() - start) * 1000
         if wait_ms >= 1:
-            record("db_pool_wait_ms", wait_ms)
+            # Span-aggregate for the op's completion line (all dispatches summed).
+            record("limiter_wait_ms", wait_ms)
+        # Snapshot span db_ms + live borrowers at the instant we hold a slot, so the
+        # slow_sync line attributes THIS dispatch's db time and peak contention — not
+        # the whole op's accumulated db_ms, nor a post-hoc borrowed count that may have
+        # drained by the time we log. Correct only while run_sync dispatches under one
+        # span stay sequential (no concurrent run_sync fan-out exists today).
+        db_before = peek("db_ms") if _SLOW_SYNC_MS else 0.0
+        borrowed_at_acquire = limiter.borrowed_tokens if _SLOW_SYNC_MS else 0
         try:
             return await anyio.to_thread.run_sync(call)
         finally:
             elapsed_ms = (time.monotonic() - start) * 1000
             if _SLOW_SYNC_MS and elapsed_ms >= _SLOW_SYNC_MS:
-                # borrowed == _LIMIT alongside a long duration points at pool/limiter
-                # saturation (work queued); low borrowed points at a genuinely slow op.
+                db_ms = peek("db_ms") - db_before
+                # residual = scheduling + pool-checkout + any non-DB sync work (git,
+                # embedding, file I/O) in this dispatch. borrowed_at_acquire == _LIMIT
+                # alongside a long duration points at limiter saturation.
+                residual_ms = elapsed_ms - wait_ms - db_ms
                 logger.warning(
                     "slow_sync",
                     op=getattr(fn, "__qualname__", repr(fn)),
                     duration_ms=round(elapsed_ms),
-                    borrowed=limiter.borrowed_tokens,
+                    limiter_wait_ms=round(wait_ms),
+                    db_ms=round(db_ms),
+                    residual_ms=round(residual_ms),
+                    borrowed=borrowed_at_acquire,
                     limit=_LIMIT,
                 )
