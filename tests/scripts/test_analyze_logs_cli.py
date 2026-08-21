@@ -45,3 +45,38 @@ def test_source_loki_with_log_path_errors(monkeypatch, capsys):
         "a log file path was given but --source loki was also specified; drop one of the two"
         in captured.err
     )
+
+
+def test_percentile_nearest_rank():
+    vals = [float(v) for v in range(1, 101)]  # 1..100 sorted
+    assert analyze_logs._percentile(vals, 50) == 50
+    assert analyze_logs._percentile(vals, 95) == 95
+    assert analyze_logs._percentile(vals, 99) == 99
+    assert analyze_logs._percentile([], 50) is None
+    assert analyze_logs._percentile([42.0], 95) == 42.0
+
+
+def test_percentile_summary_groups_and_ignores_nonnumeric():
+    events = [
+        {"tool": "search", "duration_ms": 10},
+        {"tool": "search", "duration_ms": 30},
+        {"tool": "save", "duration_ms": 100},
+        {"tool": "search", "duration_ms": "oops"},  # ignored: non-numeric
+        {"duration_ms": 5},  # ignored: no group key
+        {"tool": "flag", "duration_ms": True},  # ignored: bool
+    ]
+    s = analyze_logs.percentile_summary(events, "duration_ms", "tool")
+    assert s["search"]["count"] == 2
+    assert "flag" not in s
+    assert s["save"]["p50"] == 100
+
+
+def test_percentiles_in_modes_and_args(monkeypatch):
+    assert "percentiles" in analyze_logs.MODES
+    monkeypatch.setattr(
+        sys, "argv", ["analyze-logs.py", "x.log", "--mode", "percentiles", "--pct-field", "db_ms"]
+    )
+    args = analyze_logs.parse_args()
+    assert args.mode == "percentiles"
+    assert args.pct_field == "db_ms"
+    assert args.group_by == "tool"

@@ -17,6 +17,7 @@ from sqlmodel import Session
 
 from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.log import logger
+from kajet_turbo.perf import timed
 from kajet_turbo.repositories import DbRepository
 
 
@@ -246,7 +247,7 @@ class NoteChunkRepository(DbRepository):
 
     def search_fts(self, query: str, workspace: str, owner_id: str, limit: int = 50) -> list[dict]:
         try:
-            with self.timed_session() as session:
+            with self.timed_session() as session, timed("fts_ms"):
                 rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                     text(
                         f"SELECT f.chunk_id AS chunk_id,{self._CHUNK_SELECT},"
@@ -272,7 +273,7 @@ class NoteChunkRepository(DbRepository):
         self, embedding: bytes, workspace: str, owner_id: str, dim: int, k: int = 50
     ) -> list[dict]:
         try:
-            with self.timed_session() as session:
+            with self.timed_session() as session, timed("vec_ms"):
                 rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                     text(
                         f"SELECT v.chunk_id AS chunk_id,{self._CHUNK_SELECT},"
