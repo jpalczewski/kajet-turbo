@@ -1,10 +1,12 @@
 import json
 from datetime import UTC, datetime
 
-from sqlalchemy import Engine, text
-from sqlmodel import Session, select
+from sqlalchemy import delete, text
+from sqlmodel import Session, col, select
 
+from kajet_turbo.log import logger
 from kajet_turbo.models import WorkspaceMeta
+from kajet_turbo.repositories import DbRepository
 
 
 def _row_to_dict(row: WorkspaceMeta) -> dict:
@@ -15,12 +17,9 @@ def _row_to_dict(row: WorkspaceMeta) -> dict:
     }
 
 
-class WorkspaceMetaRepository:
+class WorkspaceMetaRepository(DbRepository):
     """Per-(user, workspace) metadata store. Partial upserts via SQLite
     ON CONFLICT so unspecified fields are preserved."""
-
-    def __init__(self, engine: Engine):
-        self._engine = engine
 
     def ensure(self, user_id: str, workspace: str) -> None:
         now = datetime.now(UTC).isoformat()
@@ -105,12 +104,15 @@ class WorkspaceMetaRepository:
         return row.settings if row else None
 
     def delete(self, user_id: str, workspace: str) -> None:
-        with Session(self._engine) as session:
-            row = session.get(WorkspaceMeta, (user_id, workspace))
-            if row is None:
-                return
-            session.delete(row)
+        with self.timed_session() as session:
+            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+                delete(WorkspaceMeta).where(
+                    col(WorkspaceMeta.user_id) == user_id,
+                    col(WorkspaceMeta.workspace) == workspace,
+                )
+            )
             session.commit()
+        logger.info("workspace_meta_deleted", owner_id=user_id, ws=workspace)
 
     def set_settings(self, user_id: str, workspace: str, settings_json: str) -> None:
         now = datetime.now(UTC).isoformat()

@@ -66,8 +66,12 @@ _REPO_LOCKS: dict[str, threading.Lock] = {}
 _REPO_LOCKS_GUARD = threading.Lock()
 
 
+def _lock_key(workspace_path: str) -> str:
+    return str(Path(workspace_path).resolve())
+
+
 def _repo_lock(workspace_path: str) -> threading.Lock:
-    key = str(Path(workspace_path).resolve())
+    key = _lock_key(workspace_path)
     with _REPO_LOCKS_GUARD:
         lock = _REPO_LOCKS.get(key)
         if lock is None:
@@ -419,7 +423,6 @@ def delete_workspace_tree(workspace_path: str) -> None:
     trash = path.parent / f".trash-{path.name}-{generate()}"
     with _workspace_lock(workspace_path):
         path.rename(trash)
-    resolved = str(path.resolve())
     with _REPO_LOCKS_GUARD:
-        _REPO_LOCKS.pop(resolved, None)
+        _REPO_LOCKS.pop(_lock_key(workspace_path), None)
     shutil.rmtree(trash, ignore_errors=True)

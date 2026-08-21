@@ -1,13 +1,12 @@
-from sqlalchemy import Engine
-from sqlmodel import Session, select
+from sqlalchemy import delete
+from sqlmodel import Session, col, select
 
+from kajet_turbo.log import logger
 from kajet_turbo.models import WorkspaceAccess
+from kajet_turbo.repositories import DbRepository
 
 
-class WorkspaceRepository:
-    def __init__(self, engine: Engine):
-        self._engine = engine
-
+class WorkspaceRepository(DbRepository):
     def grant_access(self, user_id: str, workspace: str, role: str = "owner") -> None:
         with Session(self._engine) as session:
             existing = session.exec(
@@ -22,17 +21,15 @@ class WorkspaceRepository:
             session.commit()
 
     def revoke_access(self, user_id: str, workspace: str) -> None:
-        with Session(self._engine) as session:
-            row = session.exec(
-                select(WorkspaceAccess).where(
-                    WorkspaceAccess.user_id == user_id,
-                    WorkspaceAccess.workspace == workspace,
+        with self.timed_session() as session:
+            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+                delete(WorkspaceAccess).where(
+                    col(WorkspaceAccess.user_id) == user_id,
+                    col(WorkspaceAccess.workspace) == workspace,
                 )
-            ).first()
-            if row is None:
-                return
-            session.delete(row)
+            )
             session.commit()
+        logger.info("workspace_access_revoked", owner_id=user_id, ws=workspace)
 
     def list_user_workspaces(self, user_id: str) -> list[str]:
         with Session(self._engine) as session:

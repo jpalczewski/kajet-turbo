@@ -38,7 +38,6 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
     from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
     from kajet_turbo.repositories.folder_meta import FolderMetaRepository
     from kajet_turbo.repositories.notes import NoteChunkRepository as _NoteChunkRepo
-    from kajet_turbo.repositories.notes import NoteLinkRepository, NoteTagRepository
     from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
     from tests.services.conftest import build_note_service
 
@@ -55,16 +54,16 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
     )
-    note_service_inst = build_note_service(database, indexer=indexer)
+    note_service_inst = build_note_service(
+        database, indexer=indexer, chunk_repo=note_chunk_repository
+    )
     server = build_mcp(
         note_service_inst,
         WorkspaceService(
             workspace_repository,
             note_repository,
             WorkspaceMetaRepository(database.engine),
-            NoteLinkRepository(database.engine),
-            NoteTagRepository(database.engine),
-            note_chunk_repository,
+            note_service_inst,
             DanglingLinkRepository(database.engine),
             folder_meta_repository,
             WorkspaceRemoteRepository(database.engine),

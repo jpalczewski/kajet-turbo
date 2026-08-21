@@ -11,7 +11,6 @@
     onconfirm,
     trigger,
     confirmText,
-    confirmTextLabel,
   }: {
     title: string;
     message: string;
@@ -22,7 +21,6 @@
     /** When set, the confirm button stays disabled until the user types this
      * value exactly — a GitHub-style safeguard for high-blast-radius actions. */
     confirmText?: string;
-    confirmTextLabel?: string;
   } = $props();
 
   let modal: Modal;
@@ -53,7 +51,7 @@
   <p class="message">{message}</p>
   {#if confirmText !== undefined}
     <label class="confirm-text">
-      {#if confirmTextLabel}<span class="confirm-text__label">{confirmTextLabel}</span>{/if}
+      <span class="confirm-text__label">Wpisz "{confirmText}", by potwierdzić:</span>
       <input
         type="text"
         bind:value={typedText}
@@ -98,21 +96,13 @@
       color: v.$text-secondary;
     }
 
+    // _forms.scss already styles bare `input` (padding/background/border/font/transition);
+    // only the deltas from that global rule live here.
     input {
-      padding: 9px 12px;
-      background: v.$bg-surface;
-      border: 1px solid v.$border;
-      border-radius: v.$radius-md;
-      color: v.$text-primary;
       font-size: 0.9rem;
-      font-family: v.$font-mono;
-      transition:
-        border-color 0.15s,
-        box-shadow 0.15s;
 
       &:focus {
-        outline: none;
-        border-color: v.$accent;
+        // global focus glow is still the pre-rebrand purple; override to the current accent
         box-shadow: 0 0 0 2px rgba(240, 184, 0, 0.12);
       }
 

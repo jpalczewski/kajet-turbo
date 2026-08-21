@@ -1,25 +1,18 @@
 import json
 from datetime import UTC, datetime
 
-from sqlmodel import Session
-
 from kajet_turbo import workspace_settings
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import tags as tagutil
-from kajet_turbo.perf import timed
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
-from kajet_turbo.repositories.notes import (
-    NoteChunkRepository,
-    NoteLinkRepository,
-    NoteRepository,
-    NoteTagRepository,
-)
+from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.services.notes import NoteService
 from kajet_turbo.workspace import create_workspace as _create_workspace
 from kajet_turbo.workspace import delete_workspace_directory, normalize_folder
 from kajet_turbo.workspace import workspace_path as _workspace_path
@@ -33,9 +26,7 @@ class WorkspaceService:
         workspace_repo: WorkspaceRepository,
         note_repo: NoteRepository,
         meta_repo: WorkspaceMetaRepository,
-        link_repo: NoteLinkRepository,
-        tag_repo: NoteTagRepository,
-        chunk_repo: NoteChunkRepository,
+        note_service: NoteService,
         dangling_repo: DanglingLinkRepository,
         folder_meta_repo: FolderMetaRepository,
         remote_repo: WorkspaceRemoteRepository,
@@ -45,16 +36,12 @@ class WorkspaceService:
         self._repo = workspace_repo
         self._note_repo = note_repo
         self._meta_repo = meta_repo
-        self._link_repo = link_repo
-        self._tag_repo = tag_repo
-        self._chunk_repo = chunk_repo
+        self._note_service = note_service
         self._dangling_repo = dangling_repo
         self._folder_meta_repo = folder_meta_repo
         self._remote_repo = remote_repo
         self._active_repo = active_repo
         self._cache = cache
-        # shared engine for cross-repo atomic transactions (delete: chunks + notes)
-        self._engine = note_repo._engine
 
     def create(self, name: str, user_id: str, *, description: str = "") -> None:
         _create_workspace(name, user_id=user_id)
@@ -71,14 +58,7 @@ class WorkspaceService:
         go last, deliberately: as long as either row survives, has_access() still sees
         the workspace as present and the caller can retry the whole operation.
         """
-        self._tag_repo.delete_workspace_tags(name, user_id)
-        # Atomic: chunk cleanup + note row deletion share one session.
-        # FK ordering: chunks must be deleted before notes (note_chunks.note_id FK).
-        with Session(self._engine) as session, timed("db_ms"):
-            self._chunk_repo.delete_for_workspace(name, user_id, session)
-            self._note_repo.delete_for_workspace(name, user_id, session)
-            session.commit()
-        self._link_repo.delete_workspace_links(name, user_id)
+        self._note_service.clear_workspace_data(name, user_id)
         self._dangling_repo.delete_for_workspace(user_id, name)
         self._folder_meta_repo.delete_for_workspace(user_id, name)
         self._remote_repo.delete(user_id, name)

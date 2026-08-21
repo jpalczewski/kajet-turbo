@@ -1,18 +1,17 @@
 from datetime import UTC, datetime
 
 from nanoid import generate
-from sqlalchemy import Engine, delete
+from sqlalchemy import delete
 from sqlmodel import Session, col, select
 
+from kajet_turbo.log import logger
 from kajet_turbo.models import DanglingLink
+from kajet_turbo.repositories import DbRepository
 
 
-class DanglingLinkRepository:
+class DanglingLinkRepository(DbRepository):
     """Stores unresolved wikilinks for validation-off workspaces, keyed by source note.
     Mirrors NoteRepository.replace_links: a source's rows are replaced wholesale on save."""
-
-    def __init__(self, engine: Engine):
-        self._engine = engine
 
     def replace_for_source(
         self,
@@ -85,7 +84,7 @@ class DanglingLinkRepository:
             session.commit()
 
     def delete_for_workspace(self, owner_id: str, workspace: str) -> None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
                 delete(DanglingLink).where(
                     col(DanglingLink.owner_id) == owner_id,
@@ -93,3 +92,4 @@ class DanglingLinkRepository:
                 )
             )
             session.commit()
+        logger.info("dangling_links_deleted_for_workspace", owner_id=owner_id, ws=workspace)

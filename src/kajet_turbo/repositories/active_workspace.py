@@ -1,16 +1,15 @@
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Engine, delete
+from sqlalchemy import delete
 from sqlmodel import Session, col, select
 
+from kajet_turbo.log import logger
 from kajet_turbo.models import ActiveWorkspace
+from kajet_turbo.repositories import DbRepository
 
 
-class ActiveWorkspaceRepository:
+class ActiveWorkspaceRepository(DbRepository):
     """Persist active workspace by user and MCP context scope."""
-
-    def __init__(self, engine: Engine):
-        self._engine = engine
 
     def set(self, user_id: str, workspace: str, scope: str = "user") -> None:
         now = datetime.now(UTC).isoformat()
@@ -55,7 +54,7 @@ class ActiveWorkspaceRepository:
 
     def delete_for_workspace(self, user_id: str, workspace: str) -> None:
         """Clear any active-workspace pointer (any scope) for a deleted workspace."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
                 delete(ActiveWorkspace).where(
                     col(ActiveWorkspace.user_id) == user_id,
@@ -63,3 +62,4 @@ class ActiveWorkspaceRepository:
                 )
             )
             session.commit()
+        logger.info("active_workspace_deleted_for_workspace", owner_id=user_id, ws=workspace)

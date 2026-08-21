@@ -968,9 +968,9 @@ class NoteService:
             _tag_repo=self._tag_repo if tags else None,
         )
 
-    def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
-        start = time.monotonic()
-        notes = scan_notes(ws_path)
+    def clear_workspace_data(self, ws_name: str, owner_id: str) -> None:
+        """Delete every note-related row for a workspace: tags, chunks (+ FTS/vec),
+        notes, and links. Used by reindex (before rescanning) and by workspace deletion."""
         self._tag_repo.delete_workspace_tags(ws_name, owner_id)
         # Atomic: chunk cleanup + note row deletion share one session.
         # FK ordering: chunks must be deleted before notes (note_chunks.note_id FK).
@@ -978,6 +978,12 @@ class NoteService:
             self._chunk_repo.delete_for_workspace(ws_name, owner_id, session)
             self._crud_repo.delete_for_workspace(ws_name, owner_id, session)
             session.commit()
+        self._link_repo.delete_workspace_links(ws_name, owner_id)
+
+    def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
+        start = time.monotonic()
+        notes = scan_notes(ws_path)
+        self.clear_workspace_data(ws_name, owner_id)
         ws_root = Path(ws_path)
         count = 0
         for note in notes:
@@ -1000,7 +1006,6 @@ class NoteService:
                 folder,
             )
             count += 1
-        self._link_repo.delete_workspace_links(ws_name, owner_id)
         for note in notes:
             if not note["id"]:
                 continue

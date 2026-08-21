@@ -115,7 +115,6 @@
       confirmLabel="Usuń workspace"
       confirmVariant="danger"
       confirmText={slug}
-      confirmTextLabel={`Wpisz "${slug}", by potwierdzić:`}
       onconfirm={deleteWorkspace}
     >
       {#snippet trigger({ open })}

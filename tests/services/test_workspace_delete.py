@@ -12,7 +12,6 @@ from kajet_turbo.models import (
     NoteLink,
     NoteTag,
     Tag,
-    User,
     WorkspaceAccess,
     WorkspaceMeta,
     WorkspaceRemote,
@@ -27,27 +26,13 @@ from kajet_turbo.repositories.notes import (
 )
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
-from tests.services.conftest import build_workspace_service
-
-
-def _user(database, user_id: str) -> None:
-    """workspace_access.user_id (and workspace_remotes.user_id) FK to users.id."""
-    with Session(database.engine) as session:
-        session.add(
-            User(
-                id=user_id,
-                email=f"{user_id}@test.com",
-                password_hash="x",
-                created_at="2026-01-01",
-            )
-        )
-        session.commit()
+from tests.services.conftest import build_workspace_service, seed_user
 
 
 def _seed_full_workspace(database, *, user_id: str, name: str) -> None:
     """Seeds one row in every workspace-scoped table, plus a WorkspaceRemote (which
     needs a real User + SshKey to satisfy FKs)."""
-    _user(database, user_id)
+    seed_user(database, user_id)
     with Session(database.engine) as session:
         session.add(
             Note(
@@ -168,7 +153,7 @@ def test_delete_is_idempotent(
     database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_workspace_factory
 ):
     monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path))
-    _user(database, "u1")
+    seed_user(database, "u1")
     git_workspace_factory("u1/ws")
     svc = build_workspace_service(database)
     svc._repo.grant_access("u1", "ws")
@@ -182,7 +167,7 @@ def test_delete_nonexistent_workspace_is_a_noop(
     database, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path))
-    _user(database, "u1")
+    seed_user(database, "u1")
     svc = build_workspace_service(database)
 
     svc.delete("u1", "never-existed")  # must not raise
