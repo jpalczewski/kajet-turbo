@@ -27,6 +27,7 @@ from .crud import (
     UpdateFolderMetaRequest,
     UpdateNoteRequest,
     UpdateNoteResponse,
+    WikilinkWarning,
     WorkspaceContentsResponse,
 )
 from .history import NoteHistoryEntry, NoteHistoryResponse, RestoreVersionResponse
@@ -61,5 +62,6 @@ __all__ = [
     "UpdateFolderMetaRequest",
     "UpdateNoteRequest",
     "UpdateNoteResponse",
+    "WikilinkWarning",
     "WorkspaceContentsResponse",
 ]

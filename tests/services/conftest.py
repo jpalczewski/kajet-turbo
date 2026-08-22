@@ -11,6 +11,7 @@ from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
+from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
@@ -59,6 +60,7 @@ def build_note_service(
     query_cache=None,
     chunk_repo: NoteChunkRepository | None = None,
     async_build_embedder=None,
+    reconcile_repo: LinkReconcileRepository | None = None,
 ) -> NoteService:
     """Construct a fully-wired NoteService from a Database for tests."""
     engine = database.engine
@@ -81,7 +83,9 @@ def build_note_service(
         async_build_embedder=async_build_embedder,
     )
     version_service = NoteVersionService(crud_repo, cache)
-    folder_service = NoteFolderService(crud_repo, link_service, cache)
+    folder_service = NoteFolderService(
+        crud_repo, link_service, cache, reconcile_repo=reconcile_repo
+    )
 
     return NoteService(
         crud_repo,
@@ -95,22 +99,26 @@ def build_note_service(
         folder_service,
         indexer=indexer,
         cache=cache,
+        reconcile_repo=reconcile_repo,
     )
 
 
 def build_workspace_service(database: Database) -> WorkspaceService:
     """Construct a fully-wired WorkspaceService from a Database for tests."""
     engine = database.engine
+    jobs = JobRepository(engine)
+    reconcile_repo = LinkReconcileRepository(engine, jobs)
     return WorkspaceService(
         WorkspaceRepository(engine),
         NoteRepository(engine),
         WorkspaceMetaRepository(engine),
-        build_note_service(database),
+        build_note_service(database, reconcile_repo=reconcile_repo),
         DanglingLinkRepository(engine),
         FolderMetaRepository(engine),
         WorkspaceRemoteRepository(engine),
         ActiveWorkspaceRepository(engine),
-        JobRepository(engine),
+        jobs,
+        reconcile_repo=reconcile_repo,
     )
 
 

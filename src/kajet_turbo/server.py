@@ -43,12 +43,19 @@ def _make_sweep_handler(event_repo, job_repo):
 def register_job_handlers() -> None:
     """Register every job kind the worker can run. Shared by the standalone worker
     role and the combined app's in-process worker thread."""
-    from kajet_turbo.dependencies import embed_handler, event_repo, heal_handler, push_handler
+    from kajet_turbo.dependencies import (
+        embed_handler,
+        event_repo,
+        push_handler,
+        reconcile_links_handler,
+    )
     from kajet_turbo.dependencies import job_repo as _job_repo
     from kajet_turbo.worker import register_handler
 
     register_handler("push_workspace", push_handler)
-    register_handler("heal_dangling", heal_handler)
+    register_handler("reconcile_links", reconcile_links_handler)
+    # Drain jobs written before deployment with the new idempotent implementation.
+    register_handler("heal_dangling", reconcile_links_handler)
     register_handler("sweep_outbox", _make_sweep_handler(event_repo, _job_repo))
     register_handler("embed_note", embed_handler)
 

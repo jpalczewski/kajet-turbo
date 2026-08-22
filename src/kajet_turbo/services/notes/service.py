@@ -20,6 +20,7 @@ from kajet_turbo.markdown import (
 from kajet_turbo.models import Note
 from kajet_turbo.perf import timed
 from kajet_turbo.repositories.git import GitError, GitRepository
+from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
@@ -29,7 +30,7 @@ from kajet_turbo.repositories.notes import (
 )
 from kajet_turbo.services.notes.folders import NoteFolderService
 from kajet_turbo.services.notes.history import NoteVersionService
-from kajet_turbo.services.notes.links import NoteLinkService
+from kajet_turbo.services.notes.links import NoteLinkService, wikilink_warnings
 from kajet_turbo.services.notes.search import NoteSearchService
 from kajet_turbo.services.notes.staleness import (
     current_head_sha,
@@ -74,6 +75,7 @@ class NoteService:
         folder_service: NoteFolderService,
         indexer=None,
         cache: WorkspaceCache | None = None,
+        reconcile_repo: LinkReconcileRepository | None = None,
     ) -> None:
         self._crud_repo = crud_repo
         self._link_repo = link_repo
@@ -86,6 +88,7 @@ class NoteService:
         self._folder_service = folder_service
         self._indexer = indexer
         self._cache = cache
+        self._reconcile_repo = reconcile_repo
         # shared engine for cross-repo atomic transactions (reindex)
         self._engine = crud_repo._engine if crud_repo is not None else None
 
@@ -175,7 +178,9 @@ class NoteService:
         if not self._crud_repo.check_unique(ws_name, user_id, folder, title):
             raise ValueError(f"Notatka '{title}' już istnieje w folderze '{folder or 'root'}'.")
         tags = NoteTagService.normalize_tags(tags)
-        links = self._link_service.validate_wikilinks(ws_name, user_id, content, folder)
+        workspace_links = self._link_service.for_workspace(ws_name, user_id)
+        links = workspace_links.validate(content, folder)
+        affected_sources = workspace_links.affected_sources({title})
         note_id = generate(size=7)
         now = datetime.now(UTC).isoformat()
         filepath = note_filepath(ws_path, folder, title)
@@ -194,7 +199,9 @@ class NoteService:
             self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
         self._index(note_id, ws_name, user_id, title, content)
-        return {"note_id": note_id}
+        if self._reconcile_repo is not None:
+            self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
+        return {"note_id": note_id, "warnings": wikilink_warnings(links)}
 
     def save_many(
         self,
@@ -266,12 +273,12 @@ class NoteService:
         # index. Non-cascading: the index is not rebuilt as notes are dropped, so a link to
         # a later-dropped note still resolves (worst case a harmless orphan edge).
         valid: list[dict] = []
-        index = self._link_service.link_index(ws_name, user_id, extra=batch_notes)
+        workspace_links = self._link_service.for_workspace(
+            ws_name, user_id, extra=batch_notes
+        )
         for s in survivors:
             try:
-                s["links"] = self._link_service.validate_wikilinks(
-                    ws_name, user_id, s["content"], s["folder"], index
-                )
+                s["links"] = workspace_links.validate(s["content"], s["folder"])
             except BrokenWikilinkError as e:
                 results[s["index"]] = {"index": s["index"], "error": str(e)}
                 continue
@@ -279,6 +286,10 @@ class NoteService:
 
         if not valid:
             return [r for r in results if r is not None]
+
+        affected_sources = workspace_links.affected_sources(
+            {str(s["title"]) for s in valid}
+        )
 
         # Phase 3: write files, then one commit (roll back files on failure).
         for s in valid:
@@ -308,7 +319,12 @@ class NoteService:
                 s["content"],
                 s["folder"],
             )
-            self._link_service.persist(s["note_id"], ws_name, user_id, s["links"])
+        self._link_service.persist_many(
+            ws_name,
+            user_id,
+            {str(s["note_id"]): s["links"] for s in valid},
+        )
+        for s in valid:
             self._tag_service.sync_tags(s["note_id"], ws_name, user_id, s["tags"], s["content"])
 
         if self._cache is not None:
@@ -323,8 +339,15 @@ class NoteService:
             )
 
         for s in valid:
-            results[s["index"]] = {"index": s["index"], "note_id": s["note_id"]}
+            results[s["index"]] = {
+                "index": s["index"],
+                "note_id": s["note_id"],
+                "warnings": wikilink_warnings(s["links"]),
+            }
             logger.info("note_saved", note_id=s["note_id"], ws=ws_name, folder=s["folder"])
+
+        if self._reconcile_repo is not None:
+            self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
 
         return [r for r in results if r is not None]
 
@@ -571,9 +594,16 @@ class NoteService:
             new_content = edit_result.body
             replaced = edit_result.replaced
 
-        # Validate links on the final content (post apply_edit), before any git mutation.
-        links = self._link_service.validate_wikilinks(
-            note.workspace, owner_id, new_content, new_folder
+        # One pre-move snapshot serves validation and any backlink rewrite below.
+        workspace_links = self._link_service.for_workspace(note.workspace, owner_id)
+        links = workspace_links.validate(new_content, new_folder)
+        identity_changed = note.title != new_title or note.folder != new_folder
+        affected_sources = (
+            workspace_links.affected_sources(
+                {note.title, new_title}, include_source_ids={note_id}
+            )
+            if identity_changed
+            else set()
         )
 
         repo = GitRepository(ws_path)
@@ -618,12 +648,20 @@ class NoteService:
                 IndexedNote(note_id, note.folder, note.title),
                 IndexedNote(note_id, new_folder, new_title),
             )
-            self._link_service.rewrite_backlinks([move], owner_id, ws_path, note.workspace)
+            workspace_links.rewrite_backlinks([move], ws_path)
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_updated", note_id=note_id, folder=new_folder)
         self._index(note_id, note.workspace, owner_id, new_title, new_content)
-        return {"note_id": note_id, "replaced": replaced}
+        if self._reconcile_repo is not None and identity_changed:
+            self._reconcile_repo.mark_and_enqueue(
+                owner_id, note.workspace, affected_sources
+            )
+        return {
+            "note_id": note_id,
+            "replaced": replaced,
+            "warnings": wikilink_warnings(links),
+        }
 
     def edit_many(
         self,
@@ -648,7 +686,7 @@ class NoteService:
         git_repo = GitRepository(ws_path)
         note_ids = [str(raw.get("note_id", "")).strip() for raw in edits]
         located, head_shas = self._locate_batch(note_ids, user_id, ws_path, git_repo)
-        link_index = self._link_service.link_index(ws_name, user_id)
+        workspace_links = self._link_service.for_workspace(ws_name, user_id)
         seen_ids: set[str] = set()
         errors: list[dict] = []
         prepared: list[dict] = []
@@ -712,9 +750,7 @@ class NoteService:
                 continue
             new_content = edit_result.body
             try:
-                links = self._link_service.validate_wikilinks(
-                    ws_name, user_id, new_content, loc.note.folder, link_index
-                )
+                links = workspace_links.validate(new_content, loc.note.folder)
             except BrokenWikilinkError as e:
                 errors.append({"index": index, "note_id": note_id, "error": str(e)})
                 continue
@@ -781,7 +817,12 @@ class NoteService:
                 updated_at=now,
                 folder=p["note"].folder,
             )
-            self._link_service.persist(p["note_id"], ws_name, user_id, p["links"])
+        self._link_service.persist_many(
+            ws_name,
+            user_id,
+            {str(p["note_id"]): p["links"] for p in prepared},
+        )
+        for p in prepared:
             self._tag_service.sync_tags(
                 p["note_id"], ws_name, user_id, p["new_tags"], p["new_content"]
             )
@@ -800,7 +841,12 @@ class NoteService:
             )
 
         results = [
-            {"index": p["index"], "note_id": p["note_id"], "replaced": p["replaced"]}
+            {
+                "index": p["index"],
+                "note_id": p["note_id"],
+                "replaced": p["replaced"],
+                "warnings": wikilink_warnings(p["links"]),
+            }
             for p in prepared
         ]
         for p in prepared:
@@ -819,12 +865,18 @@ class NoteService:
         if note is None:
             raise ValueError(f"Notatka {note_id} nie znaleziona.")
         filepath = note_filepath(ws_path, note.folder, note.title)
-        if Path(filepath).exists():
+        file_exists = Path(filepath).exists()
+        relative = ""
+        if file_exists:
             relative = str(Path(filepath).relative_to(ws_path))
             if expected_sha is not None and not sha_is_fresh(
                 current_head_sha(ws_path, relative), expected_sha
             ):
                 return stale_payload(note_id)
+        workspace_links = self._link_service.for_workspace(note.workspace, owner_id)
+        affected_sources = workspace_links.affected_sources({note.title})
+        affected_sources.discard(note_id)  # this source is synchronously deleted below
+        if file_exists:
             GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
         self._tag_repo.delete_note_tags(note_id, note.workspace, owner_id)
         self._clear_index(note_id)
@@ -835,6 +887,10 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_deleted", note_id=note_id)
+        if self._reconcile_repo is not None:
+            self._reconcile_repo.mark_and_enqueue(
+                owner_id, note.workspace, affected_sources
+            )
         return {"note_id": note_id}
 
     def delete_many(
@@ -913,6 +969,12 @@ class NoteService:
         if errors:
             return {"applied": False, "errors": errors}
 
+        workspace_links = self._link_service.for_workspace(ws_name, user_id)
+        affected_sources = workspace_links.affected_sources(
+            {str(p["note"].title) for p in prepared}
+        )
+        affected_sources.difference_update(str(p["note_id"]) for p in prepared)
+
         n = len(prepared)
         git_repo.delete_files(
             [p["relative"] for p in prepared], f"note: delete {n} note{'' if n == 1 else 's'}"
@@ -932,6 +994,8 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
         logger.info("notes_deleted_batch", ws=ws_name, count=len(prepared))
+        if self._reconcile_repo is not None:
+            self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
         results = [{"index": p["index"], "note_id": p["note_id"]} for p in prepared]
         return {"applied": True, "results": results}
 
@@ -988,15 +1052,14 @@ class NoteService:
             )
         # Link graph and dangling rows are rebuilt with the same resolution as save-time
         # validation (short titles, suffix paths, cross-workspace ids) against one index.
-        link_index = self._link_service.link_index(ws_name, owner_id)
+        workspace_links = self._link_service.for_workspace(ws_name, owner_id)
+        resolutions = {}
         for note in notes:
             content = note["content"] or ""
             fm_tags = NoteTagService.normalize_tags(note["tags"] or [])
             self._tag_service.sync_tags(note["id"], ws_name, owner_id, fm_tags, content)
-            links = self._link_service.resolve_links(
-                ws_name, owner_id, content, note["folder"], link_index
-            )
-            self._link_service.persist(note["id"], ws_name, owner_id, links)
+            resolutions[note["id"]] = workspace_links.resolve(content, note["folder"])
+        self._link_service.persist_many(ws_name, owner_id, resolutions)
         if self._indexer is not None:
             try:
                 self._indexer.index_many(
@@ -1069,7 +1132,7 @@ class NoteService:
         return self._link_service.links(note_id, owner_id, include_meta, include_cross_workspace)
 
     def link_resolver(self, ws_name: str, owner_id: str, source_folder: str = ""):
-        return self._link_service.link_resolver(ws_name, owner_id, source_folder)
+        return self._link_service.for_workspace(ws_name, owner_id).resolver(source_folder)
 
     def xws_link_resolver(self, owner_id: str):
         return self._link_service.xws_link_resolver(owner_id)

@@ -7,6 +7,7 @@ from kajet_turbo.log import logger
 from kajet_turbo.markdown import IndexedNote
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes.links import NoteLinkService
 from kajet_turbo.workspace import (
@@ -28,11 +29,13 @@ class NoteFolderService:
         link_service: NoteLinkService,
         cache: WorkspaceCache | None,
         folder_meta_repo: FolderMetaRepository | None = None,
+        reconcile_repo: LinkReconcileRepository | None = None,
     ):
         self._crud_repo = crud_repo
         self._link_service = link_service
         self._cache = cache
         self._folder_meta_repo = folder_meta_repo
+        self._reconcile_repo = reconcile_repo
 
     def move(self, note_id: str, owner_id: str, ws_path: str, folder: str) -> dict:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
@@ -57,6 +60,10 @@ class NoteFolderService:
         if new_path.exists():
             raise FileExistsError(f"Plik docelowy '{new_path.relative_to(ws_path)}' już istnieje.")
 
+        workspace_links = self._link_service.for_workspace(note.workspace, owner_id)
+        affected_sources = workspace_links.affected_sources(
+            {note.title}, include_source_ids={note_id}
+        )
         old_rel = str(old_path.relative_to(ws_path))
         new_rel = str(new_path.relative_to(ws_path))
         new_path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,11 +80,15 @@ class NoteFolderService:
             IndexedNote(note_id, note.folder, note.title),
             IndexedNote(note_id, new_folder, note.title),
         )
-        self._link_service.rewrite_backlinks([move], owner_id, ws_path, note.workspace)
+        workspace_links.rewrite_backlinks([move], ws_path)
         prune_empty_parents(ws_path, note.folder)
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_moved", note_id=note_id, folder=new_folder)
+        if self._reconcile_repo is not None:
+            self._reconcile_repo.mark_and_enqueue(
+                owner_id, note.workspace, affected_sources
+            )
         return {"note_id": note_id, "folder": new_folder}
 
     def move_folder(
@@ -116,6 +127,11 @@ class NoteFolderService:
         if conflicts:
             return {"error": "Notatki o tych nazwach już istnieją w celu.", "conflicts": conflicts}
 
+        workspace_links = self._link_service.for_workspace(workspace, owner_id)
+        affected_sources = workspace_links.affected_sources(
+            {note.title for note in notes},
+            include_source_ids={note.id for note in notes},
+        )
         files = [p for p in src_root.rglob("*") if p.is_file()] if src_root.exists() else []
         rels_under_src = [p.relative_to(src_root) for p in files]
         removed_rels = [str(p.relative_to(ws_path)) for p in files]
@@ -176,13 +192,17 @@ class NoteFolderService:
             )
             for note in notes
         ]
-        self._link_service.rewrite_backlinks(moves, owner_id, ws_path, workspace)
+        workspace_links.rewrite_backlinks(moves, ws_path)
         remove_empty_tree(ws_path, src_n)
         if self._folder_meta_repo is not None:
             self._folder_meta_repo.rename_paths(owner_id, workspace, src_n, dst_n)
         if self._cache is not None:
             self._cache.bump(workspace, owner_id)
         logger.info("folder_moved", src=src_n, dst=dst_n, count=len(notes))
+        if self._reconcile_repo is not None:
+            self._reconcile_repo.mark_and_enqueue(
+                owner_id, workspace, affected_sources
+            )
         return {"moved": len(notes), "src": src_n, "dst": dst_n}
 
     def prune_empty_folders(self, ws_path: str) -> dict:

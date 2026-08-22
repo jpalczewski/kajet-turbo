@@ -127,8 +127,8 @@ class NoteLink(SQLModel, table=True):
 class DanglingLink(SQLModel, table=True):
     """An unresolved wikilink from ``source_note_id`` to a ``(target_folder, target_title)``
     that has no matching note yet. Written only when a workspace has link validation OFF
-    (otherwise broken links are rejected at save). A background ``heal_dangling`` job
-    reconciles these into ``note_links`` once the target note exists. Rows for a source are
+    (otherwise broken links are rejected at save). A background ``reconcile_links`` job
+    rebuilds dirty sources once a target identity may have changed. Rows for a source are
     replaced wholesale on every save of that source (``replace_for_source``), mirroring
     ``note_links``."""
 
@@ -146,6 +146,22 @@ class DanglingLink(SQLModel, table=True):
         Index("ix_dangling_target", "workspace", "owner_id", "target_folder", "target_title"),
         Index("ix_dangling_source", "source_note_id"),
     )
+
+
+class LinkReconcileDirty(SQLModel, table=True):
+    """A source note whose link graph must be rebuilt from its current file.
+
+    ``generation`` is incremented on every identity-changing write. A worker only
+    acknowledges the generation it processed, so a concurrent write cannot lose a
+    follow-up reconciliation by having its marker deleted by an older job.
+    """
+
+    __tablename__ = "link_reconcile_dirty"
+
+    owner_id: str = Field(primary_key=True)
+    workspace: str = Field(primary_key=True)
+    source_note_id: str = Field(primary_key=True)
+    generation: int = Field(default=1)
 
 
 class Tag(SQLModel, table=True):

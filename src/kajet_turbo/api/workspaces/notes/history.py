@@ -105,9 +105,4 @@ async def api_restore_note_version(
         )
     except ValueError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
-    # restore_version delegates to note_service.update, whose dict carries a "replaced"
-    # key (Task 1: replace_text replace_all); this endpoint doesn't expose replace_all,
-    # so keep the response pinned to the documented RestoreVersionResponse contract
-    # instead of leaking that internal field — a raw JSONResponse bypasses response_model
-    # filtering.
-    return JSONResponse({"note_id": result["note_id"]})
+    return JSONResponse({"note_id": result["note_id"], "warnings": result["warnings"]})

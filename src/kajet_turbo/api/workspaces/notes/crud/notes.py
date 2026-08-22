@@ -192,11 +192,8 @@ async def api_update_note(
             status_code=409,
             detail={"error": str(NoteError.STALE_VERSION)},
         )
-    # note_service.update's dict gained a "replaced" key (Task 1: replace_text replace_all);
-    # this REST endpoint doesn't expose replace_all, so keep its response pinned to the
-    # documented UpdateNoteResponse contract instead of leaking that internal field —
-    # returning a raw JSONResponse bypasses response_model filtering.
-    return JSONResponse({"note_id": result["note_id"]})
+    # Keep the MCP-only replacement count private while exposing public link warnings.
+    return JSONResponse({"note_id": result["note_id"], "warnings": result["warnings"]})
 
 
 @router.post(

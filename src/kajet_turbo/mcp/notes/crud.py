@@ -85,7 +85,7 @@ def build_crud(
             folder=folder,
         )
         await publish_workspace_changed(ws)
-        return SavedNoteResult(note_id=result["note_id"])
+        return SavedNoteResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
     @logged_tool
@@ -108,7 +108,7 @@ def build_crud(
         )
         await publish_workspace_changed(ws)
         return [
-            BatchNoteSuccess(index=r["index"], note_id=r["note_id"])
+            BatchNoteSuccess.model_validate(r)
             if "note_id" in r
             else BatchNoteError(index=r["index"], error=r["error"])
             for r in results
@@ -363,7 +363,8 @@ def build_crud(
         folder: Annotated[
             str | None,
             Field(
-                description="Filter to notes in this folder only, e.g. 'Projekty/Klient A'. Empty string = root."
+                description="Filter to notes in this folder only, e.g. "
+                "'Projekty/Klient A'. Empty string = root."
             ),
         ] = None,
         sort: Annotated[

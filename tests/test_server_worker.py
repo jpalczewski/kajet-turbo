@@ -30,7 +30,13 @@ def test_sweep_handler_purges_old_done_jobs(database: Database):
 
 def test_register_job_handlers_covers_all_kinds():
     register_job_handlers()
-    for kind in ("push_workspace", "heal_dangling", "sweep_outbox", "embed_note"):
+    for kind in (
+        "push_workspace",
+        "reconcile_links",
+        "heal_dangling",
+        "sweep_outbox",
+        "embed_note",
+    ):
         assert get_handler(kind) is not None, kind
 
 

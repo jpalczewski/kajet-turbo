@@ -1,9 +1,12 @@
 import json
 from collections.abc import Callable, Iterable
-from dataclasses import replace
-from functools import cache, partial
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
+from functools import partial
 from itertools import chain
 from pathlib import Path
+
+from sqlmodel import Session
 
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
@@ -12,11 +15,12 @@ from kajet_turbo.markdown import (
     LinkIndex,
     LinkResolution,
     LinkResolver,
-    extract_wikilinks,
+    join_target,
     note_explorer_url,
     resolve_content_links,
     rewrite_wikilinks,
 )
+from kajet_turbo.perf import timed
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
@@ -24,6 +28,52 @@ from kajet_turbo.workspace import note_filepath, path_segments, read_note_file, 
 
 # (old, new) identity of a note that was moved and/or renamed.
 type NoteMove = tuple[IndexedNote, IndexedNote]
+
+
+def wikilink_warnings(links: LinkResolution) -> list[dict]:
+    """Public warning payloads for a content-resolution result."""
+    return [
+        {
+            "kind": "ambiguous_wikilink",
+            "target": item.target,
+            "resolved_to": join_target(item.chosen.folder, item.chosen.title),
+            "alternatives": [join_target(n.folder, n.title) for n in item.alternatives],
+        }
+        for item in links.ambiguous
+    ]
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceLinks:
+    """One immutable wikilink-resolution snapshot for a workspace operation."""
+
+    _service: NoteLinkService
+    ws_name: str
+    owner_id: str
+    paths: tuple[IndexedNote, ...]
+    index: LinkIndex
+
+    def resolve(self, content: str, source_folder: str) -> LinkResolution:
+        return self._service._resolve_links(self, content, source_folder)
+
+    def validate(self, content: str, source_folder: str) -> LinkResolution:
+        return self._service._validate_wikilinks(self, content, source_folder)
+
+    def resolver(self, source_folder: str = "") -> LinkResolver:
+        return lambda target: self.index.resolve(target, source_folder)
+
+    def rewrite_backlinks(self, moves: list[NoteMove], ws_path: str) -> None:
+        self._service._rewrite_backlinks(self, moves, ws_path)
+
+    def target_ids_for_titles(self, titles: set[str]) -> list[str]:
+        """Current target note ids whose title may be affected by an identity change."""
+        return [note.note_id for note in self.paths if note.title in titles]
+
+    def affected_sources(
+        self, titles: set[str], include_source_ids: Iterable[str] = ()
+    ) -> set[str]:
+        """Sources whose resolution can change when one of ``titles`` appears or moves."""
+        return self._service._affected_sources(self, titles, include_source_ids)
 
 
 class NoteLinkService:
@@ -44,72 +94,82 @@ class NoteLinkService:
             return True
         return self._link_validation_enabled(ws_name, owner_id)
 
-    def link_index(
+    def for_workspace(
         self, ws_name: str, owner_id: str, extra: Iterable[IndexedNote] = ()
-    ) -> LinkIndex:
+    ) -> WorkspaceLinks:
         """Snapshot of the workspace's notes for wikilink resolution. ``extra`` adds notes
         that don't exist in the DB yet (a batch being saved) so in-batch links resolve."""
-        return LinkIndex(chain(self._crud_repo.list_paths(ws_name, owner_id), extra))
+        paths = tuple(chain(self._crud_repo.list_paths(ws_name, owner_id), extra))
+        return WorkspaceLinks(self, ws_name, owner_id, paths, LinkIndex(paths))
 
-    def resolve_links(
+    def _resolve_links(
         self,
-        ws_name: str,
-        owner_id: str,
+        workspace: WorkspaceLinks,
         content: str,
         source_folder: str,
-        index: LinkIndex | None = None,
     ) -> LinkResolution:
         """Resolve every wikilink in ``content`` without judging the result.
 
-        Intra-workspace targets resolve against ``index`` (built on demand when omitted;
-        pass one to share it across a batch). ``[[note:ID]]`` cross-workspace links are
-        resolved by note ID and folded into ``resolved_ids`` — a missing ID is simply
-        dropped, never reported as broken (there is no dangling row to write for it).
+        Intra-workspace targets resolve against the operation's explicit snapshot.
+        ``[[note:ID]]`` cross-workspace links are resolved by note ID and folded into
+        ``resolved_ids`` — a missing ID is simply dropped, never reported as broken.
         """
-        if index is None:
-            # Link-free content (the common case) must not pay for the workspace index.
-            if not extract_wikilinks(content):
-                return LinkResolution(set(), [], [])
-            index = self.link_index(ws_name, owner_id)
-        resolution = resolve_content_links(index, content, source_folder)
+        resolution = resolve_content_links(workspace.index, content, source_folder)
         if not resolution.xws_ids:
             return resolution
-        xws_found = {n.id for n in self._crud_repo.get_many(resolution.xws_ids, owner_id)}
+        xws_found = {
+            n.id for n in self._crud_repo.get_many(resolution.xws_ids, workspace.owner_id)
+        }
         return replace(resolution, resolved_ids=resolution.resolved_ids | xws_found)
 
-    def validate_wikilinks(
+    def _validate_wikilinks(
         self,
-        ws_name: str,
-        owner_id: str,
+        workspace: WorkspaceLinks,
         content: str,
         source_folder: str,
-        index: LinkIndex | None = None,
     ) -> LinkResolution:
-        """``resolve_links`` plus the workspace's validation policy: with validation on, any
-        broken intra-workspace target raises ``BrokenWikilinkError``; with it off, the
-        broken targets stay in the result for the dangling-link table."""
-        resolution = self.resolve_links(ws_name, owner_id, content, source_folder, index)
-        if resolution.broken and self._links_validated(ws_name, owner_id):
+        """Resolve plus the workspace's broken-link validation policy."""
+        resolution = self._resolve_links(workspace, content, source_folder)
+        if resolution.broken and self._links_validated(workspace.ws_name, workspace.owner_id):
             raise BrokenWikilinkError(resolution.broken)
         return resolution
 
     def persist(self, note_id: str, ws_name: str, owner_id: str, links: LinkResolution) -> None:
         """Store one note's resolution outcome: the link-graph edges for what resolved and
         the dangling rows for what did not — both halves, so no write path can drift."""
-        self._link_repo.replace_links(note_id, ws_name, owner_id, links.resolved_ids)
-        self.write_dangling(note_id, ws_name, owner_id, links.broken_pairs)
+        self.persist_many(ws_name, owner_id, {note_id: links})
 
-    def write_dangling(
+    def persist_many(
         self,
-        source_note_id: str,
         ws_name: str,
         owner_id: str,
-        broken_pairs: list[tuple[str, str]],
+        resolutions: dict[str, LinkResolution],
+        clear_source_ids: set[str] | None = None,
     ) -> None:
-        """Persist (or clear) the source note's dangling links. No-op when not wired."""
-        if self._dangling_repo is None:
+        """Atomically persist a reconciliation batch in one SQLite transaction."""
+        clear_source_ids = set() if clear_source_ids is None else clear_source_ids
+        if not resolutions and not clear_source_ids:
             return
-        self._dangling_repo.replace_for_source(source_note_id, ws_name, owner_id, broken_pairs)
+        now = datetime.now(UTC).isoformat()
+        with Session(self._link_repo._engine) as session, timed("db_ms"):
+            for source_id, links in resolutions.items():
+                self._link_repo.replace_links_in_session(
+                    session, source_id, ws_name, owner_id, links.resolved_ids
+                )
+                if self._dangling_repo is not None:
+                    self._dangling_repo.replace_for_source_in_session(
+                        session,
+                        source_id,
+                        ws_name,
+                        owner_id,
+                        links.broken_pairs,
+                        now=now,
+                    )
+            for source_id in clear_source_ids - resolutions.keys():
+                self._link_repo.delete_links_from_in_session(session, source_id)
+                if self._dangling_repo is not None:
+                    self._dangling_repo.delete_for_source_in_session(session, source_id)
+            session.commit()
 
     def delete_dangling_for_source(self, note_id: str) -> None:
         """Remove dangling link rows for a deleted source note. No-op when not wired."""
@@ -120,6 +180,32 @@ class NoteLinkService:
         """Remove every dangling link row of a workspace. No-op when not wired."""
         if self._dangling_repo is not None:
             self._dangling_repo.delete_for_workspace(owner_id, ws_name)
+
+    def _affected_sources(
+        self,
+        workspace: WorkspaceLinks,
+        titles: set[str],
+        include_source_ids: Iterable[str],
+    ) -> set[str]:
+        """Collect graph and dangling sources before an identity-changing write.
+
+        All current same-title candidates matter: adding, deleting, moving, or renaming
+        one candidate can change the deterministic winner even for an edge that currently
+        points to another candidate. Moved sources are included separately because their
+        own folder participates in proximity ranking.
+        """
+        target_ids = workspace.target_ids_for_titles(titles)
+        sources = self._link_repo.backlinks_many(
+            target_ids, same_workspace=workspace.ws_name
+        )
+        if self._dangling_repo is not None:
+            sources.update(
+                self._dangling_repo.sources_for_titles(
+                    workspace.owner_id, workspace.ws_name, titles
+                )
+            )
+        sources.update(include_source_ids)
+        return sources
 
     def backlinks(
         self,
@@ -155,17 +241,6 @@ class NoteLinkService:
             "outlinks": self.outlinks(note_id, owner_id, include_meta),
         }
 
-    def link_resolver(self, ws_name: str, owner_id: str, source_folder: str = "") -> LinkResolver:
-        """Render-time resolver with the same rules as validation, ranked from the rendered
-        note's own folder. The index is loaded on the first link, so link-free notes cost
-        no query."""
-
-        @cache
-        def index() -> LinkIndex:
-            return self.link_index(ws_name, owner_id)
-
-        return lambda target: index().resolve(target, source_folder)
-
     def xws_link_resolver(self, owner_id: str):
         def resolve(note_id: str) -> tuple[str, str] | None:
             note = self._crud_repo.get(note_id, owner_id=owner_id)
@@ -183,9 +258,13 @@ class NoteLinkService:
     ) -> list[dict]:
         """Map note_ids to ``{note_id, title, folder, workspace}``, skipping missing notes.
         With ``include_meta=True`` also includes ``tags`` and ``updated_at``."""
+        notes = {
+            note.id: note
+            for note in self._crud_repo.get_many(note_ids, owner_id)
+        }
         result = []
         for note_id in note_ids:
-            note = self._crud_repo.get(note_id, owner_id=owner_id)
+            note = notes.get(note_id)
             if note is None:
                 continue
             entry: dict = {
@@ -200,8 +279,8 @@ class NoteLinkService:
             result.append(entry)
         return result
 
-    def rewrite_backlinks(
-        self, moves: list[NoteMove], owner_id: str, ws_path: str, ws_name: str
+    def _rewrite_backlinks(
+        self, workspace: WorkspaceLinks, moves: list[NoteMove], ws_path: str
     ) -> None:
         """Rewrite wikilinks in every note that links to a moved/renamed note so they still
         resolve. Call after the DB rows hold the new paths; ``moves`` carries each note's
@@ -235,14 +314,13 @@ class NoteLinkService:
           this call for a stale snippet/chunk-offset window that closes on the next edit.
         """
         moved = {old.note_id: new for old, new in moves}
-        source_ids = self._link_repo.backlinks_many(list(moved), same_workspace=ws_name)
+        source_ids = self._link_repo.backlinks_many(
+            list(moved), same_workspace=workspace.ws_name
+        )
         if not source_ids:
             return
-        paths = self._crud_repo.list_paths(ws_name, owner_id)
-        after = LinkIndex(paths)
-        before = LinkIndex(
-            chain((p for p in paths if p.note_id not in moved), (old for old, _ in moves))
-        )
+        after = LinkIndex(moved.get(path.note_id, path) for path in workspace.paths)
+        before = workspace.index
         old_folders = {old.note_id: old.folder for old, _ in moves}
 
         def rewrite(target: str, before_folder: str, after_folder: str) -> str | None:
@@ -260,7 +338,7 @@ class NoteLinkService:
         )
         repo = GitRepository(ws_path)
         rewritten = 0
-        for src in self._crud_repo.get_many(sorted(source_ids), owner_id):
+        for src in self._crud_repo.get_many(sorted(source_ids), workspace.owner_id):
             src_path = note_filepath(ws_path, src.folder, src.title)
             if not Path(src_path).exists():
                 continue
@@ -290,11 +368,14 @@ class NoteLinkService:
             relative = str(Path(src_path).relative_to(ws_path))
             repo.commit_file(relative, message)
             self._crud_repo.update(
-                src.id, owner_id=owner_id, content=new_body, updated_at=src.updated_at
+                src.id,
+                owner_id=workspace.owner_id,
+                content=new_body,
+                updated_at=src.updated_at,
             )
         logger.info(
             "backlinks_rewritten",
-            ws=ws_name,
+            ws=workspace.ws_name,
             moved=len(moves),
             sources=len(source_ids),
             rewritten=rewritten,

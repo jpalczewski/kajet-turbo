@@ -11,7 +11,9 @@ from kajet_turbo.markdown.chunking import (
     embedded_text,
 )
 from kajet_turbo.markdown.link_index import (
+    AmbiguousLink,
     LinkIndex,
+    LinkMatch,
     LinkResolution,
     join_target,
     resolve_content_links,
@@ -48,6 +50,7 @@ from kajet_turbo.markdown.wikilinks import (
 
 __all__ = [
     "DEFAULT_HARD_MAX",
+    "AmbiguousLink",
     "AnchorAmbiguousError",
     "AnchorNotFoundError",
     "BrokenWikilinkError",
@@ -57,6 +60,7 @@ __all__ = [
     "HeadingNotFoundError",
     "IndexedNote",
     "LinkIndex",
+    "LinkMatch",
     "LinkResolution",
     "LinkResolver",
     "OutlineSection",

@@ -195,17 +195,17 @@ def test_move_rewrite_creates_commit_in_source_history(service, workspace):
 
 def test_validate_wikilinks_accepts_extra_index_notes(service, workspace):
     # No note "Target" exists in the DB; supply it via the index's extra notes.
-    index = service._link_service.link_index(
+    workspace_links = service._link_service.for_workspace(
         "ws", "u1", extra=[IndexedNote("abc1234", "Batch", "Target")]
     )
-    links = service._link_service.validate_wikilinks("ws", "u1", "see [[Target]]", "", index)
+    links = workspace_links.validate("see [[Target]]", "")
     assert links.resolved_ids == {"abc1234"}
     assert links.broken == []
 
 
 def test_validate_wikilinks_without_extra_still_raises(service, workspace):
     with pytest.raises(BrokenWikilinkError):
-        service._link_service.validate_wikilinks("ws", "u1", "see [[Nope]]", "")
+        service._link_service.for_workspace("ws", "u1").validate("see [[Nope]]", "")
 
 
 # --- Obsidian-style short targets ---

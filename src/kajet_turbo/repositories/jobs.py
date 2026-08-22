@@ -52,6 +52,74 @@ _CLAIM_SQL = text(
 
 
 class JobRepository(DbRepository):
+    def enqueue_in_session(
+        self,
+        session: Session,
+        kind: str,
+        payload: dict,
+        *,
+        dedup_key: str | None = None,
+        user_id: str | None = None,
+        max_attempts: int = 5,
+        delay: float = 0.0,
+        now: float | None = None,
+    ) -> str:
+        """Enqueue without committing, for callers that atomically persist related state."""
+        now = time.time() if now is None else now
+        run_at = now + delay
+        body = json.dumps(payload)
+        job_id = generate()
+        if dedup_key is None:
+            session.add(
+                Job(
+                    id=job_id,
+                    kind=kind,
+                    user_id=user_id,
+                    dedup_key=None,
+                    payload=body,
+                    status="pending",
+                    attempts=0,
+                    max_attempts=max_attempts,
+                    next_run_at=run_at,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            return job_id
+
+        # Debounce: one pending job per (kind, dedup_key). On conflict with the
+        # partial unique index, re-arm the existing pending row instead of
+        # inserting a duplicate.
+        stmt = (
+            sqlite_insert(Job)
+            .values(
+                id=job_id,
+                kind=kind,
+                user_id=user_id,
+                dedup_key=dedup_key,
+                payload=body,
+                status="pending",
+                attempts=0,
+                max_attempts=max_attempts,
+                next_run_at=run_at,
+                created_at=now,
+                updated_at=now,
+            )
+            .on_conflict_do_update(
+                index_elements=[Job.kind, Job.dedup_key],  # ty: ignore[invalid-argument-type] — SQLAlchemy column descriptors satisfy DDLConstraintColumnRole at runtime; ty infers str|None from the model field annotation
+                index_where=(Job.status == "pending"),  # ty: ignore[invalid-argument-type] — ColumnElement.__eq__ returns ColumnElement[bool], not bool; ty loses the overload
+                set_={"next_run_at": run_at, "updated_at": now},
+            )
+        )
+        session.execute(stmt)  # ty: ignore[deprecated] — sqlite INSERT ON CONFLICT requires execute(), not exec()
+        return session.execute(  # ty: ignore[deprecated] — raw SQL path for DML consistency
+            select(Job.id).where(
+                Job.kind == kind,
+                Job.dedup_key == dedup_key,
+                Job.status == "pending",
+            )
+        ).scalar_one()
+
     def enqueue(
         self,
         kind: str,
@@ -63,63 +131,19 @@ class JobRepository(DbRepository):
         delay: float = 0.0,
         now: float | None = None,
     ) -> str:
-        now = time.time() if now is None else now
-        run_at = now + delay
-        body = json.dumps(payload)
-        job_id = generate()
-        with Session(self._engine) as session:
-            if dedup_key is None:
-                session.add(
-                    Job(
-                        id=job_id,
-                        kind=kind,
-                        user_id=user_id,
-                        dedup_key=None,
-                        payload=body,
-                        status="pending",
-                        attempts=0,
-                        max_attempts=max_attempts,
-                        next_run_at=run_at,
-                        created_at=now,
-                        updated_at=now,
-                    )
-                )
-                session.commit()
-                return job_id
-
-            # Debounce: one pending job per (kind, dedup_key). On conflict with the
-            # partial unique index, re-arm the existing pending row instead of
-            # inserting a duplicate.
-            stmt = (
-                sqlite_insert(Job)
-                .values(
-                    id=job_id,
-                    kind=kind,
-                    user_id=user_id,
-                    dedup_key=dedup_key,
-                    payload=body,
-                    status="pending",
-                    attempts=0,
-                    max_attempts=max_attempts,
-                    next_run_at=run_at,
-                    created_at=now,
-                    updated_at=now,
-                )
-                .on_conflict_do_update(
-                    index_elements=[Job.kind, Job.dedup_key],  # ty: ignore[invalid-argument-type] — SQLAlchemy column descriptors satisfy DDLConstraintColumnRole at runtime; ty infers str|None from the model field annotation
-                    index_where=(Job.status == "pending"),  # ty: ignore[invalid-argument-type] — ColumnElement.__eq__ returns ColumnElement[bool], not bool; ty loses the overload
-                    set_={"next_run_at": run_at, "updated_at": now},
-                )
+        with self.timed_session() as session:
+            job_id = self.enqueue_in_session(
+                session,
+                kind,
+                payload,
+                dedup_key=dedup_key,
+                user_id=user_id,
+                max_attempts=max_attempts,
+                delay=delay,
+                now=now,
             )
-            session.execute(stmt)  # ty: ignore[deprecated] — sqlite INSERT ON CONFLICT requires execute(), not exec()
             session.commit()
-            return session.execute(  # ty: ignore[deprecated] — raw SQL path for DML consistency
-                select(Job.id).where(
-                    Job.kind == kind,
-                    Job.dedup_key == dedup_key,
-                    Job.status == "pending",
-                )
-            ).scalar_one()
+            return job_id
 
     def claim(
         self, worker_id: str, *, now: float | None = None, stale_after: float = 300.0
@@ -253,7 +277,7 @@ class JobRepository(DbRepository):
     def delete_for_workspace(self, user_id: str, workspace: str) -> None:
         """Drop every job (any status) scoped to a deleted workspace. Jobs carry no
         workspace column — payload.workspace is the invariant every workspace-scoped
-        kind (push_workspace/heal_dangling/embed_note) shares, and what JobService
+        kind (push_workspace/reconcile_links/embed_note) shares, and what JobService
         already relies on to render the dashboard. Global jobs (sweep_outbox) have a
         NULL user_id and no payload.workspace, so they're structurally excluded."""
         with self.timed_session() as session:

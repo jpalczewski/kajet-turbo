@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from kajet_turbo.api.schemas.notes.crud import WikilinkWarning
 
 
 class NoteHistoryEntry(BaseModel):
@@ -13,3 +15,4 @@ class NoteHistoryResponse(BaseModel):
 
 class RestoreVersionResponse(BaseModel):
     note_id: str
+    warnings: list[WikilinkWarning] = Field(default_factory=list)
