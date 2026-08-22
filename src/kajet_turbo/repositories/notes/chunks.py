@@ -9,6 +9,7 @@ suppressing a false positive from ty's SQLModel-specific deprecation rule.
 """
 
 import json
+import re
 from datetime import UTC, datetime
 
 from nanoid import generate
@@ -19,6 +20,45 @@ from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.log import logger
 from kajet_turbo.perf import timed
 from kajet_turbo.repositories import DbRepository
+
+_FTS_TOKEN = re.compile(r"\w+", re.UNICODE)
+
+# notes_fts is declared with tokenize='trigram' (see db.py). A trigram index cannot
+# represent a term shorter than three characters, so such a token matches nothing on its
+# own — and inside an AND chain it drops the whole result set to empty. Polish prose is
+# full of them ("z", "we", "się" is fine at 3), so they are dropped when building the
+# expression rather than emitted and silently poisoning the query.
+_FTS_MIN_TOKEN = 3
+
+
+def _to_fts_query(query: str) -> str:
+    r"""Turn free text into a valid FTS5 MATCH expression for the lexical search leg.
+
+    FTS5 parses its right-hand operand as a query language, not as text: ``,`` ``-``
+    ``:`` ``(`` ``)`` ``"`` and a bare ``NOT`` are syntax, so ordinary prose raises
+    OperationalError. Queries here are LLM-written natural language (the tool documents
+    no FTS5 syntax; ``grep_notes`` covers literal search), and in production every
+    comma-bearing query was failing this way — 109 times in 30 days, each one silently
+    reducing the hybrid search to its vector leg.
+
+    Tokenizing on ``\w+`` and quoting each token makes any input valid: a quoted token is
+    an FTS5 string literal, so operator keywords and punctuation lose their meaning.
+    Tokens cannot contain ``"`` by construction, so no inner escaping is needed.
+
+    Terms are joined with OR, not the implicit AND the raw expression used to get.
+    Measured against the real trigram index, AND returns zero rows for every
+    natural-language query that fails today, so quoting alone would fix the exception and
+    restore nothing; OR brings the leg back. This is the default for free-text input in
+    Lucene, Elasticsearch and Tantivy, and the engines that default to AND (Typesense,
+    Meilisearch) pair it with automatic term relaxation. Precision is left to bm25 — which
+    ranks documents matching more terms higher, and clamps IDF at zero so common words
+    cannot invert a ranking — and to the RRF fusion this feeds.
+
+    Returns ``""`` when nothing usable survives; callers must skip the query, since an
+    empty MATCH expression is a syntax error in its own right.
+    """
+    tokens = [t for t in _FTS_TOKEN.findall(query) if len(t) >= _FTS_MIN_TOKEN]
+    return " OR ".join(f'"{token}"' for token in tokens)
 
 
 class NoteChunkRepository(DbRepository):
@@ -246,6 +286,11 @@ class NoteChunkRepository(DbRepository):
         }
 
     def search_fts(self, query: str, workspace: str, owner_id: str, limit: int = 50) -> list[dict]:
+        match = _to_fts_query(query)
+        if not match:
+            # No usable tokens (empty, whitespace, or punctuation only). An empty MATCH
+            # expression is itself a syntax error, so skip the query rather than raise.
+            return []
         try:
             with self.timed_session() as session, timed("fts_ms"):
                 rows = session.execute(  # ty: ignore[deprecated] - raw SQL
@@ -258,11 +303,12 @@ class NoteChunkRepository(DbRepository):
                         " WHERE notes_fts MATCH :q AND f.workspace = :ws AND n.owner_id = :o"
                         " ORDER BY rank LIMIT :limit"
                     ),
-                    {"q": query, "ws": workspace, "o": owner_id, "limit": limit},
+                    {"q": match, "ws": workspace, "o": owner_id, "limit": limit},
                 ).fetchall()
         except Exception as e:
-            # FTS5 MATCH raises on malformed user query syntax (the common, expected case);
-            # log so a genuine DB/table error isn't indistinguishable from "no results".
+            # _to_fts_query makes any input syntactically valid, so this is no longer the
+            # expected path for ordinary queries — anything landing here is a genuine
+            # DB/table problem and should be read as such.
             logger.opt(exception=e).warning("search_fts_failed", workspace=workspace)
             return []
         return [
