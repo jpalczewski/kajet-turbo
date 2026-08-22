@@ -118,7 +118,7 @@ def test_hybrid_search_synthesizes_row_for_note_without_chunks(database):
             "matched_on": ["title"],
         }
     ]
-    # Query that matches nothing in FTS (n3 has zero chunks — the exact "Angelika" bug shape:
+    # Query that matches nothing in FTS (n3 has zero chunks — the exact "Alice" bug shape:
     # a note whose only match is metadata, never indexed as a chunk) — must still surface.
     hits = repo.hybrid_search(
         "zzznomatch", "ws", "u1", embedding=None, limit=10, meta_hits=meta_hits
