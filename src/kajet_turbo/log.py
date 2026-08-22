@@ -22,6 +22,16 @@ def _json_sink(message) -> None:
         "ts": r["time"].strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
         "level": r["level"].name.lower(),
         "msg": r["message"],
+        # Origin of the line. Without it a message cannot be attributed to an emitter at
+        # all — which is why a third-party library logging the same text from several
+        # places, or the same record reaching the sink more than once, is undiagnosable
+        # from the logs alone. `logger` is the frame's module here; records intercepted
+        # from stdlib logging override it via `extra` with the real stdlib logger name
+        # (see _InterceptHandler), which is the more informative of the two.
+        # `origin` rather than `src`: bound fields are spread last and would silently
+        # clobber these, and `src` is already used as an event field elsewhere.
+        "logger": r["name"],
+        "origin": f"{r['module']}:{r['function']}:{r['line']}",
         **r["extra"],
     }
     if r["exception"]:
@@ -46,7 +56,12 @@ class _InterceptHandler(logging.Handler):
                 break
             frame = frame.f_back
             depth += 1
-        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+        # Bind the stdlib logger name: loguru derives `record["name"]` from the frame, so
+        # without this the emitting library ("fastmcp.server.server", "dulwich.config", …)
+        # is lost and every intercepted line looks anonymous in the JSONL.
+        logger.opt(depth=depth, exception=record.exc_info).bind(logger=record.name).log(
+            level, record.getMessage()
+        )
 
 
 def setup_logging() -> None:
@@ -63,7 +78,19 @@ def setup_logging() -> None:
     # These libraries emit per-call/per-token internals at DEBUG with zero diagnostic
     # value in our JSONL logs (raw SSE payload dumps, TCP/TLS connect traces, parser
     # internals); pin them above DEBUG unconditionally, independent of LOG_LEVEL.
-    for noisy_logger in ("markdown_it", "httpx", "httpcore", "mcp", "asyncio"):
+    # sse_starlette is not merely noisy: it debug-logs every outgoing SSE chunk, so with
+    # LOG_LEVEL=DEBUG whole tool results — note titles and bodies included — end up in the
+    # log store. dulwich emits four gitconfig lines per git operation and accounted for
+    # 39% of MCP log volume in production.
+    for noisy_logger in (
+        "markdown_it",
+        "httpx",
+        "httpcore",
+        "mcp",
+        "asyncio",
+        "sse_starlette",
+        "dulwich",
+    ):
         logging.getLogger(noisy_logger).setLevel(logging.INFO)
     # FastMCP uses stdlib logging with propagate=False and its own RichHandler.
     # Replace it with our InterceptHandler so FastMCP logs flow through loguru → JSONL.

@@ -258,3 +258,96 @@ def test_handle_loop_exception_delegates_non_shielded_connection_closed(capsys):
     assert calls == [context]
     captured = capsys.readouterr()
     assert captured.err.strip() == ""
+
+
+def test_json_sink_includes_origin_fields(capsys):
+    from kajet_turbo.log import logger, setup_logging
+
+    setup_logging()
+    logger.info("origin check")
+
+    captured = capsys.readouterr()
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
+    entry = json.loads(lines[-1])
+    assert entry["logger"] == __name__
+    module, function, line = entry["origin"].split(":")
+    assert module == __name__.rsplit(".", 1)[-1]
+    assert function == "test_json_sink_includes_origin_fields"
+    assert int(line) > 0
+
+
+def test_intercepted_record_keeps_stdlib_logger_name(capsys):
+    import logging
+
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    # A library logger we do not pin above DEBUG, so the record reaches the sink.
+    logging.getLogger("some_library.submodule").warning("library message")
+
+    captured = capsys.readouterr()
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
+    entry = json.loads(lines[-1])
+    assert entry["msg"] == "library message"
+    # The stdlib name must survive interception; loguru's frame-derived name would be
+    # this test module, which tells you nothing about which library emitted the line.
+    assert entry["logger"] == "some_library.submodule"
+
+
+@pytest.mark.parametrize("name", ["sse_starlette", "dulwich", "dulwich.config"])
+def test_noisy_library_debug_records_are_suppressed(capsys, name):
+    import logging
+
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    logging.getLogger(name).debug("chunk: b'event: message ... note body'")
+
+    captured = capsys.readouterr()
+    assert "note body" not in captured.err
+
+
+def test_noisy_library_warnings_still_reach_the_sink(capsys):
+    import logging
+
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    logging.getLogger("sse_starlette").warning("something actually wrong")
+
+    captured = capsys.readouterr()
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
+    entry = json.loads(lines[-1])
+    assert entry["msg"] == "something actually wrong"
+    assert entry["logger"] == "sse_starlette"
+
+
+def test_our_own_debug_records_still_reach_the_sink(capsys, monkeypatch):
+    monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+    from kajet_turbo.log import logger, setup_logging
+
+    setup_logging()
+    logger.debug("our debug line", detail="kept")
+
+    captured = capsys.readouterr()
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
+    entry = json.loads(lines[-1])
+    assert entry["msg"] == "our debug line"
+    assert entry["detail"] == "kept"
+
+
+def test_origin_field_is_not_clobbered_by_a_bound_src_field(capsys):
+    from kajet_turbo.log import logger, setup_logging
+
+    setup_logging()
+    # `src` is a real event field elsewhere (folder_moved logs src/dst). Bound fields are
+    # spread last, so a collision would silently overwrite the origin of the line.
+    logger.info("folder_moved", src="a", dst="b")
+
+    captured = capsys.readouterr()
+    lines = [ln for ln in captured.err.strip().split("\n") if ln]
+    entry = json.loads(lines[-1])
+    assert entry["src"] == "a"
+    assert entry["dst"] == "b"
+    _, function, _ = entry["origin"].split(":")
+    assert function == "test_origin_field_is_not_clobbered_by_a_bound_src_field"
