@@ -10,6 +10,7 @@ from kajet_turbo.models import (
     DanglingLink,
     FolderMeta,
     Job,
+    LinkReconcileDirty,
     Note,
     NoteLink,
     NoteTag,
@@ -22,6 +23,7 @@ from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
+from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
@@ -97,6 +99,9 @@ def _seed_full_workspace(database, *, user_id: str, name: str) -> None:
         dedup_key=f"{user_id}:{name}:{user_id}-n1",
         user_id=user_id,
     )
+    LinkReconcileRepository(database.engine, job_repo).mark_and_enqueue(
+        user_id, name, {f"{user_id}-n1"}
+    )
 
 
 def _job_count(session: Session, *, workspace: str, owner_id: str) -> int:
@@ -137,6 +142,9 @@ def _counts(database, *, workspace: str, owner_id: str) -> dict[str, int]:
             "workspace_access": count(WorkspaceAccess, workspace=workspace, user_id=owner_id),
             "workspace_meta": count(WorkspaceMeta, workspace=workspace, user_id=owner_id),
             "jobs": _job_count(session, workspace=workspace, owner_id=owner_id),
+            "link_reconcile_dirty": count(
+                LinkReconcileDirty, workspace=workspace, owner_id=owner_id
+            ),
         }
 
 

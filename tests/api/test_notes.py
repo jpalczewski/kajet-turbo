@@ -230,7 +230,7 @@ def test_update_note_response_matches_declared_schema(auth_client):
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"content": "new content", "expected_sha": sha},
     )
-    assert resp.json() == {"note_id": note_id}
+    assert resp.json() == {"note_id": note_id, "warnings": []}
 
 
 def test_update_note_title(auth_client):
@@ -375,6 +375,27 @@ def test_create_note_valid_wikilink_succeeds(auth_client):
         json={"title": "Source", "content": "see [[Target|t]]"},
     )
     assert resp.status_code == 201
+
+
+def test_create_note_ambiguous_wikilink_returns_warning(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "README", "near", [], folder="Project")
+    note_svc.save("u1", "test-ws", ws_path, "README", "far", [], folder="Archive")
+
+    resp = client.post(
+        "/api/workspaces/test-ws/notes",
+        json={"title": "Source", "folder": "Project", "content": "[[README]]"},
+    )
+
+    assert resp.status_code == 201
+    assert resp.json()["warnings"] == [
+        {
+            "kind": "ambiguous_wikilink",
+            "target": "README",
+            "resolved_to": "Project/README",
+            "alternatives": ["Archive/README"],
+        }
+    ]
 
 
 def test_update_note_broken_wikilink_returns_422(auth_client):

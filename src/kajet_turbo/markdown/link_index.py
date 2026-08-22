@@ -4,7 +4,7 @@ A wikilink target is a *path suffix*, not a full path: ``[[Title]]`` matches any
 titled ``Title`` anywhere in the workspace, ``[[Sub/Title]]`` any note titled ``Title``
 whose folder is ``Sub`` or ends with ``/Sub``. When several notes match, the winner is
 picked deterministically (see ``LinkIndex.resolve``), so the same link always resolves
-the same way across validation, rendering, reindexing and dangling-link healing — this
+the same way across validation, rendering, reindexing and background reconciliation — this
 module is the single definition of what a target *means*; ``wikilinks`` defines only the
 syntax.
 
@@ -15,7 +15,7 @@ memory per operation).
 
 from collections import defaultdict
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from kajet_turbo.markdown.wikilinks import IndexedNote, extract_wikilinks, xws_note_id
 from kajet_turbo.workspace import normalize_folder, path_segments
@@ -77,7 +77,13 @@ class LinkIndex:
             by_title[note.title].append(note)
         self._by_title: dict[str, list[IndexedNote]] = dict(by_title)
 
-    def resolve(self, target: str, source_folder: str = "") -> IndexedNote | None:
+    def resolve_detailed(self, target: str, source_folder: str = "") -> LinkMatch | None:
+        """Resolve ``target`` and retain the losing candidates.
+
+        Candidates are returned in the same deterministic ranking order used to choose
+        the winner. Keeping this detail here makes ambiguity reporting use exactly the
+        same semantics as validation, rendering and backlink rewrites.
+        """
         folder, title = split_target(target)
         candidates = [n for n in self._by_title.get(title, ()) if _folder_matches(n.folder, folder)]
         if not candidates:
@@ -93,7 +99,12 @@ class LinkIndex:
                 note.folder,
             )
 
-        return min(candidates, key=rank)
+        ranked = sorted(candidates, key=rank)
+        return LinkMatch(ranked[0], tuple(ranked[1:]))
+
+    def resolve(self, target: str, source_folder: str = "") -> IndexedNote | None:
+        match = self.resolve_detailed(target, source_folder)
+        return match.chosen if match is not None else None
 
     def shortest_target(
         self, note: IndexedNote, source_folder: str = "", min_segments: int = 1
@@ -112,17 +123,36 @@ class LinkIndex:
 
 
 @dataclass(frozen=True, slots=True)
+class LinkMatch:
+    """The selected candidate and every lower-ranked alternative for one target."""
+
+    chosen: IndexedNote
+    alternatives: tuple[IndexedNote, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class AmbiguousLink:
+    """One content target that matched more than one note."""
+
+    target: str
+    chosen: IndexedNote
+    alternatives: tuple[IndexedNote, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class LinkResolution:
     """Outcome of resolving every wikilink in one note body.
 
     ``resolved_ids`` are intra-workspace targets that matched; ``broken`` the raw targets
-    that did not (sorted, unique); ``xws_ids`` the ids from ``[[note:ID]]`` links, which
-    this module cannot resolve (they live in other workspaces) and hands back to the caller.
+    that did not (sorted, unique); ``xws_ids`` the sorted unique ids from ``[[note:ID]]``
+    links, which this module cannot resolve (they live in other workspaces) and hands back
+    to the caller.
     """
 
     resolved_ids: set[str]
     broken: list[str]
     xws_ids: list[str]
+    ambiguous: list[AmbiguousLink] = field(default_factory=list)
 
     @property
     def broken_pairs(self) -> list[tuple[str, str]]:
@@ -135,12 +165,24 @@ def resolve_content_links(index: LinkIndex, content: str, source_folder: str) ->
     ranking ambiguous targets by proximity to ``source_folder``."""
     resolved_ids: set[str] = set()
     broken: set[str] = set()
-    xws_ids: list[str] = []
+    xws_ids: set[str] = set()
+    ambiguous: dict[str, AmbiguousLink] = {}
+    matches: dict[str, LinkMatch | None] = {}
     for target, _ in extract_wikilinks(content):
         if (xws_id := xws_note_id(target)) is not None:
-            xws_ids.append(xws_id)
-        elif (hit := index.resolve(target, source_folder)) is not None:
-            resolved_ids.add(hit.note_id)
+            xws_ids.add(xws_id)
+            continue
+        if target not in matches:
+            matches[target] = index.resolve_detailed(target, source_folder)
+        if (match := matches[target]) is not None:
+            resolved_ids.add(match.chosen.note_id)
+            if match.alternatives:
+                ambiguous[target] = AmbiguousLink(target, match.chosen, match.alternatives)
         else:
             broken.add(target)
-    return LinkResolution(resolved_ids, sorted(broken), xws_ids)
+    return LinkResolution(
+        resolved_ids,
+        sorted(broken),
+        sorted(xws_ids),
+        [ambiguous[target] for target in sorted(ambiguous)],
+    )

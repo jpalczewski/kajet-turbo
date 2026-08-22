@@ -23,6 +23,7 @@ from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.git import register_post_commit_hook
 from kajet_turbo.repositories.jobs import JobRepository
+from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
@@ -39,8 +40,6 @@ from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.embed_enqueue import make_enqueue_embed
 from kajet_turbo.services.embed_handler import EmbedNoteHandler
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
-from kajet_turbo.services.heal_enqueue import make_enqueue_heal_on_commit
-from kajet_turbo.services.heal_handler import HealDanglingHandler
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.jobs import JobService
 from kajet_turbo.services.notes import (
@@ -53,6 +52,7 @@ from kajet_turbo.services.notes import (
 )
 from kajet_turbo.services.push_enqueue import make_enqueue_push_on_commit
 from kajet_turbo.services.push_handler import PushHandler
+from kajet_turbo.services.reconcile_links_handler import ReconcileLinksHandler
 from kajet_turbo.services.ssh_keys import SshKeyService
 from kajet_turbo.services.workspace_remote import WorkspaceRemoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -123,6 +123,7 @@ _query_cache = QueryEmbeddingCache()
 
 workspace_meta_repo = WorkspaceMetaRepository(db.engine)
 dangling_repo = DanglingLinkRepository(db.engine)
+link_reconcile_repo = LinkReconcileRepository(db.engine, job_repo)
 
 _cache = WorkspaceCache() if cache_enabled() else None
 _link_validation = lambda ws, owner: workspace_service.get_settings(owner, ws)["validate_links"]  # noqa: E731
@@ -145,7 +146,13 @@ _note_search_service = NoteSearchService(
 )
 _note_version_service = NoteVersionService(note_repo, _cache)
 folder_meta_repo = FolderMetaRepository(db.engine)
-_note_folder_service = NoteFolderService(note_repo, _note_link_service, _cache, folder_meta_repo)
+_note_folder_service = NoteFolderService(
+    note_repo,
+    _note_link_service,
+    _cache,
+    folder_meta_repo,
+    link_reconcile_repo,
+)
 
 note_service = NoteService(
     note_repo,
@@ -159,6 +166,7 @@ note_service = NoteService(
     _note_folder_service,
     indexer=note_indexer,
     cache=_cache,
+    reconcile_repo=link_reconcile_repo,
 )
 
 _ssh_key_repo = SshKeyRepository(db.engine)
@@ -176,6 +184,7 @@ workspace_service = WorkspaceService(
     active_workspace_repo,
     job_repo,
     cache=_cache,
+    reconcile_repo=link_reconcile_repo,
 )
 push_handler = PushHandler(
     workspace_remote_repo,
@@ -191,10 +200,13 @@ register_post_commit_hook(
     make_enqueue_push_on_commit(job_repo, workspace_remote_repo, WORKSPACES_DIR)
 )
 
-heal_handler = HealDanglingHandler(note_repo, note_link_repo, dangling_repo)
-# Enqueue a dangling-link heal after every commit in a workspace that has dangling rows.
-# Zero-cost for validation-on workspaces (the EXISTS check short-circuits immediately).
-register_post_commit_hook(make_enqueue_heal_on_commit(job_repo, dangling_repo, WORKSPACES_DIR))
+reconcile_links_handler = ReconcileLinksHandler(
+    note_repo,
+    _note_link_service,
+    dangling_repo,
+    link_reconcile_repo,
+    WORKSPACES_DIR,
+)
 
 workspace_remote_service = WorkspaceRemoteService(
     workspace_remote_repo, _ssh_key_repo, job_repo, WORKSPACES_DIR

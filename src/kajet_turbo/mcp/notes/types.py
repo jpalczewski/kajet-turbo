@@ -7,7 +7,8 @@ class NoteInput(BaseModel):
     title: str = Field(description="Note title; unique within (workspace, folder)")
     content: str = Field(
         default="",
-        description="Markdown body; use [[Title]] or [[Folder/Title]] for wikilinks, [[note:ID]] for cross-workspace links",
+        description="Markdown body; use [[Title]] or [[Folder/Title]] for wikilinks, "
+        "[[note:ID]] for cross-workspace links",
     )
     tags: list[str] = Field(default=[], description="Tag list, e.g. ['work', 'work/projects']")
     folder: str = Field(
@@ -16,8 +17,16 @@ class NoteInput(BaseModel):
     )
 
 
+class WikilinkWarning(BaseModel):
+    kind: Literal["ambiguous_wikilink"]
+    target: str
+    resolved_to: str
+    alternatives: list[str]
+
+
 class SavedNoteResult(BaseModel):
     note_id: str
+    warnings: list[WikilinkWarning] = Field(default_factory=list)
 
 
 class MovedNoteResult(BaseModel):
@@ -99,7 +108,8 @@ class NoteListResponse(BaseModel):
     notes: list[NoteListItem]
     folder_context: FolderContext | None = Field(
         default=None,
-        description="Metadata for the queried folder, present when a folder filter was given and metadata exists",
+        description="Metadata for the queried folder, present when a folder filter was given "
+        "and metadata exists",
     )
 
 
@@ -137,7 +147,8 @@ class NoteLinkItem(BaseModel):
     folder: str
     workspace: str | None = Field(
         default=None,
-        description="Non-null and != active workspace means cross-workspace link; reference with [[note:note_id]]",
+        description="Non-null and != active workspace means cross-workspace link; reference "
+        "with [[note:note_id]]",
     )
     tags: list[str] | None = None
     updated_at: str | None = None
@@ -151,6 +162,7 @@ class NoteLinksResult(BaseModel):
 class BatchNoteSuccess(BaseModel):
     index: int
     note_id: str
+    warnings: list[WikilinkWarning] = Field(default_factory=list)
 
 
 class BatchNoteError(BaseModel):
@@ -166,6 +178,7 @@ class StaleVersion(BaseModel):
 class EditNoteSuccess(BaseModel):
     note_id: str
     replaced: int | None = None
+    warnings: list[WikilinkWarning] = Field(default_factory=list)
 
 
 class GrepMatch(BaseModel):
@@ -264,6 +277,7 @@ class EditNotesSuccessItem(BaseModel):
     index: int
     note_id: str
     replaced: int | None = None
+    warnings: list[WikilinkWarning] = Field(default_factory=list)
 
 
 class EditNotesApplied(BaseModel):

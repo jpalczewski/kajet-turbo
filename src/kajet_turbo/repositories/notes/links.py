@@ -1,12 +1,35 @@
 from sqlalchemy import delete
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlmodel import col, select
+from sqlmodel import Session, col, select
 
 from kajet_turbo.models import NoteLink
 from kajet_turbo.repositories import DbRepository
 
 
 class NoteLinkRepository(DbRepository):
+    @staticmethod
+    def replace_links_in_session(
+        session: Session,
+        source_note_id: str,
+        workspace: str,
+        owner_id: str,
+        target_ids: set[str],
+    ) -> None:
+        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+            delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id)
+        )
+        session.add_all(
+            [
+                NoteLink(
+                    source_note_id=source_note_id,
+                    target_note_id=target_id,
+                    workspace=workspace,
+                    owner_id=owner_id,
+                )
+                for target_id in target_ids
+            ]
+        )
+
     def replace_links(
         self,
         source_note_id: str,
@@ -16,26 +39,17 @@ class NoteLinkRepository(DbRepository):
     ) -> None:
         """Replace the set of outgoing links for ``source_note_id`` (delete + reinsert)."""
         with self.timed_session() as session:
-            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
-                delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id)
+            self.replace_links_in_session(
+                session, source_note_id, workspace, owner_id, target_ids
             )
-            for target_id in target_ids:
-                session.add(
-                    NoteLink(
-                        source_note_id=source_note_id,
-                        target_note_id=target_id,
-                        workspace=workspace,
-                        owner_id=owner_id,
-                    )
-                )
             session.commit()
 
     def add_link(
         self, source_note_id: str, target_note_id: str, workspace: str, owner_id: str
     ) -> None:
         """Insert one outgoing edge, idempotently (ON CONFLICT DO NOTHING on the composite
-        PK). Unlike replace_links, leaves the source's other edges intact — used by the
-        reverse-heal job to add a single newly-resolved edge."""
+        PK). Unlike replace_links, leaves the source's other edges intact — useful for
+        maintenance/backfill code that adds one known edge."""
         with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] — sqlite INSERT ON CONFLICT requires execute(), not exec()
                 sqlite_insert(NoteLink)
@@ -51,10 +65,14 @@ class NoteLinkRepository(DbRepository):
 
     def delete_links_from(self, source_note_id: str) -> None:
         with self.timed_session() as session:
-            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
-                delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id)
-            )
+            self.delete_links_from_in_session(session, source_note_id)
             session.commit()
+
+    @staticmethod
+    def delete_links_from_in_session(session: Session, source_note_id: str) -> None:
+        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+            delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id)
+        )
 
     def delete_links_to(self, target_note_id: str) -> None:
         with self.timed_session() as session:

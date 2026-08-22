@@ -9,6 +9,7 @@ from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
+from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
@@ -34,6 +35,7 @@ class WorkspaceService:
         active_repo: ActiveWorkspaceRepository,
         job_repo: JobRepository,
         cache: WorkspaceCache | None = None,
+        reconcile_repo: LinkReconcileRepository | None = None,
     ) -> None:
         self._repo = workspace_repo
         self._note_repo = note_repo
@@ -45,6 +47,7 @@ class WorkspaceService:
         self._active_repo = active_repo
         self._job_repo = job_repo
         self._cache = cache
+        self._reconcile_repo = reconcile_repo
 
     def create(self, name: str, user_id: str, *, description: str = "") -> None:
         _create_workspace(name, user_id=user_id)
@@ -72,6 +75,8 @@ class WorkspaceService:
         self._remote_repo.delete(user_id, name)
         self._active_repo.delete_for_workspace(user_id, name)
         self._job_repo.delete_for_workspace(user_id, name)
+        if self._reconcile_repo is not None:
+            self._reconcile_repo.delete_for_workspace(user_id, name)
         delete_workspace_directory(name, user_id=user_id)
         self._meta_repo.delete(user_id, name)
         self._repo.revoke_access(user_id, name)

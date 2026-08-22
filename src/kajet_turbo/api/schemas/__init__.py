@@ -32,6 +32,7 @@ from .notes import (
     UpdateFolderMetaRequest,
     UpdateNoteRequest,
     UpdateNoteResponse,
+    WikilinkWarning,
     WorkspaceContentsResponse,
 )
 from .ssh_keys import SshKeyItem, SshKeysResponse
@@ -94,6 +95,7 @@ __all__ = [
     "UpdateNoteResponse",
     "UpdateWorkspaceResponse",
     "UpdateWorkspaceSettingsResponse",
+    "WikilinkWarning",
     "WorkspaceContentsResponse",
     "WorkspaceInfo",
     "WorkspaceRemoteResponse",

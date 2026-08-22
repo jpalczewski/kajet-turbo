@@ -26,7 +26,8 @@ Kajet — git-versioned markdown notebook.
   [[SubFolder/Title]] also matches Folder/SubFolder/Title
 - [[Target|Displayed text]] — link with display alias
 - Same title in several folders: the exact full path wins, otherwise the note nearest
-  the linking note (same folder, then closest ancestor). Use the full path to be explicit.
+  the linking note (same folder, then closest ancestor). Save/edit responses report this
+  as an ambiguous_wikilink warning; use the full path to make the target explicit.
 - [[note:NOTE_ID]] — cross-workspace permanent link; NOTE_ID is the note_id UUID
   from any note response; renders as a clickable link to the note in its workspace
 

@@ -79,4 +79,4 @@ def test_restore_note_version_response_matches_declared_schema(auth_client):
 
     response = client.post(f"/api/workspaces/test-ws/notes/{note_id}/history/{version}/restore")
 
-    assert response.json() == {"note_id": note_id}
+    assert response.json() == {"note_id": note_id, "warnings": []}

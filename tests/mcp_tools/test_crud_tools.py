@@ -71,6 +71,31 @@ async def test_save_note_creates_file(workspaces_dir, mcp_server):
     assert len(files) == 1
 
 
+async def test_save_note_reports_ambiguous_wikilink_warning(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    service = mcp_server.note_service
+    assert service is not None
+    ws_path = str(workspaces_dir / "test-ws")
+    service.save("u1", "test-ws", ws_path, "README", "near", [], folder="Project")
+    service.save("u1", "test-ws", ws_path, "README", "far", [], folder="Archive")
+
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        result = await client.call_tool(
+            "save_note",
+            {"title": "Source", "folder": "Project", "content": "[[README]]"},
+        )
+
+    assert json.loads(result.content[0].text)["warnings"] == [
+        {
+            "kind": "ambiguous_wikilink",
+            "target": "README",
+            "resolved_to": "Project/README",
+            "alternatives": ["Archive/README"],
+        }
+    ]
+
+
 async def test_delete_note(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
@@ -133,7 +158,11 @@ async def test_edit_note_append_mode(workspaces_dir, mcp_server):
                 "content": "- Drugie",
             },
         )
-        assert json.loads(edit_result.content[0].text) == {"note_id": note_id, "replaced": None}
+        assert json.loads(edit_result.content[0].text) == {
+            "note_id": note_id,
+            "replaced": None,
+            "warnings": [],
+        }
         get_result = await client.call_tool("get_note", {"note_id": note_id})
         content = json.loads(get_result.content[0].text)["content"]
         assert "- Pierwsze\n- Drugie" in content

@@ -13,10 +13,18 @@ export const AuthError = {
   ACCESS_DENIED: 'ACCESS_DENIED',
 } as const;
 
+export interface WikilinkWarning {
+  kind: 'ambiguous_wikilink';
+  target: string;
+  resolved_to: string;
+  alternatives: string[];
+}
+
 export interface NoteResult {
   index: number;
   note_id?: string | null;
   error?: string | null;
+  warnings?: WikilinkWarning[];
 }
 
 export interface BatchCreateNotesResponse {
@@ -52,6 +60,7 @@ export interface CreateFolderResponse {
 
 export interface CreateNoteResponse {
   note_id: string;
+  warnings?: WikilinkWarning[];
 }
 
 export interface CreateWorkspaceResponse {
@@ -253,6 +262,7 @@ export interface ReindexResponse {
 
 export interface RestoreVersionResponse {
   note_id: string;
+  warnings?: WikilinkWarning[];
 }
 
 export interface SessionResponse {
@@ -300,6 +310,7 @@ export interface UpdateFolderMetaRequest {
 
 export interface UpdateNoteResponse {
   note_id: string;
+  warnings?: WikilinkWarning[];
 }
 
 export interface UpdateWorkspaceResponse {

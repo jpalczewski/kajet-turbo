@@ -195,17 +195,17 @@ def test_move_rewrite_creates_commit_in_source_history(service, workspace):
 
 def test_validate_wikilinks_accepts_extra_index_notes(service, workspace):
     # No note "Target" exists in the DB; supply it via the index's extra notes.
-    index = service._link_service.link_index(
+    workspace_links = service._link_service.for_workspace(
         "ws", "u1", extra=[IndexedNote("abc1234", "Batch", "Target")]
     )
-    links = service._link_service.validate_wikilinks("ws", "u1", "see [[Target]]", "", index)
+    links = workspace_links.validate("see [[Target]]", "")
     assert links.resolved_ids == {"abc1234"}
     assert links.broken == []
 
 
 def test_validate_wikilinks_without_extra_still_raises(service, workspace):
     with pytest.raises(BrokenWikilinkError):
-        service._link_service.validate_wikilinks("ws", "u1", "see [[Nope]]", "")
+        service._link_service.for_workspace("ws", "u1").validate("see [[Nope]]", "")
 
 
 # --- Obsidian-style short targets ---
@@ -251,6 +251,30 @@ def test_rendered_short_link_points_at_target_folder(service, workspace):
     tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Deep/Er")["note_id"]
     html = render_markdown("[[Target]]", resolver=service.link_resolver("ws", "u1"), slug="ws")
     assert f'href="/workspace/ws/notes/Deep/Er/{tid}"' in html
+
+
+def test_render_link_index_is_loaded_only_when_first_wikilink_is_rendered(
+    service, workspace, monkeypatch
+):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    calls = 0
+    original = service._crud_repo.list_paths
+
+    def counted_list_paths(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(service._crud_repo, "list_paths", counted_list_paths)
+    resolver = service.link_resolver("ws", "u1")
+
+    assert calls == 0
+    render_markdown("plain text", resolver=resolver, slug="ws")
+    assert calls == 0
+
+    html = render_markdown("[[Target]] and [[Target]]", resolver=resolver, slug="ws")
+    assert f'href="/workspace/ws/notes/{tid}"' in html
+    assert calls == 1
 
 
 def test_move_keeps_short_backlink_unchanged(service, workspace):

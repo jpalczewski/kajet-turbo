@@ -26,8 +26,16 @@ class CreateNoteRequest(BaseModel):
     tags: list[str] = []
 
 
+class WikilinkWarning(BaseModel):
+    kind: Literal["ambiguous_wikilink"]
+    target: str
+    resolved_to: str
+    alternatives: list[str]
+
+
 class CreateNoteResponse(BaseModel):
     note_id: str
+    warnings: list[WikilinkWarning] = Field(default_factory=list)
 
 
 class UpdateNoteRequest(BaseModel):
@@ -39,6 +47,7 @@ class UpdateNoteRequest(BaseModel):
 
 class UpdateNoteResponse(BaseModel):
     note_id: str
+    warnings: list[WikilinkWarning] = Field(default_factory=list)
 
 
 class MoveNoteRequest(BaseModel):
@@ -65,6 +74,7 @@ class NoteResult(BaseModel):
     index: int
     note_id: str | None = None
     error: str | None = None
+    warnings: list[WikilinkWarning] = Field(default_factory=list)
 
 
 class BatchCreateNotesRequest(BaseModel):
@@ -118,4 +128,6 @@ class FolderMetaResponse(BaseModel):
 
 class UpdateFolderMetaRequest(BaseModel):
     description: str = Field(description="What this folder is for; empty string clears the field")
-    instructions: str = Field(description="LLM instructions for working with notes in this folder; empty string clears")
+    instructions: str = Field(
+        description="LLM instructions for working with notes in this folder; empty string clears"
+    )
