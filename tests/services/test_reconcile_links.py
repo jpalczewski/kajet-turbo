@@ -70,6 +70,58 @@ def test_generation_ack_does_not_delete_newer_marker(database):
     assert len([j for j in jobs.list_jobs("u1") if j.kind == "reconcile_links"]) == 1
 
 
+@pytest.mark.parametrize("mutation", ["update", "edit_many", "delete"])
+def test_concurrent_source_mutation_cannot_leave_stale_graph(
+    database, git_workspace_factory, monkeypatch, mutation
+):
+    seed_user(database, "u1")
+    ws = git_workspace_factory("u1/ws")
+    service, _jobs, dirty, _dangling, handler = _wiring(database, ws.parent.parent)
+    first_id = service.save("u1", "ws", str(ws), "First", "body", [])["note_id"]
+    second_id = service.save("u1", "ws", str(ws), "Second", "body", [])["note_id"]
+    source_id = service.save("u1", "ws", str(ws), "Source", "[[First]]", [])["note_id"]
+    dirty.mark_and_enqueue("u1", "ws", {source_id})
+
+    original = service._link_service.persist_many
+    raced = False
+
+    def persist_after_mutation(*args, **kwargs):
+        nonlocal raced
+        resolutions = args[2]
+        if not raced and source_id in resolutions:
+            raced = True
+            sha = service.get_history(source_id, "u1", str(ws))[0]["sha"]
+            if mutation == "update":
+                service.update(source_id, "u1", str(ws), sha, content="[[Second]]")
+            elif mutation == "edit_many":
+                result = service.edit_many(
+                    "u1",
+                    "ws",
+                    str(ws),
+                    [
+                        {
+                            "note_id": source_id,
+                            "expected_sha": sha,
+                            "mode": "replace_text",
+                            "old_text": "[[First]]",
+                            "content": "[[Second]]",
+                        }
+                    ],
+                )
+                assert result["applied"] is True
+            else:
+                service.delete(source_id, "u1", str(ws), expected_sha=sha)
+        original(*args, **kwargs)
+
+    monkeypatch.setattr(service._link_service, "persist_many", persist_after_mutation)
+    handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
+
+    links = NoteLinkRepository(database.engine)
+    assert links.backlinks(first_id) == []
+    assert links.backlinks(second_id) == ([] if mutation == "delete" else [source_id])
+    assert dirty.list_dirty("u1", "ws") == {}
+
+
 def test_dirty_markers_roll_back_when_enqueue_fails(database, monkeypatch):
     seed_user(database, "u1")
     jobs = JobRepository(database.engine)

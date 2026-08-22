@@ -13,6 +13,7 @@ from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
     BrokenWikilinkError,
     IndexedNote,
+    LinkResolver,
     apply_edit,
     build_outline,
     join_target,
@@ -1131,8 +1132,20 @@ class NoteService:
     ) -> dict | None:
         return self._link_service.links(note_id, owner_id, include_meta, include_cross_workspace)
 
-    def link_resolver(self, ws_name: str, owner_id: str, source_folder: str = ""):
-        return self._link_service.for_workspace(ws_name, owner_id).resolver(source_folder)
+    def link_resolver(
+        self, ws_name: str, owner_id: str, source_folder: str = ""
+    ) -> LinkResolver:
+        resolver: LinkResolver | None = None
+
+        def resolve(target: str):
+            nonlocal resolver
+            if resolver is None:
+                resolver = self._link_service.for_workspace(ws_name, owner_id).resolver(
+                    source_folder
+                )
+            return resolver(target)
+
+        return resolve
 
     def xws_link_resolver(self, owner_id: str):
         return self._link_service.xws_link_resolver(owner_id)

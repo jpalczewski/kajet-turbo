@@ -253,6 +253,30 @@ def test_rendered_short_link_points_at_target_folder(service, workspace):
     assert f'href="/workspace/ws/notes/Deep/Er/{tid}"' in html
 
 
+def test_render_link_index_is_loaded_only_when_first_wikilink_is_rendered(
+    service, workspace, monkeypatch
+):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    calls = 0
+    original = service._crud_repo.list_paths
+
+    def counted_list_paths(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(service._crud_repo, "list_paths", counted_list_paths)
+    resolver = service.link_resolver("ws", "u1")
+
+    assert calls == 0
+    render_markdown("plain text", resolver=resolver, slug="ws")
+    assert calls == 0
+
+    html = render_markdown("[[Target]] and [[Target]]", resolver=resolver, slug="ws")
+    assert f'href="/workspace/ws/notes/{tid}"' in html
+    assert calls == 1
+
+
 def test_move_keeps_short_backlink_unchanged(service, workspace):
     tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Old")["note_id"]
     sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target|T]]", [])["note_id"]
