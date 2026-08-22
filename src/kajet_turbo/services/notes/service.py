@@ -1,6 +1,7 @@
 import json
 import time
-from dataclasses import asdict, dataclass
+from collections.abc import Iterator
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -60,6 +61,29 @@ class _LocatedNote:
     filepath: str
     relative: str
     file_exists: bool
+    head_sha: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ValidatedDestructiveItem:
+    """A batch item that passed the validation shared by edits and deletes."""
+
+    index: int
+    raw: dict
+    note_id: str
+    loc: _LocatedNote
+
+
+@dataclass(frozen=True, slots=True)
+class _BatchValidationError:
+    """A public-shaped validation error, kept typed while flowing through a batch."""
+
+    index: int
+    note_id: str
+    error: str
+
+    def as_dict(self) -> dict:
+        return {"index": self.index, "note_id": self.note_id, "error": self.error}
 
 
 class NoteService:
@@ -111,7 +135,7 @@ class NoteService:
 
     def _locate_batch(
         self, note_ids: list[str], owner_id: str, ws_path: str, git_repo: GitRepository
-    ) -> tuple[dict[str, _LocatedNote], dict[str, str | None]]:
+    ) -> dict[str, _LocatedNote]:
         """Resolve every note in a batch and compute all head shas in ONE git walk,
         before per-item validation. One DB query for all rows, one git walk for all
         head shas, instead of N of each. Only paths that exist on disk enter the
@@ -131,7 +155,50 @@ class NoteService:
         head_shas = git_repo.head_shas_for_paths(
             [loc.relative for loc in located.values() if loc.file_exists]
         )
-        return located, head_shas
+        return {
+            note_id: replace(loc, head_sha=head_shas.get(loc.relative))
+            for note_id, loc in located.items()
+        }
+
+    def _validate_destructive_items(
+        self,
+        raw_items: list[dict],
+        note_ids: list[str],
+        located: dict[str, _LocatedNote],
+    ) -> Iterator[_ValidatedDestructiveItem | _BatchValidationError]:
+        """Yield shared validation results in input order for batch writes.
+
+        Keeping this as a stream lets edit_many add its edit-specific validation
+        immediately, preserving the existing order of mixed validation errors.
+        """
+        seen_ids: set[str] = set()
+        for index, (raw, note_id) in enumerate(zip(raw_items, note_ids, strict=True)):
+            if not note_id:
+                yield _BatchValidationError(index, note_id, "note_id jest wymagany.")
+                continue
+            if note_id in seen_ids:
+                yield _BatchValidationError(
+                    index, note_id, f"Duplikat note_id w batchu: '{note_id}'."
+                )
+                continue
+            seen_ids.add(note_id)
+            loc = located.get(note_id)
+            if loc is None:
+                yield _BatchValidationError(index, note_id, f"Notatka {note_id} nie znaleziona.")
+                continue
+            if not loc.file_exists:
+                yield _BatchValidationError(
+                    index, note_id, f"Plik notatki {note_id} nie znaleziony."
+                )
+                continue
+            expected_sha = str(raw.get("expected_sha", "")).strip()
+            if not expected_sha:
+                yield _BatchValidationError(index, note_id, "expected_sha jest wymagany.")
+                continue
+            if not sha_is_fresh(loc.head_sha, expected_sha):
+                yield _BatchValidationError(index, note_id, stale_error(note_id))
+                continue
+            yield _ValidatedDestructiveItem(index, raw, note_id, loc)
 
     def _note_data(self, loc: _LocatedNote, sha: str | None) -> NoteData:
         if sha is None:
@@ -448,14 +515,14 @@ class NoteService:
         All head shas come from ONE shared git walk (head_shas_for_paths) instead of a
         per-note history walk — cost is the deepest note's history, not the sum."""
         git_repo = GitRepository(ws_path)
-        located, head_shas = self._locate_batch(note_ids, owner_id, ws_path, git_repo)
+        located = self._locate_batch(note_ids, owner_id, ws_path, git_repo)
         results: list[NoteData | dict] = []
         for note_id in note_ids:
             loc = located.get(note_id.strip())
             if loc is None or not loc.file_exists:
                 results.append({"note_id": note_id, "error": f"Notatka {note_id} nie znaleziona."})
             else:
-                results.append(self._note_data(loc, head_shas.get(loc.relative)))
+                results.append(self._note_data(loc, loc.head_sha))
         return results
 
     def preview_chunks(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
@@ -686,55 +753,15 @@ class NoteService:
         # the single atomic commit afterwards, instead of re-opening per item.
         git_repo = GitRepository(ws_path)
         note_ids = [str(raw.get("note_id", "")).strip() for raw in edits]
-        located, head_shas = self._locate_batch(note_ids, user_id, ws_path, git_repo)
+        located = self._locate_batch(note_ids, user_id, ws_path, git_repo)
         workspace_links = self._link_service.for_workspace(ws_name, user_id)
-        seen_ids: set[str] = set()
         errors: list[dict] = []
         prepared: list[dict] = []
-        for index, (raw, note_id) in enumerate(zip(edits, note_ids, strict=True)):
-            if not note_id:
-                errors.append(
-                    {"index": index, "note_id": note_id, "error": "note_id jest wymagany."}
-                )
+        for item in self._validate_destructive_items(edits, note_ids, located):
+            if isinstance(item, _BatchValidationError):
+                errors.append(item.as_dict())
                 continue
-            if note_id in seen_ids:
-                errors.append(
-                    {
-                        "index": index,
-                        "note_id": note_id,
-                        "error": f"Duplikat note_id w batchu: '{note_id}'.",
-                    }
-                )
-                continue
-            seen_ids.add(note_id)
-            loc = located.get(note_id)
-            if loc is None:
-                errors.append(
-                    {
-                        "index": index,
-                        "note_id": note_id,
-                        "error": f"Notatka {note_id} nie znaleziona.",
-                    }
-                )
-                continue
-            if not loc.file_exists:
-                errors.append(
-                    {
-                        "index": index,
-                        "note_id": note_id,
-                        "error": f"Plik notatki {note_id} nie znaleziony.",
-                    }
-                )
-                continue
-            expected_sha = str(raw.get("expected_sha", "")).strip()
-            if not expected_sha:
-                errors.append(
-                    {"index": index, "note_id": note_id, "error": "expected_sha jest wymagany."}
-                )
-                continue
-            if not sha_is_fresh(head_shas.get(loc.relative), expected_sha):
-                errors.append({"index": index, "note_id": note_id, "error": stale_error(note_id)})
-                continue
+            index, raw, note_id, loc = item.index, item.raw, item.note_id, item.loc
             note_data = read_note_file(loc.filepath)
             old_content = note_data["content"]
             mode = raw.get("mode", "append")
@@ -915,75 +942,30 @@ class NoteService:
         # the single atomic commit afterwards, instead of re-opening per item.
         git_repo = GitRepository(ws_path)
         note_ids = [str(raw.get("note_id", "")).strip() for raw in deletes]
-        located, head_shas = self._locate_batch(note_ids, user_id, ws_path, git_repo)
-        seen_ids: set[str] = set()
+        located = self._locate_batch(note_ids, user_id, ws_path, git_repo)
         errors: list[dict] = []
-        prepared: list[dict] = []
-        for index, (raw, note_id) in enumerate(zip(deletes, note_ids, strict=True)):
-            if not note_id:
-                errors.append(
-                    {"index": index, "note_id": note_id, "error": "note_id jest wymagany."}
-                )
-                continue
-            if note_id in seen_ids:
-                errors.append(
-                    {
-                        "index": index,
-                        "note_id": note_id,
-                        "error": f"Duplikat note_id w batchu: '{note_id}'.",
-                    }
-                )
-                continue
-            seen_ids.add(note_id)
-            loc = located.get(note_id)
-            if loc is None:
-                errors.append(
-                    {
-                        "index": index,
-                        "note_id": note_id,
-                        "error": f"Notatka {note_id} nie znaleziona.",
-                    }
-                )
-                continue
-            if not loc.file_exists:
-                errors.append(
-                    {
-                        "index": index,
-                        "note_id": note_id,
-                        "error": f"Plik notatki {note_id} nie znaleziony.",
-                    }
-                )
-                continue
-            expected_sha = str(raw.get("expected_sha", "")).strip()
-            if not expected_sha:
-                errors.append(
-                    {"index": index, "note_id": note_id, "error": "expected_sha jest wymagany."}
-                )
-                continue
-            if not sha_is_fresh(head_shas.get(loc.relative), expected_sha):
-                errors.append({"index": index, "note_id": note_id, "error": stale_error(note_id)})
-                continue
-            prepared.append(
-                {"index": index, "note_id": note_id, "note": loc.note, "relative": loc.relative}
-            )
+        prepared: list[_ValidatedDestructiveItem] = []
+        for item in self._validate_destructive_items(deletes, note_ids, located):
+            if isinstance(item, _BatchValidationError):
+                errors.append(item.as_dict())
+            else:
+                prepared.append(item)
 
         if errors:
             return {"applied": False, "errors": errors}
 
         workspace_links = self._link_service.for_workspace(ws_name, user_id)
-        affected_sources = workspace_links.affected_sources(
-            {str(p["note"].title) for p in prepared}
-        )
-        affected_sources.difference_update(str(p["note_id"]) for p in prepared)
+        affected_sources = workspace_links.affected_sources({p.loc.note.title for p in prepared})
+        affected_sources.difference_update(p.note_id for p in prepared)
 
         n = len(prepared)
         git_repo.delete_files(
-            [p["relative"] for p in prepared], f"note: delete {n} note{'' if n == 1 else 's'}"
+            [p.loc.relative for p in prepared], f"note: delete {n} note{'' if n == 1 else 's'}"
         )
 
         for p in prepared:
-            note_id = p["note_id"]
-            note = p["note"]
+            note_id = p.note_id
+            note = p.loc.note
             self._tag_repo.delete_note_tags(note_id, note.workspace, user_id)
             self._clear_index(note_id)
             self._crud_repo.delete(note_id, owner_id=user_id)
@@ -997,7 +979,7 @@ class NoteService:
         logger.info("notes_deleted_batch", ws=ws_name, count=len(prepared))
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
-        results = [{"index": p["index"], "note_id": p["note_id"]} for p in prepared]
+        results = [{"index": p.index, "note_id": p.note_id} for p in prepared]
         return {"applied": True, "results": results}
 
     def list_notes(
