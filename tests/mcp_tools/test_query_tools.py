@@ -56,11 +56,11 @@ async def test_search_notes_finds_note_by_tag_only(workspaces_dir, mcp_server):
             {
                 "title": "Rozmowa",
                 "content": "",
-                "tags": ["angelika"],
-                "folder": "książki/Angelika",
+                "tags": ["alice"],
+                "folder": "książki/Alice",
             },
         )
-        result = await client.call_tool("search_notes", {"query": "angelika"})
+        result = await client.call_tool("search_notes", {"query": "alice"})
         assert "Rozmowa" in result.content[0].text
 
 
