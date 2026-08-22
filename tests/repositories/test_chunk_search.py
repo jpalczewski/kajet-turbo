@@ -1,3 +1,4 @@
+import pytest
 from sqlmodel import Session
 
 from kajet_turbo.embedding.cache import pack_vector
@@ -253,3 +254,82 @@ def test_hybrid_search_allowed_note_ids_filters_all_candidate_lists(database):
         allowed_note_ids={"n2"},
     )
     assert [h["note_id"] for h in hits] == ["n2"]
+
+
+# --- FTS5 query building -------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("banana", '"banana"'),
+        ("banana bread", '"banana" OR "bread"'),
+        # The production failure mode: prose with a comma.
+        ("apples, pears", '"apples" OR "pears"'),
+        # A hyphenated token had its tail read as a column reference ("no such column: room").
+        ("3-room-flat", '"room" OR "flat"'),
+        # Bare operator keywords are syntax to FTS5; quoting demotes them to literals.
+        ("NOT found", '"NOT" OR "found"'),
+        # Unbalanced quotes and parens are syntax errors when passed through raw.
+        ('quote" inside', '"quote" OR "inside"'),
+        ("paren(s)", '"paren"'),
+        ("colon:here", '"colon" OR "here"'),
+        # Diacritics carry meaning for this corpus, so they must survive tokenisation.
+        ("zażółć gęślą", '"zażółć" OR "gęślą"'),
+        # Shorter than a trigram: unmatchable, and poisons an AND chain. Dropped.
+        ("Anna of Prague", '"Anna" OR "Prague"'),
+        ("a b c", ""),
+        # No usable tokens -> caller must skip; an empty MATCH is itself a syntax error.
+        ("", ""),
+        ("   ", ""),
+        (",,, --- ???", ""),
+    ],
+)
+def test_to_fts_query_builds_valid_expressions(query, expected):
+    from kajet_turbo.repositories.notes.chunks import _to_fts_query
+
+    assert _to_fts_query(query) == expected
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "searching for meaning, creative block, unfinished projects",
+        "pier promenade phone 3-room-flat conversation",
+        "Disconnected — book concept, side plots, the ending",
+        "Café — L'Institut d'Art Moderne",
+        "NOT found",
+        "paren(s) and colon:here",
+        '"unbalanced',
+    ],
+)
+def test_search_fts_survives_queries_that_used_to_raise(database, query):
+    """Shapes taken from production `search_fts_failed` warnings: commas, em-dashes,
+    apostrophes, hyphenated tokens, bare operators and unbalanced quotes. Content is
+    synthetic — the parsing behaviour is what matters, not the words."""
+    repo = _seed(database)
+
+    # Must return a list rather than raising or logging a failure.
+    assert isinstance(repo.search_fts(query, "ws", "u1", limit=10), list)
+
+
+def test_search_fts_still_matches_after_sanitising(database):
+    repo = _seed(database)
+
+    # Punctuation around a real term must not stop it matching.
+    assert [h["note_id"] for h in repo.search_fts("banana,", "ws", "u1", limit=10)] == ["n1"]
+
+
+def test_search_fts_or_recovers_prose_queries_that_and_would_drop(database):
+    """The point of the fix: under implicit AND every one of these returns nothing."""
+    repo = _seed(database)
+
+    # Only "banana" is in the corpus; the rest is the surrounding prose of a real query.
+    hits = repo.search_fts("banana, pears and quinces, nothing else", "ws", "u1", limit=10)
+    assert [h["note_id"] for h in hits] == ["n1"]
+
+
+def test_search_fts_empty_query_returns_no_hits(database):
+    repo = _seed(database)
+
+    assert repo.search_fts("   ", "ws", "u1", limit=10) == []
