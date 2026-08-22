@@ -75,8 +75,7 @@ def test_save_many_cross_batch_wikilink_order_independent(service, workspace):
     assert "note_id" in results[1]
     b_id = results[1]["note_id"]
     # A's link edge resolves to B's note_id.
-    links = service._crud_repo.resolve_paths("ws", "u1", [("", "B note")])
-    assert links[("", "B note")] == b_id
+    assert service._link_service._link_repo.outlinks(results[0]["note_id"]) == [b_id]
 
 
 def test_save_many_non_cascading_drop(service, workspace):

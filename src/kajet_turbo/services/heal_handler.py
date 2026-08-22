@@ -1,18 +1,20 @@
 """Reverse-heal job handler: reconcile a workspace's dangling links against current
-notes. For each dangling row whose (target_folder, target_title) now resolves and
-whose source note still exists, insert the note_links edge and delete the row.
-Orphan rows (source note gone) are also deleted. Idempotent: a re-run is a no-op."""
+notes. For each dangling row whose target now resolves and whose source note still
+exists, insert the note_links edge and delete the row. Orphan rows (source note gone)
+are also deleted. Idempotent: a re-run is a no-op."""
 
 from kajet_turbo.log import logger
+from kajet_turbo.markdown import LinkIndex, join_target
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
 
 
 class HealDanglingHandler:
     """Reconciles a workspace's dangling links against current notes. For each dangling
-    row whose (folder, title) now resolves and whose source note still exists, inserts the
-    note_links edge and deletes the row. Orphan rows (source gone) are deleted. Idempotent:
-    a re-run finds nothing left. Reads no note files — pure DB reconciliation."""
+    row whose stored target now resolves (same Obsidian-style suffix rules as save-time
+    validation, ranked from the source note's folder) and whose source note still exists,
+    inserts the note_links edge and deletes the row. Orphan rows (source gone) are deleted.
+    Idempotent: a re-run finds nothing left. Reads no note files — pure DB reconciliation."""
 
     def __init__(
         self,
@@ -30,17 +32,18 @@ class HealDanglingHandler:
         rows = self._dangling.list_for_workspace(user_id, workspace)
         if not rows:
             return
-        pairs = list({(r["target_folder"], r["target_title"]) for r in rows})
-        resolved = self._notes.resolve_paths(workspace, user_id, pairs)
+        index = LinkIndex(self._notes.list_paths(workspace, user_id))
         healed = 0
         for r in rows:
-            if self._notes.get(r["source_note_id"], owner_id=user_id) is None:
+            source = self._notes.get(r["source_note_id"], owner_id=user_id)
+            if source is None:
                 self._dangling.delete(r["id"])  # orphan: source note gone, clean regardless
                 continue
-            target_id = resolved.get((r["target_folder"], r["target_title"]))
-            if target_id is None:
+            target = join_target(r["target_folder"], r["target_title"])
+            hit = index.resolve(target, source.folder)
+            if hit is None:
                 continue  # target still missing — leave the row
-            self._links.add_link(r["source_note_id"], target_id, workspace, user_id)
+            self._links.add_link(r["source_note_id"], hit.note_id, workspace, user_id)
             self._dangling.delete(r["id"])
             healed += 1
         if healed:

@@ -10,6 +10,13 @@ from kajet_turbo.markdown.chunking import (
     chunk_markdown,
     embedded_text,
 )
+from kajet_turbo.markdown.link_index import (
+    LinkIndex,
+    LinkResolution,
+    join_target,
+    resolve_content_links,
+    split_target,
+)
 from kajet_turbo.markdown.note_edit import (
     AnchorAmbiguousError,
     AnchorNotFoundError,
@@ -30,12 +37,13 @@ from kajet_turbo.markdown.outline import OutlineSection, build_outline
 from kajet_turbo.markdown.tags import ancestors, extract_inline_tags, normalize, segments
 from kajet_turbo.markdown.wikilinks import (
     BrokenWikilinkError,
+    IndexedNote,
     LinkResolver,
+    TargetRewriter,
     XwsResolver,
     extract_wikilinks,
     render_markdown,
-    rewrite_wikilink_target,
-    split_target,
+    rewrite_wikilinks,
 )
 
 __all__ = [
@@ -47,9 +55,13 @@ __all__ = [
     "EditResult",
     "HeadingAmbiguousError",
     "HeadingNotFoundError",
+    "IndexedNote",
+    "LinkIndex",
+    "LinkResolution",
     "LinkResolver",
     "OutlineSection",
     "Section",
+    "TargetRewriter",
     "XwsResolver",
     "ancestors",
     "append_content",
@@ -61,13 +73,15 @@ __all__ = [
     "extract_wikilinks",
     "find_section_by_heading",
     "insert_after",
+    "join_target",
     "normalize",
     "parse_sections",
     "prepend_content",
     "render_markdown",
     "replace_section",
     "replace_text",
-    "rewrite_wikilink_target",
+    "resolve_content_links",
+    "rewrite_wikilinks",
     "segments",
     "split_target",
 ]

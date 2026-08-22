@@ -197,11 +197,14 @@ def test_move_rewrite_creates_commit_in_source_history(service, workspace):
     assert any("rewrite wikilink" in h["message"] for h in history)
 
 
-def test_validate_wikilinks_accepts_extra_targets(service, workspace):
-    # No note "Target" exists in the DB; supply it via extra_targets.
-    ids, broken = service._link_service.validate_wikilinks(
-        "ws", "u1", "see [[Target]]", extra_targets={("", "Target"): "abc1234"}
+def test_validate_wikilinks_accepts_extra_index_notes(service, workspace):
+    # No note "Target" exists in the DB; supply it via the index's extra notes.
+    from kajet_turbo.markdown import IndexedNote
+
+    index = service._link_service.link_index(
+        "ws", "u1", extra=[IndexedNote("abc1234", "Batch", "Target")]
     )
+    ids, broken = service._link_service.validate_wikilinks("ws", "u1", "see [[Target]]", "", index)
     assert ids == {"abc1234"}
     assert broken == []
 
@@ -210,7 +213,110 @@ def test_validate_wikilinks_without_extra_still_raises(service, workspace):
     from kajet_turbo.markdown import BrokenWikilinkError
 
     with pytest.raises(BrokenWikilinkError):
-        service._link_service.validate_wikilinks("ws", "u1", "see [[Nope]]")
+        service._link_service.validate_wikilinks("ws", "u1", "see [[Nope]]", "")
+
+
+# --- Obsidian-style short targets ---
+
+
+def test_save_short_link_resolves_note_in_subfolder(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Deep/Er")["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target]]", [])["note_id"]
+    assert service._link_service._link_repo.backlinks(tid) == [sid]
+
+
+def test_save_suffix_path_resolves_nested_note(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Deep/Er")["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "see [[Er/Target]]", [])["note_id"]
+    assert service._link_service._link_repo.backlinks(tid) == [sid]
+
+
+def test_save_ambiguous_short_link_prefers_source_folder(service, workspace):
+    a = service.save("u1", "ws", str(workspace), "T", "a", [], folder="A")["note_id"]
+    b = service.save("u1", "ws", str(workspace), "T", "b", [], folder="B")["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[T]]", [], folder="B")["note_id"]
+    assert service._link_service._link_repo.backlinks(b) == [sid]
+    assert service._link_service._link_repo.backlinks(a) == []
+
+
+def test_save_many_short_links_between_batch_notes_in_folder(service, workspace):
+    # Regression: notes saved together into a folder, linking each other by bare title,
+    # used to fail validation because the in-batch targets were keyed by full path only.
+    notes = [
+        {"title": "Alpha", "content": "see [[Beta]]", "folder": "Proj/Docs"},
+        {"title": "Beta", "content": "see [[Alpha]] and [[Gamma]]", "folder": "Proj/Docs"},
+        {"title": "Gamma", "content": "see [[Docs/Alpha]]", "folder": "Proj/Docs"},
+    ]
+    results = service.save_many("u1", "ws", str(workspace), notes)
+    assert all("note_id" in r for r in results), results
+    ids = {n["title"]: r["note_id"] for n, r in zip(notes, results, strict=True)}
+    links = service._link_service._link_repo
+    assert set(links.outlinks(ids["Beta"])) == {ids["Alpha"], ids["Gamma"]}
+    assert links.outlinks(ids["Gamma"]) == [ids["Alpha"]]
+
+
+def test_rendered_short_link_points_at_target_folder(service, workspace):
+    from kajet_turbo.markdown import render_markdown
+
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Deep/Er")["note_id"]
+    html = render_markdown("[[Target]]", resolver=service.link_resolver("ws", "u1"), slug="ws")
+    assert f'href="/workspace/ws/notes/Deep/Er/{tid}"' in html
+
+
+def test_move_keeps_short_backlink_unchanged(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Old")["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "see [[Target|T]]", [])["note_id"]
+    service.move(tid, owner_id="u1", ws_path=str(workspace), folder="New")
+    src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
+    assert src.content == "see [[Target|T]]"
+    assert service._link_service._link_repo.backlinks(tid) == [sid]
+
+
+def test_rename_rewrites_short_backlink_to_short_new_title(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Sub")["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
+    sha = service.get_history(tid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(tid, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="Renamed")
+    src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
+    assert src.content == "[[Renamed]]"
+    assert service._link_service._link_repo.backlinks(tid) == [sid]
+
+
+def test_rename_falls_back_to_full_path_when_short_form_would_be_ambiguous(service, workspace):
+    # Another "Renamed" at the root would capture a bare [[Renamed]] (exact-root rule), so
+    # the rewrite must spell the full path to keep the link on the renamed note.
+    service.save("u1", "ws", str(workspace), "Renamed", "decoy", [])
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Sub")["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
+    sha = service.get_history(tid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(tid, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="Renamed")
+    src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
+    assert src.content == "[[Sub/Renamed]]"
+    assert service._link_service._link_repo.backlinks(tid) == [sid]
+
+
+def test_move_rewrites_suffix_backlink_to_full_path(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="A/Old")["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Old/Target]]", [])["note_id"]
+    service.move(tid, owner_id="u1", ws_path=str(workspace), folder="A/New")
+    src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
+    assert src.content == "[[A/New/Target]]"
+
+
+def test_reindex_resolves_short_links_and_xws_ids(service, workspace):
+    from kajet_turbo.repositories.git import GitRepository
+
+    other_ws = workspace.parent / "other"
+    other_ws.mkdir()
+    GitRepository.init(str(other_ws))
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Deep")["note_id"]
+    other = service.save("u1", "other", str(other_ws), "Far", "f", [])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", f"[[Target]] [[note:{other}]]", [])[
+        "note_id"
+    ]
+    service.reindex("ws", "u1", str(workspace))
+    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    assert service._link_service._link_repo.backlinks(other) == [sid]
 
 
 # --- conditional link validation ---

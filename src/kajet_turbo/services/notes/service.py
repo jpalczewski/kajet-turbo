@@ -12,10 +12,9 @@ from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
     BrokenWikilinkError,
+    IndexedNote,
     apply_edit,
     build_outline,
-    extract_wikilinks,
-    split_target,
 )
 from kajet_turbo.models import Note
 from kajet_turbo.perf import timed
@@ -174,7 +173,9 @@ class NoteService:
         if not self._crud_repo.check_unique(ws_name, user_id, folder, title):
             raise ValueError(f"Notatka '{title}' już istnieje w folderze '{folder or 'root'}'.")
         tags = NoteTagService.normalize_tags(tags)
-        target_ids, broken_pairs = self._link_service.validate_wikilinks(ws_name, user_id, content)
+        target_ids, broken_pairs = self._link_service.validate_wikilinks(
+            ws_name, user_id, content, folder
+        )
         note_id = generate(size=7)
         now = datetime.now(UTC).isoformat()
         filepath = note_filepath(ws_path, folder, title)
@@ -212,11 +213,11 @@ class NoteService:
         results: list[dict | None] = [None] * len(notes)
         now = datetime.now(UTC).isoformat()
 
-        # Phase 1: uniqueness + id assignment. Survivors get an id and register in the
-        # batch target map so in-batch wikilinks resolve in Phase 2.
+        # Phase 1: uniqueness + id assignment. Survivors get an id and join the batch's
+        # link index so in-batch wikilinks resolve in Phase 2.
         accepted: set[tuple[str, str]] = set()
         accepted_paths: set[str] = set()
-        batch_targets: dict[tuple[str, str], str] = {}
+        batch_notes: list[IndexedNote] = []
         survivors: list[dict] = []
         for index, raw in enumerate(notes):
             title = str(raw.get("title", "")).strip()
@@ -248,7 +249,7 @@ class NoteService:
                 continue
             accepted.add(key)
             accepted_paths.add(relative)
-            batch_targets[key] = note_id
+            batch_notes.append(IndexedNote(note_id, folder, title))
             survivors.append(
                 {
                     "index": index,
@@ -262,14 +263,15 @@ class NoteService:
                 }
             )
 
-        # Phase 2: wikilink resolution against existing notes union batch_targets.
-        # Non-cascading: batch_targets is not mutated as notes are dropped, so a link to a
-        # later-dropped note still resolves (worst case a harmless orphan edge).
+        # Phase 2: wikilink resolution against existing notes union the batch, sharing one
+        # index. Non-cascading: the index is not rebuilt as notes are dropped, so a link to
+        # a later-dropped note still resolves (worst case a harmless orphan edge).
         valid: list[dict] = []
+        index = self._link_service.link_index(ws_name, user_id, extra=batch_notes)
         for s in survivors:
             try:
                 s["target_ids"], s["broken_pairs"] = self._link_service.validate_wikilinks(
-                    ws_name, user_id, s["content"], extra_targets=batch_targets
+                    ws_name, user_id, s["content"], s["folder"], index
                 )
             except BrokenWikilinkError as e:
                 results[s["index"]] = {"index": s["index"], "error": str(e)}
@@ -578,7 +580,7 @@ class NoteService:
 
         # Validate links on the final content (post apply_edit), before any git mutation.
         target_ids, broken_pairs = self._link_service.validate_wikilinks(
-            note.workspace, owner_id, new_content
+            note.workspace, owner_id, new_content, new_folder
         )
 
         repo = GitRepository(ws_path)
@@ -659,6 +661,7 @@ class NoteService:
         git_repo = GitRepository(ws_path)
         note_ids = [str(raw.get("note_id", "")).strip() for raw in edits]
         located, head_shas = self._locate_batch(note_ids, user_id, ws_path, git_repo)
+        link_index = self._link_service.link_index(ws_name, user_id)
         seen_ids: set[str] = set()
         errors: list[dict] = []
         prepared: list[dict] = []
@@ -723,7 +726,7 @@ class NoteService:
             new_content = edit_result.body
             try:
                 target_ids, broken_pairs = self._link_service.validate_wikilinks(
-                    ws_name, user_id, new_content
+                    ws_name, user_id, new_content, loc.note.folder, link_index
                 )
             except BrokenWikilinkError as e:
                 errors.append({"index": index, "note_id": note_id, "error": str(e)})
@@ -986,15 +989,15 @@ class NoteService:
         notes = scan_notes(ws_path)
         self.clear_workspace_data(ws_name, owner_id)
         ws_root = Path(ws_path)
-        count = 0
+        folders: dict[str, str] = {}
         for note in notes:
             if not note["id"]:
                 continue
-            filepath = Path(note["path"])
-            rel_parent = filepath.relative_to(ws_root).parent
+            rel_parent = Path(note["path"]).relative_to(ws_root).parent
             folder = str(rel_parent).replace("\\", "/")
             if folder == ".":
                 folder = ""
+            folders[note["id"]] = folder
             self._crud_repo.insert(
                 note["id"],
                 ws_name,
@@ -1006,20 +1009,23 @@ class NoteService:
                 note["content"] or "",
                 folder,
             )
-            count += 1
+        count = len(folders)
+        # Link graph is rebuilt with the same resolution as save-time validation (short
+        # titles, suffix paths, cross-workspace ids) against one index of the rows above.
+        link_index = self._link_service.link_index(ws_name, owner_id)
         for note in notes:
             if not note["id"]:
                 continue
+            content = note["content"] or ""
             fm_tags = NoteTagService.normalize_tags(note["tags"] or [])
-            self._tag_service.sync_tags(
-                note["id"], ws_name, owner_id, fm_tags, note["content"] or ""
+            self._tag_service.sync_tags(note["id"], ws_name, owner_id, fm_tags, content)
+            resolution = self._link_service.resolve_links(
+                ws_name, owner_id, content, folders[note["id"]], link_index
             )
-            pairs = [split_target(t) for t, _ in extract_wikilinks(note["content"] or "")]
-            if not pairs:
-                continue
-            resolved = self._crud_repo.resolve_paths(ws_name, owner_id, pairs)
-            if resolved:
-                self._link_repo.replace_links(note["id"], ws_name, owner_id, set(resolved.values()))
+            if resolution.resolved_ids:
+                self._link_repo.replace_links(
+                    note["id"], ws_name, owner_id, resolution.resolved_ids
+                )
         if self._indexer is not None:
             try:
                 self._indexer.index_many(
@@ -1092,8 +1098,8 @@ class NoteService:
     ) -> dict | None:
         return self._link_service.links(note_id, owner_id, include_meta, include_cross_workspace)
 
-    def link_resolver(self, ws_name: str, owner_id: str):
-        return self._link_service.link_resolver(ws_name, owner_id)
+    def link_resolver(self, ws_name: str, owner_id: str, source_folder: str = ""):
+        return self._link_service.link_resolver(ws_name, owner_id, source_folder)
 
     def xws_link_resolver(self, owner_id: str):
         return self._link_service.xws_link_resolver(owner_id)

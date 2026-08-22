@@ -74,7 +74,7 @@ def api_note_version(
             "updated_at": version["updated_at"],
             "content_html": _render_html(
                 version["content"],
-                resolver=note_service.link_resolver(name, user["id"]),
+                resolver=note_service.link_resolver(name, user["id"], version["folder"]),
                 slug=name,
                 xws_resolver=note_service.xws_link_resolver(user["id"]),
             ),

@@ -10,12 +10,16 @@ fenced/indented code blocks is ignored automatically — no manual code-range ex
   ``[[note:ID]]`` links via ``xws_resolver``, both passed through ``env``
   (per-render, no module-level mutable state — safe under free-threaded Python).
 
+This module only knows the *syntax*; what a target means (suffix matching, ambiguity) is
+defined once in ``kajet_turbo.markdown.link_index`` and reaches the renderer as ``resolver``.
+
 ``BrokenWikilinkError`` subclasses ``ValueError`` so existing ``except ValueError`` handlers in
 the service and API/MCP layers surface ``{"error": ...}`` to the caller.
 """
 
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from urllib.parse import quote
 
 from markdown_it import MarkdownIt
@@ -25,10 +29,19 @@ from markdown_it.token import Token
 
 from kajet_turbo.markdown._parser import content_md
 from kajet_turbo.markdown._tokens import extract_meta
-from kajet_turbo.workspace import normalize_folder
 
-# (folder, title) -> note_id | None
-type LinkResolver = Callable[[str, str], str | None]
+
+@dataclass(frozen=True, slots=True)
+class IndexedNote:
+    """A note's identity as seen by link resolution: where it lives and what it's called."""
+
+    note_id: str
+    folder: str
+    title: str
+
+
+# raw target -> the note it resolves to | None
+type LinkResolver = Callable[[str], IndexedNote | None]
 
 # note_id -> (title, url) | None
 type XwsResolver = Callable[[str], tuple[str, str] | None]
@@ -84,12 +97,13 @@ def _render_wikilink(self, tokens: list[Token], idx: int, options, env) -> str:
     label = escapeHtml(raw_alias or target)
     resolver: LinkResolver | None = env.get("wl_resolver")
     slug: str | None = env.get("wl_slug")
-    folder, title = split_target(target)
-    note_id_resolved = resolver(folder, title) if resolver else None
-    if note_id_resolved and slug:
+    resolved = resolver(target) if resolver else None
+    if resolved and slug:
         # Point at the explorer route (/notes/{folder}/{id}) so the click opens the target's
-        # folder and shows the file in the tree, rather than the standalone note page.
-        segments = [quote(s) for s in folder.split("/") if s] + [note_id_resolved]
+        # folder and shows the file in the tree, rather than the standalone note page. The
+        # folder comes from the resolved note, not the link text — a short [[Title]] link
+        # carries no folder of its own.
+        segments = [quote(s) for s in resolved.folder.split("/") if s] + [resolved.note_id]
         href = f"/workspace/{slug}/notes/{'/'.join(segments)}"
         return f'<a class="wikilink" href="{href}">{label}</a>'
     return f'<span class="wikilink-broken">{label}</span>'
@@ -106,21 +120,6 @@ def wikilink_plugin(md: MarkdownIt) -> None:
 # `parse()`/`render()` build fresh per-call state, so this is safe to share concurrently.
 _MD = content_md()
 _MD.use(wikilink_plugin)
-
-
-def split_target(target: str) -> tuple[str, str]:
-    """``"A/B/Title"`` -> ``("A/B", "Title")``; ``"Title"`` -> ``("", "Title")``.
-
-    Folder is normalized the same way as note storage so a link matches the stored note's
-    ``(folder, title)`` natural key. Invalid paths (e.g. ``../relative``) return the raw
-    folder string — it can't match any stored note and is treated as a broken link.
-    """
-    target = target.strip().strip("/")
-    folder_part, _, title = target.rpartition("/")
-    try:
-        return normalize_folder(folder_part), title.strip()
-    except ValueError:
-        return folder_part, title.strip()
 
 
 def extract_wikilinks(body: str) -> list[tuple[str, str | None]]:
@@ -147,16 +146,17 @@ def render_markdown(
 
 _REWRITE_RE = re.compile(r"\[\[([^\]]*?)\]\]")
 
+# stripped target -> replacement target, or None / the same target to leave the link alone
+type TargetRewriter = Callable[[str], str | None]
 
-def rewrite_wikilink_target(
-    body: str, old_key: tuple[str, str], new_target: str
-) -> tuple[str, bool]:
-    """Rewrite every wikilink whose normalized ``(folder, title)`` equals ``old_key`` to point at
-    ``new_target`` (alias preserved). Used to keep backlinks valid when a note is moved/renamed.
 
-    Matching is on the normalized key, not the raw string, so different spellings of the same
-    target are all updated. Operates on raw text; a ``[[...]]`` that merely *looks* like the
-    moved note but sits inside a code span would also be rewritten — an accepted cosmetic edge.
+def rewrite_wikilinks(body: str, rewrite: TargetRewriter) -> tuple[str, bool]:
+    """Replace wikilink targets ``rewrite`` maps to a new value (alias preserved). Used to keep
+    backlinks valid when a note is moved/renamed; deciding *which* links point at the moved
+    note is the caller's job (it has the resolution index, this function has only text).
+
+    Operates on raw text; a ``[[...]]`` that merely *looks* like the moved note but sits inside
+    a code span would also be rewritten — an accepted cosmetic edge.
     """
     changed = False
 
@@ -166,7 +166,9 @@ def rewrite_wikilink_target(
         if "[" in inner or "\n" in inner:
             return match.group(0)
         target, _, alias = inner.partition("|")
-        if not target.strip() or split_target(target) != old_key:
+        target = target.strip()
+        new_target = rewrite(target) if target else None
+        if new_target is None or new_target == target:
             return match.group(0)
         changed = True
         alias = alias.strip()

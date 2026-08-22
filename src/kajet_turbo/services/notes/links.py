@@ -1,13 +1,19 @@
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from itertools import chain
 from pathlib import Path
 from urllib.parse import quote
 
 from kajet_turbo.markdown import (
     BrokenWikilinkError,
-    extract_wikilinks,
-    rewrite_wikilink_target,
-    split_target,
+    IndexedNote,
+    LinkIndex,
+    LinkResolution,
+    LinkResolver,
+    TargetRewriter,
+    join_target,
+    resolve_content_links,
+    rewrite_wikilinks,
 )
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.git import GitRepository
@@ -36,53 +42,55 @@ class NoteLinkService:
             return True
         return self._link_validation_enabled(ws_name, owner_id)
 
+    def link_index(
+        self, ws_name: str, owner_id: str, extra: Iterable[IndexedNote] = ()
+    ) -> LinkIndex:
+        """Snapshot of the workspace's notes for wikilink resolution. ``extra`` adds notes
+        that don't exist in the DB yet (a batch being saved) so in-batch links resolve."""
+        return LinkIndex(chain(self._crud_repo.list_paths(ws_name, owner_id), extra))
+
+    def resolve_links(
+        self,
+        ws_name: str,
+        owner_id: str,
+        content: str,
+        source_folder: str,
+        index: LinkIndex | None = None,
+    ) -> LinkResolution:
+        """Resolve every wikilink in ``content`` without judging the result.
+
+        Intra-workspace targets resolve against ``index`` (built on demand when omitted;
+        pass one to share it across a batch). ``[[note:ID]]`` cross-workspace links are
+        resolved by note ID and folded into ``resolved_ids`` — a missing ID is simply
+        dropped, never reported as broken (there is no dangling row to write for it).
+        """
+        if index is None:
+            index = self.link_index(ws_name, owner_id)
+        resolution = resolve_content_links(index, content, source_folder)
+        xws_found = {
+            note_id
+            for note_id in resolution.xws_ids
+            if self._crud_repo.get(note_id, owner_id=owner_id) is not None
+        }
+        return LinkResolution(
+            resolution.resolved_ids | xws_found, resolution.broken, resolution.xws_ids
+        )
+
     def validate_wikilinks(
         self,
         ws_name: str,
         owner_id: str,
         content: str,
-        extra_targets: dict[tuple[str, str], str] | None = None,
+        source_folder: str,
+        index: LinkIndex | None = None,
     ) -> tuple[ResolvedIds, BrokenPairs]:
-        """Resolve every wikilink in ``content``. Returns ``(resolved_ids, broken_pairs)``.
-
-        ``note:ID`` cross-workspace links are resolved by note ID and never raise
-        BrokenWikilinkError — a missing target is silently skipped (no dangling row).
-        ``extra_targets`` maps ``(folder, title) -> note_id`` for in-batch intra-workspace notes.
-        """
-        all_links = extract_wikilinks(content)
-        if not all_links:
-            return set(), []
-
-        xws_ids = [target[5:] for target, _ in all_links if target.startswith("note:")]
-        intra = [
-            (target, split_target(target))
-            for target, _ in all_links
-            if not target.startswith("note:")
-        ]
-
-        resolved_ids: set[str] = set()
-
-        # Cross-workspace: resolve by ID, never fail validation.
-        for note_id in xws_ids:
-            note = self._crud_repo.get(note_id, owner_id=owner_id)
-            if note is not None:
-                resolved_ids.add(note_id)
-
-        if not intra:
-            return resolved_ids, []
-
-        # Intra-workspace: existing path-based resolution.
-        resolved = self._crud_repo.resolve_paths(ws_name, owner_id, [pair for _, pair in intra])
-        if extra_targets:
-            for _, pair in intra:
-                if pair not in resolved and pair in extra_targets:
-                    resolved[pair] = extra_targets[pair]
-        broken_targets = sorted({target for target, pair in intra if pair not in resolved})
-        if broken_targets and self._links_validated(ws_name, owner_id):
-            raise BrokenWikilinkError(broken_targets)
-        broken_pairs = sorted({pair for _, pair in intra if pair not in resolved})
-        resolved_ids |= set(resolved.values())
-        return resolved_ids, broken_pairs
+        """``resolve_links`` plus the workspace's validation policy: with validation on, any
+        broken intra-workspace target raises ``BrokenWikilinkError``; with it off, broken
+        targets come back as ``(folder, title)`` pairs for the dangling-link table."""
+        resolution = self.resolve_links(ws_name, owner_id, content, source_folder, index)
+        if resolution.broken and self._links_validated(ws_name, owner_id):
+            raise BrokenWikilinkError(resolution.broken)
+        return resolution.resolved_ids, resolution.broken_pairs
 
     def write_dangling(
         self,
@@ -135,12 +143,11 @@ class NoteLinkService:
             "outlinks": self.outlinks(note_id, owner_id, include_meta),
         }
 
-    def link_resolver(self, ws_name: str, owner_id: str):
-        def resolve(folder: str, title: str) -> str | None:
-            note = self._crud_repo.get_by_path(ws_name, owner_id, folder, title)
-            return note.id if note else None
-
-        return resolve
+    def link_resolver(self, ws_name: str, owner_id: str, source_folder: str = "") -> LinkResolver:
+        """Render-time resolver: one index snapshot per rendered note, the same resolution
+        rules as validation, ranked from the rendered note's own folder."""
+        index = self.link_index(ws_name, owner_id)
+        return lambda target: index.resolve(target, source_folder)
 
     def xws_link_resolver(self, owner_id: str):
         def resolve(note_id: str) -> tuple[str, str] | None:
@@ -213,8 +220,32 @@ class NoteLinkService:
         source_ids = self._link_repo.backlinks(note_id, same_workspace=ws_name)
         if not source_ids:
             return
-        old_key = (old_folder, old_title)
-        new_target = f"{new_folder}/{new_title}" if new_folder else new_title
+        # The DB already holds the note's new path. Links that pointed at it — including
+        # short [[Title]] forms, which carry no path to compare — are found by resolving
+        # each source's links against the pre-move index (the current one with this note's
+        # entry swapped back), and rewritten to the shortest form that still resolves to it
+        # afterwards: a bare title stays bare when it is still unambiguous, anything else
+        # gets the full path, which is exact by construction.
+        paths = self._crud_repo.list_paths(ws_name, owner_id)
+        after = LinkIndex(paths)
+        before = LinkIndex(
+            IndexedNote(note_id, old_folder, old_title) if p.note_id == note_id else p
+            for p in paths
+        )
+        full_target = join_target(new_folder, new_title)
+
+        def rewriter(source_folder: str) -> TargetRewriter:
+            def rewrite(target: str) -> str | None:
+                hit = before.resolve(target, source_folder)
+                if hit is None or hit.note_id != note_id:
+                    return None
+                if "/" in target:
+                    return full_target
+                short = after.resolve(new_title, source_folder)
+                return new_title if short is not None and short.note_id == note_id else full_target
+
+            return rewrite
+
         repo = GitRepository(ws_path)
         for source_id in source_ids:
             src = self._crud_repo.get(source_id, owner_id=owner_id)
@@ -224,7 +255,7 @@ class NoteLinkService:
             if not Path(src_path).exists():
                 continue
             data = read_note_file(src_path)
-            new_body, changed = rewrite_wikilink_target(data["content"], old_key, new_target)
+            new_body, changed = rewrite_wikilinks(data["content"], rewriter(src.folder))
             if not changed:
                 continue
             write_note_file(
