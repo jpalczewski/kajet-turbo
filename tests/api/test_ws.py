@@ -75,3 +75,49 @@ def test_ws_delivers_outbox_event(database: Database):
 
     # row consumed — not delivered twice
     assert outbox.claim("u1", ["note_updated"]) == []
+
+
+def test_ws_logs_a_connect_disconnect_pair_sharing_one_conn_id(database: Database, capsys):
+    """#39 needed the number of distinct connections and had to infer it from timestamp
+    clustering. conn_id makes that a grep."""
+    import json
+
+    from kajet_turbo.log import setup_logging
+
+    app = _make_app(database, user_id="u1")
+    setup_logging()
+
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/api/ws", cookies={"kajet_session": "good-token"}),
+    ):
+        pass
+
+    entries = [json.loads(ln) for ln in capsys.readouterr().err.strip().split("\n") if ln]
+    connected = [e for e in entries if e.get("msg") == "ws_connected"]
+    disconnected = [e for e in entries if e.get("msg") == "ws_disconnected"]
+
+    assert len(connected) == 1
+    assert len(disconnected) == 1
+    assert connected[0]["user_id"] == "u1"
+    assert connected[0]["conn_id"]
+    assert disconnected[0]["conn_id"] == connected[0]["conn_id"]
+    assert disconnected[0]["duration_s"] >= 0
+
+
+def test_ws_gives_each_connection_its_own_conn_id(database: Database, capsys):
+    import json
+
+    from kajet_turbo.log import setup_logging
+
+    app = _make_app(database, user_id="u1")
+    setup_logging()
+
+    with TestClient(app) as client:
+        for _ in range(2):
+            with client.websocket_connect("/api/ws", cookies={"kajet_session": "good-token"}):
+                pass
+
+    entries = [json.loads(ln) for ln in capsys.readouterr().err.strip().split("\n") if ln]
+    conn_ids = {e["conn_id"] for e in entries if e.get("msg") == "ws_connected"}
+    assert len(conn_ids) == 2

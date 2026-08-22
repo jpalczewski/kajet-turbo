@@ -73,3 +73,76 @@ def test_sweep_keeps_recent_rows(database: Database):
     deleted = repo.sweep(older_than_s=3600.0)
     assert deleted == 0
     assert len(repo.claim("u1", ["note_updated"])) == 1
+
+
+# --- observability ------------------------------------------------------------------
+
+
+def test_publish_emits_db_ms(database: Database):
+    from kajet_turbo import perf
+
+    repo = EventRepository(database.engine)
+    with perf.perf_span() as span:
+        repo.publish("u1", "note_updated", {"note_id": "n1"})
+    assert "db_ms" in span.fields
+
+
+def test_claim_emits_db_ms(database: Database):
+    from kajet_turbo import perf
+
+    repo = EventRepository(database.engine)
+    with perf.perf_span() as span:
+        repo.claim("u1", ["note_updated"])
+    assert "db_ms" in span.fields
+
+
+def test_sweep_emits_db_ms(database: Database):
+    from kajet_turbo import perf
+
+    repo = EventRepository(database.engine)
+    with perf.perf_span() as span:
+        repo.sweep(3600.0)
+    assert "db_ms" in span.fields
+
+
+def test_publish_logs_event(database: Database, capsys):
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    repo = EventRepository(database.engine)
+    repo.publish("u1", "note_updated", {"note_id": "n1"})
+
+    entries = [json.loads(ln) for ln in capsys.readouterr().err.strip().split("\n") if ln]
+    published = [e for e in entries if e.get("msg") == "event_published"]
+    assert len(published) == 1
+    assert published[0]["owner_id"] == "u1"
+    assert published[0]["kind"] == "note_updated"
+    assert published[0]["event_id"]
+
+
+def test_claim_is_silent_when_there_is_nothing_to_claim(database: Database, capsys):
+    """Every open WebSocket polls this every 2s — an empty read must not log at all."""
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    repo = EventRepository(database.engine)
+    repo.claim("u1", ["note_updated"])
+
+    assert "events_claimed" not in capsys.readouterr().err
+
+
+def test_claim_logs_the_count_when_it_moves_events(database: Database, capsys):
+    from kajet_turbo.log import setup_logging
+
+    repo = EventRepository(database.engine)
+    repo.publish("u1", "note_updated", {"note_id": "n1"})
+    repo.publish("u1", "note_updated", {"note_id": "n2"})
+
+    setup_logging()  # after publish, so only the claim line is captured
+    repo.claim("u1", ["note_updated"])
+
+    entries = [json.loads(ln) for ln in capsys.readouterr().err.strip().split("\n") if ln]
+    claimed = [e for e in entries if e.get("msg") == "events_claimed"]
+    assert len(claimed) == 1
+    assert claimed[0]["count"] == 2
+    assert claimed[0]["owner_id"] == "u1"
