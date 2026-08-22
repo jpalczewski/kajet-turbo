@@ -4,7 +4,7 @@ exists, insert the note_links edge and delete the row. Orphan rows (source note 
 are also deleted. Idempotent: a re-run is a no-op."""
 
 from kajet_turbo.log import logger
-from kajet_turbo.markdown import LinkIndex, join_target
+from kajet_turbo.markdown import LinkIndex
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
 
@@ -33,14 +33,15 @@ class HealDanglingHandler:
         if not rows:
             return
         index = LinkIndex(self._notes.list_paths(workspace, user_id))
+        source_ids = sorted({r["source_note_id"] for r in rows})
+        sources = {n.id: n for n in self._notes.get_many(source_ids, user_id)}
         healed = 0
         for r in rows:
-            source = self._notes.get(r["source_note_id"], owner_id=user_id)
+            source = sources.get(r["source_note_id"])
             if source is None:
                 self._dangling.delete(r["id"])  # orphan: source note gone, clean regardless
                 continue
-            target = join_target(r["target_folder"], r["target_title"])
-            hit = index.resolve(target, source.folder)
+            hit = index.resolve_pair(r["target_folder"], r["target_title"], source.folder)
             if hit is None:
                 continue  # target still missing — leave the row
             self._links.add_link(r["source_note_id"], hit.note_id, workspace, user_id)

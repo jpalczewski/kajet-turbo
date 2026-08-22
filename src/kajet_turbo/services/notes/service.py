@@ -15,6 +15,7 @@ from kajet_turbo.markdown import (
     IndexedNote,
     apply_edit,
     build_outline,
+    join_target,
 )
 from kajet_turbo.models import Note
 from kajet_turbo.perf import timed
@@ -42,6 +43,7 @@ from kajet_turbo.workspace import (
     InvalidFolderError,
     normalize_folder,
     note_filepath,
+    note_folder,
     read_note_file,
     scan_notes,
     write_note_file,
@@ -173,9 +175,7 @@ class NoteService:
         if not self._crud_repo.check_unique(ws_name, user_id, folder, title):
             raise ValueError(f"Notatka '{title}' już istnieje w folderze '{folder or 'root'}'.")
         tags = NoteTagService.normalize_tags(tags)
-        target_ids, broken_pairs = self._link_service.validate_wikilinks(
-            ws_name, user_id, content, folder
-        )
+        links = self._link_service.validate_wikilinks(ws_name, user_id, content, folder)
         note_id = generate(size=7)
         now = datetime.now(UTC).isoformat()
         filepath = note_filepath(ws_path, folder, title)
@@ -188,9 +188,9 @@ class NoteService:
             Path(filepath).unlink(missing_ok=True)
             raise
         self._crud_repo.insert(note_id, ws_name, user_id, title, tags, now, now, content, folder)
-        self._link_repo.replace_links(note_id, ws_name, user_id, target_ids)
+        self._link_repo.replace_links(note_id, ws_name, user_id, links.resolved_ids)
         self._tag_service.sync_tags(note_id, ws_name, user_id, tags, content)
-        self._link_service.write_dangling(note_id, ws_name, user_id, broken_pairs)
+        self._link_service.write_dangling(note_id, ws_name, user_id, links.broken_pairs)
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
@@ -270,7 +270,7 @@ class NoteService:
         index = self._link_service.link_index(ws_name, user_id, extra=batch_notes)
         for s in survivors:
             try:
-                s["target_ids"], s["broken_pairs"] = self._link_service.validate_wikilinks(
+                s["links"] = self._link_service.validate_wikilinks(
                     ws_name, user_id, s["content"], s["folder"], index
                 )
             except BrokenWikilinkError as e:
@@ -309,9 +309,11 @@ class NoteService:
                 s["content"],
                 s["folder"],
             )
-            self._link_repo.replace_links(s["note_id"], ws_name, user_id, s["target_ids"])
+            self._link_repo.replace_links(s["note_id"], ws_name, user_id, s["links"].resolved_ids)
             self._tag_service.sync_tags(s["note_id"], ws_name, user_id, s["tags"], s["content"])
-            self._link_service.write_dangling(s["note_id"], ws_name, user_id, s["broken_pairs"])
+            self._link_service.write_dangling(
+                s["note_id"], ws_name, user_id, s["links"].broken_pairs
+            )
 
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
@@ -397,7 +399,7 @@ class NoteService:
             if not Path(filepath).exists():
                 continue
             content = read_note_file(filepath)["content"]
-            heading_path = f"{note.folder}/{note.title}" if note.folder else note.title
+            heading_path = join_target(note.folder, note.title)
             tags = json.loads(note.tags or "[]")
             tag_line = f"_Tagi: {', '.join(tags)}_\n\n" if tags else ""
             section = f"# {heading_path}\n\n{tag_line}{content}".rstrip() + "\n"
@@ -478,13 +480,8 @@ class NoteService:
         for filepath in sorted(ws_root.rglob("*.md")):
             if ".git" in filepath.parts:
                 continue
-            rel_parent = filepath.relative_to(ws_root).parent
-            note_folder = str(rel_parent).replace("\\", "/")
-            if note_folder == ".":
-                note_folder = ""
-            if scope is not None and not (
-                note_folder == scope or note_folder.startswith(scope + "/")
-            ):
+            folder = note_folder(ws_path, filepath)
+            if scope is not None and not (folder == scope or folder.startswith(scope + "/")):
                 continue
             raw = filepath.read_text(encoding="utf-8")
             post = frontmatter.loads(raw)
@@ -507,7 +504,7 @@ class NoteService:
                     {
                         "note_id": note_id,
                         "title": title,
-                        "folder": note_folder,
+                        "folder": folder,
                         "line_number": max(0, raw_line_number - fm_offset),
                         "line": line,
                     }
@@ -579,7 +576,7 @@ class NoteService:
             replaced = edit_result.replaced
 
         # Validate links on the final content (post apply_edit), before any git mutation.
-        target_ids, broken_pairs = self._link_service.validate_wikilinks(
+        links = self._link_service.validate_wikilinks(
             note.workspace, owner_id, new_content, new_folder
         )
 
@@ -618,20 +615,15 @@ class NoteService:
             updated_at=now,
             folder=new_folder,
         )
-        self._link_repo.replace_links(note_id, note.workspace, owner_id, target_ids)
+        self._link_repo.replace_links(note_id, note.workspace, owner_id, links.resolved_ids)
         self._tag_service.sync_tags(note_id, note.workspace, owner_id, new_tags, new_content)
-        self._link_service.write_dangling(note_id, note.workspace, owner_id, broken_pairs)
+        self._link_service.write_dangling(note_id, note.workspace, owner_id, links.broken_pairs)
         if old_path != new_path:
-            self._link_service.rewrite_backlinks(
-                note_id,
-                owner_id,
-                ws_path,
-                note.workspace,
-                note.folder,
-                note.title,
-                new_folder,
-                new_title,
+            move = (
+                IndexedNote(note_id, note.folder, note.title),
+                IndexedNote(note_id, new_folder, new_title),
             )
+            self._link_service.rewrite_backlinks([move], owner_id, ws_path, note.workspace)
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_updated", note_id=note_id, folder=new_folder)
@@ -725,7 +717,7 @@ class NoteService:
                 continue
             new_content = edit_result.body
             try:
-                target_ids, broken_pairs = self._link_service.validate_wikilinks(
+                links = self._link_service.validate_wikilinks(
                     ws_name, user_id, new_content, loc.note.folder, link_index
                 )
             except BrokenWikilinkError as e:
@@ -747,8 +739,7 @@ class NoteService:
                     "old_tags": current_tags,
                     "new_content": new_content,
                     "new_tags": new_tags,
-                    "target_ids": target_ids,
-                    "broken_pairs": broken_pairs,
+                    "links": links,
                     "replaced": edit_result.replaced,
                 }
             )
@@ -795,11 +786,13 @@ class NoteService:
                 updated_at=now,
                 folder=p["note"].folder,
             )
-            self._link_repo.replace_links(p["note_id"], ws_name, user_id, p["target_ids"])
+            self._link_repo.replace_links(p["note_id"], ws_name, user_id, p["links"].resolved_ids)
             self._tag_service.sync_tags(
                 p["note_id"], ws_name, user_id, p["new_tags"], p["new_content"]
             )
-            self._link_service.write_dangling(p["note_id"], ws_name, user_id, p["broken_pairs"])
+            self._link_service.write_dangling(
+                p["note_id"], ws_name, user_id, p["links"].broken_pairs
+            )
 
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
@@ -986,18 +979,9 @@ class NoteService:
 
     def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
         start = time.monotonic()
-        notes = scan_notes(ws_path)
+        notes = [n for n in scan_notes(ws_path) if n["id"]]
         self.clear_workspace_data(ws_name, owner_id)
-        ws_root = Path(ws_path)
-        folders: dict[str, str] = {}
         for note in notes:
-            if not note["id"]:
-                continue
-            rel_parent = Path(note["path"]).relative_to(ws_root).parent
-            folder = str(rel_parent).replace("\\", "/")
-            if folder == ".":
-                folder = ""
-            folders[note["id"]] = folder
             self._crud_repo.insert(
                 note["id"],
                 ws_name,
@@ -1007,25 +991,20 @@ class NoteService:
                 str(note["created_at"] or ""),
                 str(note["updated_at"] or ""),
                 note["content"] or "",
-                folder,
+                note["folder"],
             )
-        count = len(folders)
         # Link graph is rebuilt with the same resolution as save-time validation (short
         # titles, suffix paths, cross-workspace ids) against one index of the rows above.
         link_index = self._link_service.link_index(ws_name, owner_id)
         for note in notes:
-            if not note["id"]:
-                continue
             content = note["content"] or ""
             fm_tags = NoteTagService.normalize_tags(note["tags"] or [])
             self._tag_service.sync_tags(note["id"], ws_name, owner_id, fm_tags, content)
-            resolution = self._link_service.resolve_links(
-                ws_name, owner_id, content, folders[note["id"]], link_index
+            links = self._link_service.resolve_links(
+                ws_name, owner_id, content, note["folder"], link_index
             )
-            if resolution.resolved_ids:
-                self._link_repo.replace_links(
-                    note["id"], ws_name, owner_id, resolution.resolved_ids
-                )
+            if links.resolved_ids:
+                self._link_repo.replace_links(note["id"], ws_name, owner_id, links.resolved_ids)
         if self._indexer is not None:
             try:
                 self._indexer.index_many(
@@ -1034,7 +1013,6 @@ class NoteService:
                     [
                         {"id": n["id"], "title": n["title"] or "", "content": n["content"] or ""}
                         for n in notes
-                        if n["id"]
                     ],
                 )
             except Exception as e:
@@ -1044,12 +1022,12 @@ class NoteService:
         logger.info(
             "reindex_complete",
             ws=ws_name,
-            count=count,
+            count=len(notes),
             duration_ms=round((time.monotonic() - start) * 1000),
         )
         return {
-            "message": f"Reindeksowano {count} notatek w workspace '{ws_name}'.",
-            "count": count,
+            "message": f"Reindeksowano {len(notes)} notatek w workspace '{ws_name}'.",
+            "count": len(notes),
         }
 
     def restore_version(

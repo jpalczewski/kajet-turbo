@@ -1,8 +1,9 @@
 import json
 from collections.abc import Callable, Iterable
+from dataclasses import replace
+from functools import cache, partial
 from itertools import chain
 from pathlib import Path
-from urllib.parse import quote
 
 from kajet_turbo.markdown import (
     BrokenWikilinkError,
@@ -10,18 +11,17 @@ from kajet_turbo.markdown import (
     LinkIndex,
     LinkResolution,
     LinkResolver,
-    TargetRewriter,
-    join_target,
+    note_explorer_url,
     resolve_content_links,
     rewrite_wikilinks,
 )
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
-from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
+from kajet_turbo.workspace import note_filepath, path_segments, read_note_file, write_note_file
 
-type BrokenPairs = list[tuple[str, str]]
-type ResolvedIds = set[str]
+# (old, new) identity of a note that was moved and/or renamed.
+type NoteMove = tuple[IndexedNote, IndexedNote]
 
 
 class NoteLinkService:
@@ -67,14 +67,10 @@ class NoteLinkService:
         if index is None:
             index = self.link_index(ws_name, owner_id)
         resolution = resolve_content_links(index, content, source_folder)
-        xws_found = {
-            note_id
-            for note_id in resolution.xws_ids
-            if self._crud_repo.get(note_id, owner_id=owner_id) is not None
-        }
-        return LinkResolution(
-            resolution.resolved_ids | xws_found, resolution.broken, resolution.xws_ids
-        )
+        if not resolution.xws_ids:
+            return resolution
+        xws_found = {n.id for n in self._crud_repo.get_many(resolution.xws_ids, owner_id)}
+        return replace(resolution, resolved_ids=resolution.resolved_ids | xws_found)
 
     def validate_wikilinks(
         self,
@@ -83,14 +79,14 @@ class NoteLinkService:
         content: str,
         source_folder: str,
         index: LinkIndex | None = None,
-    ) -> tuple[ResolvedIds, BrokenPairs]:
+    ) -> LinkResolution:
         """``resolve_links`` plus the workspace's validation policy: with validation on, any
-        broken intra-workspace target raises ``BrokenWikilinkError``; with it off, broken
-        targets come back as ``(folder, title)`` pairs for the dangling-link table."""
+        broken intra-workspace target raises ``BrokenWikilinkError``; with it off, the
+        broken targets stay in the result for the dangling-link table."""
         resolution = self.resolve_links(ws_name, owner_id, content, source_folder, index)
         if resolution.broken and self._links_validated(ws_name, owner_id):
             raise BrokenWikilinkError(resolution.broken)
-        return resolution.resolved_ids, resolution.broken_pairs
+        return resolution
 
     def write_dangling(
         self,
@@ -144,19 +140,22 @@ class NoteLinkService:
         }
 
     def link_resolver(self, ws_name: str, owner_id: str, source_folder: str = "") -> LinkResolver:
-        """Render-time resolver: one index snapshot per rendered note, the same resolution
-        rules as validation, ranked from the rendered note's own folder."""
-        index = self.link_index(ws_name, owner_id)
-        return lambda target: index.resolve(target, source_folder)
+        """Render-time resolver with the same rules as validation, ranked from the rendered
+        note's own folder. The index is loaded on the first link, so link-free notes cost
+        no query."""
+
+        @cache
+        def index() -> LinkIndex:
+            return self.link_index(ws_name, owner_id)
+
+        return lambda target: index().resolve(target, source_folder)
 
     def xws_link_resolver(self, owner_id: str):
         def resolve(note_id: str) -> tuple[str, str] | None:
             note = self._crud_repo.get(note_id, owner_id=owner_id)
             if note is None:
                 return None
-            segments = [quote(s) for s in note.folder.split("/") if s] + [note.id]
-            url = f"/workspace/{note.workspace}/notes/{'/'.join(segments)}"
-            return note.title, url
+            return note.title, note_explorer_url(note.workspace, note.folder, note.id)
 
         return resolve
 
@@ -186,17 +185,19 @@ class NoteLinkService:
         return result
 
     def rewrite_backlinks(
-        self,
-        note_id: str,
-        owner_id: str,
-        ws_path: str,
-        ws_name: str,
-        old_folder: str,
-        old_title: str,
-        new_folder: str,
-        new_title: str,
+        self, moves: list[NoteMove], owner_id: str, ws_path: str, ws_name: str
     ) -> None:
-        """Rewrite wikilink paths in every note that links to ``note_id`` after it moved/renamed.
+        """Rewrite wikilinks in every note that links to a moved/renamed note so they still
+        resolve. Call after the DB rows hold the new paths; ``moves`` carries each note's
+        old and new identity (one pair for a rename, a whole folder's worth for a folder
+        move), so the pre-move index can be reconstructed and every source is rewritten and
+        committed exactly once no matter how many moved notes it links to.
+
+        Links are matched by *resolution* against the pre-move index — including short
+        ``[[Title]]`` forms, which carry no path to compare — and rewritten to the shortest
+        target that resolves to the note afterwards, keeping at least the author's segment
+        count (``[[Old/T]]`` becomes ``[[New/T]]``, not ``[[A/New/T]]``). A bare title stays
+        bare while it is still unambiguous; otherwise the path grows until it is.
 
         Only same-workspace backlinks are rewritten: cross-workspace links use ``[[note:ID]]``
         syntax which is ID-stable and needs no path update.
@@ -206,8 +207,8 @@ class NoteLinkService:
         each for its own reason:
 
         - ``replace_links``: no-op by construction. A link's graph edge is keyed on
-          ``(source_note_id, target_note_id)``; rewriting the path text doesn't change the
-          target's identity, so the edge is already correct.
+          ``(source_note_id, target_note_id)``; the rewritten target is verified to resolve
+          to the same note, so the edge is already correct.
         - ``sync_tags``: the rewrite only touches wikilink path text, never frontmatter tags.
         - ``write_dangling``: this only rewrites links that already resolved (they're in the
           link graph in the first place), so no pair moves between resolved/dangling.
@@ -217,45 +218,42 @@ class NoteLinkService:
           Accepted as a cosmetic, self-healing gap — not worth threading an indexer through
           this call for a stale snippet/chunk-offset window that closes on the next edit.
         """
-        source_ids = self._link_repo.backlinks(note_id, same_workspace=ws_name)
+        moved = {old.note_id: new for old, new in moves}
+        source_ids = {
+            sid
+            for note_id in moved
+            for sid in self._link_repo.backlinks(note_id, same_workspace=ws_name)
+        }
         if not source_ids:
             return
-        # The DB already holds the note's new path. Links that pointed at it — including
-        # short [[Title]] forms, which carry no path to compare — are found by resolving
-        # each source's links against the pre-move index (the current one with this note's
-        # entry swapped back), and rewritten to the shortest form that still resolves to it
-        # afterwards: a bare title stays bare when it is still unambiguous, anything else
-        # gets the full path, which is exact by construction.
         paths = self._crud_repo.list_paths(ws_name, owner_id)
         after = LinkIndex(paths)
         before = LinkIndex(
-            IndexedNote(note_id, old_folder, old_title) if p.note_id == note_id else p
-            for p in paths
+            chain((p for p in paths if p.note_id not in moved), (old for old, _ in moves))
         )
-        full_target = join_target(new_folder, new_title)
 
-        def rewriter(source_folder: str) -> TargetRewriter:
-            def rewrite(target: str) -> str | None:
-                hit = before.resolve(target, source_folder)
-                if hit is None or hit.note_id != note_id:
-                    return None
-                if "/" in target:
-                    return full_target
-                short = after.resolve(new_title, source_folder)
-                return new_title if short is not None and short.note_id == note_id else full_target
+        def rewrite(target: str, source_folder: str) -> str | None:
+            hit = before.resolve(target, source_folder)
+            if hit is None or hit.note_id not in moved:
+                return None
+            return after.shortest_target(
+                moved[hit.note_id], source_folder, min_segments=len(path_segments(target))
+            )
 
-            return rewrite
-
+        message = (
+            f"note: rewrite wikilink {moves[0][0].title} -> {moves[0][1].title}"
+            if len(moves) == 1
+            else f"note: rewrite wikilinks after moving {len(moves)} notes"
+        )
         repo = GitRepository(ws_path)
-        for source_id in source_ids:
-            src = self._crud_repo.get(source_id, owner_id=owner_id)
-            if src is None:
-                continue
+        for src in self._crud_repo.get_many(sorted(source_ids), owner_id):
             src_path = note_filepath(ws_path, src.folder, src.title)
             if not Path(src_path).exists():
                 continue
             data = read_note_file(src_path)
-            new_body, changed = rewrite_wikilinks(data["content"], rewriter(src.folder))
+            new_body, changed = rewrite_wikilinks(
+                data["content"], partial(rewrite, source_folder=src.folder)
+            )
             if not changed:
                 continue
             write_note_file(
@@ -268,7 +266,7 @@ class NoteLinkService:
                 new_body,
             )
             relative = str(Path(src_path).relative_to(ws_path))
-            repo.commit_file(relative, f"note: rewrite wikilink {old_title} -> {new_title}")
+            repo.commit_file(relative, message)
             self._crud_repo.update(
-                source_id, owner_id=owner_id, content=new_body, updated_at=src.updated_at
+                src.id, owner_id=owner_id, content=new_body, updated_at=src.updated_at
             )

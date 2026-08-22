@@ -27,11 +27,13 @@ def title_to_windows_filename(title: str) -> str:
     return result[:200]
 
 
+def path_segments(path: str) -> list[str]:
+    """Non-empty segments of a slash-separated folder path (``""`` -> ``[]``)."""
+    return [s for s in path.split("/") if s]
+
+
 def normalize_folder(folder: str) -> str:
-    folder = folder.strip().strip("/")
-    if not folder:
-        return ""
-    parts = [s for s in folder.split("/") if s]
+    parts = path_segments(folder.strip())
     for part in parts:
         if part == "..":
             raise ValueError("Invalid folder: '..' not allowed")
@@ -130,8 +132,13 @@ def workspace_path(name: str, workspaces_dir: str | None = None, *, user_id: str
 
 def note_filepath(ws_path: str, folder: str, title: str) -> str:
     filename = title_to_windows_filename(title) + ".md"
-    parts = [p for p in folder.split("/") if p]
-    return str(Path(ws_path, *parts, filename))
+    return str(Path(ws_path, *path_segments(folder), filename))
+
+
+def note_folder(ws_path: str, path: str | Path) -> str:
+    """Inverse of ``note_filepath``: the workspace-relative folder a note file sits in
+    (``""`` for the workspace root)."""
+    return "/".join(Path(path).relative_to(ws_path).parent.parts)
 
 
 def write_note_file(
@@ -177,7 +184,7 @@ def scan_notes(workspace_path: str) -> list[dict]:
     for p in sorted(ws.rglob("*.md")):
         if ".git" in p.parts:
             continue
-        results.append(read_note_file(str(p)))
+        results.append(read_note_file(str(p)) | {"folder": note_folder(workspace_path, p)})
     return results
 
 

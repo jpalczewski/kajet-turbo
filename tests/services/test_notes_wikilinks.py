@@ -2,6 +2,8 @@
 
 import pytest
 
+from kajet_turbo.markdown import BrokenWikilinkError, IndexedNote, render_markdown
+
 
 def test_save_with_valid_wikilink_succeeds(service, workspace):
     service.save("u1", "ws", str(workspace), "Target", "treść", [], folder="A")
@@ -11,8 +13,6 @@ def test_save_with_valid_wikilink_succeeds(service, workspace):
 
 
 def test_save_with_broken_wikilink_rejected_and_no_file(service, workspace):
-    from kajet_turbo.markdown import BrokenWikilinkError
-
     with pytest.raises(BrokenWikilinkError) as exc:
         service.save("u1", "ws", str(workspace), "Source", "see [[Ghost]] and [[A/Nope]]", [])
     assert exc.value.broken == ["A/Nope", "Ghost"]
@@ -53,8 +53,6 @@ def test_save_wikilink_in_code_is_not_validated(service, workspace):
 
 
 def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, workspace):
-    from kajet_turbo.markdown import BrokenWikilinkError
-
     result = service.save("u1", "ws", str(workspace), "Note", "original", [])
     note_id = result["note_id"]
     sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
@@ -67,8 +65,6 @@ def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, worksp
 
 
 def test_update_append_mode_validates_after_apply_edit(service, workspace):
-    from kajet_turbo.markdown import BrokenWikilinkError
-
     result = service.save("u1", "ws", str(workspace), "Note", "body", [])
     note_id = result["note_id"]
     sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
@@ -199,19 +195,15 @@ def test_move_rewrite_creates_commit_in_source_history(service, workspace):
 
 def test_validate_wikilinks_accepts_extra_index_notes(service, workspace):
     # No note "Target" exists in the DB; supply it via the index's extra notes.
-    from kajet_turbo.markdown import IndexedNote
-
     index = service._link_service.link_index(
         "ws", "u1", extra=[IndexedNote("abc1234", "Batch", "Target")]
     )
-    ids, broken = service._link_service.validate_wikilinks("ws", "u1", "see [[Target]]", "", index)
-    assert ids == {"abc1234"}
-    assert broken == []
+    links = service._link_service.validate_wikilinks("ws", "u1", "see [[Target]]", "", index)
+    assert links.resolved_ids == {"abc1234"}
+    assert links.broken == []
 
 
 def test_validate_wikilinks_without_extra_still_raises(service, workspace):
-    from kajet_turbo.markdown import BrokenWikilinkError
-
     with pytest.raises(BrokenWikilinkError):
         service._link_service.validate_wikilinks("ws", "u1", "see [[Nope]]", "")
 
@@ -256,8 +248,6 @@ def test_save_many_short_links_between_batch_notes_in_folder(service, workspace)
 
 
 def test_rendered_short_link_points_at_target_folder(service, workspace):
-    from kajet_turbo.markdown import render_markdown
-
     tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Deep/Er")["note_id"]
     html = render_markdown("[[Target]]", resolver=service.link_resolver("ws", "u1"), slug="ws")
     assert f'href="/workspace/ws/notes/Deep/Er/{tid}"' in html
@@ -295,12 +285,26 @@ def test_rename_falls_back_to_full_path_when_short_form_would_be_ambiguous(servi
     assert service._link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_move_rewrites_suffix_backlink_to_full_path(service, workspace):
+def test_move_rewrites_suffix_backlink_keeping_its_shape(service, workspace):
     tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="A/Old")["note_id"]
     sid = service.save("u1", "ws", str(workspace), "Source", "[[Old/Target]]", [])["note_id"]
     service.move(tid, owner_id="u1", ws_path=str(workspace), folder="A/New")
     src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
-    assert src.content == "[[A/New/Target]]"
+    assert src.content == "[[New/Target]]"
+
+
+def test_move_folder_rewrites_source_linking_two_moved_notes_once(service, workspace):
+    # One source links two notes in the moved folder: one rewrite commit, both links fixed.
+    service.save("u1", "ws", str(workspace), "A", "a", [], folder="Old/Sub")
+    service.save("u1", "ws", str(workspace), "B", "b", [], folder="Old/Sub")
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Old/Sub/A]] [[Old/Sub/B]]", [])[
+        "note_id"
+    ]
+    before = len(service.get_history(sid, owner_id="u1", ws_path=str(workspace)))
+    service.move_folder("Old", "New", owner_id="u1", ws_path=str(workspace), workspace="ws")
+    src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
+    assert src.content == "[[New/Sub/A]] [[New/Sub/B]]"
+    assert len(service.get_history(sid, owner_id="u1", ws_path=str(workspace))) == before + 1
 
 
 def test_reindex_resolves_short_links_and_xws_ids(service, workspace):
@@ -366,8 +370,6 @@ def test_disabled_validation_still_links_existing_targets(database, workspace):
 
 def test_save_broken_wikilink_still_rejected_when_enabled_default(database, workspace):
     """Default (None predicate) keeps hard rejection — guards the existing contract."""
-    from kajet_turbo.markdown import BrokenWikilinkError
-
     svc = _make_service_with_validation(database)  # no predicate -> always enabled
     with pytest.raises(BrokenWikilinkError):
         svc.save("u1", "ws", str(workspace), "Note", "see [[Ghost]]", tags=[])
@@ -446,8 +448,6 @@ def test_resave_replaces_dangling_rows(database, workspace):
 
 def test_validation_on_writes_no_dangling(database, workspace):
     """Validation-on raises BrokenWikilinkError before any dangling write."""
-    from kajet_turbo.markdown import BrokenWikilinkError
-
     svc, dangling = _make_service_with_dangling(database)  # no predicate => validation ON
     with pytest.raises(BrokenWikilinkError):
         svc.save("u1", "ws", str(workspace), "Source", "[[Ghost]]", tags=[])

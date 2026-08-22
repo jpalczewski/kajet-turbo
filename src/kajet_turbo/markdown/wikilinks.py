@@ -29,6 +29,7 @@ from markdown_it.token import Token
 
 from kajet_turbo.markdown._parser import content_md
 from kajet_turbo.markdown._tokens import extract_meta
+from kajet_turbo.workspace import path_segments
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +46,20 @@ type LinkResolver = Callable[[str], IndexedNote | None]
 
 # note_id -> (title, url) | None
 type XwsResolver = Callable[[str], tuple[str, str] | None]
+
+XWS_PREFIX = "note:"
+
+
+def xws_note_id(target: str) -> str | None:
+    """The note id of a cross-workspace ``[[note:ID]]`` target, ``None`` for path targets."""
+    return target.removeprefix(XWS_PREFIX) if target.startswith(XWS_PREFIX) else None
+
+
+def note_explorer_url(slug: str, folder: str, note_id: str) -> str:
+    """Explorer route ``/workspace/{slug}/notes/{folder…}/{id}`` — opens the note with its
+    folder expanded in the tree, rather than the standalone note page."""
+    segments = [quote(s) for s in path_segments(folder)] + [note_id]
+    return f"/workspace/{slug}/notes/{'/'.join(segments)}"
 
 
 class BrokenWikilinkError(ValueError):
@@ -82,8 +97,7 @@ def _render_wikilink(self, tokens: list[Token], idx: int, options, env) -> str:
     target: str = meta["target"]
     raw_alias: str | None = meta["alias"]
 
-    if target.startswith("note:"):
-        note_id = target[5:]
+    if (note_id := xws_note_id(target)) is not None:
         xws_resolver: XwsResolver | None = env.get("xws_resolver")
         if xws_resolver:
             resolved = xws_resolver(note_id)
@@ -99,12 +113,9 @@ def _render_wikilink(self, tokens: list[Token], idx: int, options, env) -> str:
     slug: str | None = env.get("wl_slug")
     resolved = resolver(target) if resolver else None
     if resolved and slug:
-        # Point at the explorer route (/notes/{folder}/{id}) so the click opens the target's
-        # folder and shows the file in the tree, rather than the standalone note page. The
-        # folder comes from the resolved note, not the link text — a short [[Title]] link
-        # carries no folder of its own.
-        segments = [quote(s) for s in resolved.folder.split("/") if s] + [resolved.note_id]
-        href = f"/workspace/{slug}/notes/{'/'.join(segments)}"
+        # The folder comes from the resolved note, not the link text — a short [[Title]]
+        # link carries no folder of its own.
+        href = note_explorer_url(slug, resolved.folder, resolved.note_id)
         return f'<a class="wikilink" href="{href}">{label}</a>'
     return f'<span class="wikilink-broken">{label}</span>'
 

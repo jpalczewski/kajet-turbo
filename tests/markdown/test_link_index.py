@@ -1,15 +1,21 @@
 """Obsidian-style target resolution: suffix matching and deterministic ambiguity ranking."""
 
-from kajet_turbo.markdown import IndexedNote, LinkIndex, join_target, resolve_content_links
+from kajet_turbo.markdown import (
+    IndexedNote,
+    LinkIndex,
+    join_target,
+    resolve_content_links,
+    split_target,
+)
+
+
+def _note(path: str) -> IndexedNote:
+    """``"Folder/Sub/Title"`` -> IndexedNote whose note_id is the path itself."""
+    return IndexedNote(path, *split_target(path))
 
 
 def _index(*paths: str) -> LinkIndex:
-    """Build an index from ``"Folder/Sub/Title"`` strings; note_id is the path itself."""
-    notes = []
-    for path in paths:
-        folder, _, title = path.rpartition("/")
-        notes.append(IndexedNote(path, folder, title))
-    return LinkIndex(notes)
+    return LinkIndex(_note(p) for p in paths)
 
 
 def _hit(index: LinkIndex, target: str, source_folder: str = "") -> str | None:
@@ -101,6 +107,42 @@ def test_resolution_is_independent_of_insertion_order():
     backward = _index("C/T", "B/T", "A/T")
     for source in ("", "A", "B", "C", "Z"):
         assert _hit(forward, "T", source) == _hit(backward, "T", source)
+
+
+def test_resolve_pair_is_resolve_for_split_targets():
+    index = _index("A/B/T")
+    assert _hit(index, "B/T") == "A/B/T"
+    assert index.resolve_pair("B", "T") == index.resolve("B/T")
+    assert index.resolve_pair("", "T") == index.resolve("T")
+    assert index.resolve_pair("X", "T") is None
+
+
+# --- shortest_target ---
+
+
+def test_shortest_target_is_bare_title_when_unique():
+    index = _index("A/B/T")
+    assert index.shortest_target(_note("A/B/T")) == "T"
+
+
+def test_shortest_target_grows_until_unambiguous():
+    index = _index("A/B/T", "C/B/T", "T")
+    # Bare "T" hits root T (exact rule); "B/T" is ambiguous and the lexical tie-break
+    # gives it to A/B/T, so C/B/T needs its full path.
+    assert index.shortest_target(_note("A/B/T")) == "B/T"
+    assert index.shortest_target(_note("C/B/T")) == "C/B/T"
+
+
+def test_shortest_target_uses_source_proximity():
+    index = _index("A/T", "B/T")
+    assert index.shortest_target(_note("B/T"), source_folder="B") == "T"
+    assert index.shortest_target(_note("B/T"), source_folder="A") == "B/T"
+
+
+def test_shortest_target_respects_min_segments():
+    index = _index("A/B/T")
+    assert index.shortest_target(_note("A/B/T"), min_segments=2) == "B/T"
+    assert index.shortest_target(_note("A/B/T"), min_segments=99) == "A/B/T"
 
 
 # --- resolve_content_links ---
