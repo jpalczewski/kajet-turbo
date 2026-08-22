@@ -188,9 +188,8 @@ class NoteService:
             Path(filepath).unlink(missing_ok=True)
             raise
         self._crud_repo.insert(note_id, ws_name, user_id, title, tags, now, now, content, folder)
-        self._link_repo.replace_links(note_id, ws_name, user_id, links.resolved_ids)
+        self._link_service.persist(note_id, ws_name, user_id, links)
         self._tag_service.sync_tags(note_id, ws_name, user_id, tags, content)
-        self._link_service.write_dangling(note_id, ws_name, user_id, links.broken_pairs)
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
@@ -309,11 +308,8 @@ class NoteService:
                 s["content"],
                 s["folder"],
             )
-            self._link_repo.replace_links(s["note_id"], ws_name, user_id, s["links"].resolved_ids)
+            self._link_service.persist(s["note_id"], ws_name, user_id, s["links"])
             self._tag_service.sync_tags(s["note_id"], ws_name, user_id, s["tags"], s["content"])
-            self._link_service.write_dangling(
-                s["note_id"], ws_name, user_id, s["links"].broken_pairs
-            )
 
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
@@ -615,9 +611,8 @@ class NoteService:
             updated_at=now,
             folder=new_folder,
         )
-        self._link_repo.replace_links(note_id, note.workspace, owner_id, links.resolved_ids)
+        self._link_service.persist(note_id, note.workspace, owner_id, links)
         self._tag_service.sync_tags(note_id, note.workspace, owner_id, new_tags, new_content)
-        self._link_service.write_dangling(note_id, note.workspace, owner_id, links.broken_pairs)
         if old_path != new_path:
             move = (
                 IndexedNote(note_id, note.folder, note.title),
@@ -786,12 +781,9 @@ class NoteService:
                 updated_at=now,
                 folder=p["note"].folder,
             )
-            self._link_repo.replace_links(p["note_id"], ws_name, user_id, p["links"].resolved_ids)
+            self._link_service.persist(p["note_id"], ws_name, user_id, p["links"])
             self._tag_service.sync_tags(
                 p["note_id"], ws_name, user_id, p["new_tags"], p["new_content"]
-            )
-            self._link_service.write_dangling(
-                p["note_id"], ws_name, user_id, p["links"].broken_pairs
             )
 
         if self._cache is not None:
@@ -975,6 +967,7 @@ class NoteService:
             self._crud_repo.delete_for_workspace(ws_name, owner_id, session)
             session.commit()
         self._link_repo.delete_workspace_links(ws_name, owner_id)
+        self._link_service.delete_dangling_for_workspace(ws_name, owner_id)
         logger.info("workspace_data_cleared", ws=ws_name, owner_id=owner_id)
 
     def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
@@ -993,8 +986,8 @@ class NoteService:
                 note["content"] or "",
                 note["folder"],
             )
-        # Link graph is rebuilt with the same resolution as save-time validation (short
-        # titles, suffix paths, cross-workspace ids) against one index of the rows above.
+        # Link graph and dangling rows are rebuilt with the same resolution as save-time
+        # validation (short titles, suffix paths, cross-workspace ids) against one index.
         link_index = self._link_service.link_index(ws_name, owner_id)
         for note in notes:
             content = note["content"] or ""
@@ -1003,8 +996,7 @@ class NoteService:
             links = self._link_service.resolve_links(
                 ws_name, owner_id, content, note["folder"], link_index
             )
-            if links.resolved_ids:
-                self._link_repo.replace_links(note["id"], ws_name, owner_id, links.resolved_ids)
+            self._link_service.persist(note["id"], ws_name, owner_id, links)
         if self._indexer is not None:
             try:
                 self._indexer.index_many(

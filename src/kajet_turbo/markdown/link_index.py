@@ -3,7 +3,7 @@
 A wikilink target is a *path suffix*, not a full path: ``[[Title]]`` matches any note
 titled ``Title`` anywhere in the workspace, ``[[Sub/Title]]`` any note titled ``Title``
 whose folder is ``Sub`` or ends with ``/Sub``. When several notes match, the winner is
-picked deterministically (see ``LinkIndex.resolve_pair``), so the same link always resolves
+picked deterministically (see ``LinkIndex.resolve``), so the same link always resolves
 the same way across validation, rendering, reindexing and dangling-link healing — this
 module is the single definition of what a target *means*; ``wikilinks`` defines only the
 syntax.
@@ -78,13 +78,10 @@ class LinkIndex:
         self._by_title: dict[str, list[IndexedNote]] = dict(by_title)
 
     def resolve(self, target: str, source_folder: str = "") -> IndexedNote | None:
-        return self.resolve_pair(*split_target(target), source_folder=source_folder)
-
-    def resolve_pair(self, folder: str, title: str, source_folder: str = "") -> IndexedNote | None:
-        """``resolve`` for an already-split target — the shape dangling links are stored in."""
+        folder, title = split_target(target)
         candidates = [n for n in self._by_title.get(title, ()) if _folder_matches(n.folder, folder)]
-        if len(candidates) <= 1:
-            return candidates[0] if candidates else None
+        if not candidates:
+            return None
         source = path_segments(source_folder)
 
         def rank(note: IndexedNote) -> tuple[int, int, int, str]:

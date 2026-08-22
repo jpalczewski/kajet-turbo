@@ -86,6 +86,21 @@ class NoteLinkRepository(DbRepository):
             rows = session.exec(query).all()
         return list(rows)
 
+    def backlinks_many(
+        self, target_note_ids: list[str], same_workspace: str | None = None
+    ) -> set[str]:
+        """Union of ``backlinks`` for several targets in one query (a folder move's worth)."""
+        if not target_note_ids:
+            return set()
+        with self.timed_session() as session:
+            query = select(NoteLink.source_note_id).where(
+                col(NoteLink.target_note_id).in_(target_note_ids)
+            )
+            if same_workspace is not None:
+                query = query.where(col(NoteLink.workspace) == same_workspace)
+            rows = session.exec(query).all()
+        return set(rows)
+
     def outlinks(self, source_note_id: str) -> list[str]:
         """Return target note_ids that ``source_note_id`` links to (uses the composite PK)."""
         with self.timed_session() as session:

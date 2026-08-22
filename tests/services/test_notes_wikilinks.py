@@ -307,6 +307,29 @@ def test_move_folder_rewrites_source_linking_two_moved_notes_once(service, works
     assert len(service.get_history(sid, owner_id="u1", ws_path=str(workspace))) == before + 1
 
 
+def test_move_to_root_rewrites_path_backlink_to_bare_title(service, workspace):
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Old")["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Old/Target|x]]", [])["note_id"]
+    service.move(tid, owner_id="u1", ws_path=str(workspace), folder="")
+    src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
+    assert src.content == "[[Target|x]]"
+    assert service._link_service._link_repo.backlinks(tid) == [sid]
+
+
+def test_move_folder_ranks_co_moved_source_from_its_old_folder(service, workspace):
+    # Source sits inside the moved folder and links [[T]], which pre-move meant Old/T (the
+    # nearest T). After the move a decoy Dst/Old/Sub/T would win from the source's new
+    # folder, so the rewrite must judge the link from where the source *was*.
+    tid = service.save("u1", "ws", str(workspace), "T", "t", [], folder="Old")["note_id"]
+    service.save("u1", "ws", str(workspace), "T", "decoy", [], folder="Dst/Old/Sub")
+    sid = service.save("u1", "ws", str(workspace), "S", "[[T]]", [], folder="Old/Sub")["note_id"]
+    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    service.move_folder("Old", "Dst/Old", owner_id="u1", ws_path=str(workspace), workspace="ws")
+    src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
+    assert src.content == "[[Old/T]]"
+    assert service._link_service._link_repo.backlinks(tid) == [sid]
+
+
 def test_reindex_resolves_short_links_and_xws_ids(service, workspace):
     from kajet_turbo.repositories.git import GitRepository
 

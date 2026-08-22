@@ -108,7 +108,7 @@ def remove_empty_tree(ws_path: str, folder: str) -> list[str]:
     root = Path(ws_path).resolve()
     removed: list[str] = []
     if folder:
-        sub = root / Path(*folder.split("/"))
+        sub = Path(root, *path_segments(folder))
         if sub.is_dir():
             dirs = sorted(
                 (p for p in sub.rglob("*") if p.is_dir()),
@@ -135,10 +135,15 @@ def note_filepath(ws_path: str, folder: str, title: str) -> str:
     return str(Path(ws_path, *path_segments(folder), filename))
 
 
+def relative_folder(root: str | Path, directory: str | Path) -> str:
+    """Workspace-relative folder path of ``directory`` (``""`` for the root itself)."""
+    return "/".join(Path(directory).relative_to(root).parts)
+
+
 def note_folder(ws_path: str, path: str | Path) -> str:
     """Inverse of ``note_filepath``: the workspace-relative folder a note file sits in
     (``""`` for the workspace root)."""
-    return "/".join(Path(path).relative_to(ws_path).parent.parts)
+    return relative_folder(ws_path, Path(path).parent)
 
 
 def write_note_file(

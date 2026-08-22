@@ -109,14 +109,6 @@ def test_resolution_is_independent_of_insertion_order():
         assert _hit(forward, "T", source) == _hit(backward, "T", source)
 
 
-def test_resolve_pair_is_resolve_for_split_targets():
-    index = _index("A/B/T")
-    assert _hit(index, "B/T") == "A/B/T"
-    assert index.resolve_pair("B", "T") == index.resolve("B/T")
-    assert index.resolve_pair("", "T") == index.resolve("T")
-    assert index.resolve_pair("X", "T") is None
-
-
 # --- shortest_target ---
 
 

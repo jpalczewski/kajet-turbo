@@ -5,12 +5,14 @@ from functools import cache, partial
 from itertools import chain
 from pathlib import Path
 
+from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
     BrokenWikilinkError,
     IndexedNote,
     LinkIndex,
     LinkResolution,
     LinkResolver,
+    extract_wikilinks,
     note_explorer_url,
     resolve_content_links,
     rewrite_wikilinks,
@@ -65,6 +67,9 @@ class NoteLinkService:
         dropped, never reported as broken (there is no dangling row to write for it).
         """
         if index is None:
+            # Link-free content (the common case) must not pay for the workspace index.
+            if not extract_wikilinks(content):
+                return LinkResolution(set(), [], [])
             index = self.link_index(ws_name, owner_id)
         resolution = resolve_content_links(index, content, source_folder)
         if not resolution.xws_ids:
@@ -88,6 +93,12 @@ class NoteLinkService:
             raise BrokenWikilinkError(resolution.broken)
         return resolution
 
+    def persist(self, note_id: str, ws_name: str, owner_id: str, links: LinkResolution) -> None:
+        """Store one note's resolution outcome: the link-graph edges for what resolved and
+        the dangling rows for what did not — both halves, so no write path can drift."""
+        self._link_repo.replace_links(note_id, ws_name, owner_id, links.resolved_ids)
+        self.write_dangling(note_id, ws_name, owner_id, links.broken_pairs)
+
     def write_dangling(
         self,
         source_note_id: str,
@@ -104,6 +115,11 @@ class NoteLinkService:
         """Remove dangling link rows for a deleted source note. No-op when not wired."""
         if self._dangling_repo is not None:
             self._dangling_repo.delete_for_source(note_id)
+
+    def delete_dangling_for_workspace(self, ws_name: str, owner_id: str) -> None:
+        """Remove every dangling link row of a workspace. No-op when not wired."""
+        if self._dangling_repo is not None:
+            self._dangling_repo.delete_for_workspace(owner_id, ws_name)
 
     def backlinks(
         self,
@@ -219,11 +235,7 @@ class NoteLinkService:
           this call for a stale snippet/chunk-offset window that closes on the next edit.
         """
         moved = {old.note_id: new for old, new in moves}
-        source_ids = {
-            sid
-            for note_id in moved
-            for sid in self._link_repo.backlinks(note_id, same_workspace=ws_name)
-        }
+        source_ids = self._link_repo.backlinks_many(list(moved), same_workspace=ws_name)
         if not source_ids:
             return
         paths = self._crud_repo.list_paths(ws_name, owner_id)
@@ -231,13 +243,14 @@ class NoteLinkService:
         before = LinkIndex(
             chain((p for p in paths if p.note_id not in moved), (old for old, _ in moves))
         )
+        old_folders = {old.note_id: old.folder for old, _ in moves}
 
-        def rewrite(target: str, source_folder: str) -> str | None:
-            hit = before.resolve(target, source_folder)
+        def rewrite(target: str, before_folder: str, after_folder: str) -> str | None:
+            hit = before.resolve(target, before_folder)
             if hit is None or hit.note_id not in moved:
                 return None
             return after.shortest_target(
-                moved[hit.note_id], source_folder, min_segments=len(path_segments(target))
+                moved[hit.note_id], after_folder, min_segments=len(path_segments(target))
             )
 
         message = (
@@ -246,16 +259,25 @@ class NoteLinkService:
             else f"note: rewrite wikilinks after moving {len(moves)} notes"
         )
         repo = GitRepository(ws_path)
+        rewritten = 0
         for src in self._crud_repo.get_many(sorted(source_ids), owner_id):
             src_path = note_filepath(ws_path, src.folder, src.title)
             if not Path(src_path).exists():
                 continue
             data = read_note_file(src_path)
+            # A source that moved along with its targets (folder move) must be ranked from
+            # where it *was* when its links were written, not from its new folder.
             new_body, changed = rewrite_wikilinks(
-                data["content"], partial(rewrite, source_folder=src.folder)
+                data["content"],
+                partial(
+                    rewrite,
+                    before_folder=old_folders.get(src.id, src.folder),
+                    after_folder=src.folder,
+                ),
             )
             if not changed:
                 continue
+            rewritten += 1
             write_note_file(
                 src_path,
                 src.id,
@@ -270,3 +292,10 @@ class NoteLinkService:
             self._crud_repo.update(
                 src.id, owner_id=owner_id, content=new_body, updated_at=src.updated_at
             )
+        logger.info(
+            "backlinks_rewritten",
+            ws=ws_name,
+            moved=len(moves),
+            sources=len(source_ids),
+            rewritten=rewritten,
+        )

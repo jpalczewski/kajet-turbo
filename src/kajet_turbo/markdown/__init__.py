@@ -39,13 +39,11 @@ from kajet_turbo.markdown.wikilinks import (
     BrokenWikilinkError,
     IndexedNote,
     LinkResolver,
-    TargetRewriter,
     XwsResolver,
     extract_wikilinks,
     note_explorer_url,
     render_markdown,
     rewrite_wikilinks,
-    xws_note_id,
 )
 
 __all__ = [
@@ -63,7 +61,6 @@ __all__ = [
     "LinkResolver",
     "OutlineSection",
     "Section",
-    "TargetRewriter",
     "XwsResolver",
     "ancestors",
     "append_content",
@@ -87,5 +84,4 @@ __all__ = [
     "rewrite_wikilinks",
     "segments",
     "split_target",
-    "xws_note_id",
 ]
