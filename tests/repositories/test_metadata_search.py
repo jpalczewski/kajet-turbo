@@ -21,14 +21,14 @@ def _note(
 def test_search_metadata_matches_tag_and_folder_not_title(database):
     repo = NoteRepository(database.engine)
     with Session(database.engine) as session:
-        session.add(_note("n1", "Rozmowa 12.03", "książki/Angelika"))
+        session.add(_note("n1", "Rozmowa 12.03", "książki/Alice"))
         session.add(
             Tag(
                 id="t1",
                 workspace="ws",
                 owner_id="u1",
-                path="angelika",
-                name="angelika",
+                path="alice",
+                name="alice",
                 created_at="2026-01-01T00:00:00+00:00",
             )
         )
@@ -40,7 +40,7 @@ def test_search_metadata_matches_tag_and_folder_not_title(database):
         session.add(NoteTag(note_id="n1", tag_id="t1", source="frontmatter"))
         session.commit()
 
-    hits = repo.search_metadata("ws", "u1", "angelika")
+    hits = repo.search_metadata("ws", "u1", "alice")
     assert [h["note_id"] for h in hits] == ["n1"]
     assert hits[0]["matched_on"] == ["folder", "tag"]
 
@@ -48,10 +48,10 @@ def test_search_metadata_matches_tag_and_folder_not_title(database):
 def test_search_metadata_matches_folder_path_only(database):
     repo = NoteRepository(database.engine)
     with Session(database.engine) as session:
-        session.add(_note("n1", "Rozmowa", "książki/Angelika"))
+        session.add(_note("n1", "Rozmowa", "książki/Alice"))
         session.add(_note("n2", "Inna notatka", ""))
         session.commit()
-    hits = repo.search_metadata("ws", "u1", "angelika")
+    hits = repo.search_metadata("ws", "u1", "alice")
     assert [h["note_id"] for h in hits] == ["n1"]
     assert hits[0]["matched_on"] == ["folder"]
 
@@ -71,39 +71,39 @@ def test_search_metadata_unicode_casefold(database):
 def test_search_metadata_all_tokens_required(database):
     repo = NoteRepository(database.engine)
     with Session(database.engine) as session:
-        session.add(_note("n1", "Angelika telefon", ""))
-        session.add(_note("n2", "Angelika", ""))
+        session.add(_note("n1", "Alice telefon", ""))
+        session.add(_note("n2", "Alice", ""))
         session.commit()
-    hits = repo.search_metadata("ws", "u1", "angelika telefon")
+    hits = repo.search_metadata("ws", "u1", "alice telefon")
     assert [h["note_id"] for h in hits] == ["n1"]
 
 
 def test_search_metadata_ranks_exact_title_above_newer_partial_match(database):
     repo = NoteRepository(database.engine)
     with Session(database.engine) as session:
-        session.add(_note("n1", "Angelika i telefon", "", updated_at="2026-01-05T00:00:00+00:00"))
-        session.add(_note("n2", "Angelika", "", updated_at="2026-01-01T00:00:00+00:00"))
+        session.add(_note("n1", "Alice i telefon", "", updated_at="2026-01-05T00:00:00+00:00"))
+        session.add(_note("n2", "Alice", "", updated_at="2026-01-01T00:00:00+00:00"))
         session.commit()
-    hits = repo.search_metadata("ws", "u1", "angelika")
+    hits = repo.search_metadata("ws", "u1", "alice")
     assert [h["note_id"] for h in hits] == ["n2", "n1"]
 
 
 def test_search_metadata_ties_break_by_updated_at_desc(database):
     repo = NoteRepository(database.engine)
     with Session(database.engine) as session:
-        session.add(_note("n1", "Angelika projekt A", "", updated_at="2026-01-01T00:00:00+00:00"))
-        session.add(_note("n2", "Angelika projekt B", "", updated_at="2026-01-10T00:00:00+00:00"))
+        session.add(_note("n1", "Alice projekt A", "", updated_at="2026-01-01T00:00:00+00:00"))
+        session.add(_note("n2", "Alice projekt B", "", updated_at="2026-01-10T00:00:00+00:00"))
         session.commit()
-    hits = repo.search_metadata("ws", "u1", "angelika")
+    hits = repo.search_metadata("ws", "u1", "alice")
     assert [h["note_id"] for h in hits] == ["n2", "n1"]
 
 
 def test_search_metadata_owner_scoped(database):
     repo = NoteRepository(database.engine)
     with Session(database.engine) as session:
-        session.add(_note("n1", "Angelika", ""))
+        session.add(_note("n1", "Alice", ""))
         session.commit()
-    assert repo.search_metadata("ws", "other-owner", "angelika") == []
+    assert repo.search_metadata("ws", "other-owner", "alice") == []
 
 
 def test_search_metadata_respects_limit(database):
@@ -111,10 +111,10 @@ def test_search_metadata_respects_limit(database):
     with Session(database.engine) as session:
         for i in range(5):
             session.add(
-                _note(f"n{i}", f"Angelika {i}", "", updated_at=f"2026-01-0{i + 1}T00:00:00+00:00")
+                _note(f"n{i}", f"Alice {i}", "", updated_at=f"2026-01-0{i + 1}T00:00:00+00:00")
             )
         session.commit()
-    assert len(repo.search_metadata("ws", "u1", "angelika", limit=3)) == 3
+    assert len(repo.search_metadata("ws", "u1", "alice", limit=3)) == 3
 
 
 def test_search_metadata_blank_query_returns_empty(database):
@@ -127,10 +127,10 @@ def test_search_metadata_records_meta_ms_and_db_ms(database):
 
     repo = NoteRepository(database.engine)
     with Session(database.engine) as session:
-        session.add(_note("n1", "Angelika", ""))
+        session.add(_note("n1", "Alice", ""))
         session.commit()
     with perf.perf_span() as span:
-        repo.search_metadata("ws", "u1", "angelika")
+        repo.search_metadata("ws", "u1", "alice")
     assert "meta_ms" in span.fields
     assert "db_ms" in span.fields  # additive: SELECTs still emit db_ms via timed_session
 
@@ -138,12 +138,12 @@ def test_search_metadata_records_meta_ms_and_db_ms(database):
 def test_note_ids_under_folder_matches_exact_and_descendants(database):
     repo = NoteRepository(database.engine)
     with Session(database.engine) as session:
-        session.add(_note("n1", "A", "książki/Angelika"))
-        session.add(_note("n2", "B", "książki/Angelika/2026"))
+        session.add(_note("n1", "A", "książki/Alice"))
+        session.add(_note("n2", "B", "książki/Alice/2026"))
         session.add(_note("n3", "C", "książki/Inna"))
         session.add(_note("n4", "D", ""))
         session.commit()
-    ids = repo.note_ids_under_folder("ws", "u1", "książki/Angelika")
+    ids = repo.note_ids_under_folder("ws", "u1", "książki/Alice")
     assert ids == {"n1", "n2"}
 
 
@@ -152,4 +152,4 @@ def test_note_ids_under_folder_root_prefix_matches_nothing_by_default(database):
     with Session(database.engine) as session:
         session.add(_note("n1", "A", "książki"))
         session.commit()
-    assert repo.note_ids_under_folder("ws", "u1", "książki/Angelika") == set()
+    assert repo.note_ids_under_folder("ws", "u1", "książki/Alice") == set()

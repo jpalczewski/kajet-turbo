@@ -25,8 +25,8 @@ def test_grep_case_sensitive_excludes_different_case(service, workspace):
 
 
 def test_grep_matches_frontmatter_tags(service, workspace):
-    service.save("u1", "ws", str(workspace), "Notes", "unrelated body\n", ["angelika"])
-    result = service.grep("ws", str(workspace), "angelika")
+    service.save("u1", "ws", str(workspace), "Notes", "unrelated body\n", ["alice"])
+    result = service.grep("ws", str(workspace), "alice")
     assert len(result["matches"]) == 1
     assert result["matches"][0]["title"] == "Notes"
 

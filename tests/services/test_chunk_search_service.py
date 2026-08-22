@@ -42,9 +42,9 @@ def test_search_matches_tag_and_folder_for_contentless_note(database, git_worksp
     service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(
-        "u1", "ws", str(ws), "Rozmowa 3 marca", "", tags=["angelika"], folder="książki/Angelika"
+        "u1", "ws", str(ws), "Rozmowa 3 marca", "", tags=["alice"], folder="książki/Alice"
     )
-    hits = service.search("angelika", ["ws"], owner_id="u1", limit=10)
+    hits = service.search("alice", ["ws"], owner_id="u1", limit=10)
     assert len(hits) == 1
     assert set(hits[0]["matched_on"]) == {"folder", "tag"}
     assert hits[0]["content"] == ""
@@ -142,10 +142,10 @@ def test_search_narrows_by_folder_widens_metadata_candidate_window(database, git
     # allowed_note_ids filter in hybrid_search, rather than being truncated out beforehand.
     service = _service(database)
     ws = git_workspace_factory("ws")
-    service.save("u1", "ws", str(ws), "Early angelika note", "", tags=["angelika"], folder="a")
-    service.save("u1", "ws", str(ws), "Late angelika note", "", tags=["angelika"], folder="b")
-    hits = service.search("angelika", ["ws"], owner_id="u1", limit=1, folder="a")
-    assert [h["title"] for h in hits] == ["Early angelika note"]
+    service.save("u1", "ws", str(ws), "Early alice note", "", tags=["alice"], folder="a")
+    service.save("u1", "ws", str(ws), "Late alice note", "", tags=["alice"], folder="b")
+    hits = service.search("alice", ["ws"], owner_id="u1", limit=1, folder="a")
+    assert [h["title"] for h in hits] == ["Early alice note"]
 
 
 def test_search_narrows_by_tags(database, git_workspace_factory):
