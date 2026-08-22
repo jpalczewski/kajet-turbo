@@ -131,7 +131,27 @@ def test_end_to_end_dangling_then_target_created(
     # Run the handler directly (what the worker does)
     HealDanglingHandler(note_repo, link_repo, dangling)({"user_id": uid, "workspace": "ws"})
 
-    src_id = note_repo.resolve_paths("ws", uid, [("", "Source")])[("", "Source")]
-    tgt_id = note_repo.resolve_paths("ws", uid, [("", "Target")])[("", "Target")]
+    src_id = note_repo.get_by_path("ws", uid, "", "Source").id
+    tgt_id = note_repo.get_by_path("ws", uid, "", "Target").id
     assert link_repo.backlinks(tgt_id) == [src_id]
     assert dangling.exists(uid, "ws") is False
+
+
+def test_heal_resolves_short_target_created_in_subfolder(note_repo, link_repo, dangling, uid):
+    # Dangling [[A]] (stored as folder "", title "A") heals once A appears anywhere.
+    note_repo.insert("b", "ws", uid, "B", [], _now(), _now(), "body")
+    dangling.replace_for_source("b", "ws", uid, [("", "A")])
+    note_repo.insert("a", "ws", uid, "A", [], _now(), _now(), "body", folder="Deep/Er")
+    HealDanglingHandler(note_repo, link_repo, dangling)({"user_id": uid, "workspace": "ws"})
+    assert link_repo.backlinks("a") == ["b"]
+    assert dangling.exists(uid, "ws") is False
+
+
+def test_heal_ambiguous_short_target_prefers_source_folder(note_repo, link_repo, dangling, uid):
+    note_repo.insert("b", "ws", uid, "B", [], _now(), _now(), "body", folder="X")
+    dangling.replace_for_source("b", "ws", uid, [("", "A")])
+    note_repo.insert("a-far", "ws", uid, "A", [], _now(), _now(), "body", folder="Y")
+    note_repo.insert("a-near", "ws", uid, "A", [], _now(), _now(), "body", folder="X")
+    HealDanglingHandler(note_repo, link_repo, dangling)({"user_id": uid, "workspace": "ws"})
+    assert link_repo.backlinks("a-near") == ["b"]
+    assert link_repo.backlinks("a-far") == []

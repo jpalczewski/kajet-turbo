@@ -21,9 +21,12 @@ Kajet — git-versioned markdown notebook.
 3. get_note / save_note / edit_note / save_notes for reads and writes
 
 ## Wikilink syntax (use in note content)
-- [[Title]] — link to a note by title (workspace-wide search)
-- [[Folder/SubFolder/Title]] — link by full folder path + title
+- [[Title]] — link to a note by title, found anywhere in the workspace
+- [[Folder/SubFolder/Title]] — link by folder path + title; the path is a suffix, so
+  [[SubFolder/Title]] also matches Folder/SubFolder/Title
 - [[Target|Displayed text]] — link with display alias
+- Same title in several folders: the exact full path wins, otherwise the note nearest
+  the linking note (same folder, then closest ancestor). Use the full path to be explicit.
 - [[note:NOTE_ID]] — cross-workspace permanent link; NOTE_ID is the note_id UUID
   from any note response; renders as a clickable link to the note in its workspace
 

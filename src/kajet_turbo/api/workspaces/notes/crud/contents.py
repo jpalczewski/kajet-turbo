@@ -11,6 +11,7 @@ from kajet_turbo.errors import AuthError, FolderError
 from kajet_turbo.log import logged_route
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.workspace import relative_folder
 
 router = APIRouter(
     responses={
@@ -22,11 +23,6 @@ router = APIRouter(
 
 def _clean_path(path: str) -> str:
     return "/".join(part for part in path.strip().strip("/").split("/") if part)
-
-
-def _relative_folder(root: Path, path: Path) -> str:
-    rel = path.relative_to(root)
-    return "" if str(rel) == "." else "/".join(rel.parts)
 
 
 def _child_folders(folders: list[str], parent: str) -> list[str]:
@@ -70,7 +66,7 @@ def api_workspace_contents(
 
     if target.is_dir():
         resolution = "folder"
-        folder_path = _relative_folder(ws_root, target)
+        folder_path = relative_folder(ws_root, target)
     else:
         parts = requested_path.split("/") if requested_path else []
         candidate_note_id = parts[-1] if parts else ""
@@ -81,7 +77,7 @@ def api_workspace_contents(
         except ValueError:
             raise HTTPException(status_code=400, detail=FolderError.PATH_INVALID) from None
         if parent.is_dir():
-            folder_path = _relative_folder(ws_root, parent)
+            folder_path = relative_folder(ws_root, parent)
             note = note_service.get(candidate_note_id, owner_id=user["id"])
             if note is not None and note["workspace"] == name and note["folder"] == folder_path:
                 resolution = "note"

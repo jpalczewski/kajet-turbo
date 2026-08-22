@@ -236,15 +236,21 @@ def test_get_by_path_missing_returns_none(notes):
     assert notes.get_by_path("ws1", "u2", "", "Plan") is None
 
 
-def test_resolve_paths_batch(notes):
+def test_list_paths_scoped_to_workspace_and_owner(notes):
+    from kajet_turbo.markdown import IndexedNote
+
     notes.insert("id1", "ws1", "u1", "Plan", [], _now(), _now(), "t", folder="A")
     notes.insert("id2", "ws1", "u1", "Notes", [], _now(), _now(), "t", folder="")
-    resolved = notes.resolve_paths("ws1", "u1", [("A", "Plan"), ("", "Notes"), ("", "Ghost")])
-    assert resolved == {("A", "Plan"): "id1", ("", "Notes"): "id2"}
+    notes.insert("id3", "ws2", "u1", "Elsewhere", [], _now(), _now(), "t")
+    notes.insert("id4", "ws1", "u2", "Someone else's", [], _now(), _now(), "t")
+    assert sorted(notes.list_paths("ws1", "u1"), key=lambda n: n.note_id) == [
+        IndexedNote("id1", "A", "Plan"),
+        IndexedNote("id2", "", "Notes"),
+    ]
 
 
-def test_resolve_paths_empty(notes):
-    assert notes.resolve_paths("ws1", "u1", []) == {}
+def test_list_paths_empty(notes):
+    assert notes.list_paths("ws1", "u1") == []
 
 
 def test_insert_writes_no_fts_rows(database):

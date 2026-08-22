@@ -109,7 +109,7 @@ def api_get_note_html(
             "updated_at": note.updated_at,
             "content_html": _render_html(
                 note.content,
-                resolver=note_service.link_resolver(name, user["id"]),
+                resolver=note_service.link_resolver(name, user["id"], note.folder),
                 slug=name,
                 xws_resolver=note_service.xws_link_resolver(user["id"]),
             ),

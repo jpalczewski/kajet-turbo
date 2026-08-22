@@ -4,6 +4,7 @@ from secrets import token_hex
 
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
+from kajet_turbo.markdown import IndexedNote
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
@@ -13,6 +14,7 @@ from kajet_turbo.workspace import (
     list_workspace_folders,
     normalize_folder,
     note_filepath,
+    path_segments,
     prune_all_empty_dirs,
     prune_empty_parents,
     remove_empty_tree,
@@ -67,16 +69,11 @@ class NoteFolderService:
             updated_at=note.updated_at,
             folder=new_folder,
         )
-        self._link_service.rewrite_backlinks(
-            note_id,
-            owner_id,
-            ws_path,
-            note.workspace,
-            note.folder,
-            note.title,
-            new_folder,
-            note.title,
+        move = (
+            IndexedNote(note_id, note.folder, note.title),
+            IndexedNote(note_id, new_folder, note.title),
         )
+        self._link_service.rewrite_backlinks([move], owner_id, ws_path, note.workspace)
         prune_empty_parents(ws_path, note.folder)
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
@@ -104,7 +101,7 @@ class NoteFolderService:
             raise InvalidFolderError("Nie można przenieść folderu do jego podkatalogu.")
 
         notes = self._crud_repo.list_under_folder(workspace, owner_id, src_n)
-        src_root = Path(ws_path, *src_n.split("/"))
+        src_root = Path(ws_path, *path_segments(src_n))
         if not notes and not src_root.exists():
             raise FileNotFoundError(f"Folder '{src_n}' nie istnieje.")
 
@@ -145,8 +142,7 @@ class NoteFolderService:
                     else:
                         # Aux file (e.g. .gitkeep): same sub-position under dst, unless the
                         # destination already has it (merge) — then drop it with the temp dir.
-                        dst_base = Path(ws_path, *dst_n.split("/")) if dst_n else Path(ws_path)
-                        target = dst_base / rel
+                        target = Path(ws_path, *path_segments(dst_n), rel)
                         if target.exists():
                             continue
                         new_rel = str(target.relative_to(ws_path))
@@ -173,17 +169,14 @@ class NoteFolderService:
             self._crud_repo.update(
                 note.id, owner_id=owner_id, updated_at=note.updated_at, folder=remap[note.id]
             )
-        for note in notes:
-            self._link_service.rewrite_backlinks(
-                note.id,
-                owner_id,
-                ws_path,
-                workspace,
-                note.folder,
-                note.title,
-                remap[note.id],
-                note.title,
+        moves = [
+            (
+                IndexedNote(note.id, note.folder, note.title),
+                IndexedNote(note.id, remap[note.id], note.title),
             )
+            for note in notes
+        ]
+        self._link_service.rewrite_backlinks(moves, owner_id, ws_path, workspace)
         remove_empty_tree(ws_path, src_n)
         if self._folder_meta_repo is not None:
             self._folder_meta_repo.rename_paths(owner_id, workspace, src_n, dst_n)

@@ -12,10 +12,14 @@ from markdown_it.rules_inline import StateInline
 
 from kajet_turbo.markdown._parser import content_md
 from kajet_turbo.markdown._tokens import extract_meta
+from kajet_turbo.workspace import path_segments
 
 # A normalized path is one or more segments of word chars / hyphen, slash-separated.
 # ``\w`` is Unicode-aware for str patterns, so diacritics ("zażółć") are valid.
 _PATH_RE = re.compile(r"^[\w-]+(?:/[\w-]+)*$")
+
+# Tag paths and folder paths share one segment grammar: non-empty, slash-separated.
+segments = path_segments
 
 
 def normalize(raw: str) -> str | None:
@@ -24,17 +28,11 @@ def normalize(raw: str) -> str | None:
     Strips a leading ``#``, drops empty segments, lowercases. Rejects (returns
     ``None``) anything containing characters outside ``[\\w-/]`` — e.g. spaces.
     """
-    raw = raw.strip().lstrip("#").strip()
-    segs = [s for s in raw.split("/") if s]
+    segs = segments(raw.strip().lstrip("#").strip())
     if not segs:
         return None
     path = "/".join(segs).lower()
     return path if _PATH_RE.match(path) else None
-
-
-def segments(path: str) -> list[str]:
-    """Split a normalized path into its segment list."""
-    return [s for s in path.split("/") if s]
 
 
 def ancestors(path: str) -> list[str]:

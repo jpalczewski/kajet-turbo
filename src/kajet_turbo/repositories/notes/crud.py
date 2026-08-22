@@ -5,6 +5,7 @@ from sqlalchemy import func, text
 from sqlmodel import Session, col, select
 
 from kajet_turbo.log import logger
+from kajet_turbo.markdown import IndexedNote
 from kajet_turbo.models import Note, NoteTag, Tag
 from kajet_turbo.perf import timed
 from kajet_turbo.repositories import DbRepository
@@ -125,28 +126,17 @@ class NoteRepository(DbRepository):
             ).one()
         return int(count)
 
-    def resolve_paths(
-        self,
-        workspace: str,
-        owner_id: str,
-        pairs: list[tuple[str, str]],
-    ) -> dict[tuple[str, str], str]:
-        """Map ``(folder, title) -> note_id`` for the pairs that exist.
-
-        One query loads the workspace's ``(folder, title, id)`` index into memory (a single
-        user's workspace is small), avoiding N+1 lookups during link validation.
-        """
-        if not pairs:
-            return {}
-        wanted = set(pairs)
+    def list_paths(self, workspace: str, owner_id: str) -> list[IndexedNote]:
+        """Every note's ``(id, folder, title)`` in the workspace — the raw material for a
+        ``LinkIndex``. One narrow query per operation (a single user's workspace is small)
+        instead of N+1 lookups during link resolution."""
         with self.timed_session() as session:
             rows = session.exec(
-                select(Note.folder, Note.title, Note.id).where(
+                select(Note.id, Note.folder, Note.title).where(
                     Note.workspace == workspace, Note.owner_id == owner_id
                 )
             ).all()
-        index = {(folder, title): note_id for folder, title, note_id in rows}
-        return {pair: index[pair] for pair in wanted if pair in index}
+        return [IndexedNote(note_id, folder, title) for note_id, folder, title in rows]
 
     def search_metadata(
         self, workspace: str, owner_id: str, query: str, limit: int = 20
