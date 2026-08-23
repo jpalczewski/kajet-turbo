@@ -413,6 +413,7 @@ def test_create_note_case_corrected_wikilink_returns_warning(auth_client):
             "kind": "case_corrected_wikilink",
             "target": "plan projektu",
             "resolved_to": "Plan projektu",
+            "alternatives": [],
         }
     ]
 

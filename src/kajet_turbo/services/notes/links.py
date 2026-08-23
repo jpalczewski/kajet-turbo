@@ -46,6 +46,7 @@ def wikilink_warnings(links: LinkResolution) -> list[dict]:
             "kind": "case_corrected_wikilink",
             "target": item.target,
             "resolved_to": join_target(item.chosen.folder, item.chosen.title),
+            "alternatives": [],
         }
         for item in links.case_corrected
     ]

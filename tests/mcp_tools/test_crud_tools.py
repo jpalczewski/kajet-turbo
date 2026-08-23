@@ -103,11 +103,11 @@ async def test_save_note_reports_case_corrected_wikilink_warning(workspaces_dir,
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool("save_note", {"title": "Plan projektu", "content": "cel"})
-        result = await client.call_tool(
-            "save_note", {"title": "Source", "content": "[[plan projektu]]"}
+        result = await call_json(
+            client, "save_note", {"title": "Source", "content": "[[plan projektu]]"}
         )
 
-    assert json.loads(result.content[0].text)["warnings"] == [
+    assert result["warnings"] == [
         {
             "kind": "case_corrected_wikilink",
             "target": "plan projektu",

@@ -85,12 +85,21 @@ class LinkIndex:
 
     def __init__(self, notes: Iterable[IndexedNote]) -> None:
         by_title: defaultdict[str, list[IndexedNote]] = defaultdict(list)
-        by_casefold_title: defaultdict[str, list[IndexedNote]] = defaultdict(list)
         for note in notes:
             by_title[note.title].append(note)
-            by_casefold_title[note.title.casefold()].append(note)
         self._by_title: dict[str, list[IndexedNote]] = dict(by_title)
-        self._by_casefold_title: dict[str, list[IndexedNote]] = dict(by_casefold_title)
+        # Built lazily on first casefold fallback: a call site that never needs the
+        # fallback (allow_casefold=False, e.g. get_note(title=...)) never pays for it.
+        self._by_casefold_title: dict[str, list[IndexedNote]] | None = None
+
+    def _casefold_index(self) -> dict[str, list[IndexedNote]]:
+        if self._by_casefold_title is None:
+            by_casefold: defaultdict[str, list[IndexedNote]] = defaultdict(list)
+            for notes in self._by_title.values():
+                for note in notes:
+                    by_casefold[note.title.casefold()].append(note)
+            self._by_casefold_title = dict(by_casefold)
+        return self._by_casefold_title
 
     def resolve_detailed(
         self, target: str, source_folder: str = "", *, allow_casefold: bool = True
@@ -108,7 +117,7 @@ class LinkIndex:
             cf_folder = folder.casefold()
             candidates = [
                 n
-                for n in self._by_casefold_title.get(title.casefold(), ())
+                for n in self._casefold_index().get(title.casefold(), ())
                 if _folder_matches(n.folder.casefold(), cf_folder)
             ]
             casefold_match = bool(candidates)
