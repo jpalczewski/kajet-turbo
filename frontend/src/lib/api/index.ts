@@ -13,11 +13,19 @@ export const AuthError = {
   ACCESS_DENIED: 'ACCESS_DENIED',
 } as const;
 
+export type WikilinkWarningKind = typeof WikilinkWarningKind[keyof typeof WikilinkWarningKind];
+
+
+export const WikilinkWarningKind = {
+  ambiguous_wikilink: 'ambiguous_wikilink',
+  case_corrected_wikilink: 'case_corrected_wikilink',
+} as const;
+
 export interface WikilinkWarning {
-  kind: 'ambiguous_wikilink';
+  kind: WikilinkWarningKind;
   target: string;
   resolved_to: string;
-  alternatives: string[];
+  alternatives?: string[];
 }
 
 export interface NoteResult {

@@ -98,6 +98,25 @@ async def test_save_note_reports_ambiguous_wikilink_warning(workspaces_dir, mcp_
     ]
 
 
+async def test_save_note_reports_case_corrected_wikilink_warning(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        await client.call_tool("save_note", {"title": "Plan projektu", "content": "cel"})
+        result = await call_json(
+            client, "save_note", {"title": "Source", "content": "[[plan projektu]]"}
+        )
+
+    assert result["warnings"] == [
+        {
+            "kind": "case_corrected_wikilink",
+            "target": "plan projektu",
+            "resolved_to": "Plan projektu",
+            "alternatives": [],
+        }
+    ]
+
+
 async def test_delete_note(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
@@ -301,6 +320,16 @@ async def test_get_note_by_ambiguous_title_still_errors_when_one_candidate_is_at
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         with pytest.raises(ToolError, match="Niejednoznaczne"):
             await client.call_tool("get_note", {"title": "README"})
+
+
+async def test_get_note_by_title_case_mismatch_returns_not_found(workspaces_dir, mcp_server):
+    """Unlike wikilinks, get_note(title=...) stays exact — no casefold fallback."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        await client.call_tool("save_note", {"title": "Plan projektu", "content": "cel"})
+        with pytest.raises(ToolError, match="nie znaleziona"):
+            await client.call_tool("get_note", {"title": "plan projektu"})
 
 
 async def test_get_note_rejects_an_ambiguous_call_shape(workspaces_dir, mcp_server):
