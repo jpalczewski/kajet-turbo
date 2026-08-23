@@ -70,7 +70,7 @@ def build_note_service(
     if chunk_repo is None:
         chunk_repo = NoteChunkRepository(engine)
 
-    tag_service = NoteTagService(crud_repo, tag_repo, cache)
+    tag_service = NoteTagService(crud_repo, tag_repo, cache, indexer=indexer)
     link_service = NoteLinkService(crud_repo, link_repo, dangling_repo, link_validation_enabled)
     search_service = NoteSearchService(
         chunk_repo,

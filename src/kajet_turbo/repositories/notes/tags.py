@@ -5,6 +5,7 @@ from nanoid import generate
 from sqlalchemy import CursorResult, delete
 from sqlmodel import Session, col, select
 
+from kajet_turbo.log import logger
 from kajet_turbo.markdown import ancestors
 from kajet_turbo.models import Note, NoteTag, Tag
 from kajet_turbo.repositories import DbRepository
@@ -78,16 +79,38 @@ class NoteTagRepository(DbRepository):
         materializing ancestor tag rows and garbage-collecting orphaned tags.
         ``tagged`` must already be normalized and deduped (frontmatter precedence).
         """
+        self.sync_note_tags_many(workspace, owner_id, {note_id: tagged})
+
+    def sync_note_tags_many(
+        self,
+        workspace: str,
+        owner_id: str,
+        tagged_by_note: dict[str, list[tuple[str, str]]],
+    ) -> None:
+        """Rebuild ``note_tags`` for several notes in one transaction.
+
+        One DELETE, one ancestor pass sharing a ``path -> tag_id`` memo, and a single
+        ``_gc_tags`` sweep for the whole batch. Per-note syncing would instead pay two
+        global anti-join sweeps per note, which is what a workspace-wide retag multiplies.
+        """
+        if not tagged_by_note:
+            return
         now = datetime.now(UTC).isoformat()
         with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - DELETE statement
-                delete(NoteTag).where(col(NoteTag.note_id) == note_id)
+                delete(NoteTag).where(col(NoteTag.note_id).in_(list(tagged_by_note)))
             )
-            for path, source in tagged:
-                tag_id = self._ensure_tag(session, workspace, owner_id, path, now)
-                session.add(NoteTag(note_id=note_id, tag_id=tag_id, source=source))
+            tag_ids: dict[str, str] = {}
+            for note_id, tagged in tagged_by_note.items():
+                for path, source in tagged:
+                    if path not in tag_ids:
+                        tag_ids[path] = self._ensure_tag(session, workspace, owner_id, path, now)
+                    session.add(NoteTag(note_id=note_id, tag_id=tag_ids[path], source=source))
             self._gc_tags(session, workspace, owner_id)
             session.commit()
+        logger.info(
+            "note_tags_synced", ws=workspace, notes=len(tagged_by_note), tags=len(tag_ids)
+        )
 
     def delete_note_tags(self, note_id: str, workspace: str, owner_id: str) -> None:
         """Remove a note's tag links and GC any tags left empty (used on note delete)."""

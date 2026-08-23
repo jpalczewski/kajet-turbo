@@ -18,6 +18,7 @@ from kajet_turbo.markdown import (
     apply_edit,
     build_outline,
     join_target,
+    split_target,
 )
 from kajet_turbo.models import Note
 from kajet_turbo.perf import timed
@@ -441,6 +442,51 @@ class NoteService:
         if loc is None or not loc.file_exists:
             return None
         return self._note_data(loc, current_head_sha(ws_path, loc.relative))
+
+    def resolve_note_id(
+        self, title: str, folder: str | None, owner_id: str, ws_name: str
+    ) -> str | None:
+        """Resolve a ``(folder, title)`` natural key to a note id; ``None`` when unknown.
+
+        Path semantics are the wikilink ones (``LinkIndex``): ``folder`` is a path *suffix*,
+        an exact full path wins, and omitting it searches the whole workspace. Reusing that
+        resolver keeps one definition of what a path means in this notebook.
+
+        Unlike a wikilink, an ambiguous hit raises instead of best-guessing with a warning —
+        a caller asking for one note by name would otherwise act on the wrong one.
+        """
+        target = join_target(folder or "", title)
+        index = self._link_service.for_workspace(ws_name, owner_id).index
+        match = index.resolve_detailed(target)
+        if match is None:
+            return None
+        # An exact full-path hit beats the alternatives; anything else is a real ambiguity.
+        # The folder half comes from split_target, which is what the ranker scored against —
+        # but only a folder the caller actually supplied can make a hit exact: for a bare
+        # title the target's folder is "", which a root-level note matches by accident.
+        exact = folder is not None and match.chosen.folder == split_target(target)[0]
+        if match.alternatives and not exact:
+            candidates = ", ".join(
+                f"{note.folder or 'root'} ({note.note_id})"
+                for note in (match.chosen, *match.alternatives)
+            )
+            raise ValueError(
+                f"Niejednoznaczne: '{target}' pasuje do {len(match.alternatives) + 1} notatek "
+                f"— {candidates}. Podaj pełniejszy folder albo note_id."
+            )
+        # No title here: logs are shipped off-box and note titles are personal content.
+        logger.info("note_resolved_by_title", note_id=match.chosen.note_id)
+        return match.chosen.note_id
+
+    def get_with_content_by_title(
+        self, title: str, folder: str | None, owner_id: str, ws_name: str, ws_path: str
+    ) -> NoteData | None:
+        """Read a note addressed by its ``(folder, title)`` natural key. See
+        ``resolve_note_id`` for the path semantics."""
+        note_id = self.resolve_note_id(title, folder, owner_id, ws_name)
+        if note_id is None:
+            return None
+        return self.get_with_content(note_id, owner_id, ws_path)
 
     def get_outline(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
         """Note structure (headings + section sizes) without content — for picking a
@@ -1147,6 +1193,20 @@ class NoteService:
         expected_sha: str | None = None,
     ) -> dict:
         return self._tag_service.set_tags(note_id, owner_id, ws_path, tags, expected_sha)
+
+    def rename_tag(
+        self,
+        old: str,
+        new: str,
+        *,
+        owner_id: str,
+        ws_name: str,
+        ws_path: str,
+        merge: bool = False,
+    ) -> dict:
+        return self._tag_service.rename_tag(
+            old, new, owner_id=owner_id, ws_name=ws_name, ws_path=ws_path, merge=merge
+        )
 
     def tag_tree(self, ws_name: str, owner_id: str) -> list[dict]:
         return self._tag_repo.tag_tree(ws_name, owner_id)

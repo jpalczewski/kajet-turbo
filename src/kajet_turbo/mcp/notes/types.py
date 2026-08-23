@@ -71,6 +71,22 @@ class TagOperationResult(BaseModel):
     warnings: list[str]
 
 
+class TagRenameResult(BaseModel):
+    old: str
+    new: str
+    renamed: int
+    merged: bool
+    inline_rewritten: int
+    warnings: list[str]
+
+
+class TagConflictResult(BaseModel):
+    error: str
+    target: str
+    target_notes: int
+    source_notes: int
+
+
 class TagItem(BaseModel):
     path: str
     name: str
