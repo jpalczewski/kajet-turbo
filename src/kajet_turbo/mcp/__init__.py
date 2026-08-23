@@ -28,6 +28,13 @@ Kajet — git-versioned markdown notebook.
 - Same title in several folders: the exact full path wins, otherwise the note nearest
   the linking note (same folder, then closest ancestor). Save/edit responses report this
   as an ambiguous_wikilink warning; use the full path to make the target explicit.
+- Case-insensitive fallback: if no note's title matches exactly, matching retries
+  ignoring letter case — [[plan projektu]] resolves to a note titled "Plan projektu"
+  when no note is titled exactly "plan projektu". The link still resolves, but the
+  response carries a case_corrected_wikilink warning naming the real title; fix the
+  link text to match it. get_note(title=...) is the one exception — it stays exact/
+  case-sensitive always, so a case-mismatched title there returns a plain not-found
+  error instead of guessing.
 - [[note:NOTE_ID]] — cross-workspace permanent link; NOTE_ID is the note_id UUID
   from any note response; renders as a clickable link to the note in its workspace
 

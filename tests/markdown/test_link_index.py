@@ -1,6 +1,7 @@
 """Obsidian-style target resolution: suffix matching and deterministic ambiguity ranking."""
 
 from kajet_turbo.markdown import (
+    CaseCorrectedLink,
     IndexedNote,
     LinkIndex,
     join_target,
@@ -21,6 +22,12 @@ def _index(*paths: str) -> LinkIndex:
 def _hit(index: LinkIndex, target: str, source_folder: str = "") -> str | None:
     note = index.resolve(target, source_folder)
     return note.note_id if note else None
+
+
+def _detailed(index: LinkIndex, target: str, *, allow_casefold: bool = True):
+    match = index.resolve_detailed(target, allow_casefold=allow_casefold)
+    assert match is not None
+    return match
 
 
 # --- matching ---
@@ -109,6 +116,67 @@ def test_resolution_is_independent_of_insertion_order():
         assert _hit(forward, "T", source) == _hit(backward, "T", source)
 
 
+# --- casefold fallback ---
+
+
+def test_casefold_fallback_matches_title_only():
+    index = _index("Plan projektu")
+    assert _hit(index, "plan projektu") == "Plan projektu"
+    assert _hit(index, "Plan projektu") == "Plan projektu"
+
+
+def test_exact_match_wins_over_casefold_when_both_exist():
+    index = _index("Readme", "readme")
+    match = _detailed(index, "readme")
+    assert match.chosen.note_id == "readme"
+    assert match.casefold is False
+
+
+def test_casefold_fallback_matches_folder_suffix():
+    assert _hit(_index("Sub/Title"), "sub/Title") == "Sub/Title"
+
+
+def test_casefold_fallback_matches_folder_and_title():
+    assert _hit(_index("Sub/Title"), "sub/title") == "Sub/Title"
+
+
+def test_casefold_fallback_polish_letter():
+    index = _index("Łąka")
+    assert _hit(index, "łąka") == "Łąka"
+    assert _hit(index, "ŁĄKA") == "Łąka"
+
+
+def test_casefold_fallback_german_sharp_s():
+    # .lower() would NOT catch this: "Straße".lower() == "straße", not "strasse".
+    assert _hit(_index("Straße"), "STRASSE") == "Straße"
+
+
+def test_casefold_fallback_flags_the_match():
+    index = _index("Readme")
+    assert _detailed(index, "Readme").casefold is False
+    assert _detailed(index, "readme").casefold is True
+
+
+def test_casefold_fallback_disabled_by_allow_casefold():
+    index = _index("Readme")
+    assert index.resolve_detailed("readme", allow_casefold=False) is None
+    assert index.resolve("readme", allow_casefold=False) is None
+
+
+def test_casefold_case_twins_are_real_ambiguity_not_case_corrected():
+    index = _index("A/Readme", "A/readme")
+    res = resolve_content_links(index, "[[README]]", source_folder="")
+    assert len(res.ambiguous) == 1
+    assert res.ambiguous[0].target == "README"
+    assert res.case_corrected == []
+
+
+def test_casefold_tie_break_is_deterministic_regardless_of_insertion_order():
+    forward = _index("A/Readme", "A/readme")
+    backward = _index("A/readme", "A/Readme")
+    assert _hit(forward, "README") == _hit(backward, "README")
+
+
 # --- shortest_target ---
 
 
@@ -137,6 +205,14 @@ def test_shortest_target_respects_min_segments():
     assert index.shortest_target(_note("A/B/T"), min_segments=99) == "A/B/T"
 
 
+def test_shortest_target_is_unaffected_by_a_casefold_twin():
+    # Exact-title dict keys keep "Readme" and "readme" fully separate, so neither
+    # note's shortest target is disturbed by the other's presence.
+    index = _index("A/Readme", "A/readme")
+    assert index.shortest_target(_note("A/Readme")) == "Readme"
+    assert index.shortest_target(_note("A/readme")) == "readme"
+
+
 # --- resolve_content_links ---
 
 
@@ -163,6 +239,14 @@ def test_resolve_content_links_ignores_code():
 def test_resolve_content_links_empty_body():
     res = resolve_content_links(_index("A/T"), "", source_folder="")
     assert res.resolved_ids == set() and res.broken == [] and res.xws_ids == []
+
+
+def test_resolve_content_links_case_corrected_bucket():
+    index = _index("A/Plan projektu")
+    res = resolve_content_links(index, "[[plan projektu]]", source_folder="")
+    assert res.resolved_ids == {"A/Plan projektu"}
+    assert res.ambiguous == []
+    assert res.case_corrected == [CaseCorrectedLink("plan projektu", _note("A/Plan projektu"))]
 
 
 def test_join_target_roundtrip():

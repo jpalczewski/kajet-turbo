@@ -27,10 +27,10 @@ class CreateNoteRequest(BaseModel):
 
 
 class WikilinkWarning(BaseModel):
-    kind: Literal["ambiguous_wikilink"]
+    kind: Literal["ambiguous_wikilink", "case_corrected_wikilink"]
     target: str
     resolved_to: str
-    alternatives: list[str]
+    alternatives: list[str] = Field(default_factory=list)
 
 
 class CreateNoteResponse(BaseModel):

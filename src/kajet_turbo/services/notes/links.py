@@ -32,7 +32,7 @@ type NoteMove = tuple[IndexedNote, IndexedNote]
 
 def wikilink_warnings(links: LinkResolution) -> list[dict]:
     """Public warning payloads for a content-resolution result."""
-    return [
+    ambiguous = [
         {
             "kind": "ambiguous_wikilink",
             "target": item.target,
@@ -41,6 +41,15 @@ def wikilink_warnings(links: LinkResolution) -> list[dict]:
         }
         for item in links.ambiguous
     ]
+    case_corrected = [
+        {
+            "kind": "case_corrected_wikilink",
+            "target": item.target,
+            "resolved_to": join_target(item.chosen.folder, item.chosen.title),
+        }
+        for item in links.case_corrected
+    ]
+    return sorted(ambiguous + case_corrected, key=lambda warning: warning["target"])
 
 
 @dataclass(frozen=True, slots=True)

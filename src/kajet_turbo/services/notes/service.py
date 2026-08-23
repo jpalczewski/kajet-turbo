@@ -449,11 +449,14 @@ class NoteService:
         resolver keeps one definition of what a path means in this notebook.
 
         Unlike a wikilink, an ambiguous hit raises instead of best-guessing with a warning —
-        a caller asking for one note by name would otherwise act on the wrong one.
+        a caller asking for one note by name would otherwise act on the wrong one. And unlike
+        a wikilink, this stays exact/case-sensitive (``allow_casefold=False``): a wikilink is
+        free text that benefits from a forgiving fallback, but this is an explicit API call —
+        a case-mismatched title should be a loud not-found, not a silent guess.
         """
         target = join_target(folder or "", title)
         index = self._link_service.for_workspace(ws_name, owner_id).index
-        match = index.resolve_detailed(target)
+        match = index.resolve_detailed(target, allow_casefold=False)
         if match is None:
             return None
         # An exact full-path hit beats the alternatives; anything else is a real ambiguity.

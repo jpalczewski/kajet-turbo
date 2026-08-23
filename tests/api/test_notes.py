@@ -398,6 +398,25 @@ def test_create_note_ambiguous_wikilink_returns_warning(auth_client):
     ]
 
 
+def test_create_note_case_corrected_wikilink_returns_warning(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "Plan projektu", "cel", [])
+
+    resp = client.post(
+        "/api/workspaces/test-ws/notes",
+        json={"title": "Source", "content": "[[plan projektu]]"},
+    )
+
+    assert resp.status_code == 201
+    assert resp.json()["warnings"] == [
+        {
+            "kind": "case_corrected_wikilink",
+            "target": "plan projektu",
+            "resolved_to": "Plan projektu",
+        }
+    ]
+
+
 def test_update_note_broken_wikilink_returns_422(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save("u1", "test-ws", ws_path, "Note", "body", [])["note_id"]

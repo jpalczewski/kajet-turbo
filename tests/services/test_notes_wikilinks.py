@@ -12,6 +12,19 @@ def test_save_with_valid_wikilink_succeeds(service, workspace):
     assert (workspace / "Source.md").exists()
 
 
+def test_save_with_casefold_wikilink_succeeds(service, workspace):
+    service.save("u1", "ws", str(workspace), "Target", "treść", [], folder="A")
+    result = service.save("u1", "ws", str(workspace), "Source", "see [[a/target]]", [])
+    assert "note_id" in result
+    assert (workspace / "Source.md").exists()
+
+
+def test_get_note_by_title_stays_exact_after_casefold_flip(service, workspace):
+    service.save("u1", "ws", str(workspace), "Plan projektu", "cel", [])
+    note = service.get_with_content_by_title("plan projektu", None, "u1", "ws", str(workspace))
+    assert note is None
+
+
 def test_save_with_broken_wikilink_rejected_and_no_file(service, workspace):
     with pytest.raises(BrokenWikilinkError) as exc:
         service.save("u1", "ws", str(workspace), "Source", "see [[Ghost]] and [[A/Nope]]", [])

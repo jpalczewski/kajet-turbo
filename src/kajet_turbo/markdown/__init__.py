@@ -12,6 +12,7 @@ from kajet_turbo.markdown.chunking import (
 )
 from kajet_turbo.markdown.link_index import (
     AmbiguousLink,
+    CaseCorrectedLink,
     LinkIndex,
     LinkMatch,
     LinkResolution,
@@ -61,6 +62,7 @@ __all__ = [
     "AnchorAmbiguousError",
     "AnchorNotFoundError",
     "BrokenWikilinkError",
+    "CaseCorrectedLink",
     "Chunk",
     "EditResult",
     "HeadingAmbiguousError",
