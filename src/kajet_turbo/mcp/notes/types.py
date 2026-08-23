@@ -3,7 +3,18 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class NoteInput(BaseModel):
+class ToolInput(BaseModel):
+    """Base for batch tool input items: an unknown key is an error, not a silent drop.
+
+    A tool's own signature already rejects a misspelled parameter — pydantic's default
+    would let the same typo pass unnoticed inside a batch item, which is the one place
+    a caller cannot tell a dropped argument from an applied one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class NoteInput(ToolInput):
     title: str = Field(description="Note title; unique within (workspace, folder)")
     content: str = Field(
         default="",
@@ -261,7 +272,7 @@ class FolderExportResult(BaseModel):
     )
 
 
-class NoteEditInput(BaseModel):
+class NoteEditInput(ToolInput):
     note_id: str = Field(description="id notatki do edycji")
     expected_sha: str = Field(
         description="Aktualny HEAD sha notatki z get_note/get_note_history — dowód, że przed "
@@ -321,7 +332,7 @@ class EditNotesRejected(BaseModel):
     )
 
 
-class NoteDeleteInput(BaseModel):
+class NoteDeleteInput(ToolInput):
     note_id: str = Field(description="id notatki do usunięcia")
     expected_sha: str = Field(
         description="Aktualny HEAD sha notatki z get_note_history — dowód, że przed "

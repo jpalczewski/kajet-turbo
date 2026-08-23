@@ -208,3 +208,32 @@ async def test_edit_notes_batch_rejects_an_item_mixing_parameter_sets(workspaces
         assert "does not take content" in data["errors"][0]["error"]
         note = await client.call_tool("get_note", {"note_id": note_id})
         assert "Hello world." in note.content[0].text
+
+
+async def test_edit_notes_batch_rejects_an_unknown_key_in_an_item(workspaces_dir, mcp_server):
+    """A typo inside a batch item must fail as loudly as one on the tool's own signature."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        saved = await client.call_tool("save_note", {"title": "Typo", "content": "one\n"})
+        note_id = json.loads(saved.content[0].text)["note_id"]
+        sha = json.loads(
+            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
+        )["sha"]
+        with pytest.raises(ToolError, match="old_text"):
+            await client.call_tool(
+                "edit_notes",
+                {
+                    "edits": [
+                        {
+                            "note_id": note_id,
+                            "expected_sha": sha,
+                            "mode": "append",
+                            "content": "more",
+                            "old_text": "junk",
+                        }
+                    ]
+                },
+            )
+        note = await client.call_tool("get_note", {"note_id": note_id})
+        assert "more" not in note.content[0].text
