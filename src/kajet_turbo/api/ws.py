@@ -46,16 +46,41 @@ async def ws_endpoint(
         await websocket.accept()
         logger.info("ws_connected", user_id=user["id"])
 
+        # Cursor into the outbox, private to this connection. Starting at 0 replays
+        # whatever the sweep still holds (1h), so a client that dropped — per #39 that is
+        # roughly twelve times an hour — gets what it missed without any client-side
+        # bookkeeping. Reads no longer consume rows, so a second tab sees them too.
+        watermark = 0.0
+        # Ids already sent at exactly `watermark`. The read bound has to be inclusive
+        # (no monotonic cursor on this table), so this is what stops the overlapping tick
+        # from being delivered twice.
+        sent_at_watermark: set[str] = set()
+
         async def _sender() -> None:
+            nonlocal watermark, sent_at_watermark
             while True:
                 await asyncio.sleep(2.0)
                 try:
-                    events = await run_sync(event_repo.claim, user["id"], _WS_KINDS)
+                    events = await run_sync(
+                        event_repo.read_since,
+                        user["id"],
+                        _WS_KINDS,
+                        watermark,
+                        sent_at_watermark,
+                    )
                 except Exception as e:
-                    logger.opt(exception=e).warning("ws_claim_error", user_id=user["id"])
+                    logger.opt(exception=e).warning("ws_read_error", user_id=user["id"])
                     continue
                 for event in events:
+                    # Advance only after the send lands: if the socket dies mid-loop the
+                    # cursor stays put and the next connection re-delivers, instead of the
+                    # event being lost the way a delete-on-read left it.
                     await websocket.send_json(json.loads(event.payload))
+                    if event.created_at > watermark:
+                        watermark = event.created_at
+                        sent_at_watermark = {event.id}
+                    else:
+                        sent_at_watermark.add(event.id)
 
         sender = asyncio.create_task(_sender())
         try:

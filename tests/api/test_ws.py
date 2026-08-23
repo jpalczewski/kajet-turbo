@@ -73,8 +73,9 @@ def test_ws_delivers_outbox_event(database: Database):
     assert msg["type"] == "note_updated"
     assert msg["note_id"] == "nid1"
 
-    # row consumed — not delivered twice
-    assert outbox.claim("u1", ["note_updated"]) == []
+    # The row survives the read: this is what lets any other connection see it too.
+    # Under the old delete-on-read claim() it was gone at this point.
+    assert len(outbox.read_since("u1", ["note_updated"], 0.0)) == 1
 
 
 def test_ws_logs_a_connect_disconnect_pair_sharing_one_conn_id(database: Database, capsys):
@@ -121,3 +122,31 @@ def test_ws_gives_each_connection_its_own_conn_id(database: Database, capsys):
     entries = [json.loads(ln) for ln in capsys.readouterr().err.strip().split("\n") if ln]
     conn_ids = {e["conn_id"] for e in entries if e.get("msg") == "ws_connected"}
     assert len(conn_ids) == 2
+
+
+def test_two_connections_both_receive_the_same_event(database: Database):
+    """The point of #41: delete-on-read meant whichever connection polled first ate the
+    event and every other tab kept stale data."""
+    app = _make_app(database, user_id="u1")
+    EventRepository(database.engine).publish(
+        "u1",
+        "note_updated",
+        {
+            "type": "note_updated",
+            "owner_id": "u1",
+            "workspace": "ws1",
+            "note_id": "nid1",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        },
+    )
+
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/api/ws", cookies={"kajet_session": "good-token"}) as a,
+        client.websocket_connect("/api/ws", cookies={"kajet_session": "good-token"}) as b,
+    ):
+        first = a.receive_json()
+        second = b.receive_json()
+
+    assert first["note_id"] == "nid1"
+    assert second["note_id"] == "nid1"
