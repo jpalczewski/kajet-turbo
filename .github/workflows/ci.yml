@@ -69,7 +69,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pinned because bun is the runtime for vitest, not just a package manager:
+      # a minor bump can change how the tests behave. uv is deliberately left
+      # floating — uv.lock plus --locked already fixes everything it installs.
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: frontend/.bun-version
 
       - run: bun install --frozen-lockfile
 
