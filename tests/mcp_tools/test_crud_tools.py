@@ -6,6 +6,8 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+from tests.mcp_tools.helpers import call_json
+
 
 async def test_save_and_get_note(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
@@ -247,9 +249,8 @@ async def test_get_note_by_title(workspaces_dir, mcp_server):
         await client.call_tool(
             "save_note", {"title": "2026-08-22", "content": "wpis dzienny", "folder": "Dziennik"}
         )
-        result = await client.call_tool("get_note", {"title": "2026-08-22"})
+        note = await call_json(client, "get_note", {"title": "2026-08-22"})
 
-    note = json.loads(result.content[0].text)
     assert (note["title"], note["folder"]) == ("2026-08-22", "Dziennik")
     assert note["content"] == "wpis dzienny"
 
@@ -264,9 +265,9 @@ async def test_get_note_by_title_takes_folder_as_a_path_suffix(workspaces_dir, m
 
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        result = await client.call_tool("get_note", {"title": "README", "folder": "backlog"})
+        note = await call_json(client, "get_note", {"title": "README", "folder": "backlog"})
 
-    assert json.loads(result.content[0].text)["content"] == "backlog"
+    assert note["content"] == "backlog"
 
 
 async def test_get_note_by_ambiguous_title_lists_the_candidates(workspaces_dir, mcp_server):
@@ -289,9 +290,7 @@ async def test_get_note_rejects_an_ambiguous_call_shape(workspaces_dir, mcp_serv
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        saved = json.loads(
-            (await client.call_tool("save_note", {"title": "A", "content": "x"})).content[0].text
-        )
+        saved = await call_json(client, "save_note", {"title": "A", "content": "x"})
         with pytest.raises(ToolError, match="dokładnie jedno"):
             await client.call_tool("get_note", {"note_id": saved["note_id"], "title": "A"})
         with pytest.raises(ToolError, match="note_id albo title"):

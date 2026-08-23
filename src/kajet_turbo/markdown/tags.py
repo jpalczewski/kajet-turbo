@@ -45,6 +45,20 @@ def ancestors(path: str) -> list[str]:
     return ["/".join(segs[: i + 1]) for i in range(len(segs))]
 
 
+def remap_path(path: str, old: str, new: str) -> str | None:
+    """Rename ``old`` to ``new`` within ``path``, or ``None`` if ``path`` is unaffected.
+
+    Matches on segment boundaries, the same way ``ancestors`` splits a path and the
+    repository's descendant GLOB selects one: ``work`` covers ``work/projects`` but never
+    ``workflow``.
+    """
+    if path == old:
+        return new
+    if path.startswith(old + "/"):
+        return new + path[len(old) :]
+    return None
+
+
 # Chars allowed inside an inline tag body (after the leading '#').
 _TAG_BODY = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-/")
 

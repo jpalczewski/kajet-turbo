@@ -132,7 +132,7 @@ def build_crud(
             Field(
                 description="Zawężenie dla title — jak w wikilinku, czyli *sufiks* ścieżki: "
                 "'backlog' trafi w 'kajet-turbo/backlog'. Pominięty = szukaj w całym "
-                "workspace. Ignorowany przy note_id."
+                "workspace. Nie łącz z note_id."
             ),
         ] = None,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
@@ -143,9 +143,9 @@ def build_crud(
         Adresujesz przez note_id albo przez tytuł (+ opcjonalny folder) — to drugie skraca
         typową operację dziennikową do jednego calla. Tytuł pasujący do kilku notatek
         zwraca błąd z listą kandydatów; doprecyzuj folder albo podaj note_id."""
-        if note_id is not None and title is not None:
-            raise ToolError("Podaj dokładnie jedno: note_id albo title.")
         if note_id is not None:
+            if title is not None:
+                raise ToolError("Podaj dokładnie jedno: note_id albo title.")
             if folder is not None:
                 raise ToolError("folder działa tylko z title — przy note_id go pomiń.")
             return require_found(

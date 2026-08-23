@@ -2,6 +2,7 @@ from kajet_turbo.markdown import (
     ancestors,
     extract_inline_tags,
     normalize,
+    remap_path,
     rewrite_inline_tags,
     segments,
 )
@@ -90,12 +91,8 @@ def test_extract_hyphen_before_hash_is_boundary():
 
 
 def _work_to_job(tag: str) -> str | None:
-    """The remapper a 'work' -> 'job' rename installs: exact hit plus its subtree."""
-    if tag == "work":
-        return "job"
-    if tag.startswith("work/"):
-        return "job" + tag[len("work") :]
-    return None
+    """The remapper a 'work' -> 'job' rename installs, built the way the service builds it."""
+    return remap_path(tag, "work", "job")
 
 
 def test_rewrite_moves_tag_and_its_subtree():
@@ -136,3 +133,10 @@ def test_rewrite_also_touches_code_spans():
     # Pins the documented compromise: this works on raw text, unlike extract_inline_tags.
     assert extract_inline_tags("`#work`") == set()
     assert rewrite_inline_tags("`#work`", _work_to_job) == ("`#job`", True)
+
+
+def test_remap_path_matches_on_segment_boundaries():
+    assert remap_path("work", "work", "job") == "job"
+    assert remap_path("work/projects", "work", "job") == "job/projects"
+    assert remap_path("workflow", "work", "job") is None
+    assert remap_path("homework", "work", "job") is None

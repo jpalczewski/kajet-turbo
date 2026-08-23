@@ -18,6 +18,7 @@ from kajet_turbo.markdown import (
     apply_edit,
     build_outline,
     join_target,
+    split_target,
 )
 from kajet_turbo.models import Note
 from kajet_turbo.perf import timed
@@ -442,26 +443,26 @@ class NoteService:
             return None
         return self._note_data(loc, current_head_sha(ws_path, loc.relative))
 
-    def get_with_content_by_title(
-        self, title: str, folder: str | None, owner_id: str, ws_name: str, ws_path: str
-    ) -> NoteData | None:
-        """Resolve a note by its ``(folder, title)`` natural key, then read it.
+    def resolve_note_id(
+        self, title: str, folder: str | None, owner_id: str, ws_name: str
+    ) -> str | None:
+        """Resolve a ``(folder, title)`` natural key to a note id; ``None`` when unknown.
 
         Path semantics are the wikilink ones (``LinkIndex``): ``folder`` is a path *suffix*,
         an exact full path wins, and omitting it searches the whole workspace. Reusing that
         resolver keeps one definition of what a path means in this notebook.
 
-        Unlike a wikilink, an ambiguous hit raises instead of best-guessing with a warning:
-        this returns a whole note, so quietly picking one of several same-titled notes would
-        be a wrong answer rather than a cosmetic one.
+        Unlike a wikilink, an ambiguous hit raises instead of best-guessing with a warning —
+        a caller asking for one note by name would otherwise act on the wrong one.
         """
         target = join_target(folder or "", title)
         index = self._link_service.for_workspace(ws_name, owner_id).index
         match = index.resolve_detailed(target)
         if match is None:
-            raise ValueError(f"Notatka '{target}' nie znaleziona.")
-        exact = folder is not None and match.chosen.folder == normalize_folder(folder)
-        if match.alternatives and not exact:
+            return None
+        # split_target already derived the folder half of this target, and the ranker scored
+        # exactness from it — reuse that rather than normalizing the raw input a second time.
+        if match.alternatives and match.chosen.folder != split_target(target)[0]:
             candidates = ", ".join(
                 f"{note.folder or 'root'} ({note.note_id})"
                 for note in (match.chosen, *match.alternatives)
@@ -473,7 +474,17 @@ class NoteService:
         logger.info(
             "note_resolved_by_title", title=title, folder=folder, note_id=match.chosen.note_id
         )
-        return self.get_with_content(match.chosen.note_id, owner_id, ws_path)
+        return match.chosen.note_id
+
+    def get_with_content_by_title(
+        self, title: str, folder: str | None, owner_id: str, ws_name: str, ws_path: str
+    ) -> NoteData | None:
+        """Read a note addressed by its ``(folder, title)`` natural key. See
+        ``resolve_note_id`` for the path semantics."""
+        note_id = self.resolve_note_id(title, folder, owner_id, ws_name)
+        if note_id is None:
+            return None
+        return self.get_with_content(note_id, owner_id, ws_path)
 
     def get_outline(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
         """Note structure (headings + section sizes) without content — for picking a

@@ -13,7 +13,12 @@ from kajet_turbo.mcp.notes.types import (
     TagOperationResult,
     TagRenameResult,
 )
-from kajet_turbo.mcp.tooling import publish_workspace_changed, read_tool, write_tool
+from kajet_turbo.mcp.tooling import (
+    publish_note_updated,
+    publish_workspace_changed,
+    read_tool,
+    write_tool,
+)
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -35,7 +40,8 @@ def build_tags(
         """Dodaje tagi do frontmattera notatki (idempotentnie), bez ruszania treści.
         Uwaga: rusza tylko tagi z frontmattera; inline #hashtagi siedzą w treści."""
         result = await run_sync(note_service.add_tags, note_id, ws.owner_id, ws.path, tags)
-        await publish_workspace_changed(ws)
+        if result["changed"]:
+            await publish_note_updated(ws, note_id)
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, idempotent=True))
@@ -48,7 +54,8 @@ def build_tags(
         """Usuwa tagi z frontmattera notatki (idempotentnie), bez ruszania treści.
         Tag obecny tylko jako inline #hashtag nie zniknie — wróci jako warning."""
         result = await run_sync(note_service.remove_tags, note_id, ws.owner_id, ws.path, tags)
-        await publish_workspace_changed(ws)
+        if result["changed"]:
+            await publish_note_updated(ws, note_id)
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, destructive=True))
@@ -76,7 +83,8 @@ def build_tags(
         )
         if result.get("stale_sha"):
             return StaleVersion.model_validate(result)
-        await publish_workspace_changed(ws)
+        if result["changed"]:
+            await publish_note_updated(ws, note_id)
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, idempotent=True))

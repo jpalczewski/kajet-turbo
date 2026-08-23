@@ -37,10 +37,10 @@ from kajet_turbo.markdown.note_edit import (
 )
 from kajet_turbo.markdown.outline import OutlineSection, build_outline
 from kajet_turbo.markdown.tags import (
-    TagRewriter,
     ancestors,
     extract_inline_tags,
     normalize,
+    remap_path,
     rewrite_inline_tags,
     segments,
 )
@@ -72,7 +72,6 @@ __all__ = [
     "LinkResolver",
     "OutlineSection",
     "Section",
-    "TagRewriter",
     "XwsResolver",
     "ancestors",
     "append_content",
@@ -89,6 +88,7 @@ __all__ = [
     "note_explorer_url",
     "parse_sections",
     "prepend_content",
+    "remap_path",
     "render_markdown",
     "replace_section",
     "replace_text",

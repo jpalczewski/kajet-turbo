@@ -162,12 +162,16 @@ def _rename(service, workspace, old, new, **kw):
     return service.rename_tag(old, new, owner_id="u1", ws_name="ws", ws_path=str(workspace), **kw)
 
 
+def _tag_paths(service) -> set[str]:
+    return {row["path"] for row in service.tag_tree("ws", "u1")}
+
+
 def test_rename_tag_moves_the_subtree_and_spares_lookalikes(service, workspace):
     service.save("u1", "ws", str(workspace), "A", "body", ["work", "work/projects"])
     service.save("u1", "ws", str(workspace), "B", "body", ["workflow"])
     result = _rename(service, workspace, "work", "job")
     assert result["renamed"] == 1
-    paths = {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")}
+    paths = _tag_paths(service)
     assert paths == {"job", "job/projects", "workflow"}
 
 
@@ -179,7 +183,7 @@ def test_rename_tag_rewrites_inline_hashtags_so_the_old_tag_stays_gone(service, 
     note = service.get_with_content(saved["note_id"], "u1", str(workspace))
     assert note is not None
     assert "#ćwiczenia" in note.content
-    assert {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")} == {"ćwiczenia"}
+    assert _tag_paths(service) == {"ćwiczenia"}
 
 
 def test_rename_tag_reindexes_only_notes_whose_body_changed(service, workspace):
@@ -211,7 +215,7 @@ def test_rename_tag_onto_an_existing_tag_reports_a_conflict_and_changes_nothing(
     conflict = _rename(service, workspace, "osoba", "osoby")
     assert conflict["target"] == "osoby"
     assert (conflict["target_notes"], conflict["source_notes"]) == (1, 1)
-    assert {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")} == {"osoba", "osoby"}
+    assert _tag_paths(service) == {"osoba", "osoby"}
 
 
 def test_rename_tag_merges_when_asked(service, workspace):
@@ -220,7 +224,7 @@ def test_rename_tag_merges_when_asked(service, workspace):
     result = _rename(service, workspace, "osoba", "osoby", merge=True)
     assert (result["merged"], result["renamed"]) == (True, 1)
     assert service.get(a["note_id"], owner_id="u1")["tags"] == ["osoby", "ludzie"]
-    assert {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")} == {"osoby", "ludzie"}
+    assert _tag_paths(service) == {"osoby", "ludzie"}
 
 
 def test_rename_tag_merge_dedupes_within_a_single_note(service, workspace):
