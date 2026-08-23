@@ -47,11 +47,21 @@ resolve within the active workspace.
 ## Read ergonomics
 - grep_notes — literal substring search with line numbers; use instead of search_notes when
   you need exact-text certainty (search_notes ranks semantically/FTS, no literal guarantee)
+- get_note(title=..., folder=...) — address a note by its title instead of its UUID;
+  folder is a path *suffix* like a wikilink, omit it to search the whole workspace.
+  An ambiguous title errors with the candidates rather than guessing
 - get_notes — read many note_ids in one call instead of N x get_note
 - get_note_outline → edit_note(target_heading=...) — inspect a note's headings without
   loading its body, then edit just that section surgically
 - export_folder — concatenate a folder's subtree into one markdown corpus, for
   reconnaissance across many related notes instead of N x get_note
+
+## Tags
+- Tags are hierarchical slash-paths ("work/projects"); list_notes/search_notes filters match
+  by segment prefix, so tags= ["work"] also returns notes tagged "work/projects"
+- rename_tag — rename a tag across the whole workspace in one commit instead of N x set_tags.
+  Takes the subtree with it and rewrites inline #hashtags in note bodies. Renaming onto an
+  existing tag is a merge and needs merge=true; otherwise it reports the conflict untouched
 
 ## Batch editing
 - edit_note(replace_all=true) — replace_text/delete_text on every match in one note

@@ -442,6 +442,39 @@ class NoteService:
             return None
         return self._note_data(loc, current_head_sha(ws_path, loc.relative))
 
+    def get_with_content_by_title(
+        self, title: str, folder: str | None, owner_id: str, ws_name: str, ws_path: str
+    ) -> NoteData | None:
+        """Resolve a note by its ``(folder, title)`` natural key, then read it.
+
+        Path semantics are the wikilink ones (``LinkIndex``): ``folder`` is a path *suffix*,
+        an exact full path wins, and omitting it searches the whole workspace. Reusing that
+        resolver keeps one definition of what a path means in this notebook.
+
+        Unlike a wikilink, an ambiguous hit raises instead of best-guessing with a warning:
+        this returns a whole note, so quietly picking one of several same-titled notes would
+        be a wrong answer rather than a cosmetic one.
+        """
+        target = join_target(folder or "", title)
+        index = self._link_service.for_workspace(ws_name, owner_id).index
+        match = index.resolve_detailed(target)
+        if match is None:
+            raise ValueError(f"Notatka '{target}' nie znaleziona.")
+        exact = folder is not None and match.chosen.folder == normalize_folder(folder)
+        if match.alternatives and not exact:
+            candidates = ", ".join(
+                f"{note.folder or 'root'} ({note.note_id})"
+                for note in (match.chosen, *match.alternatives)
+            )
+            raise ValueError(
+                f"Niejednoznaczne: '{target}' pasuje do {len(match.alternatives) + 1} notatek "
+                f"— {candidates}. Podaj pełniejszy folder albo note_id."
+            )
+        logger.info(
+            "note_resolved_by_title", title=title, folder=folder, note_id=match.chosen.note_id
+        )
+        return self.get_with_content(match.chosen.note_id, owner_id, ws_path)
+
     def get_outline(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
         """Note structure (headings + section sizes) without content — for picking a
         target_heading before a surgical edit_note call without loading the full body."""
@@ -1147,6 +1180,20 @@ class NoteService:
         expected_sha: str | None = None,
     ) -> dict:
         return self._tag_service.set_tags(note_id, owner_id, ws_path, tags, expected_sha)
+
+    def rename_tag(
+        self,
+        old: str,
+        new: str,
+        *,
+        owner_id: str,
+        ws_name: str,
+        ws_path: str,
+        merge: bool = False,
+    ) -> dict:
+        return self._tag_service.rename_tag(
+            old, new, owner_id=owner_id, ws_name=ws_name, ws_path=ws_path, merge=merge
+        )
 
     def tag_tree(self, ws_name: str, owner_id: str) -> list[dict]:
         return self._tag_repo.tag_tree(ws_name, owner_id)

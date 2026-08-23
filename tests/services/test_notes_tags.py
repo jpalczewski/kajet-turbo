@@ -1,4 +1,6 @@
-"""Tag indexing plus add/remove/set-tags happy-path coverage for NoteService."""
+"""Tag indexing plus add/remove/set-tags/rename_tag coverage for NoteService."""
+
+import pytest
 
 
 def test_save_indexes_frontmatter_and_inline_tags(service, workspace):
@@ -154,3 +156,97 @@ def test_set_tags_no_gate_when_superset(service, workspace):
     result = service.set_tags(note_id, "u1", str(workspace), ["python", "work"])
 
     assert set(result["frontmatter_tags"]) == {"python", "work"}
+
+
+def _rename(service, workspace, old, new, **kw):
+    return service.rename_tag(old, new, owner_id="u1", ws_name="ws", ws_path=str(workspace), **kw)
+
+
+def test_rename_tag_moves_the_subtree_and_spares_lookalikes(service, workspace):
+    service.save("u1", "ws", str(workspace), "A", "body", ["work", "work/projects"])
+    service.save("u1", "ws", str(workspace), "B", "body", ["workflow"])
+    result = _rename(service, workspace, "work", "job")
+    assert result["renamed"] == 1
+    paths = {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")}
+    assert paths == {"job", "job/projects", "workflow"}
+
+
+def test_rename_tag_rewrites_inline_hashtags_so_the_old_tag_stays_gone(service, workspace):
+    # Without the body rewrite, sync_tags would union '#cwiczenia' straight back in.
+    saved = service.save("u1", "ws", str(workspace), "A", "patrz #cwiczenia tutaj", [])
+    result = _rename(service, workspace, "cwiczenia", "ćwiczenia")
+    assert result["inline_rewritten"] == 1
+    note = service.get_with_content(saved["note_id"], "u1", str(workspace))
+    assert note is not None
+    assert "#ćwiczenia" in note.content
+    assert {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")} == {"ćwiczenia"}
+
+
+def test_rename_tag_reindexes_only_notes_whose_body_changed(service, workspace):
+    inline = service.save("u1", "ws", str(workspace), "A", "patrz #work tutaj", [])
+    frontmatter = service.save("u1", "ws", str(workspace), "B", "body", ["work"])
+    _rename(service, workspace, "work", "job")
+    rewritten = " ".join(c["content"] for c in service._chunk_repo.get_chunks(inline["note_id"]))
+    assert "#job" in rewritten
+    # The frontmatter-only note is not rechunked — tags never reach a chunk.
+    untouched = " ".join(
+        c["content"] for c in service._chunk_repo.get_chunks(frontmatter["note_id"])
+    )
+    assert untouched.strip() == "body"
+
+
+def test_rename_tag_writes_one_commit_for_the_whole_workspace(service, workspace):
+    a = service.save("u1", "ws", str(workspace), "A", "body", ["work"])
+    b = service.save("u1", "ws", str(workspace), "B", "body", ["work"])
+    _rename(service, workspace, "work", "job")
+    head_a = service.get_history(a["note_id"], owner_id="u1", ws_path=str(workspace))[0]
+    head_b = service.get_history(b["note_id"], owner_id="u1", ws_path=str(workspace))[0]
+    assert head_a["sha"] == head_b["sha"]
+    assert head_a["message"] == "tag: rename work -> job"
+
+
+def test_rename_tag_onto_an_existing_tag_reports_a_conflict_and_changes_nothing(service, workspace):
+    service.save("u1", "ws", str(workspace), "A", "body", ["osoba"])
+    service.save("u1", "ws", str(workspace), "B", "body", ["osoby"])
+    conflict = _rename(service, workspace, "osoba", "osoby")
+    assert conflict["target"] == "osoby"
+    assert (conflict["target_notes"], conflict["source_notes"]) == (1, 1)
+    assert {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")} == {"osoba", "osoby"}
+
+
+def test_rename_tag_merges_when_asked(service, workspace):
+    a = service.save("u1", "ws", str(workspace), "A", "body", ["osoba", "ludzie"])
+    service.save("u1", "ws", str(workspace), "B", "body", ["osoby"])
+    result = _rename(service, workspace, "osoba", "osoby", merge=True)
+    assert (result["merged"], result["renamed"]) == (True, 1)
+    assert service.get(a["note_id"], owner_id="u1")["tags"] == ["osoby", "ludzie"]
+    assert {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")} == {"osoby", "ludzie"}
+
+
+def test_rename_tag_merge_dedupes_within_a_single_note(service, workspace):
+    note = service.save("u1", "ws", str(workspace), "A", "body", ["osoba", "osoby"])
+    _rename(service, workspace, "osoba", "osoby", merge=True)
+    assert service.get(note["note_id"], owner_id="u1")["tags"] == ["osoby"]
+
+
+def test_rename_tag_is_a_noop_when_nothing_moves(service, workspace):
+    service.save("u1", "ws", str(workspace), "A", "body", ["work"])
+    assert _rename(service, workspace, "work", "work")["renamed"] == 0
+
+
+def test_rename_tag_rejects_an_unknown_tag(service, workspace):
+    service.save("u1", "ws", str(workspace), "A", "body", ["work"])
+    with pytest.raises(ValueError, match="nie istnieje"):
+        _rename(service, workspace, "wrok", "job")
+
+
+def test_rename_tag_rejects_moving_a_tag_into_its_own_subtree(service, workspace):
+    service.save("u1", "ws", str(workspace), "A", "body", ["work"])
+    with pytest.raises(ValueError, match="poddrzewa"):
+        _rename(service, workspace, "work", "work/sub")
+
+
+def test_rename_tag_rejects_an_invalid_target(service, workspace):
+    service.save("u1", "ws", str(workspace), "A", "body", ["work"])
+    with pytest.raises(ValueError, match="niepoprawny tag"):
+        _rename(service, workspace, "work", "dwa slowa")

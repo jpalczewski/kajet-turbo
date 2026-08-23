@@ -1,11 +1,13 @@
 from typing import Annotated, Literal
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 from fastmcp.server.context import Context
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
+from kajet_turbo.markdown import join_target
 from kajet_turbo.mcp.context import (
     ACTIVE_WORKSPACE,
     MCP_CONTEXT,
@@ -117,17 +119,53 @@ def build_crud(
     @srv.tool(**read_tool(tags={"notes", "crud"}))
     @logged_tool
     async def get_note(
-        note_id: str,
+        note_id: str | None = None,
+        title: Annotated[
+            str | None,
+            Field(
+                description="Zamiast note_id: dokładny tytuł notatki, np. '2026-08-22'. "
+                "Podaj note_id ALBO title."
+            ),
+        ] = None,
+        folder: Annotated[
+            str | None,
+            Field(
+                description="Zawężenie dla title — jak w wikilinku, czyli *sufiks* ścieżki: "
+                "'backlog' trafi w 'kajet-turbo/backlog'. Pominięty = szukaj w całym "
+                "workspace. Ignorowany przy note_id."
+            ),
+        ] = None,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> NoteData:
         """Zwraca notatkę jako obiekt ze wszystkimi polami. Błąd gdy notatka nie istnieje.
         To jedyne źródło pełnej, aktualnej treści notatki — search_notes zwraca tylko
-        fragmenty (chunki), nie całość; po dokładny tekst zawsze wołaj get_note/get_notes."""
+        fragmenty (chunki), nie całość; po dokładny tekst zawsze wołaj get_note/get_notes.
+        Adresujesz przez note_id albo przez tytuł (+ opcjonalny folder) — to drugie skraca
+        typową operację dziennikową do jednego calla. Tytuł pasujący do kilku notatek
+        zwraca błąd z listą kandydatów; doprecyzuj folder albo podaj note_id."""
+        if note_id is not None and title is not None:
+            raise ToolError("Podaj dokładnie jedno: note_id albo title.")
+        if note_id is not None:
+            if folder is not None:
+                raise ToolError("folder działa tylko z title — przy note_id go pomiń.")
+            return require_found(
+                await run_sync(
+                    note_service.get_with_content, note_id, owner_id=ws.owner_id, ws_path=ws.path
+                ),
+                note_id,
+            )
+        if title is None:
+            raise ToolError("Podaj note_id albo title.")
         return require_found(
             await run_sync(
-                note_service.get_with_content, note_id, owner_id=ws.owner_id, ws_path=ws.path
+                note_service.get_with_content_by_title,
+                title,
+                folder,
+                owner_id=ws.owner_id,
+                ws_name=ws.name,
+                ws_path=ws.path,
             ),
-            note_id,
+            join_target(folder or "", title),
         )
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))

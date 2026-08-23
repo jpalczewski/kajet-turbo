@@ -1,10 +1,12 @@
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
-from kajet_turbo.markdown import extract_inline_tags, normalize
+from kajet_turbo.markdown import extract_inline_tags, normalize, rewrite_inline_tags
+from kajet_turbo.models import Note
 from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
@@ -13,16 +15,34 @@ from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
 type TaggedPairs = list[tuple[str, str]]
 
 
+@dataclass(slots=True)
+class _RenamedNote:
+    """One note staged for a tag rename: what to write, and what to put back if git fails."""
+
+    note: Note
+    filepath: str
+    relative: str
+    new_tags: list[str]
+    new_body: str
+    old_tags: list[str]
+    old_body: str
+    body_changed: bool
+
+
 class NoteTagService:
     def __init__(
         self,
         crud_repo: NoteRepository,
         tag_repo: NoteTagRepository,
         cache: WorkspaceCache | None,
+        indexer=None,
     ):
         self._crud_repo = crud_repo
         self._tag_repo = tag_repo
         self._cache = cache
+        # Only rename_tag needs it: rewriting inline #hashtags edits the body, so the
+        # affected notes must be rechunked. The per-note tools never touch content.
+        self._indexer = indexer
 
     @staticmethod
     def normalize_tags(raw: list[str]) -> list[str]:
@@ -191,3 +211,166 @@ class NoteTagService:
         return self._apply_tag_change(
             note_id, owner_id, ws_path, lambda current, content: (normalized, warnings)
         )
+
+    def rename_tag(
+        self,
+        old: str,
+        new: str,
+        *,
+        owner_id: str,
+        ws_name: str,
+        ws_path: str,
+        merge: bool = False,
+    ) -> dict:
+        """Rename a tag across the whole workspace in one commit; merges when ``new`` exists.
+
+        The subtree moves with the tag (``work`` -> ``job`` also remaps ``work/projects``),
+        matched on segment boundaries so ``workflow`` is left alone. Inline ``#hashtags`` in
+        the body are rewritten too — without that, ``sync_tags`` would union the old tag back
+        in from the content on the very next sync.
+
+        Merging is destructive in the sense that the two tags become indistinguishable, so it
+        needs ``merge=True``; otherwise an existing target is reported as a conflict payload.
+        Deliberately unguarded by ``expected_sha`` — like ``move_folder``, this is a
+        workspace-wide operation where a per-note sha is impractical; git history is the undo.
+
+        The ``tags`` / ``note_tags`` rows are never touched by hand: ``sync_tags`` rebuilds
+        each note's links from scratch and the repository's GC sweeps the orphaned tag.
+        """
+        old_n = normalize(old)
+        new_n = normalize(new)
+        if old_n is None:
+            raise ValueError(f"{old!r}: niepoprawny tag.")
+        if new_n is None:
+            raise ValueError(f"{new!r}: niepoprawny tag.")
+        if old_n == new_n:
+            return self._rename_result(old_n, new_n, [], [], merged=False, warnings=[])
+        if new_n.startswith(old_n + "/"):
+            raise ValueError(f"Nie można przenieść taga '{old_n}' do jego własnego poddrzewa.")
+
+        source_ids = self._tag_repo.note_ids_for_tags(ws_name, owner_id, [old_n])
+        if not source_ids:
+            raise ValueError(f"Tag '{old_n}' nie istnieje.")
+        target_ids = self._tag_repo.note_ids_for_tags(ws_name, owner_id, [new_n])
+        if target_ids and not merge:
+            return {
+                "error": f"Tag '{new_n}' już istnieje — powtórz z merge=true, żeby scalić.",
+                "target": new_n,
+                "target_notes": len(target_ids),
+                "source_notes": len(source_ids),
+            }
+
+        def remap(tag: str) -> str | None:
+            """Old path -> new path, on segment boundaries; None leaves the tag alone."""
+            if tag == old_n:
+                return new_n
+            if tag.startswith(old_n + "/"):
+                return new_n + tag[len(old_n) :]
+            return None
+
+        warnings: list[str] = []
+        staged: list[_RenamedNote] = []
+        for note in self._crud_repo.get_many(sorted(source_ids), owner_id):
+            filepath = note_filepath(ws_path, note.folder, note.title)
+            if not Path(filepath).exists():
+                warnings.append(f"{note.title}: plik notatki nie istnieje — pominięta")
+                continue
+            data = read_note_file(filepath)
+            old_tags = NoteTagService.normalize_tags(data["tags"])
+            new_tags = list(dict.fromkeys(remap(t) or t for t in old_tags))
+            new_body, body_changed = rewrite_inline_tags(data["content"], remap)
+            if new_tags == old_tags and not body_changed:
+                continue
+            staged.append(
+                _RenamedNote(
+                    note=note,
+                    filepath=filepath,
+                    relative=str(Path(filepath).relative_to(ws_path)),
+                    new_tags=new_tags,
+                    new_body=new_body,
+                    old_tags=old_tags,
+                    old_body=data["content"],
+                    body_changed=body_changed,
+                )
+            )
+        if not staged:
+            return self._rename_result(old_n, new_n, [], [], bool(target_ids), warnings)
+
+        now = datetime.now(UTC).isoformat()
+        for item in staged:
+            write_note_file(
+                item.filepath,
+                item.note.id,
+                item.note.title,
+                item.new_tags,
+                item.note.created_at,
+                now,
+                item.new_body,
+            )
+        try:
+            GitRepository(ws_path).commit_files(
+                [item.relative for item in staged], f"tag: rename {old_n} -> {new_n}"
+            )
+        except GitError:
+            for item in staged:
+                write_note_file(
+                    item.filepath,
+                    item.note.id,
+                    item.note.title,
+                    item.old_tags,
+                    item.note.created_at,
+                    item.note.updated_at,
+                    item.old_body,
+                )
+            raise
+
+        for item in staged:
+            self._crud_repo.update(
+                item.note.id,
+                owner_id=owner_id,
+                title=item.note.title,
+                tags=item.new_tags,
+                updated_at=now,
+                folder=item.note.folder,
+            )
+            self.sync_tags(item.note.id, ws_name, owner_id, item.new_tags, item.new_body)
+        if self._cache is not None:
+            self._cache.bump(ws_name, owner_id)
+        rewritten = [item for item in staged if item.body_changed]
+        # Chunks are title + content, so only a rewritten body invalidates the search index.
+        if self._indexer is not None and rewritten:
+            self._indexer.index_many(
+                ws_name,
+                owner_id,
+                [
+                    {"id": item.note.id, "title": item.note.title, "content": item.new_body}
+                    for item in rewritten
+                ],
+            )
+        logger.info(
+            "tag_renamed",
+            old=old_n,
+            new=new_n,
+            renamed=len(staged),
+            merged=bool(target_ids),
+            inline_rewritten=len(rewritten),
+        )
+        return self._rename_result(old_n, new_n, staged, rewritten, bool(target_ids), warnings)
+
+    @staticmethod
+    def _rename_result(
+        old: str,
+        new: str,
+        staged: list[_RenamedNote],
+        rewritten: list[_RenamedNote],
+        merged: bool = False,
+        warnings: list[str] | None = None,
+    ) -> dict:
+        return {
+            "old": old,
+            "new": new,
+            "renamed": len(staged),
+            "merged": merged,
+            "inline_rewritten": len(rewritten),
+            "warnings": warnings or [],
+        }

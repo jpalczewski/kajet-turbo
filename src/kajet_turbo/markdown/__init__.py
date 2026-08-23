@@ -36,7 +36,14 @@ from kajet_turbo.markdown.note_edit import (
     replace_text,
 )
 from kajet_turbo.markdown.outline import OutlineSection, build_outline
-from kajet_turbo.markdown.tags import ancestors, extract_inline_tags, normalize, segments
+from kajet_turbo.markdown.tags import (
+    TagRewriter,
+    ancestors,
+    extract_inline_tags,
+    normalize,
+    rewrite_inline_tags,
+    segments,
+)
 from kajet_turbo.markdown.wikilinks import (
     BrokenWikilinkError,
     IndexedNote,
@@ -65,6 +72,7 @@ __all__ = [
     "LinkResolver",
     "OutlineSection",
     "Section",
+    "TagRewriter",
     "XwsResolver",
     "ancestors",
     "append_content",
@@ -85,6 +93,7 @@ __all__ = [
     "replace_section",
     "replace_text",
     "resolve_content_links",
+    "rewrite_inline_tags",
     "rewrite_wikilinks",
     "segments",
     "split_target",

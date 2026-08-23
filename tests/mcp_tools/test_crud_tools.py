@@ -238,3 +238,65 @@ async def test_move_note_and_list_folders(workspaces_dir, mcp_server):
             "folder": "archive",
         }
         assert (ws_path / "archive" / "Move me.md").exists()
+
+
+async def test_get_note_by_title(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        await client.call_tool(
+            "save_note", {"title": "2026-08-22", "content": "wpis dzienny", "folder": "Dziennik"}
+        )
+        result = await client.call_tool("get_note", {"title": "2026-08-22"})
+
+    note = json.loads(result.content[0].text)
+    assert (note["title"], note["folder"]) == ("2026-08-22", "Dziennik")
+    assert note["content"] == "wpis dzienny"
+
+
+async def test_get_note_by_title_takes_folder_as_a_path_suffix(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    service = mcp_server.note_service
+    assert service is not None
+    ws_path = str(workspaces_dir / "test-ws")
+    service.save("u1", "test-ws", ws_path, "README", "backlog", [], folder="Project/backlog")
+    service.save("u1", "test-ws", ws_path, "README", "archive", [], folder="Archive")
+
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        result = await client.call_tool("get_note", {"title": "README", "folder": "backlog"})
+
+    assert json.loads(result.content[0].text)["content"] == "backlog"
+
+
+async def test_get_note_by_ambiguous_title_lists_the_candidates(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    service = mcp_server.note_service
+    assert service is not None
+    ws_path = str(workspaces_dir / "test-ws")
+    service.save("u1", "test-ws", ws_path, "README", "near", [], folder="Project")
+    service.save("u1", "test-ws", ws_path, "README", "far", [], folder="Archive")
+
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        with pytest.raises(ToolError, match="Niejednoznaczne") as excinfo:
+            await client.call_tool("get_note", {"title": "README"})
+
+    assert "Project" in str(excinfo.value) and "Archive" in str(excinfo.value)
+
+
+async def test_get_note_rejects_an_ambiguous_call_shape(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        saved = json.loads(
+            (await client.call_tool("save_note", {"title": "A", "content": "x"})).content[0].text
+        )
+        with pytest.raises(ToolError, match="dokładnie jedno"):
+            await client.call_tool("get_note", {"note_id": saved["note_id"], "title": "A"})
+        with pytest.raises(ToolError, match="note_id albo title"):
+            await client.call_tool("get_note", {})
+        with pytest.raises(ToolError, match="folder działa tylko z title"):
+            await client.call_tool("get_note", {"note_id": saved["note_id"], "folder": "x"})
+        with pytest.raises(ToolError, match="nie znaleziona"):
+            await client.call_tool("get_note", {"title": "Nie ma takiej"})

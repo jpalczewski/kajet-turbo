@@ -30,6 +30,7 @@ WRITE_TOOLS = {
     "add_tag",
     "remove_tag",
     "set_tags",
+    "rename_tag",
     "restore_note_version",
 }
 
@@ -65,6 +66,7 @@ async def test_mcp_tools_have_safety_annotations(mcp_server):
     assert tools["add_tag"].annotations.idempotentHint is True
     assert tools["remove_tag"].annotations.idempotentHint is True
     assert tools["prune_empty_folders"].annotations.idempotentHint is True
+    assert tools["rename_tag"].annotations.idempotentHint is True
 
 
 async def test_context_dependencies_are_hidden_from_tool_schemas(mcp_server):

@@ -6,8 +6,14 @@ from pydantic import Field
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
-from kajet_turbo.mcp.notes.types import StaleVersion, TagItem, TagOperationResult
-from kajet_turbo.mcp.tooling import read_tool, write_tool
+from kajet_turbo.mcp.notes.types import (
+    StaleVersion,
+    TagConflictResult,
+    TagItem,
+    TagOperationResult,
+    TagRenameResult,
+)
+from kajet_turbo.mcp.tooling import publish_workspace_changed, read_tool, write_tool
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -29,6 +35,7 @@ def build_tags(
         """Dodaje tagi do frontmattera notatki (idempotentnie), bez ruszania treści.
         Uwaga: rusza tylko tagi z frontmattera; inline #hashtagi siedzą w treści."""
         result = await run_sync(note_service.add_tags, note_id, ws.owner_id, ws.path, tags)
+        await publish_workspace_changed(ws)
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, idempotent=True))
@@ -41,6 +48,7 @@ def build_tags(
         """Usuwa tagi z frontmattera notatki (idempotentnie), bez ruszania treści.
         Tag obecny tylko jako inline #hashtag nie zniknie — wróci jako warning."""
         result = await run_sync(note_service.remove_tags, note_id, ws.owner_id, ws.path, tags)
+        await publish_workspace_changed(ws)
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, destructive=True))
@@ -68,7 +76,44 @@ def build_tags(
         )
         if result.get("stale_sha"):
             return StaleVersion.model_validate(result)
+        await publish_workspace_changed(ws)
         return TagOperationResult.model_validate(result)
+
+    @srv.tool(**write_tool(tags={"notes", "tags"}, idempotent=True))
+    @logged_tool
+    async def rename_tag(
+        old: str,
+        new: str,
+        merge: Annotated[
+            bool,
+            Field(
+                description="Zgoda na scalenie, gdy tag `new` już istnieje. Bez niej taki "
+                "przypadek zwraca TagConflictResult zamiast cokolwiek zmieniać."
+            ),
+        ] = False,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> TagRenameResult | TagConflictResult:
+        """Zmienia nazwę taga w całym workspace jednym commitem — zamiast N x set_tags.
+        Zabiera poddrzewo: 'work' -> 'job' przepisze też 'work/projects' (dopasowanie po
+        granicy segmentu, więc 'workflow' zostaje). Przepisuje też inline #hashtagi
+        w treści, bo inaczej stary tag wróciłby przy najbliższej synchronizacji.
+        Gdy `new` już istnieje, to scalenie — wymaga merge=true, inaczej zwraca
+        TagConflictResult z liczbą notatek po obu stronach.
+        Bez expected_sha (operacja jest workspace-wide) — cofasz przez git history."""
+        result = await run_sync(
+            note_service.rename_tag,
+            old,
+            new,
+            owner_id=ws.owner_id,
+            ws_name=ws.name,
+            ws_path=ws.path,
+            merge=merge,
+        )
+        if result.get("error"):
+            return TagConflictResult.model_validate(result)
+        if result["renamed"]:
+            await publish_workspace_changed(ws)
+        return TagRenameResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "tags"}))
     @logged_tool

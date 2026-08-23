@@ -7,6 +7,7 @@ fenced/indented code blocks is ignored automatically (same trick as wikilinks).
 """
 
 import re
+from collections.abc import Callable
 
 from markdown_it.rules_inline import StateInline
 
@@ -93,3 +94,40 @@ def extract_inline_tags(body: str) -> set[str]:
     inline rule never fires there (those become non-inline-parsed code tokens).
     """
     return {meta["tag"] for meta in extract_meta(_TAG_MD, body, "inline_tag")}
+
+
+# normalized tag path -> replacement path, or None to leave the tag alone
+type TagRewriter = Callable[[str], str | None]
+
+# Same grammar as ``_inline_tag_rule``: a '#' at a word boundary (the preceding char is
+# neither a word char nor '/'), followed by tag-body chars. ``\w`` is Unicode-aware, so
+# "#zażółć" matches; '-' is outside ``\w`` and therefore not a boundary blocker.
+_REWRITE_RE = re.compile(r"(?<![\w/])#([\w\-/]+)")
+
+
+def rewrite_inline_tags(body: str, rewrite: TagRewriter) -> tuple[str, bool]:
+    """Replace inline ``#hashtags`` that ``rewrite`` maps to a new path. Deciding *which*
+    paths move is the caller's job (it holds the rename); this function has only text.
+
+    Mirrors ``rewrite_wikilinks`` in scope and in its compromises. Two accepted edges:
+
+    - Operates on raw text, so a ``#tag`` inside a code span or fence is rewritten too —
+      unlike ``extract_inline_tags``, which tokenizes and skips those. Cosmetic; the
+      alternative (mapping token offsets back onto the source) buys little here.
+    - A rewritten tag comes back canonical: ``#Work/`` under a work -> job rename becomes
+      ``#job``. Only tags that actually move are touched, so nothing else is reformatted.
+    """
+    changed = False
+
+    def repl(match: re.Match[str]) -> str:
+        nonlocal changed
+        current = normalize(match.group(1))
+        if current is None:
+            return match.group(0)
+        new = rewrite(current)
+        if new is None or new == current:
+            return match.group(0)
+        changed = True
+        return f"#{new}"
+
+    return _REWRITE_RE.sub(repl, body), changed
