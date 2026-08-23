@@ -14,6 +14,7 @@ from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
     BrokenWikilinkError,
     IndexedNote,
+    LinkResolution,
     LinkResolver,
     apply_edit,
     build_outline,
@@ -73,6 +74,21 @@ class _ValidatedDestructiveItem:
     raw: dict
     note_id: str
     loc: _LocatedNote
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedEdit:
+    """A fully validated edit, ready for the atomic write phase."""
+
+    index: int
+    note_id: str
+    loc: _LocatedNote
+    old_content: str
+    old_tags: list[str]
+    new_content: str
+    new_tags: list[str]
+    links: LinkResolution
+    replaced: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -798,7 +814,7 @@ class NoteService:
         located = self._locate_batch(note_ids, user_id, ws_path, git_repo)
         workspace_links = self._link_service.for_workspace(ws_name, user_id)
         errors: list[dict] = []
-        prepared: list[dict] = []
+        prepared: list[_PreparedEdit] = []
         for item in self._validate_destructive_items(edits, note_ids, located):
             if isinstance(item, _BatchValidationError):
                 errors.append(item.as_dict())
@@ -849,19 +865,17 @@ class NoteService:
                 NoteTagService.normalize_tags(raw_tags) if raw_tags is not None else current_tags
             )
             prepared.append(
-                {
-                    "index": index,
-                    "note_id": note_id,
-                    "note": loc.note,
-                    "filepath": loc.filepath,
-                    "relative": loc.relative,
-                    "old_content": old_content,
-                    "old_tags": current_tags,
-                    "new_content": new_content,
-                    "new_tags": new_tags,
-                    "links": links,
-                    "replaced": edit_result.replaced,
-                }
+                _PreparedEdit(
+                    index=index,
+                    note_id=note_id,
+                    loc=loc,
+                    old_content=old_content,
+                    old_tags=current_tags,
+                    new_content=new_content,
+                    new_tags=new_tags,
+                    links=links,
+                    replaced=edit_result.replaced,
+                )
             )
 
         if errors:
@@ -870,51 +884,49 @@ class NoteService:
         now = datetime.now(UTC).isoformat()
         for p in prepared:
             write_note_file(
-                p["filepath"],
-                p["note_id"],
-                p["note"].title,
-                p["new_tags"],
-                p["note"].created_at,
+                p.loc.filepath,
+                p.note_id,
+                p.loc.note.title,
+                p.new_tags,
+                p.loc.note.created_at,
                 now,
-                p["new_content"],
+                p.new_content,
             )
         try:
             n = len(prepared)
             git_repo.commit_files(
-                [p["relative"] for p in prepared], f"note: edit {n} note{'' if n == 1 else 's'}"
+                [p.loc.relative for p in prepared], f"note: edit {n} note{'' if n == 1 else 's'}"
             )
         except GitError:
             for p in prepared:
                 write_note_file(
-                    p["filepath"],
-                    p["note_id"],
-                    p["note"].title,
-                    p["old_tags"],
-                    p["note"].created_at,
-                    p["note"].updated_at,
-                    p["old_content"],
+                    p.loc.filepath,
+                    p.note_id,
+                    p.loc.note.title,
+                    p.old_tags,
+                    p.loc.note.created_at,
+                    p.loc.note.updated_at,
+                    p.old_content,
                 )
             raise
 
         for p in prepared:
             self._crud_repo.update(
-                p["note_id"],
+                p.note_id,
                 owner_id=user_id,
-                title=p["note"].title,
-                content=p["new_content"],
-                tags=p["new_tags"],
+                title=p.loc.note.title,
+                content=p.new_content,
+                tags=p.new_tags,
                 updated_at=now,
-                folder=p["note"].folder,
+                folder=p.loc.note.folder,
             )
         self._link_service.persist_many(
             ws_name,
             user_id,
-            {str(p["note_id"]): p["links"] for p in prepared},
+            {p.note_id: p.links for p in prepared},
         )
         for p in prepared:
-            self._tag_service.sync_tags(
-                p["note_id"], ws_name, user_id, p["new_tags"], p["new_content"]
-            )
+            self._tag_service.sync_tags(p.note_id, ws_name, user_id, p.new_tags, p.new_content)
 
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
@@ -924,22 +936,22 @@ class NoteService:
                 ws_name,
                 user_id,
                 [
-                    {"id": p["note_id"], "title": p["note"].title, "content": p["new_content"]}
+                    {"id": p.note_id, "title": p.loc.note.title, "content": p.new_content}
                     for p in prepared
                 ],
             )
 
         results = [
             {
-                "index": p["index"],
-                "note_id": p["note_id"],
-                "replaced": p["replaced"],
-                "warnings": wikilink_warnings(p["links"]),
+                "index": p.index,
+                "note_id": p.note_id,
+                "replaced": p.replaced,
+                "warnings": wikilink_warnings(p.links),
             }
             for p in prepared
         ]
         for p in prepared:
-            logger.info("note_updated", note_id=p["note_id"], folder=p["note"].folder)
+            logger.info("note_updated", note_id=p.note_id, folder=p.loc.note.folder)
         logger.info("notes_edited_batch", ws=ws_name, count=len(prepared))
         return {"applied": True, "results": results}
 
