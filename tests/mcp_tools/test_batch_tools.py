@@ -228,3 +228,21 @@ async def test_edit_notes_batch_rejects_an_unknown_key_in_an_item(workspaces_dir
                 },
             )
         assert "more" not in (await call_json(client, "get_note", {"note_id": note_id}))["content"]
+
+
+async def test_edit_notes_batch_rejects_an_item_that_changes_nothing(workspaces_dir, mcp_server):
+    """Batch scope is content + tags; an item carrying neither would commit an untouched file."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id, sha = await save_and_get_sha(client, "Noop", "Body stays.")
+        result = await call_json(
+            client,
+            "edit_notes",
+            {"edits": [{"note_id": note_id, "expected_sha": sha, "mode": "overwrite"}]},
+        )
+        assert result["applied"] is False
+        assert "changes nothing" in result["errors"][0]["error"]
+        assert (await call_json(client, "get_note", {"note_id": note_id}))[
+            "content"
+        ] == "Body stays."

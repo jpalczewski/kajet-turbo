@@ -148,7 +148,7 @@ def _find_all(body: str, needle: str) -> list[int]:
 
 def _format_ambiguous(body: str, needle: str, positions: list[int]) -> str:
     """Render a diagnostic message listing each match's line, column and surrounding context."""
-    lines = [f"Ambiguous: {len(positions)} matches:"]
+    lines = [f"old_str is ambiguous: {len(positions)} matches:"]
     for pos in positions:
         before = body[:pos]
         line = before.count("\n") + 1
@@ -174,7 +174,7 @@ def _locate_unique(body: str, needle: str) -> int:
     """
     positions = _find_all(body, needle)
     if not positions:
-        raise AnchorNotFoundError("Text not found.")
+        raise AnchorNotFoundError("old_str not found in the note body.")
     if len(positions) > 1:
         raise AnchorAmbiguousError(_format_ambiguous(body, needle, positions))
     return positions[0]
@@ -187,7 +187,7 @@ def _replace_text_all(body: str, old: str, new: str) -> tuple[str, int]:
     """
     positions = _find_all(body, old)
     if not positions:
-        raise AnchorNotFoundError("Text not found.")
+        raise AnchorNotFoundError("old_str not found in the note body.")
     return body.replace(old, new), len(positions)
 
 

@@ -181,7 +181,7 @@ async def test_edit_note_replace_text_ambiguous_errors(workspaces_dir, mcp_serve
         sha = json.loads(
             (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
         )["sha"]
-        with pytest.raises(ToolError, match="Ambiguous"):
+        with pytest.raises(ToolError, match="old_str is ambiguous"):
             await client.call_tool(
                 "edit_note",
                 {

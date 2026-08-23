@@ -342,9 +342,7 @@ class NoteService:
         # index. Non-cascading: the index is not rebuilt as notes are dropped, so a link to
         # a later-dropped note still resolves (worst case a harmless orphan edge).
         valid: list[dict] = []
-        workspace_links = self._link_service.for_workspace(
-            ws_name, user_id, extra=batch_notes
-        )
+        workspace_links = self._link_service.for_workspace(ws_name, user_id, extra=batch_notes)
         for s in survivors:
             try:
                 s["links"] = workspace_links.validate(s["content"], s["folder"])
@@ -356,9 +354,7 @@ class NoteService:
         if not valid:
             return [r for r in results if r is not None]
 
-        affected_sources = workspace_links.affected_sources(
-            {str(s["title"]) for s in valid}
-        )
+        affected_sources = workspace_links.affected_sources({str(s["title"]) for s in valid})
 
         # Phase 3: write files, then one commit (roll back files on failure).
         for s in valid:
@@ -714,9 +710,7 @@ class NoteService:
         links = workspace_links.validate(new_content, new_folder)
         identity_changed = note.title != new_title or note.folder != new_folder
         affected_sources = (
-            workspace_links.affected_sources(
-                {note.title, new_title}, include_source_ids={note_id}
-            )
+            workspace_links.affected_sources({note.title, new_title}, include_source_ids={note_id})
             if identity_changed
             else set()
         )
@@ -769,9 +763,7 @@ class NoteService:
         logger.info("note_updated", note_id=note_id, folder=new_folder)
         self._index(note_id, note.workspace, owner_id, new_title, new_content)
         if self._reconcile_repo is not None and identity_changed:
-            self._reconcile_repo.mark_and_enqueue(
-                owner_id, note.workspace, affected_sources
-            )
+            self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
         return {
             "note_id": note_id,
             "replaced": replaced,
@@ -811,6 +803,24 @@ class NoteService:
             index, raw, note_id, loc = item.index, item.raw, item.note_id, item.loc
             note_data = read_note_file(loc.filepath)
             old_content = note_data["content"]
+            # 'overwrite' without content is edit_note's metadata-only path, but this batch
+            # cannot rename or move — so with no tags either, the item has nothing left to
+            # change and would commit an untouched file while reporting success. Every other
+            # mode already errors on a missing payload inside apply_edit.
+            if (
+                raw.get("mode", "append") == "overwrite"
+                and raw.get("content") is None
+                and raw.get("tags") is None
+            ):
+                errors.append(
+                    {
+                        "index": index,
+                        "note_id": note_id,
+                        "error": "Item changes nothing: it carries neither content nor tags. "
+                        "Use edit_note to change title or folder.",
+                    }
+                )
+                continue
             try:
                 edit_result = apply_edit(
                     old_content,
@@ -964,9 +974,7 @@ class NoteService:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_deleted", note_id=note_id)
         if self._reconcile_repo is not None:
-            self._reconcile_repo.mark_and_enqueue(
-                owner_id, note.workspace, affected_sources
-            )
+            self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
         return {"note_id": note_id}
 
     def delete_many(
@@ -1162,9 +1170,7 @@ class NoteService:
     ) -> dict | None:
         return self._link_service.links(note_id, owner_id, include_meta, include_cross_workspace)
 
-    def link_resolver(
-        self, ws_name: str, owner_id: str, source_folder: str = ""
-    ) -> LinkResolver:
+    def link_resolver(self, ws_name: str, owner_id: str, source_folder: str = "") -> LinkResolver:
         resolver: LinkResolver | None = None
 
         def resolve(target: str):
