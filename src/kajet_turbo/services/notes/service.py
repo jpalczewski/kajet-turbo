@@ -659,7 +659,8 @@ class NoteService:
         folder: str | None = None,
         mode: str = "overwrite",
         target_heading: str | None = None,
-        old_text: str | None = None,
+        old_str: str | None = None,
+        new_str: str | None = None,
         replace_all: bool = False,
     ) -> dict:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
@@ -694,19 +695,19 @@ class NoteService:
                 raise FileExistsError(f"Plik docelowy '{new_rel}' już istnieje.")
         note_data = read_note_file(old_path)
         old_content = note_data["content"]
-        if replace_all and mode not in ("replace_text", "delete_text"):
-            raise ValueError("replace_all działa tylko z trybami 'replace_text'/'delete_text'.")
-        replaced: int | None = None
-        if mode == "overwrite":
-            new_content = content if content is not None else old_content
-        else:
-            if content is None and mode != "delete_text":
-                raise ValueError("content jest wymagany dla trybu edycji.")
-            edit_result = apply_edit(
-                old_content, mode, content or "", target_heading, old_text, replace_all=replace_all
-            )
-            new_content = edit_result.body
-            replaced = edit_result.replaced
+        # apply_edit owns every mode/parameter rule, including "overwrite without content
+        # leaves the body alone" — the metadata-only edit path.
+        edit_result = apply_edit(
+            old_content,
+            mode,
+            content=content,
+            old_str=old_str,
+            new_str=new_str,
+            target_heading=target_heading,
+            replace_all=replace_all,
+        )
+        new_content = edit_result.body
+        replaced = edit_result.replaced
 
         # One pre-move snapshot serves validation and any backlink rewrite below.
         workspace_links = self._link_service.for_workspace(note.workspace, owner_id)
@@ -789,8 +790,8 @@ class NoteService:
         bad anchor/heading) rejects the whole batch — nothing is written. Content + tags
         only; no title/folder changes (a rename needs backlink rewrites across other
         notes, incompatible with one commit_files call — use update() for that). Each
-        input dict: {note_id, mode="append", content="", target_heading=None,
-        old_text=None, replace_all=False, tags=None}.
+        input dict: {note_id, mode="append", content=None, target_heading=None,
+        old_str=None, new_str=None, replace_all=False, tags=None}.
         """
         if not edits:
             raise ValueError("Batch edycji nie może być pusty.")
@@ -810,14 +811,15 @@ class NoteService:
             index, raw, note_id, loc = item.index, item.raw, item.note_id, item.loc
             note_data = read_note_file(loc.filepath)
             old_content = note_data["content"]
-            mode = raw.get("mode", "append")
-            content = raw.get("content", "")
-            target_heading = raw.get("target_heading")
-            old_text = raw.get("old_text")
-            replace_all = bool(raw.get("replace_all", False))
             try:
                 edit_result = apply_edit(
-                    old_content, mode, content, target_heading, old_text, replace_all=replace_all
+                    old_content,
+                    raw.get("mode", "append"),
+                    content=raw.get("content"),
+                    old_str=raw.get("old_str"),
+                    new_str=raw.get("new_str"),
+                    target_heading=raw.get("target_heading"),
+                    replace_all=bool(raw.get("replace_all", False)),
                 )
             except ValueError as e:
                 errors.append({"index": index, "note_id": note_id, "error": str(e)})

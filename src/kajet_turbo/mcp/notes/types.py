@@ -280,9 +280,16 @@ class NoteEditInput(BaseModel):
         description="Jak w edit_note. Domyślnie 'append' (najmniej destrukcyjny) — w batchu "
         "łatwo o pomyłkę przy 'overwrite' na wielu notatkach naraz.",
     )
-    content: str = ""
+    content: str | None = Field(
+        default=None, description="Body text for the whole-body modes, as in edit_note."
+    )
     target_heading: str | None = None
-    old_text: str | None = None
+    old_str: str | None = Field(
+        default=None, description="Anchor text for the text modes, as in edit_note."
+    )
+    new_str: str | None = Field(
+        default=None, description="Replacement for old_str, as in edit_note."
+    )
     replace_all: bool = False
     tags: list[str] | None = Field(
         default=None, description="Podmienia frontmatter tags tej notatki; None = bez zmian."

@@ -194,7 +194,14 @@ def build_crud(
             ),
         ],
         title: str | None = None,
-        content: str | None = None,
+        content: Annotated[
+            str | None,
+            Field(
+                description="New body text for the whole-body modes (overwrite/append/prepend/"
+                "replace_section). Omit it to edit only title/tags/folder and leave the body "
+                "untouched. Not used by the text modes — those take new_str."
+            ),
+        ] = None,
         tags: list[str] | None = None,
         folder: str | None = None,
         mode: Annotated[
@@ -208,49 +215,57 @@ def build_crud(
                 "delete_text",
             ],
             Field(
-                description="Tryb edycji pola content: 'overwrite' (podmień całe body, domyślny), "
-                "'append'/'prepend' (dopisz na koniec/początek body lub sekcji target_heading), "
-                "'replace_section' (podmień body sekcji target_heading), "
-                "'replace_text' (exact match: podmień unikalny old_text na content), "
-                "'insert_after' (wstaw content zaraz po unikalnej kotwicy old_text), "
-                "'delete_text' (usuń unikalny old_text — bez podawania content)."
+                description="How to edit the body. Whole-body modes take content: 'overwrite' "
+                "(replace the whole body, default), 'append'/'prepend' (add at the end/start of "
+                "the body, or of the target_heading section), 'replace_section' (replace the body "
+                "of the target_heading section). Text modes take old_str: 'replace_text' (replace "
+                "old_str with new_str), 'insert_after' (insert new_str right after the old_str "
+                "anchor), 'delete_text' (remove old_str; takes no new_str). Passing a parameter "
+                "another mode owns is an error, not a silent no-op."
             ),
         ] = "overwrite",
         target_heading: Annotated[
             str | None,
             Field(
-                description="Nagłówek sekcji, np. '## Zadania'. "
-                "Wymagany dla replace_section, opcjonalny dla append/prepend."
+                description="Section heading, e.g. '## Tasks'. Required for replace_section, "
+                "optional for append/prepend, unused by every other mode."
             ),
         ] = None,
-        old_text: Annotated[
+        old_str: Annotated[
             str | None,
             Field(
-                description="Dokładny tekst do podmiany (replace_text), usunięcia (delete_text) "
-                "lub kotwica, po której wstawić content (insert_after). "
-                "Musi być unikalny w notatce."
+                description="Exact text to replace (replace_text), to delete (delete_text), or to "
+                "anchor the insertion after (insert_after). Must be unique in the note unless "
+                "replace_all is set."
+            ),
+        ] = None,
+        new_str: Annotated[
+            str | None,
+            Field(
+                description="Replacement for old_str (replace_text) or the text to insert after it "
+                "(insert_after). Required by both; delete_text takes none."
             ),
         ] = None,
         replace_all: Annotated[
             bool,
             Field(
-                description="Z trybem replace_text/delete_text: podmień/usuń WSZYSTKIE "
-                "wystąpienia old_text (nie tylko unikalne). Zwrot niesie replaced z liczbą "
-                "podmian."
+                description="With replace_text/delete_text: act on EVERY occurrence of old_str "
+                "instead of requiring it to be unique. The response carries replaced with the "
+                "count."
             ),
         ] = False,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> EditNoteSuccess | StaleVersion:
-        """Edytuje notatkę. Domyślnie (mode='overwrite') podmienia całe body na content;
-        tryby chirurgiczne pozwalają dopisać/podmienić fragment bez przepisywania całości.
-        folder opcjonalny — jeśli podany, przenosi notatkę do nowego folderu.
-        title/tags/folder można zmieniać niezależnie od trybu edycji content.
-        content powinien zawierać rzeczywiste znaki nowej linii (\\n), nie literalne \\\\n.
-        expected_sha to sha z get_note/get_note_history — dowód, że widziałeś bieżącą wersję;
-        niezgodność zwraca StaleVersion — zawołaj get_note, by doczytać aktualną treść, i spróbuj
-        ponownie z nowym sha.
-        replace_all=true z replace_text/delete_text podmienia/usuwa każde wystąpienie
-        old_text (zamiast wymagać unikalności) i zwraca replaced z liczbą podmian."""
+        """Edit a note. By default (mode='overwrite') it replaces the whole body with content;
+        the surgical modes change a fragment without rewriting everything.
+        Each mode owns exactly one parameter set: the whole-body modes take content, the text
+        modes take old_str (+ new_str, except delete_text). Mixing them is a hard error.
+        title/tags/folder can be changed independently of the body edit; passing folder moves
+        the note. Omitting content with the default mode edits metadata only.
+        content/new_str must carry real newlines (\\n), not literal \\\\n.
+        expected_sha is the sha from get_note/get_note_history — proof you saw the current
+        version. A mismatch returns StaleVersion: call get_note to re-read the note, then retry
+        with the fresh sha."""
         result = await run_sync(
             note_service.update,
             note_id,
@@ -263,7 +278,8 @@ def build_crud(
             folder=folder,
             mode=mode,
             target_heading=target_heading,
-            old_text=old_text,
+            old_str=old_str,
+            new_str=new_str,
             replace_all=replace_all,
         )
         if result.get("stale_sha"):
@@ -279,7 +295,7 @@ def build_crud(
     ) -> EditNotesApplied | EditNotesRejected:
         """Edytuje wiele notatek w jednym atomowym commicie. All-or-nothing: jeśli
         KTÓRAKOLWIEK edycja w batchu jest niepoprawna (zła notatka, błędny wikilink,
-        niejednoznaczny target_heading/old_text, duplikat note_id, nieaktualny
+        niejednoznaczny target_heading/old_str, duplikat note_id, nieaktualny
         expected_sha) — cały batch jest odrzucany i NIC nie jest zapisywane;
         errors {index, note_id, error} per pozycja mówi co. Każda pozycja
         wymaga expected_sha — sha notatki z get_note/get_note_history — dowodu, że

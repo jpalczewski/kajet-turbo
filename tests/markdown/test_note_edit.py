@@ -199,7 +199,7 @@ def test_replace_text_ambiguous_reports_positions():
         replace_text("foo bar foo baz foo", "foo", "qux")
     msg = str(exc.value)
     assert "3" in msg
-    assert "linia 1, kol 1" in msg
+    assert "line 1, col 1" in msg
 
 
 def test_replace_text_empty_content_deletes():
@@ -231,63 +231,114 @@ def test_insert_after_not_found_and_ambiguous():
 
 
 def test_apply_edit_overwrite_returns_content():
-    assert apply_edit("old", "overwrite", "new", None, None).body == "new"
+    assert apply_edit("old", "overwrite", content="new").body == "new"
 
 
-def test_apply_edit_validation_errors():
-    with pytest.raises(ValueError, match="replace_section"):
-        apply_edit("body", "replace_section", "x", None, None)
-    with pytest.raises(ValueError, match="old_text"):
-        apply_edit("body", "replace_text", "x", None, None)
-    with pytest.raises(ValueError, match="old_text"):
-        apply_edit("body", "delete_text", "", None, None)
-    with pytest.raises(ValueError, match="pusty"):
-        apply_edit("body", "replace_text", "", None, "x")
-    with pytest.raises(ValueError, match="overwrite"):
-        apply_edit("body", "overwrite", "x", "## H", None)
-    with pytest.raises(ValueError, match="pusty"):
-        apply_edit("body", "append", "", None, None)
-    with pytest.raises(ValueError, match="Nieznany"):
-        apply_edit("body", "bogus", "x", None, None)
+def test_apply_edit_overwrite_without_content_keeps_body():
+    """The metadata-only edit path: edit_note(title=...) leaves the body untouched."""
+    assert apply_edit("old", "overwrite").body == "old"
+
+
+def test_apply_edit_missing_required_params():
+    with pytest.raises(ValueError, match="target_heading"):
+        apply_edit("body", "replace_section", content="x")
+    with pytest.raises(ValueError, match="old_str"):
+        apply_edit("body", "replace_text", new_str="x")
+    with pytest.raises(ValueError, match="new_str"):
+        apply_edit("body", "replace_text", old_str="x")
+    with pytest.raises(ValueError, match="new_str"):
+        apply_edit("body", "insert_after", old_str="x")
+    with pytest.raises(ValueError, match="old_str"):
+        apply_edit("body", "delete_text")
+    with pytest.raises(ValueError, match="content"):
+        apply_edit("body", "append")
+    with pytest.raises(ValueError, match="Unknown edit mode"):
+        apply_edit("body", "bogus", content="x")
+
+
+@pytest.mark.parametrize(
+    ("mode", "kwargs", "rejected", "expected"),
+    [
+        ("overwrite", {"content": "x", "old_str": "a"}, "old_str", "content"),
+        ("overwrite", {"content": "x", "new_str": "b"}, "new_str", "content"),
+        ("overwrite", {"content": "x", "target_heading": "## H"}, "target_heading", "content"),
+        ("append", {"content": "x", "new_str": "b"}, "new_str", "content"),
+        ("prepend", {"content": "x", "old_str": "a"}, "old_str", "content"),
+        (
+            "replace_section",
+            {"content": "x", "target_heading": "## H", "new_str": "b"},
+            "new_str",
+            "content",
+        ),
+        (
+            "replace_text",
+            {"old_str": "a", "new_str": "b", "content": "x"},
+            "content",
+            "old_str and new_str",
+        ),
+        (
+            "replace_text",
+            {"old_str": "a", "new_str": "b", "target_heading": "## H"},
+            "target_heading",
+            "old_str and new_str",
+        ),
+        (
+            "insert_after",
+            {"old_str": "a", "new_str": "b", "content": "x"},
+            "content",
+            "old_str and new_str",
+        ),
+        ("delete_text", {"old_str": "a", "new_str": "b"}, "new_str", "old_str"),
+        ("delete_text", {"old_str": "a", "content": "x"}, "content", "old_str"),
+    ],
+)
+def test_apply_edit_rejects_another_modes_parameter(mode, kwargs, rejected, expected):
+    """Every mode owns one parameter set — a foreign one errors instead of being dropped."""
+    with pytest.raises(ValueError) as exc:
+        apply_edit("body", mode, **kwargs)
+    assert f"does not take {rejected}" in str(exc.value)
+    assert f"it takes {expected}" in str(exc.value)
 
 
 def test_apply_edit_routes_to_modes():
-    assert apply_edit("a\n", "append", "b", None, None).body == "a\nb\n"
-    assert apply_edit("foo bar", "replace_text", "qux", None, "foo").body == "qux bar"
-    assert apply_edit("a", "insert_after", "b", None, "a").body == "a\nb\n"
-    assert apply_edit("keep [drop] keep", "delete_text", "", None, "[drop] ").body == "keep keep"
+    assert apply_edit("a\n", "append", content="b").body == "a\nb\n"
+    assert apply_edit("foo bar", "replace_text", old_str="foo", new_str="qux").body == "qux bar"
+    assert apply_edit("a", "insert_after", old_str="a", new_str="b").body == "a\nb\n"
+    assert apply_edit("keep [drop] keep", "delete_text", old_str="[drop] ").body == "keep keep"
 
 
 def test_apply_edit_replace_text_replace_all_returns_count():
-    result = apply_edit("foo bar foo baz foo", "replace_text", "qux", None, "foo", replace_all=True)
+    result = apply_edit(
+        "foo bar foo baz foo", "replace_text", old_str="foo", new_str="qux", replace_all=True
+    )
     assert result.body == "qux bar qux baz qux"
     assert result.replaced == 3
 
 
 def test_apply_edit_delete_text_replace_all_returns_count():
-    result = apply_edit("x foo y foo z", "delete_text", "", None, "foo ", replace_all=True)
+    result = apply_edit("x foo y foo z", "delete_text", old_str="foo ", replace_all=True)
     assert result.body == "x y z"
     assert result.replaced == 2
 
 
 def test_apply_edit_replace_all_no_match_raises():
     with pytest.raises(AnchorNotFoundError):
-        apply_edit("no match here", "replace_text", "x", None, "zzz", replace_all=True)
+        apply_edit("no match here", "replace_text", old_str="zzz", new_str="x", replace_all=True)
 
 
 def test_apply_edit_replace_all_rejects_non_text_mode():
     with pytest.raises(ValueError, match="replace_all"):
-        apply_edit("body", "append", "x", None, None, replace_all=True)
+        apply_edit("body", "append", content="x", replace_all=True)
 
 
 def test_apply_edit_without_replace_all_keeps_uniqueness_requirement():
     with pytest.raises(AnchorAmbiguousError):
-        apply_edit("foo bar foo", "replace_text", "qux", None, "foo")
+        apply_edit("foo bar foo", "replace_text", old_str="foo", new_str="qux")
 
 
 def test_apply_edit_non_replace_all_modes_have_replaced_none():
-    assert apply_edit("old", "overwrite", "new", None, None).replaced is None
-    assert apply_edit("a\n", "append", "b", None, None).replaced is None
+    assert apply_edit("old", "overwrite", content="new").replaced is None
+    assert apply_edit("a\n", "append", content="b").replaced is None
 
 
 def test_polish_content_append_to_section():

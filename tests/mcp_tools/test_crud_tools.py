@@ -188,8 +188,8 @@ async def test_edit_note_replace_text_ambiguous_errors(workspaces_dir, mcp_serve
                     "note_id": note_id,
                     "expected_sha": sha,
                     "mode": "replace_text",
-                    "old_text": "foo",
-                    "content": "qux",
+                    "old_str": "foo",
+                    "new_str": "qux",
                 },
             )
 
@@ -211,8 +211,8 @@ async def test_edit_note_replace_all_reports_count(workspaces_dir, mcp_server):
                 "note_id": note_id,
                 "expected_sha": sha,
                 "mode": "replace_text",
-                "content": "qux",
-                "old_text": "foo",
+                "old_str": "foo",
+                "new_str": "qux",
                 "replace_all": True,
             },
         )
@@ -316,3 +316,99 @@ async def test_get_note_rejects_an_ambiguous_call_shape(workspaces_dir, mcp_serv
             await client.call_tool("get_note", {"note_id": saved["note_id"], "folder": "x"})
         with pytest.raises(ToolError, match="nie znaleziona"):
             await client.call_tool("get_note", {"title": "Nie ma takiej"})
+
+
+async def _seed(client, title: str, content: str) -> tuple[str, str]:
+    """Save a note and return its (note_id, current sha)."""
+    note_id = (await call_json(client, "save_note", {"title": title, "content": content}))[
+        "note_id"
+    ]
+    sha = (await call_json(client, "get_note", {"note_id": note_id}))["sha"]
+    return note_id, sha
+
+
+async def test_edit_note_text_modes_take_old_str_and_new_str(workspaces_dir, mcp_server):
+    """The wire contract from issue #38: the text modes are an old_str/new_str pair."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id, sha = await _seed(client, "Pair", "Hello world.")
+
+        await call_json(
+            client,
+            "edit_note",
+            {
+                "note_id": note_id,
+                "expected_sha": sha,
+                "mode": "replace_text",
+                "old_str": "world",
+                "new_str": "earth",
+            },
+        )
+        assert (await call_json(client, "get_note", {"note_id": note_id}))[
+            "content"
+        ] == "Hello earth."
+
+
+async def test_edit_note_insert_after_inserts_new_str_at_the_anchor(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id, sha = await _seed(client, "List", "- A\n- B\n")
+
+        await call_json(
+            client,
+            "edit_note",
+            {
+                "note_id": note_id,
+                "expected_sha": sha,
+                "mode": "insert_after",
+                "old_str": "- A",
+                "new_str": "- A.5",
+            },
+        )
+        content = (await call_json(client, "get_note", {"note_id": note_id}))["content"]
+        assert "- A\n- A.5\n- B" in content
+
+
+@pytest.mark.parametrize(
+    ("args", "rejected"),
+    [
+        ({"mode": "replace_text", "old_str": "world", "content": "earth"}, "content"),
+        ({"mode": "delete_text", "old_str": "world", "new_str": "earth"}, "new_str"),
+        ({"mode": "append", "content": "more", "new_str": "earth"}, "new_str"),
+    ],
+)
+async def test_edit_note_rejects_a_parameter_from_another_mode(
+    workspaces_dir, mcp_server, args, rejected
+):
+    """A misplaced parameter errors at the tool boundary instead of being ignored."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id, sha = await _seed(client, "Strict", "Hello world.")
+
+        with pytest.raises(ToolError, match=f"does not take {rejected}"):
+            await client.call_tool("edit_note", {"note_id": note_id, "expected_sha": sha, **args})
+
+        assert (await call_json(client, "get_note", {"note_id": note_id}))[
+            "content"
+        ] == "Hello world."
+
+
+async def test_edit_note_without_content_edits_metadata_only(workspaces_dir, mcp_server):
+    """Renaming a note must not go through as an overwrite with an empty body."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id, sha = await _seed(client, "Before", "Body stays.")
+
+        await call_json(
+            client,
+            "edit_note",
+            {"note_id": note_id, "expected_sha": sha, "title": "After", "tags": ["x"]},
+        )
+        note = await call_json(client, "get_note", {"note_id": note_id})
+        assert note["title"] == "After"
+        assert note["tags"] == ["x"]
+        assert note["content"] == "Body stays."

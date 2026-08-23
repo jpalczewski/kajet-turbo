@@ -103,8 +103,8 @@ def test_concurrent_source_mutation_cannot_leave_stale_graph(
                             "note_id": source_id,
                             "expected_sha": sha,
                             "mode": "replace_text",
-                            "old_text": "[[First]]",
-                            "content": "[[Second]]",
+                            "old_str": "[[First]]",
+                            "new_str": "[[Second]]",
                         }
                     ],
                 )

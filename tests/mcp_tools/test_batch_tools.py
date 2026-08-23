@@ -81,8 +81,8 @@ async def test_edit_notes_batch_rejects_all_on_one_bad_item(workspaces_dir, mcp_
                         "note_id": id2,
                         "expected_sha": sha2,
                         "mode": "replace_text",
-                        "content": "x",
-                        "old_text": "does-not-exist",
+                        "old_str": "does-not-exist",
+                        "new_str": "x",
                     },
                 ]
             },
@@ -149,3 +149,62 @@ async def test_delete_notes_batch_rejects_all_on_stale_sha(workspaces_dir, mcp_s
         # nothing deleted, including the valid first item
         get1 = await client.call_tool("get_note", {"note_id": id1})
         assert "First" in get1.content[0].text
+
+
+async def test_edit_notes_batch_takes_old_str_and_new_str_per_item(workspaces_dir, mcp_server):
+    """NoteEditInput carries the same parameter split as edit_note."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        saved = await client.call_tool("save_note", {"title": "Pair", "content": "Hello world."})
+        note_id = json.loads(saved.content[0].text)["note_id"]
+        sha = json.loads(
+            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
+        )["sha"]
+        result = await client.call_tool(
+            "edit_notes",
+            {
+                "edits": [
+                    {
+                        "note_id": note_id,
+                        "expected_sha": sha,
+                        "mode": "replace_text",
+                        "old_str": "world",
+                        "new_str": "earth",
+                    }
+                ]
+            },
+        )
+        assert json.loads(result.content[0].text)["applied"] is True
+        note = await client.call_tool("get_note", {"note_id": note_id})
+        assert "Hello earth." in note.content[0].text
+
+
+async def test_edit_notes_batch_rejects_an_item_mixing_parameter_sets(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        saved = await client.call_tool("save_note", {"title": "Strict", "content": "Hello world."})
+        note_id = json.loads(saved.content[0].text)["note_id"]
+        sha = json.loads(
+            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
+        )["sha"]
+        result = await client.call_tool(
+            "edit_notes",
+            {
+                "edits": [
+                    {
+                        "note_id": note_id,
+                        "expected_sha": sha,
+                        "mode": "replace_text",
+                        "old_str": "world",
+                        "content": "earth",
+                    }
+                ]
+            },
+        )
+        data = json.loads(result.content[0].text)
+        assert data["applied"] is False
+        assert "does not take content" in data["errors"][0]["error"]
+        note = await client.call_tool("get_note", {"note_id": note_id})
+        assert "Hello world." in note.content[0].text

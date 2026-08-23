@@ -65,7 +65,7 @@ resolve within the active workspace.
 
 ## Batch editing
 - edit_note(replace_all=true) — replace_text/delete_text on every match in one note
-  instead of requiring old_text to be unique; response carries replaced with the count
+  instead of requiring old_str to be unique; response carries replaced with the count
 - edit_notes — edit multiple existing notes in one atomic commit, all-or-nothing: any
   invalid item rejects the whole batch before anything is written. Content + tags only,
   no renames (use edit_note for that); unlike save_notes, never leaves a partial batch
