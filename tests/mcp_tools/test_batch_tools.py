@@ -6,6 +6,8 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+from tests.mcp_tools.helpers import call_json, save_and_get_sha
+
 
 async def test_save_notes_tool_batch(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
@@ -156,11 +158,7 @@ async def test_edit_notes_batch_takes_old_str_and_new_str_per_item(workspaces_di
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        saved = await client.call_tool("save_note", {"title": "Pair", "content": "Hello world."})
-        note_id = json.loads(saved.content[0].text)["note_id"]
-        sha = json.loads(
-            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
-        )["sha"]
+        note_id, sha = await save_and_get_sha(client, "Pair", "Hello world.")
         result = await client.call_tool(
             "edit_notes",
             {
@@ -176,19 +174,16 @@ async def test_edit_notes_batch_takes_old_str_and_new_str_per_item(workspaces_di
             },
         )
         assert json.loads(result.content[0].text)["applied"] is True
-        note = await client.call_tool("get_note", {"note_id": note_id})
-        assert "Hello earth." in note.content[0].text
+        assert (await call_json(client, "get_note", {"note_id": note_id}))[
+            "content"
+        ] == "Hello earth."
 
 
 async def test_edit_notes_batch_rejects_an_item_mixing_parameter_sets(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        saved = await client.call_tool("save_note", {"title": "Strict", "content": "Hello world."})
-        note_id = json.loads(saved.content[0].text)["note_id"]
-        sha = json.loads(
-            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
-        )["sha"]
+        note_id, sha = await save_and_get_sha(client, "Strict", "Hello world.")
         result = await client.call_tool(
             "edit_notes",
             {
@@ -206,8 +201,9 @@ async def test_edit_notes_batch_rejects_an_item_mixing_parameter_sets(workspaces
         data = json.loads(result.content[0].text)
         assert data["applied"] is False
         assert "does not take content" in data["errors"][0]["error"]
-        note = await client.call_tool("get_note", {"note_id": note_id})
-        assert "Hello world." in note.content[0].text
+        assert (await call_json(client, "get_note", {"note_id": note_id}))[
+            "content"
+        ] == "Hello world."
 
 
 async def test_edit_notes_batch_rejects_an_unknown_key_in_an_item(workspaces_dir, mcp_server):
@@ -215,11 +211,7 @@ async def test_edit_notes_batch_rejects_an_unknown_key_in_an_item(workspaces_dir
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        saved = await client.call_tool("save_note", {"title": "Typo", "content": "one\n"})
-        note_id = json.loads(saved.content[0].text)["note_id"]
-        sha = json.loads(
-            (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
-        )["sha"]
+        note_id, sha = await save_and_get_sha(client, "Typo", "one\n")
         with pytest.raises(ToolError, match="old_text"):
             await client.call_tool(
                 "edit_notes",
@@ -235,5 +227,4 @@ async def test_edit_notes_batch_rejects_an_unknown_key_in_an_item(workspaces_dir
                     ]
                 },
             )
-        note = await client.call_tool("get_note", {"note_id": note_id})
-        assert "more" not in note.content[0].text
+        assert "more" not in (await call_json(client, "get_note", {"note_id": note_id}))["content"]

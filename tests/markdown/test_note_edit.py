@@ -15,6 +15,7 @@ from kajet_turbo.markdown import (
     replace_text,
 )
 from kajet_turbo.markdown.note_edit import (
+    _ACCEPTS,
     _ensure_nl,
     _locate_unique,
     _splice_block,
@@ -239,65 +240,56 @@ def test_apply_edit_overwrite_without_content_keeps_body():
     assert apply_edit("old", "overwrite").body == "old"
 
 
-def test_apply_edit_missing_required_params():
-    with pytest.raises(ValueError, match="target_heading"):
-        apply_edit("body", "replace_section", content="x")
-    with pytest.raises(ValueError, match="old_str"):
-        apply_edit("body", "replace_text", new_str="x")
-    with pytest.raises(ValueError, match="new_str"):
-        apply_edit("body", "replace_text", old_str="x")
-    with pytest.raises(ValueError, match="new_str"):
-        apply_edit("body", "insert_after", old_str="x")
-    with pytest.raises(ValueError, match="old_str"):
-        apply_edit("body", "delete_text")
-    with pytest.raises(ValueError, match="content"):
-        apply_edit("body", "append")
+@pytest.mark.parametrize(
+    ("mode", "kwargs", "missing"),
+    [
+        ("replace_section", {"content": "x"}, "target_heading"),
+        ("replace_text", {"new_str": "x"}, "old_str"),
+        ("replace_text", {"old_str": "x"}, "new_str"),
+        ("insert_after", {"old_str": "x"}, "new_str"),
+        ("delete_text", {}, "old_str"),
+        ("append", {}, "content"),
+    ],
+)
+def test_apply_edit_requires_its_own_parameters(mode, kwargs, missing):
+    with pytest.raises(ValueError, match=f"requires {missing}"):
+        apply_edit("body", mode, **kwargs)
+
+
+def test_apply_edit_rejects_an_unknown_mode():
     with pytest.raises(ValueError, match="Unknown edit mode"):
         apply_edit("body", "bogus", content="x")
 
 
 @pytest.mark.parametrize(
-    ("mode", "kwargs", "rejected", "expected"),
+    ("mode", "foreign"),
     [
-        ("overwrite", {"content": "x", "old_str": "a"}, "old_str", "content"),
-        ("overwrite", {"content": "x", "new_str": "b"}, "new_str", "content"),
-        ("overwrite", {"content": "x", "target_heading": "## H"}, "target_heading", "content"),
-        ("append", {"content": "x", "new_str": "b"}, "new_str", "content"),
-        ("prepend", {"content": "x", "old_str": "a"}, "old_str", "content"),
-        (
-            "replace_section",
-            {"content": "x", "target_heading": "## H", "new_str": "b"},
-            "new_str",
-            "content",
-        ),
-        (
-            "replace_text",
-            {"old_str": "a", "new_str": "b", "content": "x"},
-            "content",
-            "old_str and new_str",
-        ),
-        (
-            "replace_text",
-            {"old_str": "a", "new_str": "b", "target_heading": "## H"},
-            "target_heading",
-            "old_str and new_str",
-        ),
-        (
-            "insert_after",
-            {"old_str": "a", "new_str": "b", "content": "x"},
-            "content",
-            "old_str and new_str",
-        ),
-        ("delete_text", {"old_str": "a", "new_str": "b"}, "new_str", "old_str"),
-        ("delete_text", {"old_str": "a", "content": "x"}, "content", "old_str"),
+        (mode, param)
+        for mode, accepted in _ACCEPTS.items()
+        for param in ("content", "old_str", "new_str", "target_heading")
+        if param not in accepted
     ],
 )
-def test_apply_edit_rejects_another_modes_parameter(mode, kwargs, rejected, expected):
-    """Every mode owns one parameter set — a foreign one errors instead of being dropped."""
+def test_apply_edit_rejects_every_parameter_a_mode_does_not_own(mode, foreign):
+    """Generated from _ACCEPTS, so a new mode cannot quietly skip its rejection rule."""
+    passed = dict.fromkeys(("content", "old_str", "new_str", "target_heading"))
+    passed[foreign] = "x"
     with pytest.raises(ValueError) as exc:
-        apply_edit("body", mode, **kwargs)
-    assert f"does not take {rejected}" in str(exc.value)
-    assert f"it takes {expected}" in str(exc.value)
+        apply_edit(
+            "body",
+            mode,
+            content=passed["content"],
+            old_str=passed["old_str"],
+            new_str=passed["new_str"],
+            target_heading=passed["target_heading"],
+        )
+    assert f"does not take {foreign}" in str(exc.value)
+
+
+def test_apply_edit_rejects_a_foreign_parameter_even_when_empty():
+    """Presence, not truthiness — content="" is still the caller using the wrong parameter."""
+    with pytest.raises(ValueError, match="does not take content"):
+        apply_edit("body", "replace_text", old_str="a", new_str="b", content="")
 
 
 def test_apply_edit_routes_to_modes():

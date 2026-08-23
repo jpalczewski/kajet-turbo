@@ -293,16 +293,17 @@ def build_crud(
         edits: list[NoteEditInput],
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> EditNotesApplied | EditNotesRejected:
-        """Edytuje wiele notatek w jednym atomowym commicie. All-or-nothing: jeśli
-        KTÓRAKOLWIEK edycja w batchu jest niepoprawna (zła notatka, błędny wikilink,
-        niejednoznaczny target_heading/old_str, duplikat note_id, nieaktualny
-        expected_sha) — cały batch jest odrzucany i NIC nie jest zapisywane;
-        errors {index, note_id, error} per pozycja mówi co. Każda pozycja
-        wymaga expected_sha — sha notatki z get_note/get_note_history — dowodu, że
-        widziałeś bieżącą wersję przed edycją. Przy nieaktualnym expected_sha zawołaj
-        get_note, by doczytać aktualną treść, i spróbuj ponownie.
-        Zakres: tylko content i tagi — bez zmiany title/folder (do tego użyj edit_note).
-        Max 50 edycji na wywołanie."""
+        """Edit many notes in one atomic commit. All-or-nothing: if ANY edit in the batch is
+        invalid (wrong note, broken wikilink, ambiguous target_heading/old_str, duplicate
+        note_id, stale expected_sha) the whole batch is rejected and NOTHING is written;
+        errors {index, note_id, error} says which item and why.
+        Each item takes the same parameter split as edit_note: the whole-body modes take
+        content, the text modes take old_str (+ new_str, except delete_text).
+        Every item needs expected_sha — the note's sha from get_note/get_note_history,
+        proof you saw the current version. On a stale one, call get_note to re-read the
+        note and retry.
+        Scope: content and tags only — no title/folder changes (use edit_note for those).
+        Max 50 edits per call."""
         check_batch(edits, "edits", "edycji")
         result = await run_sync(
             note_service.edit_many,

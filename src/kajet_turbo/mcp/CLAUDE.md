@@ -46,4 +46,5 @@ they meant.
   `context.message.arguments`. It is the only place raw wire arguments are visible.
 - `logged_tool` sits *under* `@srv.tool`, so it only ever sees validated Python values. It
   is for timing and logging, not preprocessing.
-- Never log note titles or bodies — logs are shipped off-box and notes are personal.
+
+Never log note titles or bodies — logs are shipped off-box and notes are personal.

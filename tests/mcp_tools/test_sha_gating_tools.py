@@ -4,21 +4,14 @@ import json
 
 from fastmcp import Client
 
-from tests.mcp_tools.helpers import SHA_LIKE
-
-
-async def _save_and_get_sha(client, title: str, content: str, tags: list[str]) -> tuple[str, str]:
-    saved = await client.call_tool("save_note", {"title": title, "content": content, "tags": tags})
-    note_id = json.loads(saved.content[0].text)["note_id"]
-    note = json.loads((await client.call_tool("get_note", {"note_id": note_id})).content[0].text)
-    return note_id, note["sha"]
+from tests.mcp_tools.helpers import SHA_LIKE, save_and_get_sha
 
 
 async def test_set_tags_applies_with_fresh_sha(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id, sha = await _save_and_get_sha(client, "Tagged", "body", ["docs", "extra"])
+        note_id, sha = await save_and_get_sha(client, "Tagged", "body", ["docs", "extra"])
         res = json.loads(
             (
                 await client.call_tool(
@@ -35,7 +28,7 @@ async def test_set_tags_stale_sha_returns_stale_version(workspaces_dir, mcp_serv
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id, _sha = await _save_and_get_sha(client, "Tagged2", "body", ["docs", "extra"])
+        note_id, _sha = await save_and_get_sha(client, "Tagged2", "body", ["docs", "extra"])
         res = json.loads(
             (
                 await client.call_tool(

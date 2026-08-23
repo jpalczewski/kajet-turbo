@@ -14,9 +14,10 @@ changes meaning depending on the mode.
 All errors subclass ``ValueError`` so existing ``except ValueError`` handlers in the service
 and MCP tool catch them and surface ``{"error": ...}`` to the caller. Those messages reach
 the calling LLM verbatim, so they are written in English and name the parameter at fault.
+The parameter names mirror ``edit_note``'s and are chosen there — see
+``src/kajet_turbo/mcp/CLAUDE.md`` before renaming one from this side.
 """
 
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from markdown_it import MarkdownIt
@@ -273,14 +274,32 @@ def insert_after(body: str, anchor: str, text: str) -> str:
     return result
 
 
-def _reject(mode: str, accepts: str, **unused: str | None) -> None:
-    """Refuse a parameter that belongs to another mode, naming what this mode takes.
+# Which parameters each mode accepts. Rejection messages are derived from this, so a mode's
+# parameter set is stated once instead of being restated at every validation call site.
+_ACCEPTS: dict[str, tuple[str, ...]] = {
+    "overwrite": ("content",),
+    "append": ("content", "target_heading"),
+    "prepend": ("content", "target_heading"),
+    "replace_section": ("content", "target_heading"),
+    "replace_text": ("old_str", "new_str"),
+    "insert_after": ("old_str", "new_str"),
+    "delete_text": ("old_str",),
+}
 
-    Silently ignoring it would let a caller believe an edit landed the way they meant.
+
+def _reject_foreign(mode: str, **params: str | None) -> None:
+    """Refuse any parameter that belongs to another mode, naming what this mode takes.
+
+    Silently dropping it would let a caller believe an edit landed the way they meant.
     """
-    for name, value in unused.items():
-        if value:
-            raise ValueError(f"Mode '{mode}' does not take {name}; it takes {accepts}.")
+    accepted = _ACCEPTS[mode]
+    for name, value in params.items():
+        # Presence, not truthiness: passing content="" to a text mode is still the caller
+        # reaching for the wrong parameter, and saying so beats dropping it.
+        if value is not None and name not in accepted:
+            raise ValueError(
+                f"Mode '{mode}' does not take {name}; it takes {' and '.join(accepted)}."
+            )
 
 
 def _require(mode: str, name: str, value: str | None) -> str:
@@ -288,6 +307,14 @@ def _require(mode: str, name: str, value: str | None) -> str:
     if not value:
         raise ValueError(f"Mode '{mode}' requires {name}.")
     return value
+
+
+def _text_edit(body: str, anchor: str, replacement: str, replace_all: bool) -> EditResult:
+    """Replace ``anchor`` with ``replacement`` — once (anchor must be unique) or everywhere."""
+    if replace_all:
+        new_body, count = _replace_text_all(body, anchor, replacement)
+        return EditResult(body=new_body, replaced=count)
+    return EditResult(body=replace_text(body, anchor, replacement))
 
 
 def apply_edit(
@@ -300,18 +327,14 @@ def apply_edit(
     target_heading: str | None = None,
     replace_all: bool = False,
 ) -> EditResult:
-    """Dispatch to the transform for ``mode``, validating its parameter set.
+    """Dispatch to the transform for ``mode``, validating its parameter set against _ACCEPTS.
 
-    ``body`` is the current note body (no frontmatter). The whole-body modes
-    (overwrite/append/prepend/replace_section) take ``content``; the text modes
-    (replace_text/insert_after/delete_text) take the ``old_str`` anchor plus, except for
-    delete_text, its ``new_str`` replacement. Every mode owns exactly one of those sets,
-    and a parameter from the other set is a validation error rather than a silently
-    dropped argument.
+    ``body`` is the current note body (no frontmatter). A parameter another mode owns is a
+    validation error rather than a silently dropped argument.
 
-    ``overwrite`` with ``content=None`` leaves the body untouched — that is the
-    metadata-only edit (title/tags/folder) coming through this same path, which is why it
-    is handled here rather than short-circuited by the caller.
+    ``overwrite`` with ``content=None`` leaves the body untouched — the metadata-only edit
+    (title/tags/folder) comes through this same path, which is why it is handled here rather
+    than short-circuited by the caller.
 
     ``replace_all`` only applies to replace_text/delete_text; there is no well-defined
     "all occurrences" for e.g. a section replace.
@@ -319,27 +342,35 @@ def apply_edit(
     Raises ``ValueError`` (or a subclass) on an invalid parameter set or a failed
     anchor/heading lookup.
     """
+    if mode not in _ACCEPTS:
+        raise ValueError(f"Unknown edit mode: '{mode}'.")
     if replace_all and mode not in ("replace_text", "delete_text"):
         raise ValueError(
             f"replace_all only applies to 'replace_text' and 'delete_text', not '{mode}'."
         )
+    _reject_foreign(
+        mode,
+        content=content,
+        old_str=old_str,
+        new_str=new_str,
+        target_heading=target_heading,
+    )
 
     match mode:
         case "overwrite":
-            _reject(
-                mode, "content", old_str=old_str, new_str=new_str, target_heading=target_heading
-            )
             return EditResult(body=body if content is None else content)
 
-        case "append" | "prepend":
-            _reject(mode, "content", old_str=old_str, new_str=new_str)
-            splice: Callable[[str, str, str | None], str] = (
-                append_content if mode == "append" else prepend_content
+        case "append":
+            return EditResult(
+                body=append_content(body, _require(mode, "content", content), target_heading)
             )
-            return EditResult(body=splice(body, _require(mode, "content", content), target_heading))
+
+        case "prepend":
+            return EditResult(
+                body=prepend_content(body, _require(mode, "content", content), target_heading)
+            )
 
         case "replace_section":
-            _reject(mode, "content", old_str=old_str, new_str=new_str)
             return EditResult(
                 body=replace_section(
                     body,
@@ -349,16 +380,14 @@ def apply_edit(
             )
 
         case "replace_text":
-            _reject(mode, "old_str and new_str", content=content, target_heading=target_heading)
-            anchor = _require(mode, "old_str", old_str)
-            replacement = _require(mode, "new_str", new_str)
-            if replace_all:
-                new_body, count = _replace_text_all(body, anchor, replacement)
-                return EditResult(body=new_body, replaced=count)
-            return EditResult(body=replace_text(body, anchor, replacement))
+            return _text_edit(
+                body,
+                _require(mode, "old_str", old_str),
+                _require(mode, "new_str", new_str),
+                replace_all,
+            )
 
         case "insert_after":
-            _reject(mode, "old_str and new_str", content=content, target_heading=target_heading)
             return EditResult(
                 body=insert_after(
                     body,
@@ -368,14 +397,7 @@ def apply_edit(
             )
 
         case "delete_text":
-            _reject(
-                mode, "old_str", content=content, new_str=new_str, target_heading=target_heading
-            )
-            anchor = _require(mode, "old_str", old_str)
-            if replace_all:
-                new_body, count = _replace_text_all(body, anchor, "")
-                return EditResult(body=new_body, replaced=count)
-            return EditResult(body=replace_text(body, anchor, ""))
+            return _text_edit(body, _require(mode, "old_str", old_str), "", replace_all)
 
-        case _:
-            raise ValueError(f"Unknown edit mode: '{mode}'.")
+        case _:  # unreachable unless _ACCEPTS and this dispatch drift apart
+            raise AssertionError(f"mode '{mode}' is accepted but not dispatched")

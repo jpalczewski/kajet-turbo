@@ -13,3 +13,19 @@ async def call_json(client, tool: str, args: dict | None = None):
     """Call an MCP tool and return its parsed JSON payload."""
     result = await client.call_tool(tool, args or {})
     return json.loads(result.content[0].text)
+
+
+async def save_and_get_sha(
+    client, title: str, content: str, tags: list[str] | None = None
+) -> tuple[str, str]:
+    """Save a note and return its (note_id, current sha).
+
+    Every destructive tool is gated on a fresh expected_sha, so this is the opening move
+    of most write-path tests.
+    """
+    note_id = (
+        await call_json(
+            client, "save_note", {"title": title, "content": content, "tags": tags or []}
+        )
+    )["note_id"]
+    return note_id, (await call_json(client, "get_note", {"note_id": note_id}))["sha"]

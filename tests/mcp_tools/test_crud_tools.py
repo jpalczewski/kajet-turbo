@@ -6,7 +6,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from tests.mcp_tools.helpers import call_json
+from tests.mcp_tools.helpers import call_json, save_and_get_sha
 
 
 async def test_save_and_get_note(workspaces_dir, mcp_server):
@@ -318,21 +318,12 @@ async def test_get_note_rejects_an_ambiguous_call_shape(workspaces_dir, mcp_serv
             await client.call_tool("get_note", {"title": "Nie ma takiej"})
 
 
-async def _seed(client, title: str, content: str) -> tuple[str, str]:
-    """Save a note and return its (note_id, current sha)."""
-    note_id = (await call_json(client, "save_note", {"title": title, "content": content}))[
-        "note_id"
-    ]
-    sha = (await call_json(client, "get_note", {"note_id": note_id}))["sha"]
-    return note_id, sha
-
-
 async def test_edit_note_text_modes_take_old_str_and_new_str(workspaces_dir, mcp_server):
     """The wire contract from issue #38: the text modes are an old_str/new_str pair."""
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id, sha = await _seed(client, "Pair", "Hello world.")
+        note_id, sha = await save_and_get_sha(client, "Pair", "Hello world.")
 
         await call_json(
             client,
@@ -354,7 +345,7 @@ async def test_edit_note_insert_after_inserts_new_str_at_the_anchor(workspaces_d
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id, sha = await _seed(client, "List", "- A\n- B\n")
+        note_id, sha = await save_and_get_sha(client, "List", "- A\n- B\n")
 
         await call_json(
             client,
@@ -371,24 +362,19 @@ async def test_edit_note_insert_after_inserts_new_str_at_the_anchor(workspaces_d
         assert "- A\n- A.5\n- B" in content
 
 
-@pytest.mark.parametrize(
-    ("args", "rejected"),
-    [
-        ({"mode": "replace_text", "old_str": "world", "content": "earth"}, "content"),
-        ({"mode": "delete_text", "old_str": "world", "new_str": "earth"}, "new_str"),
-        ({"mode": "append", "content": "more", "new_str": "earth"}, "new_str"),
-    ],
-)
-async def test_edit_note_rejects_a_parameter_from_another_mode(
-    workspaces_dir, mcp_server, args, rejected
-):
-    """A misplaced parameter errors at the tool boundary instead of being ignored."""
+async def test_edit_note_rejects_a_parameter_from_another_mode(workspaces_dir, mcp_server):
+    """The apply_edit rejection surfaces as a ToolError, with the note left untouched.
+
+    The full mode/parameter matrix is covered in tests/markdown/test_note_edit.py — this
+    only proves the wiring, so one case is enough for a fixture this expensive.
+    """
+    args = {"mode": "replace_text", "old_str": "world", "content": "earth"}
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id, sha = await _seed(client, "Strict", "Hello world.")
+        note_id, sha = await save_and_get_sha(client, "Strict", "Hello world.")
 
-        with pytest.raises(ToolError, match=f"does not take {rejected}"):
+        with pytest.raises(ToolError, match="does not take content"):
             await client.call_tool("edit_note", {"note_id": note_id, "expected_sha": sha, **args})
 
         assert (await call_json(client, "get_note", {"note_id": note_id}))[
@@ -401,7 +387,7 @@ async def test_edit_note_without_content_edits_metadata_only(workspaces_dir, mcp
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id, sha = await _seed(client, "Before", "Body stays.")
+        note_id, sha = await save_and_get_sha(client, "Before", "Body stays.")
 
         await call_json(
             client,
@@ -412,3 +398,30 @@ async def test_edit_note_without_content_edits_metadata_only(workspaces_dir, mcp
         assert note["title"] == "After"
         assert note["tags"] == ["x"]
         assert note["content"] == "Body stays."
+
+
+async def test_edit_note_rejects_an_unknown_parameter(workspaces_dir, mcp_server):
+    """fastmcp rejects extras on a tool signature — asserted, not assumed.
+
+    The batch path gets this from ToolInput(extra="forbid"); here it is an inherited
+    framework default, and a relaxation of it would silently resurrect issue #38.
+    """
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id, sha = await save_and_get_sha(client, "Typo", "Hello world.")
+
+        with pytest.raises(ToolError, match="old_text"):
+            await client.call_tool(
+                "edit_note",
+                {
+                    "note_id": note_id,
+                    "expected_sha": sha,
+                    "mode": "replace_text",
+                    "old_text": "world",
+                    "new_str": "earth",
+                },
+            )
+        assert (await call_json(client, "get_note", {"note_id": note_id}))[
+            "content"
+        ] == "Hello world."
