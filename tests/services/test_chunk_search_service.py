@@ -58,7 +58,7 @@ def test_search_matches_title_of_contentless_note(database, git_workspace_factor
     assert hits[0]["matched_on"] == ["title"]
 
 
-def test_search_cache_key_varies_by_backend(database, git_workspace_factory):
+def test_search_cache_key_varies_by_backend_and_model(database, git_workspace_factory):
     # A backend/key change must not keep serving the previous backend's cached ranking.
     chunk_repo = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
@@ -103,6 +103,14 @@ def test_search_cache_key_varies_by_backend(database, git_workspace_factory):
     )
     svc.search("alpha", ["ws"], owner_id="u1")
     assert calls["n"] == 2
+
+    # A model switch on the same endpoint and dimension is also a backend change: the
+    # embeddings live in different vector spaces even though the cache tuple currently matches.
+    state["cfg"] = EmbedderConfig(
+        backend_id="b2", type="openai", model="m2", dim=3, base_url="http://x", api_key="k"
+    )
+    svc.search("alpha", ["ws"], owner_id="u1")
+    assert calls["n"] == 3
 
 
 def test_search_across_workspaces_sorts_by_score_globally(database, git_workspace_factory):

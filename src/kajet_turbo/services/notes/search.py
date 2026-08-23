@@ -114,7 +114,10 @@ class NoteSearchService:
                 cfg = None
         # An active profile (even keyless — a local/no-auth endpoint) drives vector search.
         embeddable = cfg is not None
-        backend_key = (cfg.backend_id, cfg.dim) if embeddable else None
+        # The model is part of the vector-space identity. Two models can share an endpoint and
+        # dimension while producing incomparable vectors, so their result rankings cannot share
+        # a cache entry.
+        backend_key = (cfg.backend_id, cfg.model, cfg.dim) if embeddable else None
 
         key = None
         if self._cache is not None:
