@@ -127,4 +127,6 @@ async def api_update_folder_meta(
         description=body.description,
         instructions=body.instructions,
     )
-    return FolderMetaResponse(path=norm, description=body.description, instructions=body.instructions)
+    return FolderMetaResponse(
+        path=norm, description=body.description, instructions=body.instructions
+    )

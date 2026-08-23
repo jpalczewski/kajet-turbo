@@ -41,9 +41,7 @@ def test_search_empty_when_no_match(database, git_workspace_factory):
 def test_search_matches_tag_and_folder_for_contentless_note(database, git_workspace_factory):
     service = _service(database)
     ws = git_workspace_factory("ws")
-    service.save(
-        "u1", "ws", str(ws), "Rozmowa 3 marca", "", tags=["alice"], folder="książki/Alice"
-    )
+    service.save("u1", "ws", str(ws), "Rozmowa 3 marca", "", tags=["alice"], folder="książki/Alice")
     hits = service.search("alice", ["ws"], owner_id="u1", limit=10)
     assert len(hits) == 1
     assert set(hits[0]["matched_on"]) == {"folder", "tag"}

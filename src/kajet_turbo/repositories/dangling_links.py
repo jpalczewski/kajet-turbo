@@ -103,9 +103,7 @@ class DanglingLinkRepository(DbRepository):
             ).all()
         return set(rows)
 
-    def sources_for_titles(
-        self, owner_id: str, workspace: str, titles: set[str]
-    ) -> set[str]:
+    def sources_for_titles(self, owner_id: str, workspace: str, titles: set[str]) -> set[str]:
         """Sources whose unresolved target title may change meaning after an identity edit."""
         if not titles:
             return set()

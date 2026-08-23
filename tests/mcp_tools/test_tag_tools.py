@@ -115,9 +115,7 @@ async def test_per_note_tag_tools_publish_note_updated_only_on_a_real_change(
     published: list[tuple[str, dict]] = []
     monkeypatch.setattr(
         "kajet_turbo.mcp.tooling.event_repo",
-        SimpleNamespace(
-            publish=lambda owner_id, kind, payload: published.append((kind, payload))
-        ),
+        SimpleNamespace(publish=lambda owner_id, kind, payload: published.append((kind, payload))),
     )
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})

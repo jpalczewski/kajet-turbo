@@ -123,9 +123,7 @@ class NoteTagService:
         self, note_id: str, ws_name: str, owner_id: str, fm_tags: list[str], content: str
     ) -> None:
         """Index the note's tags: union of frontmatter (normalized) and inline, frontmatter wins."""
-        self._tag_repo.sync_note_tags(
-            note_id, ws_name, owner_id, self._tagged(fm_tags, content)
-        )
+        self._tag_repo.sync_note_tags(note_id, ws_name, owner_id, self._tagged(fm_tags, content))
 
     def _apply_tag_change(
         self,
@@ -345,7 +343,7 @@ class NoteTagService:
             GitRepository(ws_path).commit_files(
                 [item.relative for item in staged], f"tag: rename {old_n} -> {new_n}"
             )
-        except (GitError, OSError):
+        except GitError, OSError:
             for item in written:
                 item.restore()
             raise

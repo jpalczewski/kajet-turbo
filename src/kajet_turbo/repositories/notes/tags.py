@@ -108,9 +108,7 @@ class NoteTagRepository(DbRepository):
                     session.add(NoteTag(note_id=note_id, tag_id=tag_ids[path], source=source))
             self._gc_tags(session, workspace, owner_id)
             session.commit()
-        logger.info(
-            "note_tags_synced", ws=workspace, notes=len(tagged_by_note), tags=len(tag_ids)
-        )
+        logger.info("note_tags_synced", ws=workspace, notes=len(tagged_by_note), tags=len(tag_ids))
 
     def delete_note_tags(self, note_id: str, workspace: str, owner_id: str) -> None:
         """Remove a note's tag links and GC any tags left empty (used on note delete)."""

@@ -31,9 +31,7 @@ def _wiring(database, base: Path):
     return service, jobs, dirty, dangling, handler
 
 
-def test_target_creation_marks_only_dangling_source_and_reconciles(
-    database, git_workspace_factory
-):
+def test_target_creation_marks_only_dangling_source_and_reconciles(database, git_workspace_factory):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
     service, jobs, dirty, dangling, handler = _wiring(database, ws.parent.parent)
@@ -137,9 +135,7 @@ def test_dirty_markers_roll_back_when_enqueue_fails(database, monkeypatch):
     assert dirty.list_dirty("u1", "ws") == {}
 
 
-def test_missing_source_file_is_logged_cleaned_and_acknowledged(
-    database, git_workspace_factory
-):
+def test_missing_source_file_is_logged_cleaned_and_acknowledged(database, git_workspace_factory):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
     service, _jobs, dirty, dangling, handler = _wiring(database, ws.parent.parent)
@@ -207,12 +203,8 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
     service, _jobs, dirty, _dangling, handler = _wiring(database, ws.parent.parent)
-    target_id = service.save(
-        "u1", "ws", str(ws), "Target", "body", [], folder="Old"
-    )["note_id"]
-    source_id = service.save(
-        "u1", "ws", str(ws), "Source", "[[Old/Target]]", []
-    )["note_id"]
+    target_id = service.save("u1", "ws", str(ws), "Target", "body", [], folder="Old")["note_id"]
+    source_id = service.save("u1", "ws", str(ws), "Source", "[[Old/Target]]", [])["note_id"]
 
     calls = 0
     original = service._crud_repo.list_paths
@@ -248,9 +240,7 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
 
     one_snapshot(
-        lambda: service.move_folder(
-            "Mid", "New", owner_id="u1", ws_path=str(ws), workspace="ws"
-        )
+        lambda: service.move_folder("Mid", "New", owner_id="u1", ws_path=str(ws), workspace="ws")
     )
     assert set(dirty.list_dirty("u1", "ws")) == {source_id, target_id}
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
