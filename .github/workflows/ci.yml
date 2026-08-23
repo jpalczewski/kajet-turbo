@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same branch supersedes the previous run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend-checks:
+    name: ruff + ty
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Installs the interpreter named in .python-version (3.14t, free-threaded)
+      # and the dev dependency group.
+      - run: uv sync --locked
+
+      # Each check runs even if an earlier one failed, so one push reports every
+      # violation instead of one per round trip. The job still fails if any did.
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format
+        if: ${{ !cancelled() }}
+        run: uv run ruff format --check .
+
+      # Scoped to src/: tests/ and scripts/ carry a known baseline of diagnostics
+      # from ty being pre-1.0. Widen this once that baseline is cleared.
+      - name: ty
+        if: ${{ !cancelled() }}
+        run: uv run ty check src/
+
+  backend-tests:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --locked
+
+      # addopts already carries -n auto; tests/conftest.py gives each xdist worker
+      # its own DB_PATH and sets MCP_BASE_URL, so no env is needed here.
+      - name: pytest
+        run: uv run pytest
+
+  frontend:
+    name: prettier + eslint + svelte-check + vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - name: lint
+        run: bun run lint
+
+      - name: check
+        if: ${{ !cancelled() }}
+        run: bun run check
+
+      - name: test
+        if: ${{ !cancelled() }}
+        run: bun run test
