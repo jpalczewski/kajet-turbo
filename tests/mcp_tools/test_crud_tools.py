@@ -286,6 +286,23 @@ async def test_get_note_by_ambiguous_title_lists_the_candidates(workspaces_dir, 
     assert "Project" in str(excinfo.value) and "Archive" in str(excinfo.value)
 
 
+async def test_get_note_by_ambiguous_title_still_errors_when_one_candidate_is_at_the_root(
+    workspaces_dir, mcp_server
+):
+    """A root note ranks first for a bare title, which must not pass for an exact match."""
+    mcp, _ = mcp_server
+    service = mcp_server.note_service
+    assert service is not None
+    ws_path = str(workspaces_dir / "test-ws")
+    service.save("u1", "test-ws", ws_path, "README", "root", [])
+    service.save("u1", "test-ws", ws_path, "README", "nested", [], folder="Project")
+
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        with pytest.raises(ToolError, match="Niejednoznaczne"):
+            await client.call_tool("get_note", {"title": "README"})
+
+
 async def test_get_note_rejects_an_ambiguous_call_shape(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:

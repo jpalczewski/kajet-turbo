@@ -333,14 +333,20 @@ class NoteTagService:
             return self._rename_result(old_n, new_n, 0, 0, bool(target_ids), warnings)
 
         now = datetime.now(UTC).isoformat()
-        for item in staged:
-            item.apply(now)
+        # The writes are inside the guard, not just the commit: a write failing partway
+        # through would otherwise leave the workspace half-renamed and diverged from HEAD,
+        # and reads go to the files, so they would serve that state.
+        written: list[_RenamedNote] = []
         try:
+            for item in staged:
+                # Recorded before the write: a half-written file needs restoring too.
+                written.append(item)
+                item.apply(now)
             GitRepository(ws_path).commit_files(
                 [item.relative for item in staged], f"tag: rename {old_n} -> {new_n}"
             )
-        except GitError:
-            for item in staged:
+        except (GitError, OSError):
+            for item in written:
                 item.restore()
             raise
 

@@ -2,6 +2,8 @@
 
 import pytest
 
+from kajet_turbo.workspace import note_filepath, read_note_file
+
 
 def test_save_indexes_frontmatter_and_inline_tags(service, workspace):
     service.save(
@@ -254,3 +256,34 @@ def test_rename_tag_rejects_an_invalid_target(service, workspace):
     service.save("u1", "ws", str(workspace), "A", "body", ["work"])
     with pytest.raises(ValueError, match="niepoprawny tag"):
         _rename(service, workspace, "work", "dwa slowa")
+
+
+def test_rename_tag_restores_every_touched_file_when_a_write_fails(service, workspace, monkeypatch):
+    from kajet_turbo.services.notes import tags as tags_module
+
+    a = service.save("u1", "ws", str(workspace), "A", "body", ["work"])
+    service.save("u1", "ws", str(workspace), "B", "body", ["work"])
+    head_before = service.get_history(a["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    real_write = tags_module.write_note_file
+    calls = {"n": 0}
+
+    def flaky_write(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:  # second note of the batch; restores come after and go through
+            raise OSError("disk full")
+        return real_write(*args, **kwargs)
+
+    monkeypatch.setattr(tags_module, "write_note_file", flaky_write)
+    with pytest.raises(OSError, match="disk full"):
+        _rename(service, workspace, "work", "job")
+
+    monkeypatch.setattr(tags_module, "write_note_file", real_write)
+    # The files are the source of truth here — NoteData.tags reads the DB row, which the
+    # aborted rename never reached.
+    for title in ("A", "B"):
+        on_disk = read_note_file(note_filepath(str(workspace), "", title))
+        assert on_disk["tags"] == ["work"]
+    assert service.get_history(a["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"] == (
+        head_before
+    )

@@ -460,9 +460,12 @@ class NoteService:
         match = index.resolve_detailed(target)
         if match is None:
             return None
-        # split_target already derived the folder half of this target, and the ranker scored
-        # exactness from it — reuse that rather than normalizing the raw input a second time.
-        if match.alternatives and match.chosen.folder != split_target(target)[0]:
+        # An exact full-path hit beats the alternatives; anything else is a real ambiguity.
+        # The folder half comes from split_target, which is what the ranker scored against —
+        # but only a folder the caller actually supplied can make a hit exact: for a bare
+        # title the target's folder is "", which a root-level note matches by accident.
+        exact = folder is not None and match.chosen.folder == split_target(target)[0]
+        if match.alternatives and not exact:
             candidates = ", ".join(
                 f"{note.folder or 'root'} ({note.note_id})"
                 for note in (match.chosen, *match.alternatives)
@@ -471,9 +474,8 @@ class NoteService:
                 f"Niejednoznaczne: '{target}' pasuje do {len(match.alternatives) + 1} notatek "
                 f"— {candidates}. Podaj pełniejszy folder albo note_id."
             )
-        logger.info(
-            "note_resolved_by_title", title=title, folder=folder, note_id=match.chosen.note_id
-        )
+        # No title here: logs are shipped off-box and note titles are personal content.
+        logger.info("note_resolved_by_title", note_id=match.chosen.note_id)
         return match.chosen.note_id
 
     def get_with_content_by_title(
