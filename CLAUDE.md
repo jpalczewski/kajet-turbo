@@ -59,6 +59,8 @@ Do not bypass repository, cache, or locking helpers for convenience.
 - Design for extension where requirements are real. Avoid speculative abstractions, but leave obvious extension points when the domain already has variation.
 - Follow established project patterns and framework best practices before adding dependencies, new styles, or new architectural conventions.
 - Prefer structured parsing and typed helpers over ad hoc string manipulation.
+- A `ValueError` raised in `services/` or `markdown/` reaches the calling LLM verbatim — `ServiceErrorMiddleware` maps it straight to `ToolError`. Write those messages in English and name the parameter at fault.
+- MCP tool text and parameter naming have their own rules in `src/kajet_turbo/mcp/CLAUDE.md`. Read it before adding or renaming a tool parameter.
 - Keep errors actionable. Include enough context for debugging, but do not expose secrets.
 - Comments should explain non-obvious decisions, concurrency constraints, or domain rules. Do not narrate obvious code.
 - Write code comments and ordinary test data in English.

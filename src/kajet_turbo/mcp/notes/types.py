@@ -3,7 +3,18 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class NoteInput(BaseModel):
+class ToolInput(BaseModel):
+    """Base for batch tool input items: an unknown key is an error, not a silent drop.
+
+    A tool's own signature already rejects a misspelled parameter — pydantic's default
+    would let the same typo pass unnoticed inside a batch item, which is the one place
+    a caller cannot tell a dropped argument from an applied one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class NoteInput(ToolInput):
     title: str = Field(description="Note title; unique within (workspace, folder)")
     content: str = Field(
         default="",
@@ -261,11 +272,11 @@ class FolderExportResult(BaseModel):
     )
 
 
-class NoteEditInput(BaseModel):
-    note_id: str = Field(description="id notatki do edycji")
+class NoteEditInput(ToolInput):
+    note_id: str = Field(description="id of the note to edit")
     expected_sha: str = Field(
-        description="Aktualny HEAD sha notatki z get_note/get_note_history — dowód, że przed "
-        "edycją widziałeś bieżącą wersję. Niezgodność odrzuca cały batch."
+        description="The note's current HEAD sha from get_note/get_note_history — proof you "
+        "saw this version before editing. A mismatch rejects the whole batch."
     )
     mode: Literal[
         "overwrite",
@@ -277,15 +288,24 @@ class NoteEditInput(BaseModel):
         "delete_text",
     ] = Field(
         default="append",
-        description="Jak w edit_note. Domyślnie 'append' (najmniej destrukcyjny) — w batchu "
-        "łatwo o pomyłkę przy 'overwrite' na wielu notatkach naraz.",
+        description="As in edit_note. Defaults to 'append' (the least destructive) — in a "
+        "batch, 'overwrite' across many notes at once is easy to get wrong.",
     )
-    content: str = ""
-    target_heading: str | None = None
-    old_text: str | None = None
+    content: str | None = Field(
+        default=None, description="Body text for the whole-body modes, as in edit_note."
+    )
+    target_heading: str | None = Field(
+        default=None, description="Section heading for the section modes, as in edit_note."
+    )
+    old_str: str | None = Field(
+        default=None, description="Anchor text for the text modes, as in edit_note."
+    )
+    new_str: str | None = Field(
+        default=None, description="Replacement for old_str, as in edit_note."
+    )
     replace_all: bool = False
     tags: list[str] | None = Field(
-        default=None, description="Podmienia frontmatter tags tej notatki; None = bez zmian."
+        default=None, description="Replaces this note's frontmatter tags; None = leave them."
     )
 
 
@@ -314,7 +334,7 @@ class EditNotesRejected(BaseModel):
     )
 
 
-class NoteDeleteInput(BaseModel):
+class NoteDeleteInput(ToolInput):
     note_id: str = Field(description="id notatki do usunięcia")
     expected_sha: str = Field(
         description="Aktualny HEAD sha notatki z get_note_history — dowód, że przed "

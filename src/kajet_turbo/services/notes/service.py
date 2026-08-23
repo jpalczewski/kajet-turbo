@@ -342,9 +342,7 @@ class NoteService:
         # index. Non-cascading: the index is not rebuilt as notes are dropped, so a link to
         # a later-dropped note still resolves (worst case a harmless orphan edge).
         valid: list[dict] = []
-        workspace_links = self._link_service.for_workspace(
-            ws_name, user_id, extra=batch_notes
-        )
+        workspace_links = self._link_service.for_workspace(ws_name, user_id, extra=batch_notes)
         for s in survivors:
             try:
                 s["links"] = workspace_links.validate(s["content"], s["folder"])
@@ -356,9 +354,7 @@ class NoteService:
         if not valid:
             return [r for r in results if r is not None]
 
-        affected_sources = workspace_links.affected_sources(
-            {str(s["title"]) for s in valid}
-        )
+        affected_sources = workspace_links.affected_sources({str(s["title"]) for s in valid})
 
         # Phase 3: write files, then one commit (roll back files on failure).
         for s in valid:
@@ -659,7 +655,8 @@ class NoteService:
         folder: str | None = None,
         mode: str = "overwrite",
         target_heading: str | None = None,
-        old_text: str | None = None,
+        old_str: str | None = None,
+        new_str: str | None = None,
         replace_all: bool = False,
     ) -> dict:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
@@ -694,28 +691,26 @@ class NoteService:
                 raise FileExistsError(f"Plik docelowy '{new_rel}' już istnieje.")
         note_data = read_note_file(old_path)
         old_content = note_data["content"]
-        if replace_all and mode not in ("replace_text", "delete_text"):
-            raise ValueError("replace_all działa tylko z trybami 'replace_text'/'delete_text'.")
-        replaced: int | None = None
-        if mode == "overwrite":
-            new_content = content if content is not None else old_content
-        else:
-            if content is None and mode != "delete_text":
-                raise ValueError("content jest wymagany dla trybu edycji.")
-            edit_result = apply_edit(
-                old_content, mode, content or "", target_heading, old_text, replace_all=replace_all
-            )
-            new_content = edit_result.body
-            replaced = edit_result.replaced
+        # apply_edit owns every mode/parameter rule, including "overwrite without content
+        # leaves the body alone" — the metadata-only edit path.
+        edit_result = apply_edit(
+            old_content,
+            mode,
+            content=content,
+            old_str=old_str,
+            new_str=new_str,
+            target_heading=target_heading,
+            replace_all=replace_all,
+        )
+        new_content = edit_result.body
+        replaced = edit_result.replaced
 
         # One pre-move snapshot serves validation and any backlink rewrite below.
         workspace_links = self._link_service.for_workspace(note.workspace, owner_id)
         links = workspace_links.validate(new_content, new_folder)
         identity_changed = note.title != new_title or note.folder != new_folder
         affected_sources = (
-            workspace_links.affected_sources(
-                {note.title, new_title}, include_source_ids={note_id}
-            )
+            workspace_links.affected_sources({note.title, new_title}, include_source_ids={note_id})
             if identity_changed
             else set()
         )
@@ -768,9 +763,7 @@ class NoteService:
         logger.info("note_updated", note_id=note_id, folder=new_folder)
         self._index(note_id, note.workspace, owner_id, new_title, new_content)
         if self._reconcile_repo is not None and identity_changed:
-            self._reconcile_repo.mark_and_enqueue(
-                owner_id, note.workspace, affected_sources
-            )
+            self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
         return {
             "note_id": note_id,
             "replaced": replaced,
@@ -789,8 +782,8 @@ class NoteService:
         bad anchor/heading) rejects the whole batch — nothing is written. Content + tags
         only; no title/folder changes (a rename needs backlink rewrites across other
         notes, incompatible with one commit_files call — use update() for that). Each
-        input dict: {note_id, mode="append", content="", target_heading=None,
-        old_text=None, replace_all=False, tags=None}.
+        input dict: {note_id, mode="append", content=None, target_heading=None,
+        old_str=None, new_str=None, replace_all=False, tags=None}.
         """
         if not edits:
             raise ValueError("Batch edycji nie może być pusty.")
@@ -810,14 +803,33 @@ class NoteService:
             index, raw, note_id, loc = item.index, item.raw, item.note_id, item.loc
             note_data = read_note_file(loc.filepath)
             old_content = note_data["content"]
-            mode = raw.get("mode", "append")
-            content = raw.get("content", "")
-            target_heading = raw.get("target_heading")
-            old_text = raw.get("old_text")
-            replace_all = bool(raw.get("replace_all", False))
+            # 'overwrite' without content is edit_note's metadata-only path, but this batch
+            # cannot rename or move — so with no tags either, the item has nothing left to
+            # change and would commit an untouched file while reporting success. Every other
+            # mode already errors on a missing payload inside apply_edit.
+            if (
+                raw.get("mode", "append") == "overwrite"
+                and raw.get("content") is None
+                and raw.get("tags") is None
+            ):
+                errors.append(
+                    {
+                        "index": index,
+                        "note_id": note_id,
+                        "error": "Item changes nothing: it carries neither content nor tags. "
+                        "Use edit_note to change title or folder.",
+                    }
+                )
+                continue
             try:
                 edit_result = apply_edit(
-                    old_content, mode, content, target_heading, old_text, replace_all=replace_all
+                    old_content,
+                    raw.get("mode", "append"),
+                    content=raw.get("content"),
+                    old_str=raw.get("old_str"),
+                    new_str=raw.get("new_str"),
+                    target_heading=raw.get("target_heading"),
+                    replace_all=bool(raw.get("replace_all", False)),
                 )
             except ValueError as e:
                 errors.append({"index": index, "note_id": note_id, "error": str(e)})
@@ -962,9 +974,7 @@ class NoteService:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_deleted", note_id=note_id)
         if self._reconcile_repo is not None:
-            self._reconcile_repo.mark_and_enqueue(
-                owner_id, note.workspace, affected_sources
-            )
+            self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
         return {"note_id": note_id}
 
     def delete_many(
@@ -1160,9 +1170,7 @@ class NoteService:
     ) -> dict | None:
         return self._link_service.links(note_id, owner_id, include_meta, include_cross_workspace)
 
-    def link_resolver(
-        self, ws_name: str, owner_id: str, source_folder: str = ""
-    ) -> LinkResolver:
+    def link_resolver(self, ws_name: str, owner_id: str, source_folder: str = "") -> LinkResolver:
         resolver: LinkResolver | None = None
 
         def resolve(target: str):

@@ -109,8 +109,8 @@ def test_edit_many_preserves_mixed_validation_error_order(service, workspace):
             {
                 "note_id": first["note_id"],
                 "mode": "replace_text",
-                "content": "x",
-                "old_text": "missing",
+                "old_str": "missing",
+                "new_str": "x",
                 "expected_sha": _head_sha(workspace, "First.md"),
             },
             {"note_id": second["note_id"]},

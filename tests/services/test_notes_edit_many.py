@@ -57,8 +57,8 @@ def test_edit_many_all_or_nothing_on_bad_anchor(service, workspace):
             {
                 "note_id": r2["note_id"],
                 "mode": "replace_text",
-                "content": "x",
-                "old_text": "does-not-exist",
+                "old_str": "does-not-exist",
+                "new_str": "x",
                 "expected_sha": _head_sha(workspace, "Second.md"),
             },
         ],
@@ -138,8 +138,8 @@ def test_edit_many_replace_all_reports_count_per_item(service, workspace):
             {
                 "note_id": r1["note_id"],
                 "mode": "replace_text",
-                "content": "bar",
-                "old_text": "foo",
+                "old_str": "foo",
+                "new_str": "bar",
                 "replace_all": True,
                 "expected_sha": _head_sha(workspace, "First.md"),
             }

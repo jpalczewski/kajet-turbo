@@ -6,8 +6,16 @@ Operates on the note *body* only: in kajet-turbo the YAML frontmatter is split o
 which makes ``overwrite`` trivial (body = content) and ``prepend`` without a heading a plain
 insert at the start of the body.
 
+Vocabulary: ``body`` is always the haystack being edited, ``text`` the payload going into
+it. The public edit payload is split the same way — whole-body modes take ``content``,
+text modes take an ``old_str`` anchor and its ``new_str`` replacement — so no parameter
+changes meaning depending on the mode.
+
 All errors subclass ``ValueError`` so existing ``except ValueError`` handlers in the service
-and MCP tool catch them and surface ``{"error": ...}`` to the caller.
+and MCP tool catch them and surface ``{"error": ...}`` to the caller. Those messages reach
+the calling LLM verbatim, so they are written in English and name the parameter at fault.
+The parameter names mirror ``edit_note``'s and are chosen there — see
+``src/kajet_turbo/mcp/CLAUDE.md`` before renaming one from this side.
 """
 
 from dataclasses import dataclass
@@ -31,11 +39,11 @@ class HeadingAmbiguousError(ValueError):
 
 
 class AnchorNotFoundError(ValueError):
-    """Raised when ``old_text`` is not present in the body."""
+    """Raised when ``old_str`` is not present in the body."""
 
 
 class AnchorAmbiguousError(ValueError):
-    """Raised when ``old_text`` occurs more than once in the body."""
+    """Raised when ``old_str`` occurs more than once in the body."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,19 +126,19 @@ def find_section_by_heading(sections: list[Section], heading: str) -> Section:
     matches = [s for s in sections if s.heading_text.strip() == needle]
     if not matches:
         available = ", ".join(s.heading_text for s in sections)
-        raise HeadingNotFoundError(f"Nagłówek nie znaleziony. Dostępne: {available}")
+        raise HeadingNotFoundError(f"Heading not found. Available: {available}")
     if len(matches) > 1:
-        raise HeadingAmbiguousError(f"Nagłówek niejednoznaczny: {len(matches)} dopasowań.")
+        raise HeadingAmbiguousError(f"Heading is ambiguous: {len(matches)} matches.")
     return matches[0]
 
 
-def _find_all(content: str, needle: str) -> list[int]:
-    """Non-overlapping match positions of ``needle`` in ``content``."""
+def _find_all(body: str, needle: str) -> list[int]:
+    """Non-overlapping match positions of ``needle`` in ``body``."""
     positions: list[int] = []
     start = 0
     step = max(len(needle), 1)
     while True:
-        i = content.find(needle, start)
+        i = body.find(needle, start)
         if i == -1:
             break
         positions.append(i)
@@ -138,19 +146,19 @@ def _find_all(content: str, needle: str) -> list[int]:
     return positions
 
 
-def _format_ambiguous(content: str, needle: str, positions: list[int]) -> str:
+def _format_ambiguous(body: str, needle: str, positions: list[int]) -> str:
     """Render a diagnostic message listing each match's line, column and surrounding context."""
-    lines = [f"Niejednoznaczne: {len(positions)} dopasowań:"]
+    lines = [f"old_str is ambiguous: {len(positions)} matches:"]
     for pos in positions:
-        before = content[:pos]
+        before = body[:pos]
         line = before.count("\n") + 1
         last_nl = before.rfind("\n")
         col_start = last_nl + 1 if last_nl != -1 else 0
-        column = len(content[col_start:pos]) + 1
+        column = len(body[col_start:pos]) + 1
         ctx_start = max(0, pos - 20)
-        ctx_end = min(len(content), pos + len(needle) + 20)
-        context = content[ctx_start:ctx_end].replace("\n", "\\n")
-        lines.append(f"  linia {line}, kol {column}: ...{context}...")
+        ctx_end = min(len(body), pos + len(needle) + 20)
+        context = body[ctx_start:ctx_end].replace("\n", "\\n")
+        lines.append(f"  line {line}, col {column}: ...{context}...")
     return "\n".join(lines)
 
 
@@ -159,28 +167,28 @@ def _ensure_nl(s: str) -> str:
     return s if s.endswith("\n") else s + "\n"
 
 
-def _locate_unique(content: str, needle: str) -> int:
-    """Return the start index of the single occurrence of ``needle`` in ``content``.
+def _locate_unique(body: str, needle: str) -> int:
+    """Return the start index of the single occurrence of ``needle`` in ``body``.
 
     Raises ``AnchorNotFoundError`` on no match, ``AnchorAmbiguousError`` on 2+ matches.
     """
-    positions = _find_all(content, needle)
+    positions = _find_all(body, needle)
     if not positions:
-        raise AnchorNotFoundError("Tekst nie znaleziony.")
+        raise AnchorNotFoundError("old_str not found in the note body.")
     if len(positions) > 1:
-        raise AnchorAmbiguousError(_format_ambiguous(content, needle, positions))
+        raise AnchorAmbiguousError(_format_ambiguous(body, needle, positions))
     return positions[0]
 
 
-def _replace_text_all(content: str, old: str, new: str) -> tuple[str, int]:
+def _replace_text_all(body: str, old: str, new: str) -> tuple[str, int]:
     """Replace every non-overlapping occurrence of ``old`` with ``new``. Raises
     ``AnchorNotFoundError`` on zero occurrences (mirrors ``replace_text``'s contract).
     ``old`` is always non-empty here — callers (``apply_edit``) already require it.
     """
-    positions = _find_all(content, old)
+    positions = _find_all(body, old)
     if not positions:
-        raise AnchorNotFoundError("Tekst nie znaleziony.")
-    return content.replace(old, new), len(positions)
+        raise AnchorNotFoundError("old_str not found in the note body.")
+    return body.replace(old, new), len(positions)
 
 
 def _splice_block(prefix: str, inserted: str, remainder: str) -> str:
@@ -199,123 +207,197 @@ def _splice_block(prefix: str, inserted: str, remainder: str) -> str:
     return result
 
 
-def append_content(content: str, new_text: str, heading: str | None) -> str:
-    """Append ``new_text`` at end of body, or at the end of ``heading``'s section."""
+def append_content(body: str, text: str, heading: str | None) -> str:
+    """Append ``text`` at end of body, or at the end of ``heading``'s section."""
     if heading is None:
-        return _splice_block(content, new_text, "")
+        return _splice_block(body, text, "")
 
-    section = find_section_by_heading(parse_sections(content), heading)
-    body = content[section.body_start : section.body_end]
-    content_end = section.body_start + len(body.rstrip())
-    return _splice_block(content[:content_end], new_text, content[section.body_end :])
+    section = find_section_by_heading(parse_sections(body), heading)
+    section_body = body[section.body_start : section.body_end]
+    content_end = section.body_start + len(section_body.rstrip())
+    return _splice_block(body[:content_end], text, body[section.body_end :])
 
 
-def prepend_content(content: str, new_text: str, heading: str | None) -> str:
-    """Prepend ``new_text`` at the start of body, or right after ``heading``'s line."""
+def prepend_content(body: str, text: str, heading: str | None) -> str:
+    """Prepend ``text`` at the start of body, or right after ``heading``'s line."""
     if heading is None:
-        result = _ensure_nl(new_text)
-        body_trimmed = content.lstrip("\n")
+        result = _ensure_nl(text)
+        body_trimmed = body.lstrip("\n")
         if body_trimmed:
             result = _ensure_nl(result + body_trimmed)
         return result
 
-    section = find_section_by_heading(parse_sections(content), heading)
+    section = find_section_by_heading(parse_sections(body), heading)
     insert_pos = section.heading_end
-    result = _ensure_nl(content[:insert_pos])
-    result = _ensure_nl(result + new_text)
-    result += content[insert_pos:]
+    result = _ensure_nl(body[:insert_pos])
+    result = _ensure_nl(result + text)
+    result += body[insert_pos:]
     return result
 
 
-def replace_section(content: str, heading: str, new_text: str) -> str:
+def replace_section(body: str, heading: str, text: str) -> str:
     """Replace a section's body, preserving the heading line and following sections.
 
-    If ``new_text`` opens with the same heading (a common mistake), it is stripped to avoid
+    If ``text`` opens with the same heading (a common mistake), it is stripped to avoid
     duplicating it.
     """
-    section = find_section_by_heading(parse_sections(content), heading)
+    section = find_section_by_heading(parse_sections(body), heading)
 
-    body_only = new_text
-    nl = new_text.find("\n")
+    body_only = text
+    nl = text.find("\n")
     if nl != -1:
-        first_line = new_text[:nl].lstrip()
+        first_line = text[:nl].lstrip()
         if first_line.startswith("#") and (
             first_line.lstrip("#").strip() == heading.lstrip("#").strip()
         ):
-            body_only = new_text[nl + 1 :]
+            body_only = text[nl + 1 :]
 
-    return _splice_block(content[: section.heading_end], body_only, content[section.body_end :])
+    return _splice_block(body[: section.heading_end], body_only, body[section.body_end :])
 
 
-def replace_text(content: str, old: str, new: str) -> str:
+def replace_text(body: str, old: str, new: str) -> str:
     """Replace an exact, unique occurrence of ``old`` with ``new``. Errors on 0 or 2+ matches."""
-    pos = _locate_unique(content, old)
-    return content[:pos] + new + content[pos + len(old) :]
+    pos = _locate_unique(body, old)
+    return body[:pos] + new + body[pos + len(old) :]
 
 
-def insert_after(content: str, anchor: str, new_text: str) -> str:
-    """Insert ``new_text`` immediately after a unique ``anchor``. Errors on 0 or 2+ matches."""
-    pos = _locate_unique(content, anchor) + len(anchor)
-    result = content[:pos]
-    if not result.endswith("\n") and not new_text.startswith("\n"):
+def insert_after(body: str, anchor: str, text: str) -> str:
+    """Insert ``text`` immediately after a unique ``anchor``. Errors on 0 or 2+ matches."""
+    pos = _locate_unique(body, anchor) + len(anchor)
+    result = body[:pos]
+    if not result.endswith("\n") and not text.startswith("\n"):
         result += "\n"
-    result += new_text
-    if not result.endswith("\n") and not content[pos:].startswith("\n"):
+    result += text
+    if not result.endswith("\n") and not body[pos:].startswith("\n"):
         result += "\n"
-    result += content[pos:]
+    result += body[pos:]
     return result
+
+
+# Which parameters each mode accepts. Rejection messages are derived from this, so a mode's
+# parameter set is stated once instead of being restated at every validation call site.
+_ACCEPTS: dict[str, tuple[str, ...]] = {
+    "overwrite": ("content",),
+    "append": ("content", "target_heading"),
+    "prepend": ("content", "target_heading"),
+    "replace_section": ("content", "target_heading"),
+    "replace_text": ("old_str", "new_str"),
+    "insert_after": ("old_str", "new_str"),
+    "delete_text": ("old_str",),
+}
+
+
+def _reject_foreign(mode: str, **params: str | None) -> None:
+    """Refuse any parameter that belongs to another mode, naming what this mode takes.
+
+    Silently dropping it would let a caller believe an edit landed the way they meant.
+    """
+    accepted = _ACCEPTS[mode]
+    for name, value in params.items():
+        # Presence, not truthiness: passing content="" to a text mode is still the caller
+        # reaching for the wrong parameter, and saying so beats dropping it.
+        if value is not None and name not in accepted:
+            raise ValueError(
+                f"Mode '{mode}' does not take {name}; it takes {' and '.join(accepted)}."
+            )
+
+
+def _require(mode: str, name: str, value: str | None) -> str:
+    """Return a required, non-empty parameter — narrowing it to ``str`` for the caller."""
+    if not value:
+        raise ValueError(f"Mode '{mode}' requires {name}.")
+    return value
+
+
+def _text_edit(body: str, anchor: str, replacement: str, replace_all: bool) -> EditResult:
+    """Replace ``anchor`` with ``replacement`` — once (anchor must be unique) or everywhere."""
+    if replace_all:
+        new_body, count = _replace_text_all(body, anchor, replacement)
+        return EditResult(body=new_body, replaced=count)
+    return EditResult(body=replace_text(body, anchor, replacement))
 
 
 def apply_edit(
     body: str,
     mode: str,
-    content: str,
-    target_heading: str | None,
-    old_text: str | None,
     *,
+    content: str | None = None,
+    old_str: str | None = None,
+    new_str: str | None = None,
+    target_heading: str | None = None,
     replace_all: bool = False,
 ) -> EditResult:
-    """Dispatch to the transform for ``mode``, validating its required parameters.
+    """Dispatch to the transform for ``mode``, validating its parameter set against _ACCEPTS.
 
-    ``body`` is the current note body (no frontmatter); ``content`` is the edit payload.
-    Returns an ``EditResult``. Raises ``ValueError`` (or a subclass) on invalid params or
-    failed anchor/heading lookups. ``replace_all`` only applies to 'replace_text'/
-    'delete_text' — every other mode combined with ``replace_all=True`` is a validation
-    error, since there's no well-defined "all occurrences" semantics for e.g. a section
-    replace.
+    ``body`` is the current note body (no frontmatter). A parameter another mode owns is a
+    validation error rather than a silently dropped argument.
+
+    ``overwrite`` with ``content=None`` leaves the body untouched — the metadata-only edit
+    (title/tags/folder) comes through this same path, which is why it is handled here rather
+    than short-circuited by the caller.
+
+    ``replace_all`` only applies to replace_text/delete_text; there is no well-defined
+    "all occurrences" for e.g. a section replace.
+
+    Raises ``ValueError`` (or a subclass) on an invalid parameter set or a failed
+    anchor/heading lookup.
     """
-    if mode == "overwrite" and target_heading is not None:
-        raise ValueError("Tryb 'overwrite' nie używa target_heading.")
-    if mode == "replace_section" and not target_heading:
-        raise ValueError("Tryb 'replace_section' wymaga target_heading.")
-    if mode in ("replace_text", "insert_after", "delete_text") and not old_text:
-        raise ValueError(f"Tryb '{mode}' wymaga old_text.")
+    if mode not in _ACCEPTS:
+        raise ValueError(f"Unknown edit mode: '{mode}'.")
     if replace_all and mode not in ("replace_text", "delete_text"):
-        raise ValueError("replace_all działa tylko z trybami 'replace_text'/'delete_text'.")
-    if not content and mode != "delete_text":
-        raise ValueError(f"content nie może być pusty dla trybu '{mode}'.")
-
-    if mode == "overwrite":
-        return EditResult(body=content)
-    if mode == "append":
-        return EditResult(body=append_content(body, content, target_heading))
-    if mode == "prepend":
-        return EditResult(body=prepend_content(body, content, target_heading))
-    if mode == "replace_section":
-        # target_heading guaranteed non-None by validation above.
-        return EditResult(
-            body=replace_section(body, target_heading, content)  # ty: ignore[invalid-argument-type]
+        raise ValueError(
+            f"replace_all only applies to 'replace_text' and 'delete_text', not '{mode}'."
         )
-    if mode == "replace_text":
-        if replace_all:
-            new_body, count = _replace_text_all(body, old_text, content)  # ty: ignore[invalid-argument-type]
-            return EditResult(body=new_body, replaced=count)
-        return EditResult(body=replace_text(body, old_text, content))  # ty: ignore[invalid-argument-type]
-    if mode == "delete_text":
-        if replace_all:
-            new_body, count = _replace_text_all(body, old_text, "")  # ty: ignore[invalid-argument-type]
-            return EditResult(body=new_body, replaced=count)
-        return EditResult(body=replace_text(body, old_text, ""))  # ty: ignore[invalid-argument-type]
-    if mode == "insert_after":
-        return EditResult(body=insert_after(body, old_text, content))  # ty: ignore[invalid-argument-type]
-    raise ValueError(f"Nieznany tryb edycji: '{mode}'.")
+    _reject_foreign(
+        mode,
+        content=content,
+        old_str=old_str,
+        new_str=new_str,
+        target_heading=target_heading,
+    )
+
+    match mode:
+        case "overwrite":
+            return EditResult(body=body if content is None else content)
+
+        case "append":
+            return EditResult(
+                body=append_content(body, _require(mode, "content", content), target_heading)
+            )
+
+        case "prepend":
+            return EditResult(
+                body=prepend_content(body, _require(mode, "content", content), target_heading)
+            )
+
+        case "replace_section":
+            return EditResult(
+                body=replace_section(
+                    body,
+                    _require(mode, "target_heading", target_heading),
+                    _require(mode, "content", content),
+                )
+            )
+
+        case "replace_text":
+            return _text_edit(
+                body,
+                _require(mode, "old_str", old_str),
+                _require(mode, "new_str", new_str),
+                replace_all,
+            )
+
+        case "insert_after":
+            return EditResult(
+                body=insert_after(
+                    body,
+                    _require(mode, "old_str", old_str),
+                    _require(mode, "new_str", new_str),
+                )
+            )
+
+        case "delete_text":
+            return _text_edit(body, _require(mode, "old_str", old_str), "", replace_all)
+
+        case _:  # unreachable unless _ACCEPTS and this dispatch drift apart
+            raise AssertionError(f"mode '{mode}' is accepted but not dispatched")

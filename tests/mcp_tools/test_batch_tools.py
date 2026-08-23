@@ -6,6 +6,8 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+from tests.mcp_tools.helpers import call_json, save_and_get_sha
+
 
 async def test_save_notes_tool_batch(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
@@ -81,8 +83,8 @@ async def test_edit_notes_batch_rejects_all_on_one_bad_item(workspaces_dir, mcp_
                         "note_id": id2,
                         "expected_sha": sha2,
                         "mode": "replace_text",
-                        "content": "x",
-                        "old_text": "does-not-exist",
+                        "old_str": "does-not-exist",
+                        "new_str": "x",
                     },
                 ]
             },
@@ -149,3 +151,98 @@ async def test_delete_notes_batch_rejects_all_on_stale_sha(workspaces_dir, mcp_s
         # nothing deleted, including the valid first item
         get1 = await client.call_tool("get_note", {"note_id": id1})
         assert "First" in get1.content[0].text
+
+
+async def test_edit_notes_batch_takes_old_str_and_new_str_per_item(workspaces_dir, mcp_server):
+    """NoteEditInput carries the same parameter split as edit_note."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id, sha = await save_and_get_sha(client, "Pair", "Hello world.")
+        result = await client.call_tool(
+            "edit_notes",
+            {
+                "edits": [
+                    {
+                        "note_id": note_id,
+                        "expected_sha": sha,
+                        "mode": "replace_text",
+                        "old_str": "world",
+                        "new_str": "earth",
+                    }
+                ]
+            },
+        )
+        assert json.loads(result.content[0].text)["applied"] is True
+        assert (await call_json(client, "get_note", {"note_id": note_id}))[
+            "content"
+        ] == "Hello earth."
+
+
+async def test_edit_notes_batch_rejects_an_item_mixing_parameter_sets(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id, sha = await save_and_get_sha(client, "Strict", "Hello world.")
+        result = await client.call_tool(
+            "edit_notes",
+            {
+                "edits": [
+                    {
+                        "note_id": note_id,
+                        "expected_sha": sha,
+                        "mode": "replace_text",
+                        "old_str": "world",
+                        "content": "earth",
+                    }
+                ]
+            },
+        )
+        data = json.loads(result.content[0].text)
+        assert data["applied"] is False
+        assert "does not take content" in data["errors"][0]["error"]
+        assert (await call_json(client, "get_note", {"note_id": note_id}))[
+            "content"
+        ] == "Hello world."
+
+
+async def test_edit_notes_batch_rejects_an_unknown_key_in_an_item(workspaces_dir, mcp_server):
+    """A typo inside a batch item must fail as loudly as one on the tool's own signature."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id, sha = await save_and_get_sha(client, "Typo", "one\n")
+        with pytest.raises(ToolError, match="old_text"):
+            await client.call_tool(
+                "edit_notes",
+                {
+                    "edits": [
+                        {
+                            "note_id": note_id,
+                            "expected_sha": sha,
+                            "mode": "append",
+                            "content": "more",
+                            "old_text": "junk",
+                        }
+                    ]
+                },
+            )
+        assert "more" not in (await call_json(client, "get_note", {"note_id": note_id}))["content"]
+
+
+async def test_edit_notes_batch_rejects_an_item_that_changes_nothing(workspaces_dir, mcp_server):
+    """Batch scope is content + tags; an item carrying neither would commit an untouched file."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        note_id, sha = await save_and_get_sha(client, "Noop", "Body stays.")
+        result = await call_json(
+            client,
+            "edit_notes",
+            {"edits": [{"note_id": note_id, "expected_sha": sha, "mode": "overwrite"}]},
+        )
+        assert result["applied"] is False
+        assert "changes nothing" in result["errors"][0]["error"]
+        assert (await call_json(client, "get_note", {"note_id": note_id}))[
+            "content"
+        ] == "Body stays."

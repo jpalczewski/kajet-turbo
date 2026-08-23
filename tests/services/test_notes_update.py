@@ -71,9 +71,9 @@ def test_update_replace_text_mode(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        content="earth",
         mode="replace_text",
-        old_text="world",
+        old_str="world",
+        new_str="earth",
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
@@ -89,9 +89,9 @@ def test_update_insert_after_mode(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        content="- A.5",
         mode="insert_after",
-        old_text="- A",
+        old_str="- A",
+        new_str="- A.5",
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
@@ -113,19 +113,18 @@ def test_update_edit_mode_requires_content(service, workspace):
         )
 
 
-def test_update_replace_text_requires_content(service, workspace):
+def test_update_replace_text_requires_new_str(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notatka", "Hello world.", [])["note_id"]
     sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
-    with pytest.raises(ValueError, match="content jest wymagany"):
+    with pytest.raises(ValueError, match="requires new_str"):
         service.update(
             note_id,
             owner_id="u1",
             ws_path=str(workspace),
             expected_sha=sha,
-            content=None,
             mode="replace_text",
-            old_text="world",
+            old_str="world",
         )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
@@ -142,7 +141,7 @@ def test_update_delete_text_mode(service, workspace):
         ws_path=str(workspace),
         expected_sha=sha,
         mode="delete_text",
-        old_text="- B\n",
+        old_str="- B\n",
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
@@ -159,9 +158,9 @@ def test_update_replace_text_ambiguous_raises(service, workspace):
             owner_id="u1",
             ws_path=str(workspace),
             expected_sha=sha,
-            content="qux",
             mode="replace_text",
-            old_text="foo",
+            old_str="foo",
+            new_str="qux",
         )
 
 
@@ -174,8 +173,8 @@ def test_update_replace_text_replace_all_reports_count(service, workspace):
         ws_path=str(workspace),
         expected_sha=sha,
         mode="replace_text",
-        content="qux",
-        old_text="foo",
+        old_str="foo",
+        new_str="qux",
         replace_all=True,
     )
     assert updated["replaced"] == 3
@@ -192,8 +191,8 @@ def test_update_without_replace_all_replaced_is_none(service, workspace):
         ws_path=str(workspace),
         expected_sha=sha,
         mode="replace_text",
-        content="new",
-        old_text="unique",
+        old_str="unique",
+        new_str="new",
     )
     assert updated["replaced"] is None
 
