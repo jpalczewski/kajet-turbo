@@ -58,7 +58,9 @@ plausibly *fail*: derive it from the contract, then go looking for the input tha
 Where the bugs actually live here: empty strings vs absent values, a parameter that is
 legal in one mode and not another, two matches where the code assumed one, a stale sha, a
 batch where item 3 is bad, concurrent writes to one workspace, a note title that is also a
-folder path. When a rule is a matrix, generate the grid instead of hand-picking cases — the
+folder path, and fixture data that is random — `grep` scans the raw file including the
+frontmatter, whose note id is a 7-char nanoid, so a short alphanumeric needle collides with
+it eventually. Pick test data that makes the collision impossible, not just unlikely. When a rule is a matrix, generate the grid instead of hand-picking cases — the
 case you would not think to write by hand is exactly the one that catches the regression.
 
 ### Cover the refusal, not just the happy path

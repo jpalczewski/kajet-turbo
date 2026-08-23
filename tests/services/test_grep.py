@@ -32,8 +32,13 @@ def test_grep_matches_frontmatter_tags(service, workspace):
 
 
 def test_grep_multiple_matches_in_one_note(service, workspace):
-    service.save("u1", "ws", str(workspace), "Notes", "foo\nfoo again\nbar\nfoo once more\n", [])
-    result = service.grep("ws", str(workspace), "foo")
+    # The needle carries a '.' on purpose. grep scans the raw file, frontmatter included,
+    # and reports a frontmatter hit as line 0 — and the note id is a random 7-char nanoid,
+    # so a bare "foo" collides with it in roughly 1 run in 6000 (measured: 33 of 200k ids
+    # contain "foo" case-insensitively). '.' is outside the nanoid alphabet, which makes
+    # the collision impossible rather than merely unlikely.
+    service.save("u1", "ws", str(workspace), "Notes", "foo.\nfoo. again\nbar\nfoo. once more\n", [])
+    result = service.grep("ws", str(workspace), "foo.")
     assert [m["line_number"] for m in result["matches"]] == [1, 2, 4]
 
 
