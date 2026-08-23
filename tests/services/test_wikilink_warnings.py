@@ -15,9 +15,7 @@ def _warning():
 def test_save_reports_ambiguity_without_rejecting(service, workspace):
     _seed_candidates(service, workspace)
 
-    result = service.save(
-        "u1", "ws", str(workspace), "Source", "[[README]]", [], folder="Project"
-    )
+    result = service.save("u1", "ws", str(workspace), "Source", "[[README]]", [], folder="Project")
 
     assert result["note_id"]
     assert result["warnings"] == [_warning()]

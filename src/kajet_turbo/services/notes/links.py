@@ -117,9 +117,7 @@ class NoteLinkService:
         resolution = resolve_content_links(workspace.index, content, source_folder)
         if not resolution.xws_ids:
             return resolution
-        xws_found = {
-            n.id for n in self._crud_repo.get_many(resolution.xws_ids, workspace.owner_id)
-        }
+        xws_found = {n.id for n in self._crud_repo.get_many(resolution.xws_ids, workspace.owner_id)}
         return replace(resolution, resolved_ids=resolution.resolved_ids | xws_found)
 
     def _validate_wikilinks(
@@ -195,9 +193,7 @@ class NoteLinkService:
         own folder participates in proximity ranking.
         """
         target_ids = workspace.target_ids_for_titles(titles)
-        sources = self._link_repo.backlinks_many(
-            target_ids, same_workspace=workspace.ws_name
-        )
+        sources = self._link_repo.backlinks_many(target_ids, same_workspace=workspace.ws_name)
         if self._dangling_repo is not None:
             sources.update(
                 self._dangling_repo.sources_for_titles(
@@ -258,10 +254,7 @@ class NoteLinkService:
     ) -> list[dict]:
         """Map note_ids to ``{note_id, title, folder, workspace}``, skipping missing notes.
         With ``include_meta=True`` also includes ``tags`` and ``updated_at``."""
-        notes = {
-            note.id: note
-            for note in self._crud_repo.get_many(note_ids, owner_id)
-        }
+        notes = {note.id: note for note in self._crud_repo.get_many(note_ids, owner_id)}
         result = []
         for note_id in note_ids:
             note = notes.get(note_id)
@@ -314,9 +307,7 @@ class NoteLinkService:
           this call for a stale snippet/chunk-offset window that closes on the next edit.
         """
         moved = {old.note_id: new for old, new in moves}
-        source_ids = self._link_repo.backlinks_many(
-            list(moved), same_workspace=workspace.ws_name
-        )
+        source_ids = self._link_repo.backlinks_many(list(moved), same_workspace=workspace.ws_name)
         if not source_ids:
             return
         after = LinkIndex(moved.get(path.note_id, path) for path in workspace.paths)

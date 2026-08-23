@@ -61,7 +61,9 @@ class FolderMetaRepository(DbRepository):
                     FolderMeta.path == path,
                 )
             ).first()
-        logger.info("folder_meta_get", owner_id=owner_id, ws=workspace, path=path, found=row is not None)
+        logger.info(
+            "folder_meta_get", owner_id=owner_id, ws=workspace, path=path, found=row is not None
+        )
         return row
 
     def get_many(self, owner_id: str, workspace: str, paths: list[str]) -> dict[str, FolderMeta]:
@@ -76,7 +78,13 @@ class FolderMetaRepository(DbRepository):
                 )
             ).all()
         result = {r.path: r for r in rows}
-        logger.info("folder_meta_get_many", owner_id=owner_id, ws=workspace, requested=len(paths), found=len(result))
+        logger.info(
+            "folder_meta_get_many",
+            owner_id=owner_id,
+            ws=workspace,
+            requested=len(paths),
+            found=len(result),
+        )
         return result
 
     def rename_paths(self, owner_id: str, workspace: str, src: str, dst: str) -> None:
@@ -104,7 +112,7 @@ class FolderMetaRepository(DbRepository):
                 if row.path == src:
                     row.path = dst
                 else:
-                    row.path = dst + row.path[len(src):]
+                    row.path = dst + row.path[len(src) :]
                 row.updated_at = now
                 session.add(row)
             count = len(rows)

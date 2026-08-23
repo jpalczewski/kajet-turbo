@@ -13,6 +13,7 @@ import itertools
 import json
 import os
 import threading
+from pathlib import Path
 
 from locust import HttpUser, between, task
 
@@ -23,7 +24,7 @@ _USERS_FILE = os.environ.get("KAJET_STRESS_USERS_FILE", "")
 _user_pool: list[dict] = []
 
 if _USERS_FILE:
-    with open(_USERS_FILE) as _f:
+    with Path(_USERS_FILE).open() as _f:
         _user_pool = json.load(_f)
 
 
@@ -45,9 +46,7 @@ class KajetUser(HttpUser):
         )
         resp.raise_for_status()
 
-        with self.client.post(
-            "/api/workspaces", json={"name": self._ws}, catch_response=True
-        ) as r:
+        with self.client.post("/api/workspaces", json={"name": self._ws}, catch_response=True) as r:
             if r.status_code in (201, 409):
                 r.success()
 

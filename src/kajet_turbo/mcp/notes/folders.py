@@ -64,7 +64,8 @@ def build_folders(
         instructions: Annotated[
             str | None,
             Field(
-                description="LLM instructions shown when listing notes in this folder. Omit to keep existing."
+                description="LLM instructions shown when listing notes in this folder. "
+                "Omit to keep existing."
             ),
         ] = None,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,

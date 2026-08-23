@@ -36,7 +36,7 @@ bash scripts/migrate.sh                                # upgrade head
 bash scripts/migrate.sh current                        # check revision
 ```
 
-The generated file lands in `alembic/versions/` as usual. Review it, delete spurious `alter_column` noise (TEXT↔AutoString no-ops that SQLite doesn't need), then commit.
+The generated file lands in `alembic/versions/` as usual. Review it, delete spurious `alter_column` noise (TEXT↔AutoString no-ops that SQLite doesn't need), run `uv run ruff check --fix` and `uv run ruff format` on it — Alembic writes in its own style and lints dirty otherwise — then commit.
 
 ## Critical Runtime Rules
 

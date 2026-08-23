@@ -86,9 +86,7 @@ class NoteFolderService:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_moved", note_id=note_id, folder=new_folder)
         if self._reconcile_repo is not None:
-            self._reconcile_repo.mark_and_enqueue(
-                owner_id, note.workspace, affected_sources
-            )
+            self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
         return {"note_id": note_id, "folder": new_folder}
 
     def move_folder(
@@ -200,9 +198,7 @@ class NoteFolderService:
             self._cache.bump(workspace, owner_id)
         logger.info("folder_moved", src=src_n, dst=dst_n, count=len(notes))
         if self._reconcile_repo is not None:
-            self._reconcile_repo.mark_and_enqueue(
-                owner_id, workspace, affected_sources
-            )
+            self._reconcile_repo.mark_and_enqueue(owner_id, workspace, affected_sources)
         return {"moved": len(notes), "src": src_n, "dst": dst_n}
 
     def prune_empty_folders(self, ws_path: str) -> dict:

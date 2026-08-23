@@ -39,9 +39,7 @@ class NoteLinkRepository(DbRepository):
     ) -> None:
         """Replace the set of outgoing links for ``source_note_id`` (delete + reinsert)."""
         with self.timed_session() as session:
-            self.replace_links_in_session(
-                session, source_note_id, workspace, owner_id, target_ids
-            )
+            self.replace_links_in_session(session, source_note_id, workspace, owner_id, target_ids)
             session.commit()
 
     def add_link(
