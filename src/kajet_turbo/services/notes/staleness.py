@@ -10,13 +10,9 @@ instead of a blind retry.
 from kajet_turbo.repositories.git import GitRepository
 
 
-def current_head_sha(
-    ws_path: str, relative: str, git_repo: GitRepository | None = None
-) -> str | None:
-    """``git_repo`` lets batch callers reuse one open repo across N checks
-    instead of re-opening the workspace per item; ``None`` opens it here."""
-    repo = git_repo if git_repo is not None else GitRepository(ws_path)
-    return repo.head_shas_for_paths([relative])[relative]
+def current_head_sha(ws_path: str, relative: str) -> str | None:
+    """Return the HEAD commit that last changed a workspace path."""
+    return GitRepository(ws_path).head_shas_for_paths([relative])[relative]
 
 
 def sha_is_fresh(current_sha: str | None, expected_sha: str | None) -> bool:
