@@ -5,9 +5,15 @@ client_id" — client_authorizations is keyed on client_id alone and written wit
 INSERT OR REPLACE, so a second user authorizing the same client silently re-pointed
 every token ever issued to that client at them. Tokens now carry their own owner.
 
-Backfill takes the currently recorded owner for each client. A token whose client has
-no authorization row gets NULL and stops resolving, which forces one re-authorization
-— the safe direction, since the alternative is guessing whose token it is.
+Existing credentials are deleted rather than backfilled. The only record of ownership
+available is client_authorizations, which holds exactly the "last user who authorized
+this client" answer this migration exists to stop trusting — copying it would stamp the
+wrong owner permanently on any client two people ever authorized, and refresh rotation
+would carry that forward indefinitely. There is no history to reconstruct the truth
+from, so the credentials go and every client re-authorizes once.
+
+Registered clients and recorded consent survive, so this is a re-authorization, not a
+re-registration.
 
 Revision ID: 79798c49ca5f
 Revises: d94724e08b63
@@ -34,14 +40,9 @@ def upgrade() -> None:
     """Upgrade schema."""
     for table in (*_TOKEN_TABLES, "oauth_authorization_codes"):
         op.add_column(table, sa.Column("user_id", sa.Text(), nullable=True))
-        op.execute(
-            sa.text(
-                f"UPDATE {table} SET user_id = ("
-                "  SELECT ca.user_id FROM client_authorizations ca"
-                f"  WHERE ca.client_id = {table}.client_id"
-                ")"
-            )
-        )
+        # Not a backfill: a credential we cannot attribute must not survive the migration
+        # that exists because it was unattributable. See the module docstring.
+        op.execute(sa.text(f"DELETE FROM {table}"))
     for table in _TOKEN_TABLES:
         op.create_index(f"ix_{table}_user_id", table, ["user_id"])
 

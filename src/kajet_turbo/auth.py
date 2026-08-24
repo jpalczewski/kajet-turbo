@@ -210,11 +210,12 @@ class KajetOAuthProvider(OAuthProvider):
             raise TokenError("invalid_grant", "Authorization code not found or already used.")
         if client.client_id is None:
             raise TokenError("invalid_client", "Client ID is required")
-        return await self._issue_token_pair(
-            client.client_id,
-            authorization_code.scopes,
-            getattr(authorization_code, "user_id", None),
-        )
+        user_id = getattr(authorization_code, "user_id", None)
+        if user_id is None:
+            # An unowned code cannot mint an owned token; issuing one would recreate the
+            # credential-without-an-owner state this whole change removes.
+            raise TokenError("invalid_grant", "Authorization code is not bound to a user.")
+        return await self._issue_token_pair(client.client_id, authorization_code.scopes, user_id)
 
     # --- tokens ---
 
@@ -298,6 +299,13 @@ class KajetOAuthProvider(OAuthProvider):
         row = await run_sync(self._oauth_repo.get_access_token, token)
         if row is None:
             logger.warning("oauth_token_rejected", token_prefix=token[:8], reason="unknown_token")
+            return None
+        if row["user_id"] is None:
+            # Predates the user_id column, so there is no way to tell whose it is.
+            # Rejecting here (401) is what makes the client re-run OAuth — failing later
+            # in _resolve_user would only surface as a tool error, which clients retry
+            # forever instead of re-authorizing.
+            logger.warning("oauth_token_rejected", token_prefix=token[:8], reason="no_owner")
             return None
         if identity.token_expired(row):
             logger.warning(
