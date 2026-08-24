@@ -34,6 +34,85 @@ def test_json_sink_includes_exception_fields(capsys):
     assert entry["error_msg"] == "boom"
 
 
+def _log_dedup_boom(logger, *, level="ERROR", note_id=None) -> None:
+    """Single call site: real duplicate FastMCP lines share one source line (the same
+    call_tool() re-entered per mount level), so the dedup key must too — a test that
+    calls logger.error() from two different lines would get two different `origin`s
+    and could never observe a collision either way."""
+    if note_id is None:
+        logger.log(level, "dedup_boom")
+    else:
+        logger.log(level, "dedup_boom", note_id=note_id)
+
+
+def test_json_sink_dedupes_identical_error_lines_within_one_request(capsys):
+    from kajet_turbo.log import logger, setup_logging
+
+    setup_logging()
+    with logger.contextualize(request_id="r1"):
+        _log_dedup_boom(logger)
+        _log_dedup_boom(logger)
+
+    assert len(entries_named(read_log_entries(capsys), "dedup_boom")) == 1
+
+
+def test_json_sink_keeps_lines_that_differ_only_in_extra_fields(capsys):
+    from kajet_turbo.log import logger, setup_logging
+
+    setup_logging()
+    with logger.contextualize(request_id="r1"):
+        _log_dedup_boom(logger, note_id="a")
+        _log_dedup_boom(logger, note_id="b")
+
+    entries = entries_named(read_log_entries(capsys), "dedup_boom")
+    assert sorted(e["note_id"] for e in entries) == ["a", "b"]
+
+
+def test_json_sink_does_not_dedupe_different_request_ids(capsys):
+    from kajet_turbo.log import logger, setup_logging
+
+    setup_logging()
+    with logger.contextualize(request_id="r1"):
+        _log_dedup_boom(logger)
+    with logger.contextualize(request_id="r2"):
+        _log_dedup_boom(logger)
+
+    assert len(entries_named(read_log_entries(capsys), "dedup_boom")) == 2
+
+
+def test_json_sink_does_not_dedupe_without_request_id(capsys):
+    from kajet_turbo.log import logger, setup_logging
+
+    setup_logging()
+    _log_dedup_boom(logger)
+    _log_dedup_boom(logger)
+
+    assert len(entries_named(read_log_entries(capsys), "dedup_boom")) == 2
+
+
+def test_json_sink_does_not_dedupe_info_level(capsys):
+    from kajet_turbo.log import logger, setup_logging
+
+    setup_logging()
+    with logger.contextualize(request_id="r1"):
+        _log_dedup_boom(logger, level="INFO")
+        _log_dedup_boom(logger, level="INFO")
+
+    assert len(entries_named(read_log_entries(capsys), "dedup_boom")) == 2
+
+
+def test_json_sink_dedup_respects_kajet_cache_off(capsys, monkeypatch):
+    monkeypatch.setenv("KAJET_CACHE", "0")
+    from kajet_turbo.log import logger, setup_logging
+
+    setup_logging()
+    with logger.contextualize(request_id="r1"):
+        _log_dedup_boom(logger)
+        _log_dedup_boom(logger)
+
+    assert len(entries_named(read_log_entries(capsys), "dedup_boom")) == 2
+
+
 async def test_logged_tool_logs_on_success(capsys):
     from kajet_turbo.log import logged_tool, setup_logging
 
