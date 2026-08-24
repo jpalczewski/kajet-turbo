@@ -21,44 +21,30 @@ Usage:
     uv run python scripts/analyze-logs.py --msg save_note --fields ts,user_id,duration_ms
     uv run python scripts/analyze-logs.py --role mcp             # pick latest mcp log
     uv run python scripts/analyze-logs.py --env develop --role api  # develop environment
+    uv run python scripts/analyze-logs.py --since 7d --pct-field fts_ms \
+        --compare-at 2026-08-22T19:59:08Z   # did that deploy/fix change anything?
+    uv run python scripts/analyze-logs.py --json | jq 'select(.msg=="http")'  # raw JSONL
+
+Reusable pieces live in scripts/log_analysis.py — import those for one-off analysis
+instead of re-deriving them here.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
 import sys
 from collections import Counter, defaultdict
-from pathlib import Path
 
-LOGS_DIR = Path(__file__).parent.parent / "ops" / "logs"
-LEVEL_ORDER = {"debug": 0, "info": 1, "warning": 2, "error": 3, "critical": 4}
-
-
-def parse_log(path: Path) -> list[dict]:
-    events = []
-    for line in path.read_text(errors="replace").splitlines():
-        raw = line.strip()
-        if not raw:
-            continue
-        idx = raw.find("{")
-        if idx == -1:
-            continue
-        try:
-            events.append(json.loads(raw[idx:]))
-        except json.JSONDecodeError:
-            continue
-    return events
-
-
-def latest_log(role: str = "mcp", env: str = "produkcja") -> Path:
-    pattern = f"{env}_{role}*"
-    candidates = sorted(LOGS_DIR.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
-    if not candidates:
-        sys.exit(f"No logs found in {LOGS_DIR} matching {pattern!r}")
-    return candidates[0]
+from log_analysis import (
+    LEVEL_ORDER,
+    load_events,
+    normalize_env,
+    percentile_summary,
+    split_at,
+    summarize,
+)
 
 
 def _fmt_field(e: dict, key: str) -> str:
@@ -269,41 +255,6 @@ def mode_msg(events: list[dict], msg_filter: set[str], fields: list[str] | None)
         mode_grep(matched, "", use_re=False)
 
 
-def _percentile(sorted_vals: list[float], p: float) -> float | None:
-    """Nearest-rank percentile (no interpolation, dependency-free, deterministic)."""
-    if not sorted_vals:
-        return None
-    k = math.ceil(p / 100 * len(sorted_vals)) - 1
-    return sorted_vals[max(0, min(k, len(sorted_vals) - 1))]
-
-
-def percentile_summary(
-    events: list[dict], field: str, group_by: str
-) -> dict[str, dict[str, float | int | None]]:
-    """Group events by ``group_by`` and summarize numeric ``field`` per group.
-
-    Only completion lines carry these fields; slow_sync is threshold-gated and
-    survivorship-biased, so it is intentionally NOT the source here."""
-    buckets: dict[str, list[float]] = defaultdict(list)
-    for e in events:
-        g = e.get(group_by)
-        v = e.get(field)
-        if g is None or not isinstance(v, (int, float)) or isinstance(v, bool):
-            continue
-        buckets[str(g)].append(float(v))
-    summary: dict[str, dict[str, float | int | None]] = {}
-    for g, vals in buckets.items():
-        vals.sort()
-        summary[g] = {
-            "count": len(vals),
-            "p50": _percentile(vals, 50),
-            "p95": _percentile(vals, 95),
-            "p99": _percentile(vals, 99),
-            "max": vals[-1],
-        }
-    return summary
-
-
 def mode_percentiles(events: list[dict], field: str, group_by: str) -> None:
     summary = percentile_summary(events, field, group_by)
     if not summary:
@@ -320,6 +271,30 @@ def mode_percentiles(events: list[dict], field: str, group_by: str) -> None:
             f"{g:<30}  {s['count']:>6}  {_f(s['p50']):>7}  {_f(s['p95']):>7}  "
             f"{_f(s['p99']):>7}  {_f(s['max']):>7}"
         )
+
+
+def mode_compare(events: list[dict], boundary: str, field: str) -> None:
+    """Same field, before and after a moment — the "did that change anything?" view."""
+    before, after = split_at(events, boundary)
+    b = summarize([float(e[field]) for e in before if isinstance(e.get(field), (int, float))])
+    a = summarize([float(e[field]) for e in after if isinstance(e.get(field), (int, float))])
+
+    def _f(x: float | None) -> str:
+        return f"{x:.1f}" if x is not None else "-"
+
+    def _delta(x: float | None, y: float | None) -> str:
+        if x is None or y is None:
+            return "-"
+        if x == 0:
+            return "+inf" if y else "0"
+        return f"{y / x:.1f}x"
+
+    print(f"{field} split at {boundary}\n")
+    print(f"{'':>8}  {'before':>10}  {'after':>10}  {'change':>8}")
+    print("-" * 42)
+    for k in ("count", "p50", "p95", "p99", "max"):
+        change = _delta(b[k], a[k]) if k != "count" else ""
+        print(f"{k:>8}  {_f(b[k]):>10}  {_f(a[k]):>10}  {change:>8}")
 
 
 def mode_fields(events: list[dict], fields: list[str]) -> None:
@@ -395,6 +370,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--since", default="24h", help="Loki query start (e.g. 1h, 24h, 7d, ISO timestamp)"
     )
     parser.add_argument("--until", default="now", help="Loki query end (default: now)")
+    parser.add_argument(
+        "--compare-at",
+        metavar="ISO_TS",
+        help="Split the window at this timestamp and compare --pct-field on both sides "
+        "(e.g. a deploy or a fix: did it change anything?)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print raw events as JSONL instead of a report — for jq or ad-hoc analysis",
+    )
     args = parser.parse_args(argv)
 
     if args.source is None:
@@ -411,36 +397,45 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    env = args.env
-    if env in ("prod", "production"):
-        env = "produkcja"
-    elif env in ("dev", "development"):
-        env = "develop"
+    env = normalize_env(args.env)
 
-    if args.source == "docker-logs":
-        path = Path(args.log) if args.log else latest_log(args.role, env)
-        print(f"→ {path}\n")
-        events = parse_log(path)
+    if args.source == "loki":
+        banner = f"→ loki: role={args.role} env={env} since={args.since} until={args.until}"
     else:
-        print(f"→ loki: role={args.role} env={env} since={args.since} until={args.until}\n")
-        # lazy import: keeps the SSH/socket/subprocess surface out of pure docker-logs runs
-        import loki_source
+        banner = f"→ {args.log or 'latest ' + env + '_' + args.role}"
+    if not args.json:
+        print(banner + "\n")
 
-        msg_filter_for_query = [m.strip() for m in args.msg.split(",")] if args.msg else None
-        min_level_for_query = args.min_level if args.mode == "errors" else None
-        try:
-            events = loki_source.fetch_events(
-                args.role,
-                env,
-                since=args.since,
-                until=args.until,
-                min_level=min_level_for_query,
-                msg_filter=msg_filter_for_query,
-            )
-        except loki_source.LokiUnreachableError as e:
-            sys.exit(str(e))
+    try:
+        events = load_events(
+            source=args.source,
+            role=args.role,
+            env=env,
+            since=args.since,
+            until=args.until,
+            log=args.log,
+            min_level=args.min_level if args.mode == "errors" else None,
+            # A compare run needs both sides of the boundary, so it must not be narrowed
+            # to one msg at query time.
+            msg_filter=[m.strip() for m in args.msg.split(",")]
+            if (args.msg and not args.compare_at)
+            else None,
+        )
+    except Exception as e:  # LokiUnreachableError carries the remediation text
+        if type(e).__name__ != "LokiUnreachableError":
+            raise
+        sys.exit(str(e))
+
+    if args.json:
+        for e in events:
+            print(json.dumps(e, ensure_ascii=False))
+        return
 
     print(f"  {len(events)} events parsed\n")
+
+    if args.compare_at:
+        mode_compare(events, args.compare_at, args.pct_field)
+        return
 
     fields = [f.strip() for f in args.fields.split(",")] if args.fields else None
     msg_filter = {m.strip() for m in args.msg.split(",")} if args.msg else None

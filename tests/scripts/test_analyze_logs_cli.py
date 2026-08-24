@@ -2,6 +2,10 @@ import importlib.util
 import sys
 from pathlib import Path
 
+# The CLI imports its own helpers as a bare `log_analysis`, which resolves for free when it
+# runs as a script but not when importlib loads it from here.
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+
 _spec = importlib.util.spec_from_file_location(
     "analyze_logs", Path(__file__).parent.parent.parent / "scripts" / "analyze-logs.py"
 )
@@ -47,28 +51,8 @@ def test_source_loki_with_log_path_errors(monkeypatch, capsys):
     )
 
 
-def test_percentile_nearest_rank():
-    vals = [float(v) for v in range(1, 101)]  # 1..100 sorted
-    assert analyze_logs._percentile(vals, 50) == 50
-    assert analyze_logs._percentile(vals, 95) == 95
-    assert analyze_logs._percentile(vals, 99) == 99
-    assert analyze_logs._percentile([], 50) is None
-    assert analyze_logs._percentile([42.0], 95) == 42.0
-
-
-def test_percentile_summary_groups_and_ignores_nonnumeric():
-    events = [
-        {"tool": "search", "duration_ms": 10},
-        {"tool": "search", "duration_ms": 30},
-        {"tool": "save", "duration_ms": 100},
-        {"tool": "search", "duration_ms": "oops"},  # ignored: non-numeric
-        {"duration_ms": 5},  # ignored: no group key
-        {"tool": "flag", "duration_ms": True},  # ignored: bool
-    ]
-    s = analyze_logs.percentile_summary(events, "duration_ms", "tool")
-    assert s["search"]["count"] == 2
-    assert "flag" not in s
-    assert s["save"]["p50"] == 100
+# _percentile and percentile_summary moved to scripts/log_analysis.py along with the code;
+# their tests live in test_log_analysis.py now.
 
 
 def test_percentiles_in_modes_and_args(monkeypatch):
