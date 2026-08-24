@@ -84,12 +84,19 @@ def _json_sink(message) -> None:
     # FastMCP's mount() makes every level of a tool's mount chain re-enter call_tool(),
     # and each level independently logs the same tool-call/argument-validation failure
     # with no fields (exc_info=False) — so one real failure becomes N identical lines,
-    # one per mount level. A legitimately-repeated identical failure within the same
-    # request and TTL window would also collapse to one line; that's accepted because
-    # this server's transport gives one request_id per tool call, so it would require a
-    # same-call double-failure with identical content, which the current tools don't
-    # produce. KAJET_CACHE=0 restores the raw, undeduplicated stream.
-    if entry["level"] in ("error", "warning") and entry.get("request_id") and _ErrorDedup.cache:
+    # one per mount level. Scoped to the "fastmcp." logger namespace specifically (not
+    # every error/warning app-wide): our own code has call sites that legitimately log
+    # byte-identical content twice in one request by coincidence rather than re-entry
+    # (e.g. concurrency.py's slow_sync warning for two separate slow dispatches under
+    # matching rounded timings) — deduping those would silently hide a second real
+    # incident. KAJET_CACHE=0 restores the raw, undeduplicated stream.
+    logger_name = entry.get("logger", "")
+    if (
+        entry["level"] in ("error", "warning")
+        and entry.get("request_id")
+        and logger_name.startswith("fastmcp.")
+        and _ErrorDedup.cache
+    ):
         key = _dedup_key(entry)
         if _ErrorDedup.cache.get(key) is not None:
             return

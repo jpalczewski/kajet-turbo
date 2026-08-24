@@ -34,15 +34,18 @@ def test_json_sink_includes_exception_fields(capsys):
     assert entry["error_msg"] == "boom"
 
 
-def _log_dedup_boom(logger, *, level="ERROR", note_id=None) -> None:
+def _log_dedup_boom(logger, *, level="ERROR", note_id=None, logger_name="fastmcp.server.server"):
     """Single call site: real duplicate FastMCP lines share one source line (the same
     call_tool() re-entered per mount level), so the dedup key must too — a test that
     calls logger.error() from two different lines would get two different `origin`s
-    and could never observe a collision either way."""
+    and could never observe a collision either way. Binds `logger_name` the same way
+    _InterceptHandler does for records intercepted from stdlib logging (real FastMCP
+    duplicates arrive this way, not as direct loguru calls)."""
+    bound = logger.bind(logger=logger_name) if logger_name else logger
     if note_id is None:
-        logger.log(level, "dedup_boom")
+        bound.log(level, "dedup_boom")
     else:
-        logger.log(level, "dedup_boom", note_id=note_id)
+        bound.log(level, "dedup_boom", note_id=note_id)
 
 
 def test_json_sink_dedupes_identical_error_lines_within_one_request(capsys):
@@ -109,6 +112,21 @@ def test_json_sink_dedup_respects_kajet_cache_off(capsys, monkeypatch):
     with logger.contextualize(request_id="r1"):
         _log_dedup_boom(logger)
         _log_dedup_boom(logger)
+
+    assert len(entries_named(read_log_entries(capsys), "dedup_boom")) == 2
+
+
+def test_json_sink_does_not_dedupe_non_fastmcp_loggers(capsys):
+    """Scoping to the "fastmcp." logger namespace matters: our own code has call sites
+    that legitimately log byte-identical content twice in one request by coincidence
+    (e.g. concurrency.py's slow_sync warning, same rounded timings for two separate
+    slow dispatches under matching contention) — those must never be silently merged."""
+    from kajet_turbo.log import logger, setup_logging
+
+    setup_logging()
+    with logger.contextualize(request_id="r1"):
+        _log_dedup_boom(logger, logger_name="kajet_turbo.concurrency")
+        _log_dedup_boom(logger, logger_name="kajet_turbo.concurrency")
 
     assert len(entries_named(read_log_entries(capsys), "dedup_boom")) == 2
 
