@@ -7,6 +7,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.context import Context
 from fastmcp.server.dependencies import get_access_token, get_context
 
+from kajet_turbo import identity
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logger
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
@@ -55,7 +56,7 @@ def _resolve_user() -> str:
     if token is None:
         raise ToolError("Wymagane zalogowanie.")
     assert deps.oauth_repo is not None
-    user_id = deps.oauth_repo.get_user_id_by_client(token.client_id)
+    user_id = identity.user_id_for_client(deps.oauth_repo, token.client_id)
     if user_id is None:
         logger.warning("mcp_token_without_user", client_id=token.client_id)
         raise ToolError("Wymagane zalogowanie.")

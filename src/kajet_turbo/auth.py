@@ -20,6 +20,7 @@ from mcp.server.auth.provider import (
 from mcp.server.auth.settings import ClientRegistrationOptions
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
+from kajet_turbo import identity
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logger
 from kajet_turbo.repositories.oauth import OAuthRepository
@@ -224,7 +225,7 @@ class KajetOAuthProvider(OAuthProvider):
         row = await run_sync(self._oauth_repo.get_refresh_token, refresh_token)
         if row is None or row["client_id"] != client.client_id:
             return None
-        if row["expires_at"] is not None and row["expires_at"] < time.time():
+        if identity.token_expired(row):
             await run_sync(self._oauth_repo.delete_refresh_token, refresh_token)
             await run_sync(self._oauth_repo.delete_access_tokens_by_refresh, refresh_token)
             return None
@@ -264,7 +265,7 @@ class KajetOAuthProvider(OAuthProvider):
         if row is None:
             logger.warning("oauth_token_rejected", token_prefix=token[:8], reason="unknown_token")
             return None
-        if row["expires_at"] is not None and row["expires_at"] < time.time():
+        if identity.token_expired(row):
             logger.warning(
                 "oauth_token_rejected",
                 token_prefix=token[:8],

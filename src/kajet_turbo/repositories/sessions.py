@@ -1,27 +1,29 @@
 import secrets
 import time
 
-from sqlalchemy import Engine, text
-from sqlmodel import Session
+from sqlalchemy import text
 
+from kajet_turbo.log import logger
 from kajet_turbo.models import UserSession
+from kajet_turbo.repositories import DbRepository
 
 
-class SessionRepository:
-    def __init__(self, engine: Engine):
-        self._engine = engine
-
+class SessionRepository(DbRepository):
     def create(self, user_id: str) -> str:
         token = secrets.token_hex(32)
         expires_at = int(time.time()) + 30 * 24 * 3600
         sess = UserSession(token=token, user_id=user_id, expires_at=expires_at)
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.add(sess)
             session.commit()
+        logger.info("session_created", user_id=user_id, expires_at=expires_at)
         return token
 
     def get_user(self, token: str) -> dict | None:
-        with Session(self._engine) as session:
+        # Timed but not logged: this runs on every authenticated REST request, so a line
+        # per call would drown the log while telling nobody anything. The db_ms it feeds
+        # into the request's span is the part that was missing.
+        with self.timed_session() as session:
             row = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "SELECT u.id, u.email FROM sessions s"
@@ -33,8 +35,9 @@ class SessionRepository:
         return dict(row._mapping) if row else None
 
     def delete(self, token: str) -> None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("DELETE FROM sessions WHERE token = :token"), {"token": token}
             )
             session.commit()
+        logger.info("session_deleted")

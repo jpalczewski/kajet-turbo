@@ -8,6 +8,7 @@ from fastapi.exceptions import WebSocketException
 from nanoid import generate
 from starlette import status
 
+from kajet_turbo import identity
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_event_repo, get_session_repo
 from kajet_turbo.log import logger
@@ -23,8 +24,8 @@ async def _get_ws_user(
     websocket: WebSocket,
     session_repo: SessionRepository = Depends(get_session_repo),
 ) -> dict:
-    token = websocket.cookies.get("kajet_session", "")
-    user = await run_sync(session_repo.get_user, token) if token else None
+    token = identity.session_token_from_cookies(websocket.cookies)
+    user = await run_sync(identity.resolve_session_user, session_repo, token) if token else None
     if not user:
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
     return user
