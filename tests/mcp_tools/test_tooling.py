@@ -56,3 +56,33 @@ def test_require_found_passes_value_through():
 def test_require_found_raises_on_none():
     with pytest.raises(ToolError, match=r"Notatka id1 nie znaleziona\."):
         require_found(None, "id1")
+
+
+async def test_nested_mount_tool_error_logs_once_not_per_mount_level(capsys):
+    """A tool error unwinds through every mount() level it passes through, and each
+    level's own call_tool() independently logs "Error calling tool" (fastmcp's
+    server.py:1284, exc_info=False) — see issue #36. root -> mid -> leaf mirrors
+    build_mcp's real depth (root mounts notes/workspaces, which mount crud/...)."""
+    from kajet_turbo.log import logger, setup_logging
+    from tests.helpers import entries_named, read_log_entries
+
+    setup_logging()
+
+    leaf = FastMCP("leaf")
+
+    @leaf.tool
+    def explode() -> str:
+        raise ToolError("boom-nested")
+
+    mid = FastMCP("mid")
+    mid.mount(leaf)
+    root = FastMCP("root")
+    root.mount(mid)
+
+    with logger.contextualize(request_id="test-req"):
+        async with Client(root) as client:
+            with pytest.raises(ToolError, match="boom-nested"):
+                await client.call_tool("explode")
+
+    entries = entries_named(read_log_entries(capsys), "Error calling tool 'explode'")
+    assert len(entries) == 1

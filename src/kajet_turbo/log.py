@@ -23,6 +23,12 @@ _HEALTH_PATHS = frozenset({"/healthz", "/readyz"})
 # long enough to collapse a burst (SPA polling, a run of MCP tool calls) into one lookup.
 _USER_ID_CACHE_TTL = 60.0
 
+# FastMCP's mount() re-enters call_tool() at every mount level a tool sits behind, and
+# each level independently logs the same "Error calling tool"/validation failure (see
+# _dedup_key). The real-world spread between those duplicate lines is sub-millisecond;
+# 5s is generous headroom without risking a bridge across two distinct requests.
+_ERROR_DEDUP_TTL = 5.0
+
 
 class _Missing:
     """Distinguishes a cache miss from a cached "this credential is nobody"."""
@@ -31,6 +37,26 @@ class _Missing:
 
 
 _MISS = _Missing()
+
+
+class _ErrorDedup:
+    """Holds the dedup cache as a class attribute instead of a module global, so
+    setup_logging() can rebind it without a `global` statement.
+
+    Set inside setup_logging(), not at import time: that makes KAJET_CACHE=0 actually
+    take effect (env is read when setup_logging() runs) and gives each test its own
+    cache instead of bleeding dedup state across tests within the TTL window."""
+
+    cache: TtlCache[str, bool] | None = None
+
+
+def _dedup_key(entry: dict) -> str:
+    """Full rendered content minus the timestamp. A coarser key (e.g. level+msg+origin+
+    request_id) would collapse two distinct failures that only differ in a bound field
+    (say, two different note_ids) into one — this only ever collapses lines that are
+    byte-identical apart from `ts`, matching what production actually shows for the
+    mount-chain duplication this guards against."""
+    return json.dumps({k: v for k, v in entry.items() if k != "ts"}, sort_keys=True, default=str)
 
 
 def _json_sink(message) -> None:
@@ -55,6 +81,26 @@ def _json_sink(message) -> None:
         t, v, _ = r["exception"]
         entry["error_type"] = t.__name__ if t else None
         entry["error_msg"] = str(v) if v else None
+    # FastMCP's mount() makes every level of a tool's mount chain re-enter call_tool(),
+    # and each level independently logs the same tool-call/argument-validation failure
+    # with no fields (exc_info=False) — so one real failure becomes N identical lines,
+    # one per mount level. Scoped to the "fastmcp." logger namespace specifically (not
+    # every error/warning app-wide): our own code has call sites that legitimately log
+    # byte-identical content twice in one request by coincidence rather than re-entry
+    # (e.g. concurrency.py's slow_sync warning for two separate slow dispatches under
+    # matching rounded timings) — deduping those would silently hide a second real
+    # incident. KAJET_CACHE=0 restores the raw, undeduplicated stream.
+    logger_name = entry.get("logger", "")
+    if (
+        entry["level"] in ("error", "warning")
+        and entry.get("request_id")
+        and logger_name.startswith("fastmcp.")
+        and _ErrorDedup.cache
+    ):
+        key = _dedup_key(entry)
+        if _ErrorDedup.cache.get(key) is not None:
+            return
+        _ErrorDedup.cache.put(key, True)
     print(json.dumps(entry, ensure_ascii=False), file=sys.stderr)
 
 
@@ -82,6 +128,7 @@ class _InterceptHandler(logging.Handler):
 
 
 def setup_logging() -> None:
+    _ErrorDedup.cache = TtlCache(ttl=_ERROR_DEDUP_TTL) if cache_enabled() else None
     level = os.getenv("LOG_LEVEL", "INFO").upper()
     logger.remove()
     logger.add(_json_sink, level=level)
