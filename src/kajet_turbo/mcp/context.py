@@ -56,7 +56,10 @@ def _resolve_user() -> str:
     if token is None:
         raise ToolError("Wymagane zalogowanie.")
     assert deps.oauth_repo is not None
-    user_id = identity.user_id_for_client(deps.oauth_repo, token.client_id)
+    # Resolve from the token itself. Going through client_authorizations meant "the last
+    # user who authorized this client", so a second user's consent re-pointed tokens that
+    # were already issued — see identity.resolve_bearer_user_id.
+    user_id = identity.resolve_bearer_user_id(deps.oauth_repo, token.token)
     if user_id is None:
         logger.warning("mcp_token_without_user", client_id=token.client_id)
         raise ToolError("Wymagane zalogowanie.")

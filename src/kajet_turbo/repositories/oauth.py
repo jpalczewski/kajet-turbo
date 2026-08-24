@@ -47,6 +47,14 @@ class OAuthRepository:
             session.commit()
 
     def get_user_id_by_client(self, client_id: str) -> str | None:
+        """Who last consented for this client. A consent ledger — NOT an identity source.
+
+        client_authorizations is keyed on client_id alone and written with INSERT OR
+        REPLACE, so this answer changes whenever anyone else authorizes the same client.
+        Authenticating a request with it let one consent click re-point tokens that were
+        already issued. Resolve identity from the token row instead
+        (identity.resolve_bearer_user_id).
+        """
         with Session(self._engine) as session:
             row = session.exec(
                 select(ClientAuthorization).where(ClientAuthorization.client_id == client_id)
@@ -60,17 +68,19 @@ class OAuthRepository:
         scopes: list[str] | None,
         expires_at: int | None,
         refresh_token: str | None = None,
+        user_id: str | None = None,
     ) -> None:
         with Session(self._engine) as session:
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT OR REPLACE INTO oauth_access_tokens"
-                    " (token, client_id, scopes, expires_at, refresh_token)"
-                    " VALUES (:token, :client_id, :scopes, :expires_at, :refresh_token)"
+                    " (token, client_id, user_id, scopes, expires_at, refresh_token)"
+                    " VALUES (:token, :client_id, :user_id, :scopes, :expires_at, :refresh_token)"
                 ),
                 {
                     "token": token,
                     "client_id": client_id,
+                    "user_id": user_id,
                     "scopes": json.dumps(scopes or []),
                     "expires_at": expires_at,
                     "refresh_token": refresh_token,
@@ -84,17 +94,19 @@ class OAuthRepository:
         client_id: str,
         scopes: list[str] | None,
         expires_at: int | None,
+        user_id: str | None = None,
     ) -> None:
         with Session(self._engine) as session:
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT OR REPLACE INTO oauth_refresh_tokens"
-                    " (token, client_id, scopes, expires_at)"
-                    " VALUES (:token, :client_id, :scopes, :expires_at)"
+                    " (token, client_id, user_id, scopes, expires_at)"
+                    " VALUES (:token, :client_id, :user_id, :scopes, :expires_at)"
                 ),
                 {
                     "token": token,
                     "client_id": client_id,
+                    "user_id": user_id,
                     "scopes": json.dumps(scopes or []),
                     "expires_at": expires_at,
                 },
@@ -105,7 +117,7 @@ class OAuthRepository:
         with Session(self._engine) as session:
             rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
-                    "SELECT token, client_id, scopes, expires_at, refresh_token"
+                    "SELECT token, client_id, user_id, scopes, expires_at, refresh_token"
                     " FROM oauth_access_tokens"
                     " WHERE expires_at IS NULL OR expires_at > :now"
                 ),
@@ -128,7 +140,7 @@ class OAuthRepository:
         with Session(self._engine) as session:
             row = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
-                    "SELECT token, client_id, scopes, expires_at, refresh_token"
+                    "SELECT token, client_id, user_id, scopes, expires_at, refresh_token"
                     " FROM oauth_access_tokens WHERE token = :token"
                 ),
                 {"token": token},
@@ -141,7 +153,7 @@ class OAuthRepository:
         with Session(self._engine) as session:
             row = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
-                    "SELECT token, client_id, scopes, expires_at"
+                    "SELECT token, client_id, user_id, scopes, expires_at"
                     " FROM oauth_refresh_tokens WHERE token = :token"
                 ),
                 {"token": token},
@@ -154,6 +166,7 @@ class OAuthRepository:
         self,
         code: str,
         client_id: str,
+        user_id: str | None,
         redirect_uri: str,
         redirect_uri_provided_explicitly: bool,
         scopes: list[str] | None,
@@ -164,14 +177,16 @@ class OAuthRepository:
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT OR REPLACE INTO oauth_authorization_codes"
-                    " (code, client_id, redirect_uri, redirect_uri_provided_explicitly,"
+                    " (code, client_id, user_id, redirect_uri,"
+                    "  redirect_uri_provided_explicitly,"
                     "  scopes, expires_at, code_challenge)"
-                    " VALUES (:code, :client_id, :redirect_uri, :explicit,"
+                    " VALUES (:code, :client_id, :user_id, :redirect_uri, :explicit,"
                     "  :scopes, :expires_at, :code_challenge)"
                 ),
                 {
                     "code": code,
                     "client_id": client_id,
+                    "user_id": user_id,
                     "redirect_uri": redirect_uri,
                     "explicit": redirect_uri_provided_explicitly,
                     "scopes": json.dumps(scopes or []),
@@ -185,7 +200,8 @@ class OAuthRepository:
         with Session(self._engine) as session:
             row = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
-                    "SELECT code, client_id, redirect_uri, redirect_uri_provided_explicitly,"
+                    "SELECT code, client_id, user_id, redirect_uri,"
+                    " redirect_uri_provided_explicitly,"
                     " scopes, expires_at, code_challenge"
                     " FROM oauth_authorization_codes WHERE code = :code"
                 ),

@@ -56,6 +56,23 @@ def _resolve_base_url() -> str:
     return raw
 
 
+class OwnedAuthorizationCode(AuthorizationCode):
+    """An authorization code plus the user who consented to it.
+
+    The SDK hands whatever ``load_authorization_code`` returns straight to
+    ``exchange_authorization_code``, which is how the owner reaches token issuance.
+    Identity must travel with the credential — deriving it from client_id instead lets
+    a later authorization of the same client re-point every token already issued."""
+
+    user_id: str | None = None
+
+
+class OwnedRefreshToken(RefreshToken):
+    """A refresh token plus its owner; see OwnedAuthorizationCode."""
+
+    user_id: str | None = None
+
+
 class KajetOAuthProvider(OAuthProvider):
     """Stateless OAuth provider: the DB is the single source of truth.
 
@@ -149,6 +166,7 @@ class KajetOAuthProvider(OAuthProvider):
             self._oauth_repo.upsert_auth_code,
             auth_code_value,
             client.client_id,
+            user_id,
             str(params.redirect_uri),
             params.redirect_uri_provided_explicitly,
             scopes_list,
@@ -170,9 +188,10 @@ class KajetOAuthProvider(OAuthProvider):
         if row["expires_at"] < time.time():
             await run_sync(self._oauth_repo.delete_auth_code, authorization_code)
             return None
-        return AuthorizationCode(
+        return OwnedAuthorizationCode(
             code=row["code"],
             client_id=row["client_id"],
+            user_id=row["user_id"],
             redirect_uri=row["redirect_uri"],
             redirect_uri_provided_explicitly=bool(row["redirect_uri_provided_explicitly"]),
             scopes=row["scopes"],
@@ -191,17 +210,28 @@ class KajetOAuthProvider(OAuthProvider):
             raise TokenError("invalid_grant", "Authorization code not found or already used.")
         if client.client_id is None:
             raise TokenError("invalid_client", "Client ID is required")
-        return await self._issue_token_pair(client.client_id, authorization_code.scopes)
+        return await self._issue_token_pair(
+            client.client_id,
+            authorization_code.scopes,
+            getattr(authorization_code, "user_id", None),
+        )
 
     # --- tokens ---
 
-    async def _issue_token_pair(self, client_id: str, scopes: list[str]) -> OAuthToken:
+    async def _issue_token_pair(
+        self, client_id: str, scopes: list[str], user_id: str | None
+    ) -> OAuthToken:
         access_token = f"kajet_at_{secrets.token_hex(32)}"
         refresh_token = f"kajet_rt_{secrets.token_hex(32)}"
         expires_at = int(time.time() + DEFAULT_ACCESS_TOKEN_EXPIRY_SECONDS)
 
         await run_sync(
-            self._oauth_repo.upsert_refresh_token, refresh_token, client_id, scopes, None
+            self._oauth_repo.upsert_refresh_token,
+            refresh_token,
+            client_id,
+            scopes,
+            None,
+            user_id,
         )
         await run_sync(
             self._oauth_repo.upsert_access_token,
@@ -210,6 +240,7 @@ class KajetOAuthProvider(OAuthProvider):
             scopes,
             expires_at,
             refresh_token,
+            user_id,
         )
         return OAuthToken(
             access_token=access_token,
@@ -229,9 +260,10 @@ class KajetOAuthProvider(OAuthProvider):
             await run_sync(self._oauth_repo.delete_refresh_token, refresh_token)
             await run_sync(self._oauth_repo.delete_access_tokens_by_refresh, refresh_token)
             return None
-        return RefreshToken(
+        return OwnedRefreshToken(
             token=row["token"],
             client_id=row["client_id"],
+            user_id=row["user_id"],
             scopes=row["scopes"],
             expires_at=row["expires_at"],
         )
@@ -256,7 +288,9 @@ class KajetOAuthProvider(OAuthProvider):
         if not rotated:
             raise TokenError("invalid_grant", "Refresh token not found or already used.")
 
-        return await self._issue_token_pair(client.client_id, scopes)
+        return await self._issue_token_pair(
+            client.client_id, scopes, getattr(refresh_token, "user_id", None)
+        )
 
     # ty false positive: generic AccessTokenT vs concrete AccessToken — fastmcp's
     # own InMemoryOAuthProvider suppresses the same override diagnostics.

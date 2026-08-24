@@ -338,10 +338,11 @@ async def test_resolve_user_id_refuses_an_expired_bearer_token(monkeypatch):
 
     class OAuthRepo:
         def get_access_token(self, token):
-            return {"client_id": "client-1", "expires_at": time.time() - 10}
-
-        def get_user_id_by_client(self, client_id):
-            raise AssertionError("an expired token must not be resolved to a user")
+            return {
+                "client_id": "client-1",
+                "user_id": "user-123",
+                "expires_at": time.time() - 10,
+            }
 
     monkeypatch.setattr(dependencies, "oauth_repo", OAuthRepo())
     middleware = LoggingMiddleware(None)
@@ -373,11 +374,11 @@ def test_logging_middleware_uses_opaque_id_for_session_and_bearer(capsys, monkey
     class OAuthRepo:
         def get_access_token(self, token):
             assert token == "access-token"
-            return {"client_id": "client-1", "expires_at": int(time.time()) + 3600}
-
-        def get_user_id_by_client(self, client_id):
-            assert client_id == "client-1"
-            return "user-123"
+            return {
+                "client_id": "client-1",
+                "user_id": "user-123",
+                "expires_at": int(time.time()) + 3600,
+            }
 
     monkeypatch.setattr(dependencies, "session_repo", SessionRepo())
     monkeypatch.setattr(dependencies, "oauth_repo", OAuthRepo())

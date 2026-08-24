@@ -59,28 +59,28 @@ def token_expired(row: Mapping[str, Any], *, now: float | None = None) -> bool:
     return expires_at is not None and expires_at < (time.time() if now is None else now)
 
 
-def user_id_for_client(oauth_repo: OAuthRepository, client_id: str) -> str | None:
-    """OAuth client -> user.
-
-    MCP identity is client-scoped, not token-scoped: ``client_authorizations`` is keyed on
-    ``client_id`` alone and written with INSERT OR REPLACE, so this is the last user who
-    authorized that client.
-    """
-    return oauth_repo.get_user_id_by_client(client_id)
-
-
 def resolve_bearer_user_id(
     oauth_repo: OAuthRepository, token: str, *, now: float | None = None
 ) -> str | None:
-    """Bearer token -> user, rejecting expired tokens.
+    """Bearer token -> the user it was issued to, rejecting expired tokens.
+
+    Identity comes from the token row, never from ``client_authorizations``. That table is
+    keyed on ``client_id`` alone and written with INSERT OR REPLACE, so resolving through
+    it meant "the last user who authorized this client": a second user consenting to the
+    same client silently re-pointed every token already issued to it at them, which turned
+    one consent click into account takeover. It is a consent ledger now, not an identity
+    source.
 
     Side-effect free, unlike ``KajetOAuthProvider.load_access_token``: it neither deletes
     the expired row nor emits ``oauth_token_rejected``. Callers that only want to know who
     someone is must not mutate state or double-log the auth path's own decision.
+
+    A token predating the user_id column resolves to None — it cannot be attributed, so it
+    must not authenticate anyone; that client re-authorizes once.
     """
     if not token:
         return None
     row = oauth_repo.get_access_token(token)
     if row is None or token_expired(row, now=now):
         return None
-    return user_id_for_client(oauth_repo, row["client_id"])
+    return row["user_id"]

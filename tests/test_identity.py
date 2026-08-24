@@ -17,7 +17,6 @@ from kajet_turbo.identity import (
     resolve_session_user,
     session_token_from_cookies,
     token_expired,
-    user_id_for_client,
 )
 from kajet_turbo.models import UserSession
 from kajet_turbo.repositories.oauth import OAuthRepository
@@ -109,25 +108,43 @@ def test_token_expired(expires_at: float | None, expired: bool):
 # --- bearer -------------------------------------------------------------------
 
 
-def _authorized_client(database: Database, user_id: str, client_id: str) -> OAuthRepository:
+def _client_with_token(
+    database: Database, user_id: str, client_id: str, token: str, *, ttl_s: int = 3600
+) -> OAuthRepository:
     seed_user(database, user_id)
     repo = OAuthRepository(database.engine)
     repo.record_client_authorization(client_id, user_id)
+    repo.upsert_access_token(
+        token, client_id, ["read"], int(time.time()) + ttl_s, None, user_id=user_id
+    )
     return repo
 
 
-def test_resolve_bearer_user_id_returns_the_authorizing_user(database: Database):
-    repo = _authorized_client(database, "u1", "client-1")
-    repo.upsert_access_token("at-1", "client-1", ["read"], int(time.time()) + 3600, None)
+def test_resolve_bearer_user_id_returns_the_token_owner(database: Database):
+    repo = _client_with_token(database, "u1", "client-1", "at-1")
 
     assert resolve_bearer_user_id(repo, "at-1") == "u1"
 
 
+def test_a_second_users_consent_does_not_repoint_an_existing_token(database: Database):
+    """The takeover this module exists to prevent.
+
+    Identity used to be "the last user who authorized this client_id". An attacker
+    holding their own token for a client only had to get a victim to approve that same
+    client — one consent click — and the attacker's already-issued token started
+    resolving to the victim. Tokens carry their owner now, so consent by anyone else
+    must leave them alone.
+    """
+    repo = _client_with_token(database, "attacker", "client-1", "at-attacker")
+    seed_user(database, "victim")
+
+    repo.record_client_authorization("client-1", "victim")
+
+    assert resolve_bearer_user_id(repo, "at-attacker") == "attacker"
+
+
 def test_resolve_bearer_user_id_refuses_an_expired_token(database: Database):
-    """The regression this module exists for: the log path used to skip this check and
-    then cache the answer, so logs credited a user whose token auth had just rejected."""
-    repo = _authorized_client(database, "u1", "client-1")
-    repo.upsert_access_token("at-expired", "client-1", ["read"], int(time.time()) - 10, None)
+    repo = _client_with_token(database, "u1", "client-1", "at-expired", ttl_s=-10)
 
     assert resolve_bearer_user_id(repo, "at-expired") is None
 
@@ -135,8 +152,7 @@ def test_resolve_bearer_user_id_refuses_an_expired_token(database: Database):
 def test_resolve_bearer_user_id_leaves_the_expired_row_alone(database: Database):
     """Unlike load_access_token, the read-only path must not delete anything — a log
     lookup racing a refresh must not be what revokes the token."""
-    repo = _authorized_client(database, "u1", "client-1")
-    repo.upsert_access_token("at-expired", "client-1", ["read"], int(time.time()) - 10, None)
+    repo = _client_with_token(database, "u1", "client-1", "at-expired", ttl_s=-10)
 
     resolve_bearer_user_id(repo, "at-expired")
 
@@ -144,29 +160,21 @@ def test_resolve_bearer_user_id_leaves_the_expired_row_alone(database: Database)
 
 
 def test_resolve_bearer_user_id_refuses_an_unknown_token(database: Database):
-    repo = _authorized_client(database, "u1", "client-1")
+    repo = _client_with_token(database, "u1", "client-1", "at-1")
 
     assert resolve_bearer_user_id(repo, "never-issued") is None
 
 
-def test_resolve_bearer_user_id_refuses_a_client_nobody_authorized(database: Database):
+def test_a_token_predating_the_user_id_column_authenticates_nobody(database: Database):
+    """Backfill leaves user_id NULL when the client had no recorded consent. An
+    unattributable credential must fail closed, not fall back to a client lookup."""
+    seed_user(database, "u1")
     repo = OAuthRepository(database.engine)
-    repo.upsert_access_token("at-1", "orphan-client", ["read"], int(time.time()) + 3600, None)
+    repo.record_client_authorization("client-1", "u1")
+    repo.upsert_access_token("at-legacy", "client-1", ["read"], int(time.time()) + 3600, None)
 
-    assert resolve_bearer_user_id(repo, "at-1") is None
+    assert resolve_bearer_user_id(repo, "at-legacy") is None
 
 
 def test_resolve_bearer_user_id_skips_the_database_for_an_empty_token():
     assert resolve_bearer_user_id(ExplodingRepo(), "") is None  # ty: ignore[invalid-argument-type]
-
-
-def test_user_id_for_client_is_the_last_authorizer(database: Database):
-    """client_authorizations is INSERT OR REPLACE on client_id alone, so re-authorizing
-    the same client as a different user moves the whole client over."""
-    seed_user(database, "u1")
-    seed_user(database, "u2")
-    repo = OAuthRepository(database.engine)
-    repo.record_client_authorization("client-1", "u1")
-    repo.record_client_authorization("client-1", "u2")
-
-    assert user_id_for_client(repo, "client-1") == "u2"

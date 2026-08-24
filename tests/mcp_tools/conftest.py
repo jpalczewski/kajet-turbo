@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,9 +98,9 @@ def tokenless_mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) ->
 def mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestContext:
     """mcp_server with a seeded authenticated user 'u1' (client 'cl1').
 
-    MCP tools resolve identity via get_access_token() -> client_id -> user_id.
-    The in-memory Client carries no real token, so we patch get_access_token
-    (where it's used) and seed the client_authorizations bridge.
+    MCP tools resolve identity from the access-token row (never from client_id — see
+    identity.resolve_bearer_user_id). The in-memory Client carries no real token, so we
+    patch get_access_token where it's used and seed a matching token row.
     """
     from datetime import UTC, datetime
 
@@ -119,10 +120,13 @@ def mcp_server(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTestCo
         )
         session.commit()
     ctx.oauth_repo.record_client_authorization("cl1", "u1")
+    ctx.oauth_repo.upsert_access_token(
+        "at-u1", "cl1", ["read", "write"], int(time.time()) + 3600, None, user_id="u1"
+    )
     ctx.workspace_repo.grant_access("u1", "test-ws")
     monkeypatch.setattr(
         "kajet_turbo.mcp.context.get_access_token",
-        lambda: SimpleNamespace(client_id="cl1"),
+        lambda: SimpleNamespace(client_id="cl1", token="at-u1"),
     )
     return ctx
 
