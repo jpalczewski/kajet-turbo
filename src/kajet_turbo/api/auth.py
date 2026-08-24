@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
+from kajet_turbo import identity
 from kajet_turbo.api.schemas import LoginResponse, OkResponse, SessionResponse
 from kajet_turbo.auth import verify_password
 from kajet_turbo.dependencies import (
@@ -14,7 +15,7 @@ from kajet_turbo.repositories.users import UserRepository
 
 router = APIRouter()
 
-_SESSION_COOKIE = "kajet_session"
+_SESSION_COOKIE = identity.SESSION_COOKIE
 _SESSION_MAX_AGE = 30 * 24 * 3600
 
 

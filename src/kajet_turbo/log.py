@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import inspect
 import json
 import logging
@@ -10,10 +11,26 @@ from functools import wraps
 
 from loguru import logger
 
+from kajet_turbo import identity
+from kajet_turbo.cache import TtlCache, cache_enabled
+from kajet_turbo.concurrency import run_sync
 from kajet_turbo.perf import current as perf_current
 from kajet_turbo.perf import perf_span
 
 _HEALTH_PATHS = frozenset({"/healthz", "/readyz"})
+
+# Short enough that a logout or a token revocation stops showing up in logs quickly,
+# long enough to collapse a burst (SPA polling, a run of MCP tool calls) into one lookup.
+_USER_ID_CACHE_TTL = 60.0
+
+
+class _Missing:
+    """Distinguishes a cache miss from a cached "this credential is nobody"."""
+
+    __slots__ = ()
+
+
+_MISS = _Missing()
 
 
 def _json_sink(message) -> None:
@@ -220,6 +237,13 @@ class LoggingMiddleware:
 
     def __init__(self, app) -> None:
         self._app = app
+        # Best-effort log tagging, never an authz decision — which is why the cache lives
+        # here and not in `identity`. Keys are digests, so no live credential is retained;
+        # values are opaque user IDs, never email addresses. Honors KAJET_CACHE like every
+        # other cache so an operator debugging staleness can turn it off.
+        self._user_ids: TtlCache[tuple[str, str], str | None] | None = (
+            TtlCache(ttl=_USER_ID_CACHE_TTL) if cache_enabled() else None
+        )
 
     async def __call__(self, scope, receive, send) -> None:
         if scope.get("type") != "http":
@@ -231,7 +255,6 @@ class LoggingMiddleware:
         request = Request(scope)
         is_health_path = request.url.path in _HEALTH_PATHS
         request_id = str(uuid.uuid4())[:8]
-        user_id = None if is_health_path else _extract_user_id(request)
         # Mcp-Session-Id lets us correlate every line of an MCP request to its
         # session — without it, diagnosing "state not held across calls" means
         # hand-correlating timestamps. None for non-MCP (web/API) requests.
@@ -259,31 +282,67 @@ class LoggingMiddleware:
                     )
             await send(message)
 
+        # Resolved before the span opens: tagging a log line is not the route's work, so
+        # its limiter_wait_ms must not land on the route's http entry. One contextualize
+        # then covers the whole request.
+        user_id = None if is_health_path else await self._resolve_user_id(request, request_id)
         with (
             logger.contextualize(request_id=request_id, user_id=user_id, session_id=session_id),
             perf_span(),
         ):
             await self._app(scope, receive, send_wrapper)
 
+    async def _resolve_user_id(self, request, request_id: str) -> str | None:
+        """Best-effort identity for logs: session cookie for web/API, OAuth bearer for MCP."""
+        cookie = identity.session_token_from_cookies(request.cookies)
+        if cookie:
+            user_id = await self._cached_user_id("session", cookie, request_id)
+            if user_id is not None:
+                return user_id
 
-def _extract_user_id(request) -> str | None:
-    """Best-effort user identity for logs. Web/API uses the session cookie; MCP
-    uses the OAuth bearer token (resolved token -> client -> user_id). Never
-    raises — logging must not break a request."""
+        bearer = identity.bearer_token_from_headers(request.headers)
+        if bearer:
+            return await self._cached_user_id("bearer", bearer, request_id)
+        return None
+
+    async def _cached_user_id(self, kind: str, credential: str, request_id: str) -> str | None:
+        if self._user_ids is None:
+            return await run_sync(_lookup_user_id, kind, credential, request_id)
+
+        key = (kind, hashlib.sha256(credential.encode()).hexdigest())
+        cached = self._user_ids.get(key, _MISS)
+        if not isinstance(cached, _Missing):
+            return cached
+
+        user_id = await run_sync(_lookup_user_id, kind, credential, request_id)
+        # Failures are cached too. Otherwise one stale cookie means a DB roundtrip on
+        # every request it ever sends, and a database outage means one warning per
+        # request instead of one per credential per TTL.
+        self._user_ids.put(key, user_id)
+        return user_id
+
+
+def _lookup_user_id(kind: str, credential: str, request_id: str) -> str | None:
+    """Repository lookups for log tagging; runs in a worker thread via ``run_sync``.
+
+    Never raises — logging must not break a request — but the failure is not silent
+    either: a lookup that breaks for every request would otherwise look exactly like
+    ordinary anonymous traffic.
+    """
+    # Late import, load-bearing twice: at module level `dependencies` would be an import
+    # cycle, and the tests monkeypatch these repo singletons *on* that module. Do not hoist.
     from kajet_turbo.dependencies import oauth_repo, session_repo
 
-    cookie = request.cookies.get("kajet_session", "")
-    if cookie:
-        user = session_repo.get_user(cookie)
-        if user:
-            return user["email"]
-
-    auth = request.headers.get("authorization", "")
-    if auth.lower().startswith("bearer "):
-        try:
-            row = oauth_repo.get_access_token(auth[7:].strip())
-            if row:
-                return oauth_repo.get_user_id_by_client(row["client_id"])
-        except Exception:
-            return None
-    return None
+    try:
+        if kind == "session":
+            user = identity.resolve_session_user(session_repo, credential)
+            return str(user["id"]) if user else None
+        return identity.resolve_bearer_user_id(oauth_repo, credential)
+    except Exception as e:
+        logger.warning(
+            "log_identity_lookup_failed",
+            credential_kind=kind,
+            error_type=type(e).__name__,
+            request_id=request_id,
+        )
+        return None

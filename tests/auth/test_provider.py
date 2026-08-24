@@ -13,8 +13,11 @@ def test_expired_access_token_preserves_refresh_token(monkeypatch, database):
 
     from kajet_turbo.auth import KajetOAuthProvider
     from kajet_turbo.repositories.oauth import OAuthRepository
+    from tests.services.conftest import seed_user
 
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
+    # Consent and issued tokens both reference users.id, so the flow needs a real user.
+    seed_user(database, "u1")
     repo = OAuthRepository(database.engine)
     now = int(time.time())
 
@@ -27,8 +30,8 @@ def test_expired_access_token_preserves_refresh_token(monkeypatch, database):
     # Expired AT paired with a valid RT (simulates in-session expiry).
     rt_val = "rt_valid_xyz"
     at_val = "at_expired_xyz"
-    repo.upsert_refresh_token(rt_val, "client1", ["read"], None)
-    repo.upsert_access_token(at_val, "client1", ["read"], now - 10, rt_val)
+    repo.upsert_refresh_token(rt_val, "client1", ["read"], None, user_id="u1")
+    repo.upsert_access_token(at_val, "client1", ["read"], now - 10, rt_val, user_id="u1")
 
     result = asyncio.run(provider.verify_token(at_val))
     assert result is None
@@ -46,8 +49,11 @@ def _make_split_brain_pair(database, monkeypatch):
     from mcp.server.auth.settings import ClientRegistrationOptions
 
     from kajet_turbo.repositories.oauth import OAuthRepository
+    from tests.services.conftest import seed_user
 
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
+    # Consent and issued tokens both reference users.id, so the flow needs a real user.
+    seed_user(database, "u1")
     repo = OAuthRepository(database.engine)
 
     def make():
@@ -82,14 +88,17 @@ def _auth_params():
     )
 
 
-def _issue_code(provider, client):
-    """Run authorize + login-completion on one provider, return the auth code value."""
+def _issue_code(provider, client, user_id="u1"):
+    """Run authorize + login-completion on one provider, return the auth code value.
+
+    A user is required: an authorization code with no owner cannot be exchanged, since
+    the resulting token would have nobody to belong to."""
     import asyncio
     from urllib.parse import parse_qs, urlparse
 
     login_url = asyncio.run(provider.authorize(client, _auth_params()))
     pending_id = login_url.split("pending=")[1]
-    redirect = asyncio.run(provider.complete_authorization(pending_id))
+    redirect = asyncio.run(provider.complete_authorization(pending_id, user_id))
     return parse_qs(urlparse(redirect).query)["code"][0]
 
 
@@ -206,7 +215,7 @@ def test_pending_authorization_visible_on_other_worker(monkeypatch, database):
     assert pending_client is not None, "pending auth started on worker A must be visible on B"
     assert pending_client.client_id == "client-a"
 
-    redirect = asyncio.run(worker_b.complete_authorization(pending_id))
+    redirect = asyncio.run(worker_b.complete_authorization(pending_id, "u1"))
     assert "code=" in redirect
 
 
@@ -239,15 +248,18 @@ def test_exchange_refresh_token_deletes_old_tokens_from_db(monkeypatch, database
 
     from kajet_turbo.auth import KajetOAuthProvider
     from kajet_turbo.repositories.oauth import OAuthRepository
+    from tests.services.conftest import seed_user
 
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
+    # Consent and issued tokens both reference users.id, so the flow needs a real user.
+    seed_user(database, "u1")
     repo = OAuthRepository(database.engine)
 
     now = int(time.time())
     old_rt = "old_refresh_token_xyz"
     old_at = "old_access_token_xyz"
-    repo.upsert_refresh_token(old_rt, "client1", ["read"], None)
-    repo.upsert_access_token(old_at, "client1", ["read"], now + 3600, old_rt)
+    repo.upsert_refresh_token(old_rt, "client1", ["read"], None, user_id="u1")
+    repo.upsert_access_token(old_at, "client1", ["read"], now + 3600, old_rt, user_id="u1")
 
     provider = KajetOAuthProvider(
         oauth_repo=repo,
@@ -278,3 +290,49 @@ def test_exchange_refresh_token_deletes_old_tokens_from_db(monkeypatch, database
     )
     assert asyncio.run(provider2.verify_token(old_at)) is None
     assert asyncio.run(provider2.load_refresh_token(client, old_rt)) is None
+
+
+def test_access_token_without_an_owner_is_rejected(database, monkeypatch):
+    """A token predating the user_id column cannot be attributed, so it must fail at the
+    bearer layer (401) rather than later in the tool call. Only a 401 makes an MCP client
+    re-run OAuth; a tool error it just retries."""
+    import asyncio
+    import time
+
+    from mcp.server.auth.settings import ClientRegistrationOptions
+
+    from kajet_turbo.repositories.oauth import OAuthRepository
+    from tests.services.conftest import seed_user
+
+    monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
+    seed_user(database, "u1")
+    repo = OAuthRepository(database.engine)
+    repo.upsert_access_token("at-no-owner", "client1", ["read"], int(time.time()) + 3600)
+
+    provider = KajetOAuthProvider(
+        oauth_repo=repo,
+        base_url="http://localhost:8000/mcp",
+        client_registration_options=ClientRegistrationOptions(enabled=True),
+    )
+
+    assert asyncio.run(provider.verify_token("at-no-owner")) is None
+
+
+def test_refresh_token_without_an_owner_is_rejected(database, monkeypatch):
+    import asyncio
+
+    from mcp.server.auth.settings import ClientRegistrationOptions
+
+    from kajet_turbo.repositories.oauth import OAuthRepository
+
+    monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
+    repo = OAuthRepository(database.engine)
+    repo.upsert_refresh_token("rt-no-owner", "client1", ["read"], None)
+
+    provider = KajetOAuthProvider(
+        oauth_repo=repo,
+        base_url="http://localhost:8000/mcp",
+        client_registration_options=ClientRegistrationOptions(enabled=True),
+    )
+
+    assert asyncio.run(provider.load_refresh_token(_make_client("client1"), "rt-no-owner")) is None

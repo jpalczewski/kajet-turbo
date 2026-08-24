@@ -6,6 +6,7 @@ import httpx
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from kajet_turbo import identity
 from kajet_turbo.auth import KajetOAuthProvider, create_auth
 from kajet_turbo.cache import WorkspaceCache, cache_enabled
 from kajet_turbo.crypto import cipher_for, cipher_from_env
@@ -278,8 +279,9 @@ def get_provider() -> KajetOAuthProvider:
 
 
 def get_session_user(request: Request) -> dict | None:
-    token = request.cookies.get("kajet_session", "")
-    return session_repo.get_user(token) if token else None
+    return identity.resolve_session_user(
+        session_repo, identity.session_token_from_cookies(request.cookies)
+    )
 
 
 def get_required_user(request: Request) -> dict:

@@ -235,6 +235,10 @@ class OAuthAccessToken(SQLModel, table=True):
 
     token: str = Field(primary_key=True)
     client_id: str
+    # The token's own owner. Identity must not be derived from client_id: one client
+    # can be authorized by several users over time, and client_authorizations keeps
+    # only the latest, which would silently re-point every older token at them.
+    user_id: str | None = Field(default=None, index=True)
     scopes: str | None = Field(default=None, sa_column=Column(Text))
     expires_at: int | None = None
     refresh_token: str | None = None
@@ -245,6 +249,7 @@ class OAuthRefreshToken(SQLModel, table=True):
 
     token: str = Field(primary_key=True)
     client_id: str
+    user_id: str | None = Field(default=None, index=True)
     scopes: str | None = Field(default=None, sa_column=Column(Text))
     expires_at: int | None = None
 
@@ -254,6 +259,7 @@ class OAuthAuthorizationCode(SQLModel, table=True):
 
     code: str = Field(primary_key=True)
     client_id: str
+    user_id: str | None = None
     redirect_uri: str = Field(sa_column=Column(Text, nullable=False))
     redirect_uri_provided_explicitly: bool
     scopes: str | None = Field(default=None, sa_column=Column(Text))

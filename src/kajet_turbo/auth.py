@@ -20,6 +20,7 @@ from mcp.server.auth.provider import (
 from mcp.server.auth.settings import ClientRegistrationOptions
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
+from kajet_turbo import identity
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logger
 from kajet_turbo.repositories.oauth import OAuthRepository
@@ -53,6 +54,23 @@ def _resolve_base_url() -> str:
     if not raw.startswith(("http://", "https://")):
         raw = f"https://{raw}"
     return raw
+
+
+class OwnedAuthorizationCode(AuthorizationCode):
+    """An authorization code plus the user who consented to it.
+
+    The SDK hands whatever ``load_authorization_code`` returns straight to
+    ``exchange_authorization_code``, which is how the owner reaches token issuance.
+    Identity must travel with the credential — deriving it from client_id instead lets
+    a later authorization of the same client re-point every token already issued."""
+
+    user_id: str | None = None
+
+
+class OwnedRefreshToken(RefreshToken):
+    """A refresh token plus its owner; see OwnedAuthorizationCode."""
+
+    user_id: str | None = None
 
 
 class KajetOAuthProvider(OAuthProvider):
@@ -148,6 +166,7 @@ class KajetOAuthProvider(OAuthProvider):
             self._oauth_repo.upsert_auth_code,
             auth_code_value,
             client.client_id,
+            user_id,
             str(params.redirect_uri),
             params.redirect_uri_provided_explicitly,
             scopes_list,
@@ -169,9 +188,10 @@ class KajetOAuthProvider(OAuthProvider):
         if row["expires_at"] < time.time():
             await run_sync(self._oauth_repo.delete_auth_code, authorization_code)
             return None
-        return AuthorizationCode(
+        return OwnedAuthorizationCode(
             code=row["code"],
             client_id=row["client_id"],
+            user_id=row["user_id"],
             redirect_uri=row["redirect_uri"],
             redirect_uri_provided_explicitly=bool(row["redirect_uri_provided_explicitly"]),
             scopes=row["scopes"],
@@ -190,17 +210,29 @@ class KajetOAuthProvider(OAuthProvider):
             raise TokenError("invalid_grant", "Authorization code not found or already used.")
         if client.client_id is None:
             raise TokenError("invalid_client", "Client ID is required")
-        return await self._issue_token_pair(client.client_id, authorization_code.scopes)
+        user_id = getattr(authorization_code, "user_id", None)
+        if user_id is None:
+            # An unowned code cannot mint an owned token; issuing one would recreate the
+            # credential-without-an-owner state this whole change removes.
+            raise TokenError("invalid_grant", "Authorization code is not bound to a user.")
+        return await self._issue_token_pair(client.client_id, authorization_code.scopes, user_id)
 
     # --- tokens ---
 
-    async def _issue_token_pair(self, client_id: str, scopes: list[str]) -> OAuthToken:
+    async def _issue_token_pair(
+        self, client_id: str, scopes: list[str], user_id: str
+    ) -> OAuthToken:
         access_token = f"kajet_at_{secrets.token_hex(32)}"
         refresh_token = f"kajet_rt_{secrets.token_hex(32)}"
         expires_at = int(time.time() + DEFAULT_ACCESS_TOKEN_EXPIRY_SECONDS)
 
         await run_sync(
-            self._oauth_repo.upsert_refresh_token, refresh_token, client_id, scopes, None
+            self._oauth_repo.upsert_refresh_token,
+            refresh_token,
+            client_id,
+            scopes,
+            None,
+            user_id,
         )
         await run_sync(
             self._oauth_repo.upsert_access_token,
@@ -209,6 +241,7 @@ class KajetOAuthProvider(OAuthProvider):
             scopes,
             expires_at,
             refresh_token,
+            user_id,
         )
         return OAuthToken(
             access_token=access_token,
@@ -224,13 +257,16 @@ class KajetOAuthProvider(OAuthProvider):
         row = await run_sync(self._oauth_repo.get_refresh_token, refresh_token)
         if row is None or row["client_id"] != client.client_id:
             return None
-        if row["expires_at"] is not None and row["expires_at"] < time.time():
+        if row["user_id"] is None:
+            return None
+        if identity.token_expired(row):
             await run_sync(self._oauth_repo.delete_refresh_token, refresh_token)
             await run_sync(self._oauth_repo.delete_access_tokens_by_refresh, refresh_token)
             return None
-        return RefreshToken(
+        return OwnedRefreshToken(
             token=row["token"],
             client_id=row["client_id"],
+            user_id=row["user_id"],
             scopes=row["scopes"],
             expires_at=row["expires_at"],
         )
@@ -247,6 +283,9 @@ class KajetOAuthProvider(OAuthProvider):
             )
         if client.client_id is None:
             raise TokenError("invalid_client", "Client ID is required")
+        user_id = getattr(refresh_token, "user_id", None)
+        if user_id is None:
+            raise TokenError("invalid_grant", "Refresh token is not bound to a user.")
 
         # Rotation: revoke the old pair globally. The delete doubles as the
         # arbiter when two workers race to refresh with the same token.
@@ -255,7 +294,7 @@ class KajetOAuthProvider(OAuthProvider):
         if not rotated:
             raise TokenError("invalid_grant", "Refresh token not found or already used.")
 
-        return await self._issue_token_pair(client.client_id, scopes)
+        return await self._issue_token_pair(client.client_id, scopes, user_id)
 
     # ty false positive: generic AccessTokenT vs concrete AccessToken — fastmcp's
     # own InMemoryOAuthProvider suppresses the same override diagnostics.
@@ -264,7 +303,14 @@ class KajetOAuthProvider(OAuthProvider):
         if row is None:
             logger.warning("oauth_token_rejected", token_prefix=token[:8], reason="unknown_token")
             return None
-        if row["expires_at"] is not None and row["expires_at"] < time.time():
+        if row["user_id"] is None:
+            # Predates the user_id column, so there is no way to tell whose it is.
+            # Rejecting here (401) is what makes the client re-run OAuth — failing later
+            # in _resolve_user would only surface as a tool error, which clients retry
+            # forever instead of re-authorizing.
+            logger.warning("oauth_token_rejected", token_prefix=token[:8], reason="no_owner")
+            return None
+        if identity.token_expired(row):
             logger.warning(
                 "oauth_token_rejected",
                 token_prefix=token[:8],

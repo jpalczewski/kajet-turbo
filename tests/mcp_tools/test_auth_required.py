@@ -24,12 +24,13 @@ async def test_tokenless_save_note_rejected(tokenless_mcp_server):
             await client.call_tool("save_note", {"title": "Nope", "content": "body"})
 
 
-async def test_token_for_unbound_client_rejected(tokenless_mcp_server, monkeypatch):
-    """A token that maps to no user (client never completed OAuth) is rejected the same
-    way as a missing token."""
+async def test_token_that_maps_to_no_user_is_rejected(tokenless_mcp_server, monkeypatch):
+    """A token with no owner — never issued, or predating the user_id column — is
+    rejected the same way as a missing token, rather than falling back to whoever last
+    authorized the client."""
     monkeypatch.setattr(
         "kajet_turbo.mcp.context.get_access_token",
-        lambda: SimpleNamespace(client_id="ghost"),
+        lambda: SimpleNamespace(client_id="ghost", token="at-never-issued"),
     )
     mcp, _ = tokenless_mcp_server
     async with Client(mcp) as client:
