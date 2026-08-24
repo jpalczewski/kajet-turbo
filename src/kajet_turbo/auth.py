@@ -220,7 +220,7 @@ class KajetOAuthProvider(OAuthProvider):
     # --- tokens ---
 
     async def _issue_token_pair(
-        self, client_id: str, scopes: list[str], user_id: str | None
+        self, client_id: str, scopes: list[str], user_id: str
     ) -> OAuthToken:
         access_token = f"kajet_at_{secrets.token_hex(32)}"
         refresh_token = f"kajet_rt_{secrets.token_hex(32)}"
@@ -257,6 +257,8 @@ class KajetOAuthProvider(OAuthProvider):
         row = await run_sync(self._oauth_repo.get_refresh_token, refresh_token)
         if row is None or row["client_id"] != client.client_id:
             return None
+        if row["user_id"] is None:
+            return None
         if identity.token_expired(row):
             await run_sync(self._oauth_repo.delete_refresh_token, refresh_token)
             await run_sync(self._oauth_repo.delete_access_tokens_by_refresh, refresh_token)
@@ -281,6 +283,9 @@ class KajetOAuthProvider(OAuthProvider):
             )
         if client.client_id is None:
             raise TokenError("invalid_client", "Client ID is required")
+        user_id = getattr(refresh_token, "user_id", None)
+        if user_id is None:
+            raise TokenError("invalid_grant", "Refresh token is not bound to a user.")
 
         # Rotation: revoke the old pair globally. The delete doubles as the
         # arbiter when two workers race to refresh with the same token.
@@ -289,9 +294,7 @@ class KajetOAuthProvider(OAuthProvider):
         if not rotated:
             raise TokenError("invalid_grant", "Refresh token not found or already used.")
 
-        return await self._issue_token_pair(
-            client.client_id, scopes, getattr(refresh_token, "user_id", None)
-        )
+        return await self._issue_token_pair(client.client_id, scopes, user_id)
 
     # ty false positive: generic AccessTokenT vs concrete AccessToken — fastmcp's
     # own InMemoryOAuthProvider suppresses the same override diagnostics.

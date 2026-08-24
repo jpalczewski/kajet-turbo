@@ -30,8 +30,8 @@ def test_expired_access_token_preserves_refresh_token(monkeypatch, database):
     # Expired AT paired with a valid RT (simulates in-session expiry).
     rt_val = "rt_valid_xyz"
     at_val = "at_expired_xyz"
-    repo.upsert_refresh_token(rt_val, "client1", ["read"], None)
-    repo.upsert_access_token(at_val, "client1", ["read"], now - 10, rt_val)
+    repo.upsert_refresh_token(rt_val, "client1", ["read"], None, user_id="u1")
+    repo.upsert_access_token(at_val, "client1", ["read"], now - 10, rt_val, user_id="u1")
 
     result = asyncio.run(provider.verify_token(at_val))
     assert result is None
@@ -316,3 +316,23 @@ def test_access_token_without_an_owner_is_rejected(database, monkeypatch):
     )
 
     assert asyncio.run(provider.verify_token("at-no-owner")) is None
+
+
+def test_refresh_token_without_an_owner_is_rejected(database, monkeypatch):
+    import asyncio
+
+    from mcp.server.auth.settings import ClientRegistrationOptions
+
+    from kajet_turbo.repositories.oauth import OAuthRepository
+
+    monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
+    repo = OAuthRepository(database.engine)
+    repo.upsert_refresh_token("rt-no-owner", "client1", ["read"], None)
+
+    provider = KajetOAuthProvider(
+        oauth_repo=repo,
+        base_url="http://localhost:8000/mcp",
+        client_registration_options=ClientRegistrationOptions(enabled=True),
+    )
+
+    assert asyncio.run(provider.load_refresh_token(_make_client("client1"), "rt-no-owner")) is None
