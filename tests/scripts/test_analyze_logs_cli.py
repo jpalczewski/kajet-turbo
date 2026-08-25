@@ -64,3 +64,45 @@ def test_percentiles_in_modes_and_args(monkeypatch):
     assert args.mode == "percentiles"
     assert args.pct_field == "db_ms"
     assert args.group_by == "tool"
+
+
+def test_compare_applies_msg_filter_and_ignores_booleans(monkeypatch, capsys):
+    events = [
+        {"ts": "2026-01-01T00:00:00Z", "msg": "wanted", "duration_ms": 10},
+        {"ts": "2026-01-01T00:00:01Z", "msg": "other", "duration_ms": 1000},
+        {"ts": "2026-01-01T00:00:02Z", "msg": "wanted", "duration_ms": True},
+        {"ts": "2026-01-01T00:00:03Z", "msg": "wanted", "duration_ms": 20},
+    ]
+    monkeypatch.setattr(analyze_logs, "load_events", lambda **kwargs: events)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "analyze-logs.py",
+            "capture.log",
+            "--msg",
+            "wanted",
+            "--compare-at",
+            "2026-01-01T00:00:02Z",
+        ],
+    )
+
+    analyze_logs.main()
+
+    output = capsys.readouterr().out
+    count_line = next(line for line in output.splitlines() if line.strip().startswith("count"))
+    assert "1.0" in count_line
+    assert "1000" not in output
+
+
+def test_docker_banner_names_resolved_latest_file(monkeypatch, capsys, tmp_path):
+    resolved = tmp_path / "actual-capture.jsonl"
+    monkeypatch.setattr(analyze_logs, "latest_log", lambda role, env: resolved)
+    monkeypatch.setattr(analyze_logs, "load_events", lambda **kwargs: [])
+    monkeypatch.setattr(
+        sys, "argv", ["analyze-logs.py", "--source", "docker-logs", "--mode", "http"]
+    )
+
+    analyze_logs.main()
+
+    assert f"→ {resolved}" in capsys.readouterr().out

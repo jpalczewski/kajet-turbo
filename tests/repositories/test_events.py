@@ -2,6 +2,7 @@ import json
 
 from kajet_turbo.db import Database
 from kajet_turbo.repositories.events import EventRepository
+from tests.helpers import entries_named, read_log_entries
 
 
 def test_publish_inserts_row(database: Database):
@@ -113,8 +114,7 @@ def test_publish_logs_event(database: Database, capsys):
     repo = EventRepository(database.engine)
     repo.publish("u1", "note_updated", {"note_id": "n1"})
 
-    entries = [json.loads(ln) for ln in capsys.readouterr().err.strip().split("\n") if ln]
-    published = [e for e in entries if e.get("msg") == "event_published"]
+    published = entries_named(read_log_entries(capsys), "event_published")
     assert len(published) == 1
     assert published[0]["owner_id"] == "u1"
     assert published[0]["kind"] == "note_updated"
@@ -142,8 +142,7 @@ def test_read_since_logs_the_count_when_it_returns_events(database: Database, ca
     setup_logging()  # after publish, so only the read line is captured
     repo.read_since("u1", ["note_updated"], 0.0)
 
-    entries = [json.loads(ln) for ln in capsys.readouterr().err.strip().split("\n") if ln]
-    read = [e for e in entries if e.get("msg") == "events_read"]
+    read = entries_named(read_log_entries(capsys), "events_read")
     assert len(read) == 1
     assert read[0]["count"] == 2
     assert read[0]["owner_id"] == "u1"

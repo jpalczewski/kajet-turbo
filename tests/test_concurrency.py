@@ -3,6 +3,7 @@ import threading
 import pytest
 
 from kajet_turbo.concurrency import run_sync
+from tests.helpers import entries_named, read_log_entries
 
 
 async def test_run_sync_runs_in_worker_thread_and_returns_value():
@@ -57,7 +58,6 @@ async def test_run_sync_propagates_contextvars():
 
 
 async def test_slow_sync_reports_per_dispatch_db_ms(capsys, monkeypatch):
-    import json
     import time
 
     from kajet_turbo import concurrency, perf
@@ -76,8 +76,7 @@ async def test_slow_sync_reports_per_dispatch_db_ms(capsys, monkeypatch):
         await concurrency.run_sync(work, 30.0)  # span db_ms: 0 -> 30
         await concurrency.run_sync(work, 70.0)  # span db_ms: 30 -> 100
 
-    lines = [json.loads(ln) for ln in capsys.readouterr().err.strip().split("\n") if ln]
-    slow = [e for e in lines if e["msg"] == "slow_sync"]
+    slow = entries_named(read_log_entries(capsys), "slow_sync")
     assert len(slow) == 2
     by_db = sorted(e["db_ms"] for e in slow)
     assert by_db == [30, 70]  # NOT [30, 100] — per-dispatch delta, not cumulative
