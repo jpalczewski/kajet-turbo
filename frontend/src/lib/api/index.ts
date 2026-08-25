@@ -509,6 +509,43 @@ export const apiSessionDeleteApiSessionDelete = async ( options?: RequestInit): 
 
 
 
+export type apiSessionsDeleteApiSessionsDeleteResponse200 = {
+  data: OkResponse
+  status: 200
+}
+
+export type apiSessionsDeleteApiSessionsDeleteResponseSuccess = (apiSessionsDeleteApiSessionsDeleteResponse200) & {
+  headers: Headers;
+};
+;
+
+export type apiSessionsDeleteApiSessionsDeleteResponse = (apiSessionsDeleteApiSessionsDeleteResponseSuccess)
+
+export const getApiSessionsDeleteApiSessionsDeleteUrl = () => {
+
+
+
+
+  return `/api/sessions`
+}
+
+/**
+ * Sign the current user out of every browser and connected OAuth client.
+ * @summary Api Sessions Delete
+ */
+export const apiSessionsDeleteApiSessionsDelete = async ( options?: RequestInit): Promise<apiSessionsDeleteApiSessionsDeleteResponse> => {
+
+  return customFetch<apiSessionsDeleteApiSessionsDeleteResponse>(getApiSessionsDeleteApiSessionsDeleteUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
 export type apiConsentApiConsentPostResponse200 = {
   data: ConsentResponse
   status: 200

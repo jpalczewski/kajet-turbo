@@ -79,10 +79,25 @@ async def require_workspace_access(name: str, user_id: str) -> list[str]:
     raise ToolError(json.dumps({"error": msg, "available": available}))
 
 
+async def _clear_active_workspace_state(ctx: Context) -> None:
+    await ctx.delete_state("active_workspace")
+    await ctx.delete_state("active_user_id")
+
+
+async def _validate_active_workspace(ctx: Context, name: str, user_id: str) -> None:
+    try:
+        await require_workspace_access(name, user_id)
+    except ToolError:
+        await _clear_active_workspace_state(ctx)
+        logger.warning("active_workspace_access_revoked", user_id=user_id, ws=name)
+        raise
+
+
 async def _rehydrate_from_db(
     ctx: Context, user_id: str, db_name: str, *, source: str, scope: str
 ) -> ActiveWorkspace:
     assert deps.workspace_service is not None
+    await _validate_active_workspace(ctx, db_name, user_id)
     await ctx.set_state("active_workspace", db_name)
     await ctx.set_state("active_user_id", user_id)
     logger.info("active_workspace_resolved", source=source, ws=db_name, scope=scope)
@@ -97,17 +112,28 @@ async def active_workspace(ctx: Context = MCP_CONTEXT) -> ActiveWorkspace:
     """Resolve active workspace: session state, then the session-scoped DB row, then a
     time-boxed per-user DB row (see USER_SCOPE docstring above)."""
     assert deps.workspace_service is not None
+    user_id = await require_user_id()
     name = await ctx.get_state("active_workspace")
     if name:
-        user_id: str = await ctx.get_state("active_user_id")
+        stored_user_id = await ctx.get_state("active_user_id")
+        if stored_user_id != user_id:
+            await _clear_active_workspace_state(ctx)
+            logger.warning(
+                "active_workspace_identity_mismatch",
+                stored_user_id=stored_user_id,
+                current_user_id=user_id,
+                ws=name,
+            )
+            raise ToolError(
+                "MCP session identity changed. Reconnect and activate a workspace again."
+            )
+        await _validate_active_workspace(ctx, name, user_id)
         logger.debug("active_workspace_resolved", source="session", ws=name)
         return ActiveWorkspace(
             owner_id=user_id,
             name=name,
             path=deps.workspace_service.workspace_path(user_id, name),
         )
-
-    user_id = await require_user_id()
     assert deps.active_workspace_repo is not None
     scope = active_workspace_scope(ctx)
     if scope is not None:

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto, invalidateAll } from '$app/navigation';
   import {
     apiListEmbeddingProfilesApiMeEmbeddingProfilesGet,
     apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost,
@@ -7,10 +8,13 @@
     apiListSshKeysApiMeSshKeysGet,
     apiCreateSshKeyApiMeSshKeysPost,
     apiDeleteSshKeyApiMeSshKeysKeyIdDelete,
+    apiSessionsDeleteApiSessionsDelete,
   } from '$lib/api';
   import { jsonBody } from '$lib/api/mutate';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
+  import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
+  import { homePath } from '$lib/routes';
 
   let { data } = $props();
 
@@ -98,6 +102,12 @@
 
   async function copyPublicKey(publicKey: string) {
     await navigator.clipboard.writeText(publicKey);
+  }
+
+  async function logoutEverywhere() {
+    await apiSessionsDeleteApiSessionsDelete({ credentials: 'include' });
+    await invalidateAll();
+    await goto(homePath());
   }
 </script>
 
@@ -293,6 +303,26 @@
       </button>
     </form>
   </section>
+
+  <section class="security-section">
+    <h1>Bezpieczeństwo</h1>
+    <p class="hint">
+      Zakończ wszystkie sesje przeglądarkowe i odłącz wszystkie klienty MCP. Ponowne użycie
+      aplikacji będzie wymagało zalogowania i autoryzacji.
+    </p>
+    <ConfirmDialog
+      title="Wyloguj wszędzie"
+      message="Ta operacja natychmiast unieważni wszystkie sesje i tokeny OAuth."
+      confirmLabel="Wyloguj wszędzie"
+      confirmVariant="danger"
+      confirmText="WYLOGUJ"
+      onconfirm={logoutEverywhere}
+    >
+      {#snippet trigger({ open })}
+        <button type="button" class="btn-danger" onclick={open}>Wyloguj wszędzie</button>
+      {/snippet}
+    </ConfirmDialog>
+  </section>
 </main>
 
 <style lang="scss">
@@ -478,7 +508,8 @@
     }
   }
 
-  .ssh-section {
+  .ssh-section,
+  .security-section {
     margin-top: v.$space-2xl;
     padding-top: v.$space-xl;
     border-top: 1px solid v.$border;

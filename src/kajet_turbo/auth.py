@@ -17,17 +17,23 @@ from mcp.server.auth.provider import (
     TokenError,
     construct_redirect_uri,
 )
-from mcp.server.auth.settings import ClientRegistrationOptions
+from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from kajet_turbo import identity
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logger
-from kajet_turbo.repositories.oauth import OAuthRepository
+from kajet_turbo.repositories.oauth import (
+    OAuthRepository,
+    OAuthTokenPair,
+    RotationOutcome,
+)
 
 PENDING_AUTHORIZATION_EXPIRY_SECONDS = 600
+REFRESH_TOKEN_EXPIRY_SECONDS = 30 * 24 * 3600
 
 _ph = PasswordHasher()
+DUMMY_PASSWORD_HASH = _ph.hash("kajet-login-timing-equalizer")
 
 
 def hash_password(password: str) -> str:
@@ -67,10 +73,11 @@ class OwnedAuthorizationCode(AuthorizationCode):
     user_id: str | None = None
 
 
-class OwnedRefreshToken(RefreshToken):
-    """A refresh token plus its owner; see OwnedAuthorizationCode."""
+class FamilyRefreshToken(RefreshToken):
+    """SDK refresh token plus the server-side rotation-family metadata."""
 
-    user_id: str | None = None
+    family_id: str
+    consumed_at: int | None = None
 
 
 class KajetOAuthProvider(OAuthProvider):
@@ -222,33 +229,47 @@ class KajetOAuthProvider(OAuthProvider):
     async def _issue_token_pair(
         self, client_id: str, scopes: list[str], user_id: str
     ) -> OAuthToken:
-        access_token = f"kajet_at_{secrets.token_hex(32)}"
-        refresh_token = f"kajet_rt_{secrets.token_hex(32)}"
-        expires_at = int(time.time() + DEFAULT_ACCESS_TOKEN_EXPIRY_SECONDS)
+        now = int(time.time())
+        pair = self._new_token_pair(
+            client_id,
+            scopes,
+            user_id,
+            family_id=secrets.token_hex(16),
+            refresh_expires_at=now + REFRESH_TOKEN_EXPIRY_SECONDS,
+            now=now,
+        )
+        await run_sync(self._oauth_repo.save_token_pair, pair)
+        return self._token_response(pair)
 
-        await run_sync(
-            self._oauth_repo.upsert_refresh_token,
-            refresh_token,
-            client_id,
-            scopes,
-            None,
-            user_id,
+    @staticmethod
+    def _new_token_pair(
+        client_id: str,
+        scopes: list[str],
+        user_id: str,
+        *,
+        family_id: str,
+        refresh_expires_at: int,
+        now: int,
+    ) -> OAuthTokenPair:
+        return OAuthTokenPair(
+            access_token=f"kajet_at_{secrets.token_hex(32)}",
+            refresh_token=f"kajet_rt_{secrets.token_hex(32)}",
+            client_id=client_id,
+            user_id=user_id,
+            scopes=scopes,
+            access_expires_at=now + DEFAULT_ACCESS_TOKEN_EXPIRY_SECONDS,
+            refresh_expires_at=refresh_expires_at,
+            family_id=family_id,
         )
-        await run_sync(
-            self._oauth_repo.upsert_access_token,
-            access_token,
-            client_id,
-            scopes,
-            expires_at,
-            refresh_token,
-            user_id,
-        )
+
+    @staticmethod
+    def _token_response(pair: OAuthTokenPair) -> OAuthToken:
         return OAuthToken(
-            access_token=access_token,
+            access_token=pair.access_token,
             token_type="Bearer",
             expires_in=DEFAULT_ACCESS_TOKEN_EXPIRY_SECONDS,
-            refresh_token=refresh_token,
-            scope=" ".join(scopes),
+            refresh_token=pair.refresh_token,
+            scope=" ".join(pair.scopes),
         )
 
     async def load_refresh_token(
@@ -260,15 +281,25 @@ class KajetOAuthProvider(OAuthProvider):
         if row["user_id"] is None:
             return None
         if identity.token_expired(row):
-            await run_sync(self._oauth_repo.delete_refresh_token, refresh_token)
-            await run_sync(self._oauth_repo.delete_access_tokens_by_refresh, refresh_token)
+            await run_sync(self._oauth_repo.revoke_by_refresh_token, refresh_token)
             return None
-        return OwnedRefreshToken(
+        if row["consumed_at"] is not None:
+            await run_sync(self._oauth_repo.revoke_token_family, row["family_id"])
+            logger.warning(
+                "oauth_refresh_reuse_detected",
+                client_id=row["client_id"],
+                user_id=row["user_id"],
+                family_id=row["family_id"],
+            )
+            return None
+        return FamilyRefreshToken(
             token=row["token"],
             client_id=row["client_id"],
-            user_id=row["user_id"],
+            subject=str(row["user_id"]),
             scopes=row["scopes"],
             expires_at=row["expires_at"],
+            family_id=row["family_id"],
+            consumed_at=row["consumed_at"],
         )
 
     async def exchange_refresh_token(
@@ -283,18 +314,36 @@ class KajetOAuthProvider(OAuthProvider):
             )
         if client.client_id is None:
             raise TokenError("invalid_client", "Client ID is required")
-        user_id = getattr(refresh_token, "user_id", None)
+        user_id = refresh_token.subject
         if user_id is None:
             raise TokenError("invalid_grant", "Refresh token is not bound to a user.")
+        family_id = getattr(refresh_token, "family_id", None)
+        if family_id is None:
+            raise TokenError("invalid_grant", "Refresh token is not bound to a token family.")
 
-        # Rotation: revoke the old pair globally. The delete doubles as the
-        # arbiter when two workers race to refresh with the same token.
-        await run_sync(self._oauth_repo.delete_access_tokens_by_refresh, refresh_token.token)
-        rotated = await run_sync(self._oauth_repo.delete_refresh_token, refresh_token.token)
-        if not rotated:
+        now = int(time.time())
+        refresh_expires_at = refresh_token.expires_at or now + REFRESH_TOKEN_EXPIRY_SECONDS
+        pair = self._new_token_pair(
+            client.client_id,
+            scopes,
+            user_id,
+            family_id=family_id,
+            refresh_expires_at=refresh_expires_at,
+            now=now,
+        )
+        outcome = await run_sync(
+            self._oauth_repo.rotate_token_pair, refresh_token.token, pair, now=now
+        )
+        if outcome is RotationOutcome.REUSED:
+            logger.warning(
+                "oauth_refresh_reuse_detected",
+                client_id=client.client_id,
+                user_id=user_id,
+                family_id=family_id,
+            )
+        if outcome is not RotationOutcome.ROTATED:
             raise TokenError("invalid_grant", "Refresh token not found or already used.")
-
-        return await self._issue_token_pair(client.client_id, scopes, user_id)
+        return self._token_response(pair)
 
     # ty false positive: generic AccessTokenT vs concrete AccessToken — fastmcp's
     # own InMemoryOAuthProvider suppresses the same override diagnostics.
@@ -327,6 +376,7 @@ class KajetOAuthProvider(OAuthProvider):
             client_id=row["client_id"],
             scopes=row["scopes"],
             expires_at=row["expires_at"],
+            subject=str(row["user_id"]),
         )
 
     async def verify_token(self, token: str) -> AccessToken | None:  # ty: ignore[invalid-method-override]
@@ -334,13 +384,9 @@ class KajetOAuthProvider(OAuthProvider):
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         if isinstance(token, AccessToken):
-            row = await run_sync(self._oauth_repo.get_access_token, token.token)
-            await run_sync(self._oauth_repo.delete_access_token, token.token)
-            if row and row["refresh_token"]:
-                await run_sync(self._oauth_repo.delete_refresh_token, row["refresh_token"])
+            await run_sync(self._oauth_repo.revoke_by_access_token, token.token)
         else:
-            await run_sync(self._oauth_repo.delete_access_tokens_by_refresh, token.token)
-            await run_sync(self._oauth_repo.delete_refresh_token, token.token)
+            await run_sync(self._oauth_repo.revoke_by_refresh_token, token.token)
 
 
 def create_auth(oauth_repo: OAuthRepository) -> KajetOAuthProvider:
@@ -348,4 +394,5 @@ def create_auth(oauth_repo: OAuthRepository) -> KajetOAuthProvider:
         oauth_repo=oauth_repo,
         base_url=_resolve_base_url().rstrip("/") + "/mcp",
         client_registration_options=ClientRegistrationOptions(enabled=True),
+        revocation_options=RevocationOptions(enabled=True),
     )
