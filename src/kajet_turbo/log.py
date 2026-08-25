@@ -9,6 +9,7 @@ import time
 import uuid
 from functools import wraps
 
+from fastmcp.server.dependencies import get_context
 from loguru import logger
 
 from kajet_turbo import identity
@@ -233,21 +234,16 @@ def logged_route(fn):
 _SLOW_TOOL_MS = float(os.getenv("SLOW_TOOL_MS", "2000"))
 
 
-def _tool_ctx(args, kwargs):
-    """Find the FastMCP Context among a tool's arguments (duck-typed)."""
-    for value in (*args, *kwargs.values()):
-        if hasattr(value, "session_id") and hasattr(value, "request_id"):
-            return value
-    return None
-
-
 def logged_tool(fn):
     @wraps(fn)
     async def wrapper(*args, **kwargs):
         # Bind from the live tool context: the FastMCP session task captures the
         # middleware contextvars at session-init time, so without this, tool logs
         # would carry the initialize request's ids instead of this call's session.
-        ctx = _tool_ctx(args, kwargs)
+        try:
+            ctx = get_context()
+        except RuntimeError:
+            ctx = None
         bind: dict[str, str] = {}
         if ctx is not None:
             for key in ("session_id", "request_id"):
