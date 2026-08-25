@@ -147,6 +147,38 @@ async def test_logged_tool_logs_on_success(capsys):
     assert entry["msg"] == "my_tool"
     assert entry["tool"] == "my_tool"
     assert "duration_ms" in entry
+    assert entry.get("session_id") is None
+
+
+async def test_logged_tool_binds_live_context_without_ctx_parameter(capsys):
+    from fastmcp import Client, Context, FastMCP
+
+    from kajet_turbo.log import logged_tool, setup_logging
+
+    setup_logging()
+    server = FastMCP("logged-tools")
+
+    @server.tool
+    @logged_tool
+    async def tool_without_ctx() -> str:
+        return "without"
+
+    @server.tool
+    @logged_tool
+    async def tool_with_ctx(ctx: Context) -> str:
+        return ctx.session_id
+
+    async with Client(server) as client:
+        without_result = await client.call_tool("tool_without_ctx")
+        with_result = await client.call_tool("tool_with_ctx")
+
+    assert without_result.content[0].text == "without"
+    entries = read_log_entries(capsys)
+    (without_entry,) = entries_named(entries, "tool_without_ctx")
+    (with_entry,) = entries_named(entries, "tool_with_ctx")
+    assert without_entry["session_id"]
+    assert with_entry["session_id"] == without_entry["session_id"]
+    assert with_result.content[0].text == with_entry["session_id"]
 
 
 async def test_logged_tool_propagates_exception(capsys):
