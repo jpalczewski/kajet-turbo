@@ -287,6 +287,9 @@ class OAuthRepository(DbRepository):
         return [_row_dict(row, "scopes") for row in rows]
 
     def get_access_token(self, token: str) -> dict[str, Any] | None:
+        # Timed but not logged: this runs on every MCP tool call (require_user_id ->
+        # resolve_bearer_user_id), so a line per call would drown the log — same reasoning
+        # as SessionRepository.get_user.
         with self.timed_session() as session:
             row = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
@@ -295,7 +298,6 @@ class OAuthRepository(DbRepository):
                 ),
                 {"token": token},
             ).fetchone()
-        self._log("get_access_token", found=row is not None)
         return _row_dict(row, "scopes") if row is not None else None
 
     def get_refresh_token(self, token: str) -> dict[str, Any] | None:

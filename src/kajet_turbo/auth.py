@@ -280,9 +280,9 @@ class KajetOAuthProvider(OAuthProvider):
             return None
         if row["user_id"] is None:
             return None
-        if identity.token_expired(row):
-            await run_sync(self._oauth_repo.revoke_by_refresh_token, refresh_token)
-            return None
+        # Consumed-check first: a replayed token that also happens to be past its
+        # absolute expiry must still trip oauth_refresh_reuse_detected, not silently
+        # take the plain-expiry path and skip the warning.
         if row["consumed_at"] is not None:
             await run_sync(self._oauth_repo.revoke_token_family, row["family_id"])
             logger.warning(
@@ -291,6 +291,9 @@ class KajetOAuthProvider(OAuthProvider):
                 user_id=row["user_id"],
                 family_id=row["family_id"],
             )
+            return None
+        if identity.token_expired(row):
+            await run_sync(self._oauth_repo.revoke_by_refresh_token, refresh_token)
             return None
         return FamilyRefreshToken(
             token=row["token"],

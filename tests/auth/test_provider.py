@@ -449,3 +449,39 @@ def test_concurrent_refresh_replay_revokes_winners_descendant(database, monkeypa
     assert len(winners) == 1
     assert len(failures) == 1 and isinstance(failures[0], TokenError)
     assert asyncio.run(worker_a.load_access_token(winners[0].access_token)) is None
+
+
+def test_replaying_an_expired_consumed_token_still_logs_reuse(database, monkeypatch, capsys):
+    """A consumed RT that is also past its absolute expiry must take the reuse branch,
+    not the plain-expiry one, or oauth_refresh_reuse_detected never fires."""
+    import asyncio
+    import time
+
+    from kajet_turbo.log import setup_logging
+    from tests.helpers import entries_named, read_log_entries
+
+    _repo, make = _make_split_brain_pair(database, monkeypatch)
+    provider = make()
+    now = int(time.time())
+    _repo.upsert_refresh_token(
+        "rt-old",
+        "client-a",
+        ["read"],
+        now - 10,
+        user_id="u1",
+        family_id="fam-1",
+        consumed_at=now - 20,
+    )
+    _repo.upsert_access_token("at-child", "client-a", ["read"], now + 3600, "rt-child", "u1")
+    _repo.upsert_refresh_token(
+        "rt-child", "client-a", ["read"], now + 3600, user_id="u1", family_id="fam-1"
+    )
+    setup_logging()  # after seeding, so only the load_refresh_token line is captured
+
+    result = asyncio.run(provider.load_refresh_token(_make_client(), "rt-old"))
+
+    assert result is None
+    reuse_warnings = entries_named(read_log_entries(capsys), "oauth_refresh_reuse_detected")
+    assert len(reuse_warnings) == 1
+    assert reuse_warnings[0]["family_id"] == "fam-1"
+    assert asyncio.run(provider.load_access_token("at-child")) is None
