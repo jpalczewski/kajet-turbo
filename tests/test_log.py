@@ -415,6 +415,29 @@ async def test_resolve_user_id_caches_a_credential_that_is_nobody(monkeypatch):
     assert calls == 1
 
 
+async def test_resolve_user_id_does_not_cache_transient_lookup_failure(monkeypatch):
+    import kajet_turbo.dependencies as dependencies
+    from kajet_turbo.log import LoggingMiddleware
+
+    calls = 0
+
+    class SessionRepo:
+        def get_user(self, token):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("temporary database failure")
+            return {"id": "user-123", "email": "user@example.com"}
+
+    monkeypatch.setattr(dependencies, "session_repo", SessionRepo())
+    middleware = LoggingMiddleware(None)
+    request = _cookie_request()
+
+    assert await middleware._resolve_user_id(request, "req-1") is None
+    assert await middleware._resolve_user_id(request, "req-2") == "user-123"
+    assert calls == 2
+
+
 async def test_resolve_user_id_does_not_cache_when_kajet_cache_is_off(monkeypatch):
     monkeypatch.setenv("KAJET_CACHE", "0")
     import kajet_turbo.dependencies as dependencies
