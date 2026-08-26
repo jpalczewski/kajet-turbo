@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import uuid
+from dataclasses import dataclass
 from functools import wraps
 
 from fastmcp.server.dependencies import get_context
@@ -38,6 +39,12 @@ class _Missing:
 
 
 _MISS = _Missing()
+
+
+@dataclass(frozen=True)
+class _UserLookup:
+    user_id: str | None
+    cacheable: bool = True
 
 
 class _ErrorDedup:
@@ -284,7 +291,7 @@ class LoggingMiddleware:
         # here and not in `identity`. Keys are digests, so no live credential is retained;
         # values are opaque user IDs, never email addresses. Honors KAJET_CACHE like every
         # other cache so an operator debugging staleness can turn it off.
-        self._user_ids: TtlCache[tuple[str, str], str | None] | None = (
+        self._user_ids: TtlCache[tuple[str, str], _UserLookup] | None = (
             TtlCache(ttl=_USER_ID_CACHE_TTL) if cache_enabled() else None
         )
 
@@ -350,22 +357,20 @@ class LoggingMiddleware:
 
     async def _cached_user_id(self, kind: str, credential: str, request_id: str) -> str | None:
         if self._user_ids is None:
-            return await run_sync(_lookup_user_id, kind, credential, request_id)
+            return (await run_sync(_lookup_user_id, kind, credential, request_id)).user_id
 
         key = (kind, hashlib.sha256(credential.encode()).hexdigest())
         cached = self._user_ids.get(key, _MISS)
         if not isinstance(cached, _Missing):
-            return cached
+            return cached.user_id
 
-        user_id = await run_sync(_lookup_user_id, kind, credential, request_id)
-        # Failures are cached too. Otherwise one stale cookie means a DB roundtrip on
-        # every request it ever sends, and a database outage means one warning per
-        # request instead of one per credential per TTL.
-        self._user_ids.put(key, user_id)
-        return user_id
+        lookup = await run_sync(_lookup_user_id, kind, credential, request_id)
+        if lookup.cacheable:
+            self._user_ids.put(key, lookup)
+        return lookup.user_id
 
 
-def _lookup_user_id(kind: str, credential: str, request_id: str) -> str | None:
+def _lookup_user_id(kind: str, credential: str, request_id: str) -> _UserLookup:
     """Repository lookups for log tagging; runs in a worker thread via ``run_sync``.
 
     Never raises — logging must not break a request — but the failure is not silent
@@ -379,8 +384,8 @@ def _lookup_user_id(kind: str, credential: str, request_id: str) -> str | None:
     try:
         if kind == "session":
             user = identity.resolve_session_user(session_repo, credential)
-            return str(user["id"]) if user else None
-        return identity.resolve_bearer_user_id(oauth_repo, credential)
+            return _UserLookup(str(user["id"]) if user else None)
+        return _UserLookup(identity.resolve_bearer_user_id(oauth_repo, credential))
     except Exception as e:
         logger.warning(
             "log_identity_lookup_failed",
@@ -388,4 +393,4 @@ def _lookup_user_id(kind: str, credential: str, request_id: str) -> str | None:
             error_type=type(e).__name__,
             request_id=request_id,
         )
-        return None
+        return _UserLookup(None, cacheable=False)

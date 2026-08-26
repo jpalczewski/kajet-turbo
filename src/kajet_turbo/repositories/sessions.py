@@ -41,3 +41,13 @@ class SessionRepository(DbRepository):
             )
             session.commit()
         logger.info("session_deleted")
+
+    def delete_all_for_user(self, user_id: str) -> int:
+        with self.timed_session() as session:
+            result = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text("DELETE FROM sessions WHERE user_id = :user_id"), {"user_id": user_id}
+            )
+            session.commit()
+        count = result.rowcount  # ty: ignore[unresolved-attribute] - CursorResult at runtime
+        logger.info("sessions_deleted_for_user", user_id=user_id, count=count)
+        return count

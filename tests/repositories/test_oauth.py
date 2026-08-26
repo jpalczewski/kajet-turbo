@@ -15,13 +15,13 @@ def test_oauth_repository(database: Database):
     assert oauth.get_all_registered_clients() == ['{"client_id":"cl1"}']
 
     oauth.record_client_authorization("cl1", user_id)
-    assert oauth.get_user_id_by_client("cl1") == user_id
 
     oauth.upsert_access_token("tok1", "cl1", ["read"], None)
     assert any(token["token"] == "tok1" for token in oauth.get_valid_access_tokens())
 
-    oauth.upsert_refresh_token("ref1", "cl1", ["read"], None)
-    assert any(token["token"] == "ref1" for token in oauth.get_valid_refresh_tokens())
+    oauth.upsert_refresh_token("ref1", "cl1", ["read"], None, user_id=user_id)
+    refresh = next(token for token in oauth.get_valid_refresh_tokens() if token["token"] == "ref1")
+    assert refresh["user_id"] == user_id
 
     oauth.save_oauth_client("cl2", "secret", ["https://cb.local"], "2026-01-01T00:00:00")
     client = oauth.get_oauth_client("cl2")

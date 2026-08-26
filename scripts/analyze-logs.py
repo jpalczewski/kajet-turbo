@@ -36,11 +36,14 @@ import json
 import re
 import sys
 from collections import Counter, defaultdict
+from pathlib import Path
 
 from log_analysis import (
     LEVEL_ORDER,
+    latest_log,
     load_events,
     normalize_env,
+    numeric_values,
     percentile_summary,
     split_at,
     summarize,
@@ -54,6 +57,10 @@ def _fmt_field(e: dict, key: str) -> str:
     if isinstance(v, str) and len(v) > 40:
         return v[:40]
     return str(v)
+
+
+def _fmt_number(value: float | int | None, *, decimals: int = 0) -> str:
+    return f"{value:.{decimals}f}" if value is not None else "-"
 
 
 # ── modes ──────────────────────────────────────────────────────────────────────
@@ -263,24 +270,19 @@ def mode_percentiles(events: list[dict], field: str, group_by: str) -> None:
     print(f"{group_by:<30}  {'count':>6}  {'p50':>7}  {'p95':>7}  {'p99':>7}  {'max':>7}")
     print("-" * 74)
 
-    def _f(x: float | None) -> str:
-        return f"{x:.0f}" if x is not None else "-"
-
     for g, s in sorted(summary.items(), key=lambda kv: kv[1]["p95"] or 0, reverse=True):
         print(
-            f"{g:<30}  {s['count']:>6}  {_f(s['p50']):>7}  {_f(s['p95']):>7}  "
-            f"{_f(s['p99']):>7}  {_f(s['max']):>7}"
+            f"{g:<30}  {s['count']:>6}  {_fmt_number(s['p50']):>7}  "
+            f"{_fmt_number(s['p95']):>7}  {_fmt_number(s['p99']):>7}  "
+            f"{_fmt_number(s['max']):>7}"
         )
 
 
 def mode_compare(events: list[dict], boundary: str, field: str) -> None:
     """Same field, before and after a moment — the "did that change anything?" view."""
     before, after = split_at(events, boundary)
-    b = summarize([float(e[field]) for e in before if isinstance(e.get(field), (int, float))])
-    a = summarize([float(e[field]) for e in after if isinstance(e.get(field), (int, float))])
-
-    def _f(x: float | None) -> str:
-        return f"{x:.1f}" if x is not None else "-"
+    b = summarize(numeric_values(before, field))
+    a = summarize(numeric_values(after, field))
 
     def _delta(x: float | None, y: float | None) -> str:
         if x is None or y is None:
@@ -294,7 +296,10 @@ def mode_compare(events: list[dict], boundary: str, field: str) -> None:
     print("-" * 42)
     for k in ("count", "p50", "p95", "p99", "max"):
         change = _delta(b[k], a[k]) if k != "count" else ""
-        print(f"{k:>8}  {_f(b[k]):>10}  {_f(a[k]):>10}  {change:>8}")
+        print(
+            f"{k:>8}  {_fmt_number(b[k], decimals=1):>10}  "
+            f"{_fmt_number(a[k], decimals=1):>10}  {change:>8}"
+        )
 
 
 def mode_fields(events: list[dict], fields: list[str]) -> None:
@@ -398,11 +403,14 @@ def main() -> None:
     args = parse_args()
 
     env = normalize_env(args.env)
+    msg_filter = [msg.strip() for msg in args.msg.split(",")] if args.msg else None
+    log_path: Path | None = None
 
     if args.source == "loki":
         banner = f"→ loki: role={args.role} env={env} since={args.since} until={args.until}"
     else:
-        banner = f"→ {args.log or 'latest ' + env + '_' + args.role}"
+        log_path = Path(args.log) if args.log else latest_log(args.role, env)
+        banner = f"→ {log_path}"
     if not args.json:
         print(banner + "\n")
 
@@ -413,18 +421,20 @@ def main() -> None:
             env=env,
             since=args.since,
             until=args.until,
-            log=args.log,
+            log=log_path,
             min_level=args.min_level if args.mode == "errors" else None,
-            # A compare run needs both sides of the boundary, so it must not be narrowed
-            # to one msg at query time.
-            msg_filter=[m.strip() for m in args.msg.split(",")]
-            if (args.msg and not args.compare_at)
-            else None,
+            msg_filter=msg_filter,
         )
     except Exception as e:  # LokiUnreachableError carries the remediation text
         if type(e).__name__ != "LokiUnreachableError":
             raise
         sys.exit(str(e))
+
+    # Loki applies this server-side; the local pass keeps docker captures and mocked
+    # sources identical, and makes --msg compose with --json and --compare-at.
+    if msg_filter:
+        wanted = set(msg_filter)
+        events = [event for event in events if event.get("msg") in wanted]
 
     if args.json:
         for e in events:
@@ -438,11 +448,9 @@ def main() -> None:
         return
 
     fields = [f.strip() for f in args.fields.split(",")] if args.fields else None
-    msg_filter = {m.strip() for m in args.msg.split(",")} if args.msg else None
-
     # --msg (with optional --fields)
     if msg_filter:
-        mode_msg(events, msg_filter, fields)
+        mode_msg(events, set(msg_filter), fields)
         return
 
     # --fields alone (no --msg): print all events with those columns

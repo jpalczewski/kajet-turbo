@@ -252,6 +252,8 @@ class OAuthRefreshToken(SQLModel, table=True):
     user_id: str | None = Field(default=None, index=True)
     scopes: str | None = Field(default=None, sa_column=Column(Text))
     expires_at: int | None = None
+    family_id: str = Field(index=True)
+    consumed_at: int | None = None
 
 
 class OAuthAuthorizationCode(SQLModel, table=True):

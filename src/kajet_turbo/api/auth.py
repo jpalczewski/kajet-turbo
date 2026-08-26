@@ -3,13 +3,16 @@ from fastapi.responses import JSONResponse
 
 from kajet_turbo import identity
 from kajet_turbo.api.schemas import LoginResponse, OkResponse, SessionResponse
-from kajet_turbo.auth import verify_password
+from kajet_turbo.auth import DUMMY_PASSWORD_HASH, verify_password
 from kajet_turbo.dependencies import (
+    get_oauth_repo,
     get_provider,
     get_required_user,
     get_session_repo,
     get_user_repo,
 )
+from kajet_turbo.log import logger
+from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.sessions import SessionRepository
 from kajet_turbo.repositories.users import UserRepository
 
@@ -36,7 +39,9 @@ async def api_login(
     pending_id = str(body.get("pending_id", ""))
 
     user = user_repo.get_by_email(email)
-    if not user or not verify_password(user.password_hash or "", password):
+    password_hash = user.password_hash if user and user.password_hash else DUMMY_PASSWORD_HASH
+    password_ok = verify_password(password_hash, password)
+    if not user or not password_ok:
         return JSONResponse({"error": "Nieprawidłowy email lub hasło."}, status_code=401)
 
     session_token = session_repo.create(user.id)
@@ -71,3 +76,26 @@ async def api_session_delete(
     resp = JSONResponse({"ok": True})
     resp.delete_cookie(_SESSION_COOKIE)
     return resp
+
+
+@router.delete("/api/sessions", response_model=OkResponse)
+async def api_sessions_delete(
+    user: dict = Depends(get_required_user),
+    oauth_repo: OAuthRepository = Depends(get_oauth_repo),
+    session_repo: SessionRepository = Depends(get_session_repo),
+) -> Response:
+    """Sign the current user out of every browser and connected OAuth client."""
+    user_id = str(user["id"])
+    # Revoke OAuth first. If deleting browser sessions then fails, the still-valid cookie
+    # lets the user safely retry this idempotent operation.
+    oauth_count = oauth_repo.delete_credentials_by_user(user_id)
+    session_count = session_repo.delete_all_for_user(user_id)
+    logger.info(
+        "user_signed_out_everywhere",
+        user_id=user_id,
+        oauth_credentials=oauth_count,
+        sessions=session_count,
+    )
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(_SESSION_COOKIE)
+    return response
