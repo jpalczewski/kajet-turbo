@@ -6,8 +6,6 @@ from functools import partial
 from itertools import chain
 from pathlib import Path
 
-from sqlmodel import Session
-
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
     BrokenWikilinkError,
@@ -20,7 +18,6 @@ from kajet_turbo.markdown import (
     resolve_content_links,
     rewrite_wikilinks,
 )
-from kajet_turbo.perf import timed
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
@@ -159,7 +156,14 @@ class NoteLinkService:
         if not resolutions and not clear_source_ids:
             return
         now = datetime.now(UTC).isoformat()
-        with Session(self._link_repo._engine) as session, timed("db_ms"):
+        with self._link_repo.operation(
+            "persist_many",
+            workspace=ws_name,
+            owner_id=owner_id,
+            sources=len(resolutions),
+            cleared=len(clear_source_ids - resolutions.keys()),
+        ) as operation:
+            session = operation.session
             for source_id, links in resolutions.items():
                 self._link_repo.replace_links_in_session(
                     session, source_id, ws_name, owner_id, links.resolved_ids

@@ -5,13 +5,14 @@ from nanoid import generate
 from sqlalchemy import CursorResult, delete
 from sqlmodel import Session, col, select
 
-from kajet_turbo.log import logger
 from kajet_turbo.markdown import ancestors
 from kajet_turbo.models import Note, NoteTag, Tag
 from kajet_turbo.repositories import DbRepository
 
 
 class NoteTagRepository(DbRepository):
+    repository_name = "note_tags"
+
     def _ensure_tag(
         self, session: Session, workspace: str, owner_id: str, path: str, now: str
     ) -> str:
@@ -108,11 +109,16 @@ class NoteTagRepository(DbRepository):
                     session.add(NoteTag(note_id=note_id, tag_id=tag_ids[path], source=source))
             self._gc_tags(session, workspace, owner_id)
             session.commit()
-        logger.info("note_tags_synced", ws=workspace, notes=len(tagged_by_note), tags=len(tag_ids))
+        self.log_operation(
+            "sync_many", workspace=workspace, notes=len(tagged_by_note), tags=len(tag_ids)
+        )
 
     def delete_note_tags(self, note_id: str, workspace: str, owner_id: str) -> None:
         """Remove a note's tag links and GC any tags left empty (used on note delete)."""
-        with self.timed_session() as session:
+        with self.operation(
+            "delete_note_tags", note_id=note_id, workspace=workspace, owner_id=owner_id
+        ) as operation:
+            session = operation.session
             session.execute(  # ty: ignore[deprecated] - DELETE statement
                 delete(NoteTag).where(col(NoteTag.note_id) == note_id)
             )
@@ -121,7 +127,10 @@ class NoteTagRepository(DbRepository):
 
     def delete_workspace_tags(self, workspace: str, owner_id: str) -> None:
         """Drop all tags + note_tags for a workspace (used before reindex)."""
-        with self.timed_session() as session:
+        with self.operation(
+            "delete_workspace_tags", workspace=workspace, owner_id=owner_id
+        ) as operation:
+            session = operation.session
             tag_ids = select(Tag.id).where(Tag.workspace == workspace, Tag.owner_id == owner_id)
             session.execute(  # ty: ignore[deprecated] - DELETE statement
                 delete(NoteTag).where(col(NoteTag.tag_id).in_(tag_ids))

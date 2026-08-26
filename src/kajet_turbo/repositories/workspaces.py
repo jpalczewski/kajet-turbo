@@ -1,14 +1,18 @@
 from sqlalchemy import delete
-from sqlmodel import Session, col, select
+from sqlmodel import col, select
 
-from kajet_turbo.log import logger
 from kajet_turbo.models import WorkspaceAccess
 from kajet_turbo.repositories import DbRepository
 
 
 class WorkspaceRepository(DbRepository):
+    repository_name = "workspaces"
+
     def grant_access(self, user_id: str, workspace: str, role: str = "owner") -> None:
-        with Session(self._engine) as session:
+        with self.operation(
+            "grant_access", user_id=user_id, workspace=workspace, role=role
+        ) as operation:
+            session = operation.session
             existing = session.exec(
                 select(WorkspaceAccess).where(
                     WorkspaceAccess.user_id == user_id,
@@ -16,12 +20,14 @@ class WorkspaceRepository(DbRepository):
                 )
             ).first()
             if existing:
+                operation.suppress_log()
                 return
             session.add(WorkspaceAccess(user_id=user_id, workspace=workspace, role=role))
             session.commit()
 
     def revoke_access(self, user_id: str, workspace: str) -> None:
-        with self.timed_session() as session:
+        with self.operation("revoke_access", user_id=user_id, workspace=workspace) as operation:
+            session = operation.session
             session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
                 delete(WorkspaceAccess).where(
                     col(WorkspaceAccess.user_id) == user_id,
@@ -29,10 +35,9 @@ class WorkspaceRepository(DbRepository):
                 )
             )
             session.commit()
-        logger.info("workspace_access_revoked", owner_id=user_id, ws=workspace)
 
     def list_user_workspaces(self, user_id: str) -> list[str]:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             rows = session.exec(
                 select(WorkspaceAccess)
                 .where(WorkspaceAccess.user_id == user_id)
@@ -41,7 +46,7 @@ class WorkspaceRepository(DbRepository):
         return [r.workspace for r in rows]
 
     def has_access(self, user_id: str, workspace: str) -> bool:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             return (
                 session.exec(
                     select(WorkspaceAccess).where(

@@ -4,7 +4,6 @@ import re
 from sqlalchemy import func, text
 from sqlmodel import Session, col, select
 
-from kajet_turbo.log import logger
 from kajet_turbo.markdown import IndexedNote
 from kajet_turbo.models import Note, NoteTag, Tag
 from kajet_turbo.perf import timed
@@ -23,6 +22,8 @@ def folder_sort_key(note: Note) -> tuple:
 
 
 class NoteRepository(DbRepository):
+    repository_name = "notes"
+
     def insert(
         self,
         note_id: str,
@@ -35,7 +36,10 @@ class NoteRepository(DbRepository):
         content: str,
         folder: str = "",
     ) -> None:
-        with self.timed_session() as session:
+        with self.operation(
+            "insert", note_id=note_id, workspace=workspace, owner_id=owner_id
+        ) as operation:
+            session = operation.session
             note = Note(
                 id=note_id,
                 workspace=workspace,
@@ -118,7 +122,7 @@ class NoteRepository(DbRepository):
         process) invalidates cached vector-less rankings on the next search."""
         with self.timed_session() as session:
             count = session.exec(
-                select(func.count()).where(  # ty: ignore[invalid-argument-type] — count() is a valid selectable; ty narrows select() too eagerly
+                select(func.count()).where(
                     Note.workspace == workspace,
                     Note.owner_id == owner_id,
                     Note.index_state == "stale",
@@ -212,8 +216,11 @@ class NoteRepository(DbRepository):
                 del h["_exact_title"]
                 del h["_prefix_title"]
             results = hits[:limit]
-        logger.info(
-            "metadata_search", workspace=workspace, query_tokens=len(tokens), matches=len(results)
+        self.log_operation(
+            "metadata_search",
+            workspace=workspace,
+            query_tokens=len(tokens),
+            matches=len(results),
         )
         return results
 
@@ -227,7 +234,8 @@ class NoteRepository(DbRepository):
         updated_at: str = "",
         folder: str | None = None,
     ) -> None:
-        with self.timed_session() as session:
+        with self.operation("update", note_id=note_id, owner_id=owner_id) as operation:
+            session = operation.session
             q = select(Note).where(Note.id == note_id)
             if owner_id is not None:
                 q = q.where(Note.owner_id == owner_id)
@@ -248,13 +256,16 @@ class NoteRepository(DbRepository):
             session.commit()
 
     def delete(self, note_id: str, owner_id: str | None = None) -> None:
-        with self.timed_session() as session:
+        with self.operation("delete", note_id=note_id, owner_id=owner_id) as operation:
+            session = operation.session
             q = select(Note).where(Note.id == note_id)
             if owner_id is not None:
                 q = q.where(Note.owner_id == owner_id)
             note = session.exec(q).first()
             if note:
                 session.delete(note)
+            else:
+                operation.suppress_log()
             session.commit()
 
     def list_notes(

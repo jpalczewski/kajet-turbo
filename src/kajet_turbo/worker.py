@@ -13,16 +13,20 @@ import os
 import signal
 import socket
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from typing import TypeVar
 
 from sqlalchemy import Engine
 
 from kajet_turbo.log import logger
 from kajet_turbo.models import Job
+from kajet_turbo.perf import perf_span
 from kajet_turbo.repositories.jobs import JobRepository
 
 Handler = Callable[[dict], None]
+_T = TypeVar("_T")
 
 _HANDLERS: dict[str, Handler] = {}
 
@@ -37,18 +41,65 @@ def get_handler(kind: str) -> Handler | None:
 
 def run_job(repo: JobRepository, job: Job, registry: dict[str, Handler]) -> None:
     """Execute one claimed job. Unknown kind -> terminal fail (a misrouted job must
-    not retry forever). Handler exception -> retrying fail. Success -> complete."""
-    handler = registry.get(job.kind)
-    if handler is None:
-        repo.fail_terminal(job.id, f"no handler for kind {job.kind!r}")
-        return
-    try:
-        handler(json.loads(job.payload))
-    except Exception as e:
-        logger.warning("job_failed", job_id=job.id, kind=job.kind, error=str(e))
-        repo.fail(job.id, str(e))
-    else:
-        repo.complete(job.id)
+    not retry forever). Handler exception -> retrying fail. Success -> complete.
+
+    The repository write itself is wrapped separately from the handler: a write failure
+    (e.g. a transient SQLite lock) must still produce a ``job_finished`` line before it
+    propagates, since ``run_worker`` never calls ``Future.result()`` and would otherwise
+    lose it silently.
+    """
+    started = time.monotonic()
+    error: Exception | None = None
+    repo_error: Exception | None = None
+
+    def write(fn: Callable[[], _T]) -> _T | None:
+        nonlocal repo_error
+        try:
+            return fn()
+        except Exception as exc:
+            repo_error = exc
+            return None
+
+    with perf_span() as span:
+        handler = registry.get(job.kind)
+        if handler is None:
+            outcome = "no_handler"
+            level = "WARNING"
+            write(lambda: repo.fail_terminal(job.id, f"no handler for kind {job.kind!r}"))
+        else:
+            try:
+                handler(json.loads(job.payload))
+            except Exception as exc:
+                error = exc
+                error_message = str(exc)
+                level = "WARNING"
+                status = write(lambda: repo.fail(job.id, error_message))
+                # A write failure leaves the job's real status unknown (the transaction
+                # rolled back), so it is not reported as either "failed" or "retrying".
+                if repo_error is not None:
+                    outcome = "unknown"
+                else:
+                    outcome = "failed" if status == "failed" else "retrying"
+            else:
+                outcome = "completed"
+                level = "INFO"
+                write(lambda: repo.complete(job.id))
+
+        perf_fields = span.fields if span else {}
+        log_error = repo_error or error
+        sink = logger.opt(exception=log_error) if log_error is not None else logger
+        sink.log(
+            level if repo_error is None else "ERROR",
+            "job_finished",
+            job_id=job.id,
+            kind=job.kind,
+            outcome=outcome,
+            repo_write_failed=repo_error is not None,
+            duration_ms=round((time.monotonic() - started) * 1000),
+            **perf_fields,
+        )
+    if repo_error is not None:
+        raise repo_error
 
 
 def _default_worker_id() -> str:

@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from kajet_turbo.db import Database
 from kajet_turbo.models import Job, User
 from kajet_turbo.repositories.jobs import JobRepository, backoff_seconds
+from tests.helpers import entries_named, read_log_entries
 
 
 def _get(engine, job_id: str) -> Job | None:
@@ -105,6 +106,20 @@ def test_claim_returns_and_locks_pending(database: Database):
     assert row.locked_at == 1001.0
     # nothing else runnable now
     assert repo.claim("worker-a", now=1002.0) is None
+
+
+def test_empty_claim_is_timed_but_not_logged(database: Database, capsys):
+    from kajet_turbo import perf
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    repo = JobRepository(database.engine)
+    with perf.perf_span() as span:
+        assert repo.claim("worker-a", now=1000.0) is None
+
+    assert span is not None
+    assert "db_ms" in span.fields
+    assert entries_named(read_log_entries(capsys), "repository_operation") == []
 
 
 def test_claim_skips_future_next_run_at(database: Database):

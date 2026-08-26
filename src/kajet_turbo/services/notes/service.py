@@ -7,7 +7,6 @@ from pathlib import Path
 
 import frontmatter
 from nanoid import generate
-from sqlmodel import Session
 
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
@@ -131,8 +130,6 @@ class NoteService:
         self._indexer = indexer
         self._cache = cache
         self._reconcile_repo = reconcile_repo
-        # shared engine for cross-repo atomic transactions (reindex)
-        self._engine = crud_repo._engine if crud_repo is not None else None
 
     @staticmethod
     def _to_located(note: Note, ws_path: str) -> _LocatedNote:
@@ -1080,7 +1077,10 @@ class NoteService:
         self._tag_repo.delete_workspace_tags(ws_name, owner_id)
         # Atomic: chunk cleanup + note row deletion share one session.
         # FK ordering: chunks must be deleted before notes (note_chunks.note_id FK).
-        with Session(self._engine) as session, timed("db_ms"):
+        with self._crud_repo.operation(
+            "clear_workspace_data", workspace=ws_name, owner_id=owner_id
+        ) as operation:
+            session = operation.session
             self._chunk_repo.delete_for_workspace(ws_name, owner_id, session)
             self._crud_repo.delete_for_workspace(ws_name, owner_id, session)
             session.commit()

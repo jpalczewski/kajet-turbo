@@ -38,8 +38,8 @@ async def ws_endpoint(
     event_repo: EventRepository = Depends(get_event_repo),
 ) -> None:
     # Bound for the whole connection, sender task included: asyncio copies the current
-    # context into a new task, so every line this connection emits — events_claimed and
-    # ws_claim_error included — carries the same conn_id without threading it through.
+    # context into a new task, so every line this connection emits — outbox reads and
+    # ws_read_error included — carries the same conn_id without threading it through.
     # Same mechanism LoggingMiddleware uses to tag an HTTP request.
     conn_id = generate(size=8)
     with logger.contextualize(conn_id=conn_id):

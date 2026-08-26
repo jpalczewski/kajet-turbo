@@ -14,8 +14,9 @@ from array import array
 from collections import OrderedDict
 from datetime import UTC, datetime
 
-from sqlalchemy import Engine, bindparam, text
-from sqlmodel import Session
+from sqlalchemy import bindparam, text
+
+from kajet_turbo.repositories import DbRepository
 
 
 def content_hash(embedded_text: str) -> str:
@@ -33,9 +34,8 @@ def unpack_vector(blob: bytes) -> list[float]:
     return list(a)
 
 
-class EmbeddingCacheRepository:
-    def __init__(self, engine: Engine):
-        self._engine = engine
+class EmbeddingCacheRepository(DbRepository):
+    repository_name = "embedding_cache"
 
     def get_many(self, hashes: list[str], backend: str, model: str) -> dict[str, list[float]]:
         if not hashes:
@@ -44,7 +44,7 @@ class EmbeddingCacheRepository:
             "SELECT content_hash, embedding FROM embedding_cache"
             " WHERE backend = :backend AND model = :model AND content_hash IN :hashes"
         ).bindparams(bindparam("hashes", expanding=True))
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                 stmt, {"backend": backend, "model": model, "hashes": list(hashes)}
             ).fetchall()
@@ -61,7 +61,8 @@ class EmbeddingCacheRepository:
             " ON CONFLICT (content_hash, backend, model)"
             " DO UPDATE SET last_used_at = :now"
         )
-        with Session(self._engine) as session:
+        with self.operation("put_many", entries=len(entries), model=model, dim=dim) as operation:
+            session = operation.session
             for h, vec in entries.items():
                 session.execute(  # ty: ignore[deprecated] - raw SQL
                     stmt,
