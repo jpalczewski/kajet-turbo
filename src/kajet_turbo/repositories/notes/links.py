@@ -7,6 +7,8 @@ from kajet_turbo.repositories import DbRepository
 
 
 class NoteLinkRepository(DbRepository):
+    repository_name = "note_links"
+
     @staticmethod
     def replace_links_in_session(
         session: Session,
@@ -38,7 +40,14 @@ class NoteLinkRepository(DbRepository):
         target_ids: set[str],
     ) -> None:
         """Replace the set of outgoing links for ``source_note_id`` (delete + reinsert)."""
-        with self.timed_session() as session:
+        with self.operation(
+            "replace_links",
+            source_note_id=source_note_id,
+            workspace=workspace,
+            owner_id=owner_id,
+            targets=len(target_ids),
+        ) as operation:
+            session = operation.session
             self.replace_links_in_session(session, source_note_id, workspace, owner_id, target_ids)
             session.commit()
 
@@ -48,7 +57,10 @@ class NoteLinkRepository(DbRepository):
         """Insert one outgoing edge, idempotently (ON CONFLICT DO NOTHING on the composite
         PK). Unlike replace_links, leaves the source's other edges intact — useful for
         maintenance/backfill code that adds one known edge."""
-        with self.timed_session() as session:
+        with self.operation(
+            "add_link", source_note_id=source_note_id, target_note_id=target_note_id
+        ) as operation:
+            session = operation.session
             session.execute(  # ty: ignore[deprecated] — sqlite INSERT ON CONFLICT requires execute(), not exec()
                 sqlite_insert(NoteLink)
                 .values(
@@ -62,7 +74,8 @@ class NoteLinkRepository(DbRepository):
             session.commit()
 
     def delete_links_from(self, source_note_id: str) -> None:
-        with self.timed_session() as session:
+        with self.operation("delete_links_from", source_note_id=source_note_id) as operation:
+            session = operation.session
             self.delete_links_from_in_session(session, source_note_id)
             session.commit()
 
@@ -73,14 +86,18 @@ class NoteLinkRepository(DbRepository):
         )
 
     def delete_links_to(self, target_note_id: str) -> None:
-        with self.timed_session() as session:
+        with self.operation("delete_links_to", target_note_id=target_note_id) as operation:
+            session = operation.session
             session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
                 delete(NoteLink).where(col(NoteLink.target_note_id) == target_note_id)
             )
             session.commit()
 
     def delete_workspace_links(self, workspace: str, owner_id: str) -> None:
-        with self.timed_session() as session:
+        with self.operation(
+            "delete_workspace_links", workspace=workspace, owner_id=owner_id
+        ) as operation:
+            session = operation.session
             session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
                 delete(NoteLink).where(
                     col(NoteLink.workspace) == workspace,

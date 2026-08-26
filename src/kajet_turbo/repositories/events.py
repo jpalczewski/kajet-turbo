@@ -7,7 +7,6 @@ from nanoid import generate
 from sqlalchemy import CursorResult, text
 from sqlmodel import col, select
 
-from kajet_turbo.log import logger
 from kajet_turbo.models import Event
 from kajet_turbo.repositories import DbRepository
 
@@ -28,6 +27,8 @@ class OutboxEvent:
 
 
 class EventRepository(DbRepository):
+    repository_name = "events"
+
     def publish(self, owner_id: str, kind: str, payload: dict) -> None:
         # Held as a local: commit() expires the instance and the session closes with the
         # block, so reading event.id afterwards would trigger a refresh on a detached
@@ -40,10 +41,12 @@ class EventRepository(DbRepository):
             payload=json.dumps(payload),
             created_at=time.time(),
         )
-        with self.timed_session() as session:
+        with self.operation(
+            "publish", owner_id=owner_id, kind=kind, event_id=event_id
+        ) as operation:
+            session = operation.session
             session.add(event)
             session.commit()
-        logger.info("event_published", owner_id=owner_id, kind=kind, event_id=event_id)
 
     def read_since(
         self,
@@ -63,7 +66,8 @@ class EventRepository(DbRepository):
         the last one delivered. ``exclude_ids`` carries the ids already handled at exactly
         ``since``, which is what keeps the overlap from re-delivering them.
         """
-        with self.timed_session() as session:
+        with self.operation("read_since", owner_id=owner_id) as operation:
+            session = operation.session
             rows = session.exec(
                 select(Event)
                 .where(Event.owner_id == owner_id)
@@ -76,16 +80,20 @@ class EventRepository(DbRepository):
                 for r in rows
                 if r.id not in exclude_ids
             ]
-        # This is polled every 2s per open connection, so an unconditional line would be
-        # pure volume — the failure mode #36 documents for outbox_sweep. Staying silent on
-        # an empty read keeps "an event moved" the only thing this logger ever says.
-        if events:
-            logger.info("events_read", owner_id=owner_id, count=len(events))
+            # This is polled every 2s per open connection, so an unconditional line would be
+            # pure volume — the failure mode #36 documents for outbox_sweep. Staying silent on
+            # an empty read keeps "an event moved" the only thing this logger ever says.
+            if events:
+                operation.outcome = "read"
+                operation.add_fields(count=len(events))
+            else:
+                operation.suppress_log()
         return events
 
     def sweep(self, older_than_s: float) -> int:
         cutoff = time.time() - older_than_s
-        with self.timed_session() as session:
+        with self.operation("sweep") as operation:
+            session = operation.session
             result = session.execute(  # ty: ignore[deprecated] - DELETE statement
                 text("DELETE FROM events WHERE created_at < :cutoff"),
                 {"cutoff": cutoff},
@@ -94,4 +102,5 @@ class EventRepository(DbRepository):
             assert isinstance(result, CursorResult)
             # No log here on purpose: the only caller already reports the count as
             # `outbox_sweep(swept=...)` in server.py, gated on it being non-zero.
+            operation.suppress_log()
             return result.rowcount

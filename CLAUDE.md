@@ -52,8 +52,16 @@ Do not bypass repository, cache, or locking helpers for convenience.
 ## Coding Style & Quality Preferences
 
 - Prefer typed, explicit APIs and narrow data models. Avoid `Any` unless boundary data requires it, and keep that boundary small.
-- Every repository and service method that touches the DB must wrap the operation in `with timed("db_ms"):` from `kajet_turbo.perf` and call `logger.info("event_name", ...)` from `kajet_turbo.log` after the operation completes.
-- All repositories inherit from `DbRepository` (`kajet_turbo.repositories`) and use `self.timed_session()` instead of `Session(self._engine)` directly — this deduplicates the Session+timed boilerplate.
+- All SQLModel repositories inherit from `DbRepository` (`kajet_turbo.repositories`). Use
+  `self.timed_session()` for quiet reads and `self.operation("action", ...)` for mutations
+  and operationally significant hits. Never open `Session(self._engine)` directly.
+- `DbRepository.operation()` emits the common `repository_operation` record with a
+  fully-qualified `operation` (`jobs.claim`), `outcome`, and local `db_ms`; it also feeds
+  the active HTTP/MCP/worker performance span. Attach only secret-safe IDs, kinds, and
+  counts. Hot-path reads, empty polls, cache reads, and no-ops stay timed but unlogged.
+- Helpers that write into a caller-owned `Session` do not time, commit, or log separately;
+  the transaction owner does all three. Cross-repository service transactions use a
+  repository's public `operation()` context, never its private `_engine`.
 - Keep code elegant with clear names, small cohesive functions, and simple module boundaries.
 - Actively deduplicate: extract shared logic into base classes, mixins, or helpers rather than repeating patterns across modules. Use modern Python 3.14 features (e.g. `contextlib.contextmanager`, `@dataclass`, structural pattern matching, `ExceptionGroup`) where they make the intent clearer.
 - Design for extension where requirements are real. Avoid speculative abstractions, but leave obvious extension points when the domain already has variation.

@@ -7,7 +7,6 @@ from typing import Any
 from sqlalchemy import text
 from sqlmodel import Session, select
 
-from kajet_turbo.log import logger
 from kajet_turbo.models import OAuthPendingAuthorization, OAuthRegisteredClient
 from kajet_turbo.repositories import DbRepository
 
@@ -41,9 +40,10 @@ def _row_dict(row, *json_fields: str) -> dict[str, Any]:
 class OAuthRepository(DbRepository):
     """Persistent OAuth state with timing and secret-safe structured logging."""
 
-    @staticmethod
-    def _log(operation: str, *, outcome: str = "success", **context: object) -> None:
-        logger.info("oauth_repository", operation=operation, outcome=outcome, **context)
+    repository_name = "oauth"
+
+    def _log(self, operation: str, *, outcome: str = "success", **context: object) -> None:
+        self.log_operation(operation, outcome=outcome, **context)
 
     @staticmethod
     def _insert_access_token(session: Session, pair: OAuthTokenPair) -> None:

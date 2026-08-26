@@ -5,18 +5,17 @@ atomically. All reads are owner-scoped."""
 from datetime import UTC, datetime
 
 from nanoid import generate
-from sqlalchemy import Engine
-from sqlmodel import Session, select
+from sqlmodel import select
 
 from kajet_turbo.models import EmbeddingProfile
+from kajet_turbo.repositories import DbRepository
 
 
-class EmbeddingProfileRepository:
-    def __init__(self, engine: Engine):
-        self._engine = engine
+class EmbeddingProfileRepository(DbRepository):
+    repository_name = "embedding_profiles"
 
     def list_for_user(self, user_id: str) -> list[EmbeddingProfile]:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             return list(
                 session.exec(
                     select(EmbeddingProfile)
@@ -26,12 +25,12 @@ class EmbeddingProfileRepository:
             )
 
     def get(self, user_id: str, profile_id: str) -> EmbeddingProfile | None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             p = session.get(EmbeddingProfile, profile_id)
             return p if p and p.user_id == user_id else None
 
     def get_active(self, user_id: str) -> EmbeddingProfile | None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             return session.exec(
                 select(EmbeddingProfile).where(
                     EmbeddingProfile.user_id == user_id,
@@ -41,7 +40,8 @@ class EmbeddingProfileRepository:
 
     def create(self, user_id, name, base_url, model, api_key_enc, dim) -> EmbeddingProfile:
         now = datetime.now(UTC).isoformat()
-        with Session(self._engine) as session:
+        with self.operation("create", user_id=user_id) as operation:
+            session = operation.session
             has_any = session.exec(
                 select(EmbeddingProfile).where(EmbeddingProfile.user_id == user_id)
             ).first()
@@ -60,11 +60,13 @@ class EmbeddingProfileRepository:
             session.add(profile)
             session.commit()
             session.refresh(profile)
+            operation.add_fields(profile_id=profile.id, active=profile.is_active, dim=profile.dim)
             return profile
 
     def update(self, user_id, profile_id, *, name, base_url, model, api_key_enc, dim) -> None:
         now = datetime.now(UTC).isoformat()
-        with Session(self._engine) as session:
+        with self.operation("update", user_id=user_id, profile_id=profile_id) as operation:
+            session = operation.session
             p = session.get(EmbeddingProfile, profile_id)
             if p is None or p.user_id != user_id:
                 raise ValueError("profile not found")
@@ -73,9 +75,11 @@ class EmbeddingProfileRepository:
             p.updated_at = now
             session.add(p)
             session.commit()
+            operation.add_fields(dim=dim)
 
     def set_active(self, user_id: str, profile_id: str) -> None:
-        with Session(self._engine) as session:
+        with self.operation("set_active", user_id=user_id, profile_id=profile_id) as operation:
+            session = operation.session
             target = session.get(EmbeddingProfile, profile_id)
             if target is None or target.user_id != user_id:
                 raise ValueError("profile not found")
@@ -87,9 +91,11 @@ class EmbeddingProfileRepository:
             session.commit()
 
     def delete(self, user_id: str, profile_id: str) -> None:
-        with Session(self._engine) as session:
+        with self.operation("delete", user_id=user_id, profile_id=profile_id) as operation:
+            session = operation.session
             p = session.get(EmbeddingProfile, profile_id)
             if p is None or p.user_id != user_id:
+                operation.suppress_log()
                 return
             was_active = p.is_active
             session.delete(p)
@@ -104,3 +110,4 @@ class EmbeddingProfileRepository:
                     remaining.is_active = True
                     session.add(remaining)
                     session.commit()
+                    operation.add_fields(promoted_profile_id=remaining.id)

@@ -3,20 +3,21 @@ import time
 
 from sqlalchemy import text
 
-from kajet_turbo.log import logger
 from kajet_turbo.models import UserSession
 from kajet_turbo.repositories import DbRepository
 
 
 class SessionRepository(DbRepository):
+    repository_name = "sessions"
+
     def create(self, user_id: str) -> str:
         token = secrets.token_hex(32)
         expires_at = int(time.time()) + 30 * 24 * 3600
         sess = UserSession(token=token, user_id=user_id, expires_at=expires_at)
-        with self.timed_session() as session:
+        with self.operation("create", user_id=user_id, expires_at=expires_at) as operation:
+            session = operation.session
             session.add(sess)
             session.commit()
-        logger.info("session_created", user_id=user_id, expires_at=expires_at)
         return token
 
     def get_user(self, token: str) -> dict | None:
@@ -40,14 +41,14 @@ class SessionRepository(DbRepository):
                 text("DELETE FROM sessions WHERE token = :token"), {"token": token}
             )
             session.commit()
-        logger.info("session_deleted")
 
     def delete_all_for_user(self, user_id: str) -> int:
-        with self.timed_session() as session:
+        with self.operation("delete_all_for_user", user_id=user_id) as operation:
+            session = operation.session
             result = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("DELETE FROM sessions WHERE user_id = :user_id"), {"user_id": user_id}
             )
             session.commit()
-        count = result.rowcount  # ty: ignore[unresolved-attribute] - CursorResult at runtime
-        logger.info("sessions_deleted_for_user", user_id=user_id, count=count)
+            count = result.rowcount  # ty: ignore[unresolved-attribute] - CursorResult at runtime
+            operation.add_fields(count=count)
         return count

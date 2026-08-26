@@ -10,7 +10,6 @@ from sqlalchemy import text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, col, select
 
-from kajet_turbo.log import logger
 from kajet_turbo.models import Job
 from kajet_turbo.repositories import DbRepository
 
@@ -52,6 +51,8 @@ _CLAIM_SQL = text(
 
 
 class JobRepository(DbRepository):
+    repository_name = "jobs"
+
     def enqueue_in_session(
         self,
         session: Session,
@@ -131,7 +132,10 @@ class JobRepository(DbRepository):
         delay: float = 0.0,
         now: float | None = None,
     ) -> str:
-        with self.timed_session() as session:
+        with self.operation(
+            "enqueue", kind=kind, user_id=user_id, deduplicated=dedup_key is not None
+        ) as operation:
+            session = operation.session
             job_id = self.enqueue_in_session(
                 session,
                 kind,
@@ -143,23 +147,32 @@ class JobRepository(DbRepository):
                 now=now,
             )
             session.commit()
+            operation.add_fields(job_id=job_id)
             return job_id
 
     def claim(
         self, worker_id: str, *, now: float | None = None, stale_after: float = 300.0
     ) -> Job | None:
         now = time.time() if now is None else now
-        with Session(self._engine) as session:
+        with self.operation("claim", worker_id=worker_id) as operation:
+            session = operation.session
             row = session.execute(  # ty: ignore[deprecated] - raw SQL
                 _CLAIM_SQL,
                 {"worker": worker_id, "now": now, "stale_cutoff": now - stale_after},
             ).fetchone()
             session.commit()
-            return None if row is None else Job(**row._mapping)
+            if row is None:
+                operation.suppress_log()
+                return None
+            job = Job(**row._mapping)
+            operation.outcome = "claimed"
+            operation.add_fields(job_id=job.id, kind=job.kind)
+            return job
 
     def complete(self, job_id: str, *, now: float | None = None) -> None:
         now = time.time() if now is None else now
-        with Session(self._engine) as session:
+        with self.operation("complete", job_id=job_id) as operation:
+            session = operation.session
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("UPDATE jobs SET status='done', updated_at=:now WHERE id=:id"),
                 {"now": now, "id": job_id},
@@ -174,12 +187,16 @@ class JobRepository(DbRepository):
         now: float | None = None,
         base_backoff: float = 2.0,
         max_backoff: float = 300.0,
-    ) -> None:
+    ) -> str | None:
+        """Record a handler failure. Returns the job's resulting status
+        (``"failed"`` or ``"pending"``), or ``None`` if the job no longer exists."""
         now = time.time() if now is None else now
-        with Session(self._engine) as session:
+        with self.operation("fail", job_id=job_id) as operation:
+            session = operation.session
             job = session.get(Job, job_id)
             if job is None:
-                return
+                operation.suppress_log()
+                return None
             job.attempts += 1
             job.last_error = error
             job.updated_at = now
@@ -192,10 +209,14 @@ class JobRepository(DbRepository):
                 job.locked_at = None
             session.add(job)
             session.commit()
+            operation.outcome = job.status
+            operation.add_fields(kind=job.kind, attempts=job.attempts)
+            return job.status
 
     def fail_terminal(self, job_id: str, error: str, *, now: float | None = None) -> None:
         now = time.time() if now is None else now
-        with Session(self._engine) as session:
+        with self.operation("fail_terminal", job_id=job_id) as operation:
+            session = operation.session
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "UPDATE jobs SET status='failed', last_error=:err, updated_at=:now WHERE id=:id"
@@ -206,7 +227,8 @@ class JobRepository(DbRepository):
 
     def reset_running_to_pending(self, worker_id: str, *, now: float | None = None) -> int:
         now = time.time() if now is None else now
-        with Session(self._engine) as session:
+        with self.operation("reset_running_to_pending", worker_id=worker_id) as operation:
+            session = operation.session
             result = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "UPDATE jobs SET status='pending', next_run_at=:now, locked_by=NULL, "
@@ -216,7 +238,9 @@ class JobRepository(DbRepository):
                 {"now": now, "worker": worker_id},
             )
             session.commit()
-            return result.rowcount  # ty: ignore[unresolved-attribute] - CursorResult has rowcount; ty loses it through Result[Any]
+            count = result.rowcount  # ty: ignore[unresolved-attribute] - CursorResult has rowcount; ty loses it through Result[Any]
+            operation.report_count(count)
+            return count
 
     def list_jobs(
         self,
@@ -227,7 +251,7 @@ class JobRepository(DbRepository):
         limit: int = 50,
         offset: int = 0,
     ) -> list[Job]:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             stmt = select(Job).where(Job.user_id == user_id)
             if status is not None:
                 stmt = stmt.where(Job.status == status)
@@ -238,9 +262,11 @@ class JobRepository(DbRepository):
 
     def retry(self, job_id: str, user_id: str, *, now: float | None = None) -> bool:
         now = time.time() if now is None else now
-        with Session(self._engine) as session:
+        with self.operation("retry", job_id=job_id, user_id=user_id) as operation:
+            session = operation.session
             job = session.get(Job, job_id)
             if job is None or job.user_id != user_id or job.status != "failed":
+                operation.suppress_log()
                 return False
             job.status = "pending"
             job.attempts = 0
@@ -257,18 +283,25 @@ class JobRepository(DbRepository):
         """Purge ``done`` rows older than ``older_than`` seconds. ``failed`` rows are
         kept — they stay user-visible in the jobs API until retried or dismissed."""
         now = time.time() if now is None else now
-        with Session(self._engine) as session:
+        with self.operation("sweep_done") as operation:
+            session = operation.session
             result = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("DELETE FROM jobs WHERE status='done' AND updated_at < :cutoff"),
                 {"cutoff": now - older_than},
             )
             session.commit()
-            return result.rowcount  # ty: ignore[unresolved-attribute] - CursorResult has rowcount; ty loses it through Result[Any]
+            count = result.rowcount  # ty: ignore[unresolved-attribute] - CursorResult has rowcount; ty loses it through Result[Any]
+            # No log here on purpose: the only caller already reports the count as
+            # `outbox_sweep(jobs_purged=...)` in server.py, gated on it being abnormal.
+            operation.suppress_log()
+            return count
 
     def dismiss(self, job_id: str, user_id: str) -> bool:
-        with Session(self._engine) as session:
+        with self.operation("dismiss", job_id=job_id, user_id=user_id) as operation:
+            session = operation.session
             job = session.get(Job, job_id)
             if job is None or job.user_id != user_id or job.status not in ("done", "failed"):
+                operation.suppress_log()
                 return False
             session.delete(job)
             session.commit()
@@ -280,7 +313,10 @@ class JobRepository(DbRepository):
         kind (push_workspace/reconcile_links/embed_note) shares, and what JobService
         already relies on to render the dashboard. Global jobs (sweep_outbox) have a
         NULL user_id and no payload.workspace, so they're structurally excluded."""
-        with self.timed_session() as session:
+        with self.operation(
+            "delete_for_workspace", user_id=user_id, workspace=workspace
+        ) as operation:
+            session = operation.session
             result = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "DELETE FROM jobs WHERE user_id=:user_id"
@@ -290,4 +326,4 @@ class JobRepository(DbRepository):
             )
             count = result.rowcount  # ty: ignore[unresolved-attribute] - CursorResult has rowcount; ty loses it through Result[Any]
             session.commit()
-        logger.info("jobs_deleted_for_workspace", owner_id=user_id, ws=workspace, count=count)
+            operation.report_count(count)

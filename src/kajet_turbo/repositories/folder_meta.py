@@ -3,7 +3,6 @@ from datetime import UTC, datetime
 from sqlalchemy import CursorResult, delete
 from sqlmodel import col, or_, select
 
-from kajet_turbo.log import logger
 from kajet_turbo.models import FolderMeta
 from kajet_turbo.repositories import DbRepository
 
@@ -13,6 +12,8 @@ class FolderMetaRepository(DbRepository):
 
     Partial upserts preserve unspecified fields (None = keep existing). rename_paths
     rewrites all nested paths in Python so move_folder never orphans metadata rows."""
+
+    repository_name = "folder_meta"
 
     def set(
         self,
@@ -50,7 +51,7 @@ class FolderMetaRepository(DbRepository):
                 row.updated_at = now
             session.add(row)
             session.commit()
-        logger.info("folder_meta_set", owner_id=owner_id, ws=workspace, path=path)
+        self.log_operation("set", owner_id=owner_id, workspace=workspace, path=path)
 
     def get(self, owner_id: str, workspace: str, path: str) -> FolderMeta | None:
         with self.timed_session() as session:
@@ -61,9 +62,6 @@ class FolderMetaRepository(DbRepository):
                     FolderMeta.path == path,
                 )
             ).first()
-        logger.info(
-            "folder_meta_get", owner_id=owner_id, ws=workspace, path=path, found=row is not None
-        )
         return row
 
     def get_many(self, owner_id: str, workspace: str, paths: list[str]) -> dict[str, FolderMeta]:
@@ -77,15 +75,7 @@ class FolderMetaRepository(DbRepository):
                     col(FolderMeta.path).in_(paths),
                 )
             ).all()
-        result = {r.path: r for r in rows}
-        logger.info(
-            "folder_meta_get_many",
-            owner_id=owner_id,
-            ws=workspace,
-            requested=len(paths),
-            found=len(result),
-        )
-        return result
+        return {r.path: r for r in rows}
 
     def rename_paths(self, owner_id: str, workspace: str, src: str, dst: str) -> None:
         """Rename src folder and all descendants to dst, rewriting path prefix in-place.
@@ -117,10 +107,10 @@ class FolderMetaRepository(DbRepository):
                 session.add(row)
             count = len(rows)
             session.commit()
-        logger.info(
-            "folder_meta_renamed",
+        self.log_operation(
+            "rename_paths",
             owner_id=owner_id,
-            ws=workspace,
+            workspace=workspace,
             src=src,
             dst=dst,
             count=count,
@@ -137,4 +127,6 @@ class FolderMetaRepository(DbRepository):
             assert isinstance(result, CursorResult)
             count = result.rowcount
             session.commit()
-        logger.info("folder_meta_deleted_workspace", owner_id=owner_id, ws=workspace, count=count)
+        self.log_operation(
+            "delete_for_workspace", owner_id=owner_id, workspace=workspace, count=count
+        )

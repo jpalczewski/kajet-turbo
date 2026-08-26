@@ -2,9 +2,8 @@ import json
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, text
-from sqlmodel import Session, col, select
+from sqlmodel import col, select
 
-from kajet_turbo.log import logger
 from kajet_turbo.models import WorkspaceMeta
 from kajet_turbo.repositories import DbRepository
 
@@ -21,9 +20,12 @@ class WorkspaceMetaRepository(DbRepository):
     """Per-(user, workspace) metadata store. Partial upserts via SQLite
     ON CONFLICT so unspecified fields are preserved."""
 
+    repository_name = "workspace_meta"
+
     def ensure(self, user_id: str, workspace: str) -> None:
         now = datetime.now(UTC).isoformat()
-        with Session(self._engine) as session:
+        with self.operation("ensure", user_id=user_id, workspace=workspace) as operation:
+            session = operation.session
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT INTO workspace_meta (user_id, workspace, description, folder, tags,"
@@ -47,7 +49,8 @@ class WorkspaceMetaRepository(DbRepository):
         # column unchanged, a value overwrites it. On insert the COALESCE falls back
         # to the VALUES literal so a brand-new row gets defaults for omitted fields.
         now = datetime.now(UTC).isoformat()
-        with Session(self._engine) as session:
+        with self.operation("set", user_id=user_id, workspace=workspace) as operation:
+            session = operation.session
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT INTO workspace_meta"
@@ -71,7 +74,7 @@ class WorkspaceMetaRepository(DbRepository):
             session.commit()
 
     def get(self, user_id: str, workspace: str) -> dict | None:
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             row = session.exec(
                 select(WorkspaceMeta).where(
                     WorkspaceMeta.user_id == user_id,
@@ -83,7 +86,7 @@ class WorkspaceMetaRepository(DbRepository):
     def get_many(self, user_id: str, workspaces: list[str]) -> dict[str, dict]:
         if not workspaces:
             return {}
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             rows = session.exec(
                 select(WorkspaceMeta).where(
                     WorkspaceMeta.user_id == user_id,
@@ -94,7 +97,7 @@ class WorkspaceMetaRepository(DbRepository):
 
     def get_settings(self, user_id: str, workspace: str) -> str | None:
         """Raw settings JSON blob (None when unset). Parsing happens in the service."""
-        with Session(self._engine) as session:
+        with self.timed_session() as session:
             row = session.exec(
                 select(WorkspaceMeta).where(
                     WorkspaceMeta.user_id == user_id,
@@ -104,7 +107,8 @@ class WorkspaceMetaRepository(DbRepository):
         return row.settings if row else None
 
     def delete(self, user_id: str, workspace: str) -> None:
-        with self.timed_session() as session:
+        with self.operation("delete", user_id=user_id, workspace=workspace) as operation:
+            session = operation.session
             session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
                 delete(WorkspaceMeta).where(
                     col(WorkspaceMeta.user_id) == user_id,
@@ -112,11 +116,11 @@ class WorkspaceMetaRepository(DbRepository):
                 )
             )
             session.commit()
-        logger.info("workspace_meta_deleted", owner_id=user_id, ws=workspace)
 
     def set_settings(self, user_id: str, workspace: str, settings_json: str) -> None:
         now = datetime.now(UTC).isoformat()
-        with Session(self._engine) as session:
+        with self.operation("set_settings", user_id=user_id, workspace=workspace) as operation:
+            session = operation.session
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT INTO workspace_meta"

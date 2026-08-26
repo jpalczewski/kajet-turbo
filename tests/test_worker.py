@@ -4,8 +4,10 @@ from sqlmodel import Session
 
 from kajet_turbo.db import Database
 from kajet_turbo.models import Job
+from kajet_turbo.perf import record
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.worker import Handler, run_job, run_worker
+from tests.helpers import entries_named, read_log_entries
 
 
 def _get(engine, job_id: str) -> Job | None:
@@ -62,6 +64,50 @@ def test_run_job_handler_exception_retries(database: Database):
     assert row.attempts == 1
     assert row.last_error is not None
     assert "kaboom" in row.last_error
+
+
+def test_run_job_logs_aggregate_db_and_git_timings(database: Database, capsys):
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    repo = JobRepository(database.engine)
+    job_id = repo.enqueue("k", {}, now=1000.0)
+    job = repo.claim("w", now=1000.0)
+    assert job is not None
+    capsys.readouterr()  # discard enqueue/claim repository records
+
+    def handler(_payload: dict) -> None:
+        record("git_ms", 12.5)
+
+    run_job(repo, job, {"k": handler})
+
+    (entry,) = entries_named(read_log_entries(capsys), "job_finished")
+    assert entry["job_id"] == job_id
+    assert entry["kind"] == "k"
+    assert entry["outcome"] == "completed"
+    assert entry["duration_ms"] >= 0
+    assert entry["db_ms"] >= 0
+    assert entry["git_ms"] == 12.5
+
+
+def test_run_job_logs_retry_outcome(database: Database, capsys):
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    repo = JobRepository(database.engine)
+    repo.enqueue("k", {}, max_attempts=2, now=1000.0)
+    job = repo.claim("w", now=1000.0)
+    assert job is not None
+    capsys.readouterr()
+
+    def handler(_payload: dict) -> None:
+        raise RuntimeError("boom")
+
+    run_job(repo, job, {"k": handler})
+
+    (entry,) = entries_named(read_log_entries(capsys), "job_finished")
+    assert entry["outcome"] == "retrying"
+    assert entry["db_ms"] >= 0
 
 
 def test_run_worker_processes_enqueued_job(database: Database):

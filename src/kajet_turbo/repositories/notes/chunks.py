@@ -62,6 +62,8 @@ def _to_fts_query(query: str) -> str:
 
 
 class NoteChunkRepository(DbRepository):
+    repository_name = "note_chunks"
+
     def ensure_vec_table(self, dim: int) -> None:
         """Lazily create the dim-sharded vec0 table for this dimension. ``dim`` MUST be a
         positive int — it is interpolated into DDL, so a non-int is rejected to keep the
@@ -103,7 +105,15 @@ class NoteChunkRepository(DbRepository):
                     f"embeddings ({len(embeddings)}) must match chunks ({len(chunks)})"
                 )
         now = datetime.now(UTC).isoformat()
-        with self.timed_session() as session:
+        with self.operation(
+            "replace_chunks",
+            note_id=note_id,
+            workspace=workspace,
+            owner_id=owner_id,
+            chunks=len(chunks),
+            vectorized=embeddings is not None,
+        ) as operation:
+            session = operation.session
             old = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "SELECT DISTINCT dim FROM note_chunks WHERE note_id = :nid AND dim IS NOT NULL"
@@ -209,13 +219,17 @@ class NoteChunkRepository(DbRepository):
         if not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0:
             raise ValueError(f"dim must be a positive int, got {dim!r}")
         now = datetime.now(UTC).isoformat()
-        with self.timed_session() as session:
+        with self.operation(
+            "attach_vectors", note_id=note_id, dim=dim, chunks=len(vectors)
+        ) as operation:
+            session = operation.session
             rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text("SELECT id, rowid AS rowid FROM note_chunks WHERE note_id = :nid"),
                 {"nid": note_id},
             ).fetchall()
             if not rows or {r._mapping["id"] for r in rows} != set(vectors):
-                logger.info("vectors_attach_skipped", note_id=note_id, stored_chunks=len(rows))
+                operation.outcome = "skipped"
+                operation.add_fields(stored_chunks=len(rows))
                 return False
             old = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
@@ -254,7 +268,7 @@ class NoteChunkRepository(DbRepository):
                 {"at": now, "nid": note_id},
             )
             session.commit()
-        logger.info("vectors_attached", note_id=note_id, dim=dim, chunks=len(vectors))
+            operation.outcome = "attached"
         return True
 
     def get_chunks(self, note_id: str) -> list[dict]:
@@ -436,7 +450,10 @@ class NoteChunkRepository(DbRepository):
 
     def upsert_index_meta(self, owner_id: str, backend: str, model: str, dim: int) -> None:
         now = datetime.now(UTC).isoformat()
-        with self.timed_session() as session:
+        with self.operation(
+            "upsert_index_meta", owner_id=owner_id, model=model, dim=dim
+        ) as operation:
+            session = operation.session
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "INSERT INTO index_meta (owner_id, backend, model, dim, updated_at)"

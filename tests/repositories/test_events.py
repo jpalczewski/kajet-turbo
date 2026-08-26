@@ -114,8 +114,10 @@ def test_publish_logs_event(database: Database, capsys):
     repo = EventRepository(database.engine)
     repo.publish("u1", "note_updated", {"note_id": "n1"})
 
-    published = entries_named(read_log_entries(capsys), "event_published")
+    published = entries_named(read_log_entries(capsys), "repository_operation")
     assert len(published) == 1
+    assert published[0]["repository"] == "events"
+    assert published[0]["operation"] == "events.publish"
     assert published[0]["owner_id"] == "u1"
     assert published[0]["kind"] == "note_updated"
     assert published[0]["event_id"]
@@ -129,7 +131,7 @@ def test_read_since_is_silent_when_there_is_nothing_to_read(database: Database, 
     repo = EventRepository(database.engine)
     repo.read_since("u1", ["note_updated"], 0.0)
 
-    assert "events_read" not in capsys.readouterr().err
+    assert entries_named(read_log_entries(capsys), "repository_operation") == []
 
 
 def test_read_since_logs_the_count_when_it_returns_events(database: Database, capsys):
@@ -142,8 +144,13 @@ def test_read_since_logs_the_count_when_it_returns_events(database: Database, ca
     setup_logging()  # after publish, so only the read line is captured
     repo.read_since("u1", ["note_updated"], 0.0)
 
-    read = entries_named(read_log_entries(capsys), "events_read")
+    read = [
+        entry
+        for entry in entries_named(read_log_entries(capsys), "repository_operation")
+        if entry.get("operation") == "events.read_since"
+    ]
     assert len(read) == 1
+    assert read[0]["operation"] == "events.read_since"
     assert read[0]["count"] == 2
     assert read[0]["owner_id"] == "u1"
 
