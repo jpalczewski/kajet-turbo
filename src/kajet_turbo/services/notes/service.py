@@ -3,6 +3,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 
 import frontmatter
@@ -21,7 +22,12 @@ from kajet_turbo.markdown import (
     split_target,
 )
 from kajet_turbo.models import Note
-from kajet_turbo.repositories.git import GitError, GitRepository, workspace_write_transaction
+from kajet_turbo.repositories.git import (
+    GitError,
+    GitRepository,
+    defer_workspace_postprocess,
+    workspace_write_transaction,
+)
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
@@ -279,7 +285,9 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
-        self._index(note_id, ws_name, user_id, title, content)
+        defer_workspace_postprocess(
+            ws_path, partial(self._index, note_id, ws_name, user_id, title, content)
+        )
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
         return {"note_id": note_id, "warnings": wikilink_warnings(links)}
@@ -408,12 +416,14 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
 
-        # Phase 5: index — embedding parallelized across the threadpool, best-effort.
+        # Phase 5: index after releasing the workspace write lock. It remains synchronous
+        # from the caller's perspective, including the existing error behavior.
         if self._indexer is not None:
-            self._indexer.index_many(
-                ws_name,
-                user_id,
-                [{"id": s["note_id"], "title": s["title"], "content": s["content"]} for s in valid],
+            index_payload = [
+                {"id": s["note_id"], "title": s["title"], "content": s["content"]} for s in valid
+            ]
+            defer_workspace_postprocess(
+                ws_path, partial(self._indexer.index_many, ws_name, user_id, index_payload)
             )
 
         for s in valid:
@@ -778,7 +788,10 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_updated", note_id=note_id, folder=new_folder)
-        self._index(note_id, note.workspace, owner_id, new_title, new_content)
+        defer_workspace_postprocess(
+            ws_path,
+            partial(self._index, note_id, note.workspace, owner_id, new_title, new_content),
+        )
         if self._reconcile_repo is not None and identity_changed:
             self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
         return {
@@ -931,13 +944,12 @@ class NoteService:
             self._cache.bump(ws_name, user_id)
 
         if self._indexer is not None:
-            self._indexer.index_many(
-                ws_name,
-                user_id,
-                [
-                    {"id": p.note_id, "title": p.loc.note.title, "content": p.new_content}
-                    for p in prepared
-                ],
+            index_payload = [
+                {"id": p.note_id, "title": p.loc.note.title, "content": p.new_content}
+                for p in prepared
+            ]
+            defer_workspace_postprocess(
+                ws_path, partial(self._indexer.index_many, ws_name, user_id, index_payload)
             )
 
         results = [

@@ -18,7 +18,7 @@ from dulwich.repo import Repo
 from nanoid import generate
 
 from kajet_turbo.log import logger
-from kajet_turbo.perf import record
+from kajet_turbo.perf import record, timed
 
 COMMITTER = b"Kajet <bot@kajet.app>"
 
@@ -72,6 +72,7 @@ _LOCK_STATE = threading.local()
 class _TransactionState:
     def __init__(self) -> None:
         self.post_commit = False
+        self.post_release: list[Callable[[], None]] = []
 
 
 def _lock_key(workspace_path: str) -> str:
@@ -104,6 +105,21 @@ def _record_post_commit(workspace_path: str) -> None:
         _fire_post_commit(workspace_path)
     else:
         state.post_commit = True
+
+
+def defer_workspace_postprocess(workspace_path: str, callback: Callable[[], None]) -> None:
+    """Run ``callback`` synchronously after the outer workspace lock is released.
+
+    Service methods use this for derived work such as search indexing: callers still
+    observe failures before the method returns, but another writer is not held behind
+    CPU work or unrelated database/job-queue I/O. Outside a transaction the callback
+    runs immediately, keeping the helper safe for shared lower-level code.
+    """
+    state = _transaction_states().get(_lock_key(workspace_path))
+    if state is None:
+        callback()
+    else:
+        state.post_release.append(callback)
 
 
 class GitError(Exception):
@@ -148,12 +164,14 @@ def _workspace_lock(workspace_path: str):
 
     Only the outermost acquisition opens and flocks the lock file. Nested commit helpers
     reuse the transaction held by their caller, avoiding both RLock and flock deadlocks.
-    Perf fields and post-commit hooks are likewise emitted once for the outer transaction.
+    Lock perf fields, post-commit hooks, and deferred postprocessing are likewise handled
+    once for the outer transaction.
     """
     key = _lock_key(workspace_path)
     states = _transaction_states()
     nested = key in states
     pending_post_commit = False
+    post_release: list[Callable[[], None]] = []
     t0 = time.monotonic()
     try:
         with _repo_lock(workspace_path):
@@ -170,15 +188,27 @@ def _workspace_lock(workspace_path: str):
                     try:
                         yield
                     finally:
-                        record("git_ms", (time.monotonic() - t1) * 1000)
+                        record("workspace_write_ms", (time.monotonic() - t1) * 1000)
             finally:
                 pending_post_commit = state.post_commit
+                post_release = state.post_release
                 states.pop(key, None)
     finally:
-        if not nested and pending_post_commit:
+        if not nested:
             # Run external side effects only after both locks have been released. Multiple
             # commits in one transaction intentionally coalesce into one auto-push enqueue.
-            _fire_post_commit(workspace_path)
+            # The hook goes first so a deferred indexing failure cannot suppress auto-push.
+            if pending_post_commit:
+                _fire_post_commit(workspace_path)
+            for callback in post_release:
+                callback()
+
+
+@contextlib.contextmanager
+def _git_write(workspace_path: str):
+    """Lock one Git mutation and account only its Dulwich/filesystem work as git_ms."""
+    with _workspace_lock(workspace_path), timed("git_ms"):
+        yield
 
 
 def workspace_write_transaction[**P, T](fn: Callable[P, T]) -> Callable[P, T]:
@@ -231,7 +261,7 @@ class GitRepository:
             yield self
 
     def commit_file(self, relative_path: str, message: str) -> None:
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             try:
                 if not Path(self._workspace_path, relative_path).exists():
                     raise GitError(f"File not found: {relative_path}")
@@ -247,7 +277,7 @@ class GitRepository:
                 raise GitError(str(e)) from e
 
     def delete_file(self, relative_path: str, message: str) -> None:
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             try:
                 Path(self._workspace_path, relative_path).unlink(missing_ok=True)
                 porcelain.rm(self._workspace_path, paths=[relative_path])
@@ -269,7 +299,7 @@ class GitRepository:
         """
         if not relative_paths:
             return
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             try:
                 for rel in relative_paths:
                     Path(self._workspace_path, rel).unlink(missing_ok=True)
@@ -287,7 +317,7 @@ class GitRepository:
                 raise GitError(str(e)) from e
 
     def rename_file(self, old_rel: str, new_rel: str, message: str) -> None:
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             old_full = Path(self._workspace_path, old_rel)
             new_full = Path(self._workspace_path, new_rel)
             try:
@@ -320,7 +350,7 @@ class GitRepository:
         (folder move uses a temp dir), so this only reconciles git state."""
         if not removed_rels and not added_rels:
             return
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             try:
                 if removed_rels:
                     # cached=True: drop from the index only. The caller already moved the
@@ -347,7 +377,7 @@ class GitRepository:
         """
         if not relative_paths:
             return
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             try:
                 for rel in relative_paths:
                     if not Path(self._workspace_path, rel).exists():
@@ -369,7 +399,7 @@ class GitRepository:
         """Idempotently move this repo from ``master`` to ``main``: point HEAD at
         main and rename the branch ref. No-op (returns False) if HEAD is not on
         master. Holds the workspace lock — it mutates refs."""
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             repo = Repo(self._workspace_path)
             head = repo.refs.read_ref(b"HEAD")  # ty: ignore[invalid-argument-type] - Literal[bytes] satisfies Ref type
             if head != b"ref: refs/heads/master":

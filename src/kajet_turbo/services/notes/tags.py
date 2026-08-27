@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 
 from kajet_turbo.cache import WorkspaceCache
@@ -12,7 +13,12 @@ from kajet_turbo.markdown import (
     rewrite_inline_tags,
 )
 from kajet_turbo.models import Note
-from kajet_turbo.repositories.git import GitError, GitRepository, workspace_write_transaction
+from kajet_turbo.repositories.git import (
+    GitError,
+    GitRepository,
+    defer_workspace_postprocess,
+    workspace_write_transaction,
+)
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
@@ -371,13 +377,12 @@ class NoteTagService:
         rewritten = [item for item in staged if item.body_changed]
         # Chunks are title + content, so only a rewritten body invalidates the search index.
         if self._indexer is not None and rewritten:
-            self._indexer.index_many(
-                ws_name,
-                owner_id,
-                [
-                    {"id": item.note.id, "title": item.note.title, "content": item.new_body}
-                    for item in rewritten
-                ],
+            index_payload = [
+                {"id": item.note.id, "title": item.note.title, "content": item.new_body}
+                for item in rewritten
+            ]
+            defer_workspace_postprocess(
+                ws_path, partial(self._indexer.index_many, ws_name, owner_id, index_payload)
             )
         logger.info(
             "tag_renamed",

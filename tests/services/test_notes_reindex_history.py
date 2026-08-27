@@ -93,3 +93,43 @@ def test_restore_version_still_works_after_expected_sha_added(service, workspace
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note.content == "oryginalna"
+
+
+def test_nested_restore_releases_workspace_before_reindexing(service, workspace, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    note_id = service.save("u1", "ws", str(workspace), "Historia", "oryginalna", [])["note_id"]
+    sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(
+        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha_v1, content="nowa"
+    )
+    current_sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    index_started = Event()
+    release_index = Event()
+
+    def paused_index(*_args) -> None:
+        index_started.set()
+        assert release_index.wait(timeout=5)
+
+    monkeypatch.setattr(service._indexer, "index_note", paused_index)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        restore = pool.submit(
+            service.restore_version,
+            note_id,
+            sha_v1,
+            owner_id="u1",
+            ws_path=str(workspace),
+            expected_sha=current_sha,
+        )
+        assert index_started.wait(timeout=5)
+        try:
+            add = pool.submit(service.add_tags, note_id, "u1", str(workspace), ["extra"])
+            add.result(timeout=2)
+        finally:
+            release_index.set()
+        restore.result(timeout=5)
+
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note.content == "oryginalna"
+    assert note.tags == ["extra"]

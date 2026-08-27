@@ -12,6 +12,7 @@ def test_save_perf_span_records_phases(service, workspace):
         service.save("u1", "ws", str(workspace), "Perf", "# Head\n\nbody text", [])
     # FTS-only test indexer => no embedding HTTP, but git/db/chunk phases are recorded.
     assert span.fields["git_ms"] > 0
+    assert span.fields["workspace_write_ms"] >= span.fields["git_ms"]
     assert "git_lock_wait_ms" in span.fields
     assert "db_ms" in span.fields
     assert span.fields["chunks"] >= 1
