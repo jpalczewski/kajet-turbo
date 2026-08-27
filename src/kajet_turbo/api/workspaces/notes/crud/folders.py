@@ -13,7 +13,7 @@ from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_folder_meta_repo, get_required_user, get_workspace_service
 from kajet_turbo.errors import AuthError, FolderError
-from kajet_turbo.log import logged_route, logger
+from kajet_turbo.log import logger
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -34,7 +34,6 @@ router = APIRouter(
     response_model=CreateFolderResponse,
     responses={422: {"model": ErrorResponse}},
 )
-@logged_route
 async def api_create_folder(
     name: str,
     request: Request,
@@ -84,7 +83,6 @@ async def api_create_folder(
     "/api/workspaces/{name}/folders/{path:path}/meta",
     response_model=FolderMetaResponse,
 )
-@logged_route
 async def api_get_folder_meta(
     name: str,
     path: str,
@@ -107,7 +105,6 @@ async def api_get_folder_meta(
     "/api/workspaces/{name}/folders/{path:path}/meta",
     response_model=FolderMetaResponse,
 )
-@logged_route
 async def api_update_folder_meta(
     name: str,
     path: str,

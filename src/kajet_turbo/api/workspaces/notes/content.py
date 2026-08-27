@@ -11,7 +11,7 @@ from kajet_turbo.api.schemas import (
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
 from kajet_turbo.errors import AuthError, NoteError
-from kajet_turbo.log import logged_route, logger
+from kajet_turbo.log import logger
 from kajet_turbo.markdown import LinkResolver, XwsResolver, render_markdown
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -78,7 +78,6 @@ router = APIRouter(
     response_model=NoteHtmlResponse,
     responses={404: {"model": ErrorResponse}},
 )
-@logged_route
 def api_get_note_html(
     name: str,
     note_id: str,
@@ -123,7 +122,6 @@ def api_get_note_html(
     response_model=NoteMarkdownResponse,
     responses={404: {"model": ErrorResponse}},
 )
-@logged_route
 def api_get_note_markdown(
     name: str,
     note_id: str,
@@ -156,7 +154,6 @@ def api_get_note_markdown(
     response_model=ChunkPreviewResponse,
     responses={404: {"model": ErrorResponse}},
 )
-@logged_route
 def api_get_note_chunks(
     name: str,
     note_id: str,
@@ -178,7 +175,6 @@ def api_get_note_chunks(
     response_model=LinksResponse,
     responses={404: {"model": ErrorResponse}},
 )
-@logged_route
 def api_note_links(
     name: str,
     note_id: str,

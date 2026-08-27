@@ -5,7 +5,6 @@ from kajet_turbo.api.schemas import TagsResponse
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
 from kajet_turbo.errors import AuthError
-from kajet_turbo.log import logged_route
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -18,7 +17,6 @@ router = APIRouter(
 
 
 @router.get("/api/workspaces/{name}/tags", response_model=TagsResponse)
-@logged_route
 def api_list_tags(
     name: str,
     user: dict = Depends(get_required_user),

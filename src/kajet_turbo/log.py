@@ -21,6 +21,12 @@ from kajet_turbo.perf import perf_span
 
 _HEALTH_PATHS = frozenset({"/healthz", "/readyz"})
 
+# Path values are user-authored in several REST routes (workspace names and folder
+# paths), so the HTTP log records the route template and only opts opaque identifiers
+# back in. Keep this list deliberately narrow: an unknown future parameter must stay out
+# of off-box logs until it has been reviewed as safe.
+_SAFE_HTTP_PATH_PARAMS = frozenset({"job_id", "key_id", "note_id", "profile_id", "sha"})
+
 # Short enough that a logout or a token revocation stops showing up in logs quickly,
 # long enough to collapse a burst (SPA polling, a run of MCP tool calls) into one lookup.
 _USER_ID_CACHE_TTL = 60.0
@@ -200,42 +206,6 @@ def install_loop_exception_handler() -> None:
     asyncio.get_running_loop().set_exception_handler(_handle_loop_exception)
 
 
-def _is_framework_param(param: inspect.Parameter) -> bool:
-    if hasattr(param.default, "dependency"):  # FastAPI Depends(...)
-        return True
-    ann = param.annotation
-    return hasattr(ann, "__name__") and ann.__name__ == "Request"
-
-
-def logged_route(fn):
-    _skip = frozenset(
-        name
-        for name, param in inspect.signature(fn).parameters.items()
-        if _is_framework_param(param)
-    )
-
-    if inspect.iscoroutinefunction(fn):
-
-        @wraps(fn)
-        async def async_wrapper(*args, **kwargs):
-            params = {k: v for k, v in kwargs.items() if k not in _skip}
-            result = await fn(*args, **kwargs)
-            logger.debug(fn.__name__, **params)
-            return result
-
-        return async_wrapper
-    else:
-
-        @wraps(fn)
-        def sync_wrapper(*args, **kwargs):
-            params = {k: v for k, v in kwargs.items() if k not in _skip}
-            result = fn(*args, **kwargs)
-            logger.debug(fn.__name__, **params)
-            return result
-
-        return sync_wrapper
-
-
 # Tools slower than this log at WARNING for easy alerting/profiling. Tune via
 # SLOW_TOOL_MS; set 0 to always log tool completions at INFO.
 _SLOW_TOOL_MS = float(os.getenv("SLOW_TOOL_MS", "2000"))
@@ -282,6 +252,23 @@ def logged_tool(fn):
     return wrapper
 
 
+def _http_route_fields(scope) -> dict[str, str]:
+    """Return a useful route identity without user-authored URL segments."""
+    route_path = getattr(scope.get("route"), "path", None)
+    # Root-mounted SPA/static traffic has an empty template. Collapse it to "/"
+    # and collapse unmatched traffic to a category instead of falling back to the
+    # potentially private browser URL.
+    safe_path = (route_path or "/") if isinstance(route_path, str) else "<unmatched>"
+    return {
+        "path": safe_path,
+        **{
+            key: str(value)
+            for key, value in scope.get("path_params", {}).items()
+            if key in _SAFE_HTTP_PATH_PARAMS
+        },
+    }
+
+
 class LoggingMiddleware:
     """Raw ASGI middleware — safe for SSE/streaming unlike BaseHTTPMiddleware."""
 
@@ -325,9 +312,9 @@ class LoggingMiddleware:
                         level.upper(),
                         "http",
                         method=request.method,
-                        path=request.url.path,
                         status=status,
                         duration_ms=round((time.monotonic() - start) * 1000),
+                        **_http_route_fields(scope),
                         **perf_fields,
                     )
             await send(message)

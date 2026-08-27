@@ -7,7 +7,6 @@ from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_required_user, get_workspace_service
 from kajet_turbo.errors import AuthError, WorkspaceError
-from kajet_turbo.log import logged_route
 from kajet_turbo.services.workspaces import WorkspaceService
 
 router = APIRouter(
@@ -19,7 +18,6 @@ router = APIRouter(
 
 
 @router.get("/api/workspaces/{name}/settings", response_model=WorkspaceSettingsResponse)
-@logged_route
 async def api_get_workspace_settings(
     name: str,
     user: dict = Depends(get_required_user),
@@ -36,7 +34,6 @@ async def api_get_workspace_settings(
     response_model=UpdateWorkspaceSettingsResponse,
     responses={422: {"model": ErrorResponse}},
 )
-@logged_route
 async def api_update_workspace_settings(
     name: str,
     request: Request,
