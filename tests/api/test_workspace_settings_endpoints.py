@@ -25,7 +25,8 @@ def test_get_settings_returns_definitions_and_defaults(client, ws_name):
     assert res.status_code == 200
     body = res.json()
     keys = {d["key"] for d in body["definitions"]}
-    assert "validate_links" in keys
+    assert {"include_in_search_all", "validate_links"} <= keys
+    assert body["values"]["include_in_search_all"] is True
     assert body["values"]["validate_links"] is True
 
 
@@ -40,6 +41,15 @@ def test_patch_settings_updates_value(client, ws_name):
         client.get(f"/api/workspaces/{ws_name}/settings").json()["values"]["validate_links"]
         is False
     )
+
+
+def test_patch_settings_can_exclude_workspace_from_search_all(client, ws_name):
+    res = client.patch(
+        f"/api/workspaces/{ws_name}/settings",
+        json={"values": {"include_in_search_all": False}},
+    )
+    assert res.status_code == 200
+    assert res.json()["values"]["include_in_search_all"] is False
 
 
 def test_patch_settings_rejects_unknown_key(client, ws_name):

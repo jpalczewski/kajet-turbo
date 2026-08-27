@@ -3,13 +3,13 @@ import pytest
 from kajet_turbo import workspace_settings as ws
 
 
-def test_defaults_includes_validate_links():
-    assert ws.defaults() == {"validate_links": True}
+def test_defaults_include_all_registered_settings():
+    assert ws.defaults() == {"include_in_search_all": True, "validate_links": True}
 
 
 def test_definitions_shape():
     defs = ws.definitions()
-    assert {d["key"] for d in defs} == {"validate_links"}
+    assert {d["key"] for d in defs} == {"include_in_search_all", "validate_links"}
     vl = next(d for d in defs if d["key"] == "validate_links")
     assert vl["type"] == "bool"
     assert vl["default"] is True
@@ -34,9 +34,13 @@ def test_validate_rejects_wrong_type():
 
 
 def test_coerce_all_fills_missing_with_defaults():
-    assert ws.coerce_all(None) == {"validate_links": True}
-    assert ws.coerce_all({}) == {"validate_links": True}
+    expected = {"include_in_search_all": True, "validate_links": True}
+    assert ws.coerce_all(None) == expected
+    assert ws.coerce_all({}) == expected
 
 
 def test_coerce_all_drops_unknown_keys():
-    assert ws.coerce_all({"validate_links": False, "ghost": 1}) == {"validate_links": False}
+    assert ws.coerce_all({"validate_links": False, "ghost": 1}) == {
+        "include_in_search_all": True,
+        "validate_links": False,
+    }

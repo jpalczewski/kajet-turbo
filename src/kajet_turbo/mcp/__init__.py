@@ -16,9 +16,11 @@ _INSTRUCTIONS = """
 Kajet — git-versioned markdown notebook.
 
 ## Workflow
-1. list_workspaces → activate_workspace (required before any note operation)
-2. list_folders / search_notes / list_notes to orient yourself
-3. get_note / save_note / edit_note / save_notes for reads and writes
+1. list_workspaces → activate_workspace before operations that use the active workspace
+2. search_notes(workspace="all") or search_notes(workspace="NAME") can be used without
+   activation; "all" omits workspaces whose global-search setting is disabled
+3. list_folders / search_notes / list_notes to orient yourself
+4. get_note / save_note / edit_note / save_notes for reads and writes
 
 ## Wikilink syntax (use in note content)
 - [[Title]] — link to a note by title, found anywhere in the workspace

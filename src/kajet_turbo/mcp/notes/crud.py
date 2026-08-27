@@ -14,6 +14,7 @@ from kajet_turbo.mcp.context import (
     ActiveWorkspace,
     active_workspace,
     require_user_id,
+    require_workspace_access,
 )
 from kajet_turbo.mcp.notes.types import (
     BatchNoteError,
@@ -489,43 +490,44 @@ def build_crud(
         folder: Annotated[
             str | None,
             Field(
-                description="Zawęź wyszukiwanie do notatek w tym folderze i podfolderach, "
-                "np. 'Projekty/Klient A'."
+                description="Restrict search to notes in this folder and its descendants, "
+                "for example 'Projects/Client A'."
             ),
         ] = None,
         tags: Annotated[
             list[str] | None,
             Field(
-                description="Zawęź wyszukiwanie do notatek z tymi tagami (OR, hierarchiczne — "
-                "jak w list_notes)."
+                description="Restrict search to notes with these tags (OR, hierarchical, "
+                "as in list_notes)."
             ),
         ] = None,
         ctx: Context = MCP_CONTEXT,
     ) -> list[SearchChunkResult]:
-        """Szuka notatek (chunk-level hybrid: FTS + semantic + dokładne dopasowanie
-        tytułu/tagu/folderu).
-        workspace='active' (domyślnie) — szuka tylko w aktywnym workspace.
-        workspace='all' — szuka we wszystkich dostępnych workspace'ach (cross-workspace).
-        folder/tags zawężają wyszukiwanie do podzbioru notatek (przecięcie, gdy oba podane).
-        Zwraca fragmenty (chunki): {note_id, title, folder, updated_at, header_path, content,
-        score, matched_on}. matched_on obecne, gdy trafienie pochodzi z dokładnego
-        dopasowania tytułu/tagu/folderu (nie tylko z rankingu FTS/semantycznego).
-        NIE zwraca pełnej notatki, nawet przy dokładnym trafieniu tytułu — to zawsze
-        fragment. Gdy potrzebujesz całej, aktualnej treści konkretnej notatki, użyj
-        search_notes tylko żeby znaleźć note_id, a samą treść pobierz przez get_note
-        (jedna) lub get_notes (kilka) — nigdy nie traktuj chunka jako całości notatki.
-        note_id z innych workspace'ów możesz linkować przez [[note:NOTE_ID]].
-        Pusty [] gdy brak wyników."""
+        """Search notes using chunk-level hybrid ranking: FTS, semantic similarity, and
+        exact title/tag/folder matches.
+        workspace='active' (default) searches the active workspace and requires prior
+        activation. workspace='all' needs no activation and searches every accessible
+        workspace that allows global search. Passing an exact workspace name also needs no
+        activation and searches that workspace even when it is excluded from 'all'.
+        folder and tags narrow the candidate notes; when both are present they intersect.
+        Returns chunks with note_id, title, folder, updated_at, header_path, content, score,
+        and optional matched_on. It never returns a complete note. Use search_notes to find
+        note IDs, then get_note or get_notes for complete current content. Cross-workspace
+        note IDs can be linked with [[note:NOTE_ID]]. Returns [] when nothing matches."""
         ws_param = workspace or "active"
-        if ws_param == "all":
-            # 'all' needs identity only, not a chosen active workspace — activate_workspace()
-            # isn't required first.
-            owner_id = await require_user_id()
-            workspaces = await run_sync(workspace_service.list_accessible, owner_id)
-        else:
+        if ws_param == "active":
             ws = await active_workspace(ctx)
-            workspaces = [ws_param if ws_param != "active" else ws.name]
+            workspaces = [ws.name]
             owner_id = ws.owner_id
+        else:
+            owner_id = await require_user_id()
+            if ws_param == "all":
+                workspaces = await run_sync(workspace_service.list_searchable_in_all, owner_id)
+            else:
+                await require_workspace_access(ws_param, owner_id)
+                workspaces = [ws_param]
+        if not workspaces:
+            return []
         # search_async borrows a run_sync slot only for the ms-scale DB phases; the
         # query-embedding HTTP call is awaited natively on the event loop.
         results = await note_service.search_async(

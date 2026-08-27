@@ -60,6 +60,17 @@ def test_settings_default_none(database: Database):
     assert repo.get_settings(uid, "ws") is None
 
 
+def test_get_settings_many_returns_existing_rows_including_unset(database: Database):
+    repo = WorkspaceMetaRepository(database.engine)
+    uid = _user(database)
+    repo.ensure(uid, "default")
+    repo.set_settings(uid, "custom", '{"include_in_search_all": false}')
+    assert repo.get_settings_many(uid, ["default", "custom", "missing"]) == {
+        "default": None,
+        "custom": '{"include_in_search_all": false}',
+    }
+
+
 def test_set_settings_roundtrip_and_preserves_meta(database: Database):
     repo = WorkspaceMetaRepository(database.engine)
     uid = _user(database)

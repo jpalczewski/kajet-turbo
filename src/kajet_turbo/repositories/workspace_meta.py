@@ -106,6 +106,19 @@ class WorkspaceMetaRepository(DbRepository):
             ).first()
         return row.settings if row else None
 
+    def get_settings_many(self, user_id: str, workspaces: list[str]) -> dict[str, str | None]:
+        """Raw settings blobs keyed by workspace; missing metadata rows are omitted."""
+        if not workspaces:
+            return {}
+        with self.timed_session() as session:
+            rows = session.exec(
+                select(WorkspaceMeta).where(
+                    WorkspaceMeta.user_id == user_id,
+                    WorkspaceMeta.workspace.in_(workspaces),  # ty: ignore[unresolved-attribute]
+                )
+            ).all()
+        return {row.workspace: row.settings for row in rows}
+
     def delete(self, user_id: str, workspace: str) -> None:
         with self.operation("delete", user_id=user_id, workspace=workspace) as operation:
             session = operation.session
