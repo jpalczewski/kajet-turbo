@@ -378,6 +378,7 @@ class NoteLinkService:
                 owner_id=workspace.owner_id,
                 content=new_body,
                 updated_at=src.updated_at,
+                bump_index_generation=True,
             )
         logger.info(
             "backlinks_rewritten",

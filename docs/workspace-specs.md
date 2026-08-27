@@ -12,6 +12,16 @@ frontmatter (`write_note_file`/`read_note_file`, `kajet_turbo/workspace.py`); th
 (`Note` table) is a queryable index over the same data, not the source of truth —
 the git history is.
 
+Note files are replaced atomically: `write_note_file` serializes into a temporary
+file in the destination directory, flushes it to disk, then renames it over the
+target. A failed serialization therefore leaves the previous Markdown intact.
+
+The derived chunk/FTS projection is guarded by `Note.index_generation`. Every
+index-relevant source change increments the generation; `replace_chunks` writes
+only when the generation captured by the indexer still matches. Slow indexing can
+run after the workspace write lock is released without an older result overwriting
+a newer edit. Frontmatter-only tag changes do not increment this generation.
+
 ## Folders and filenames
 
 A note's `(folder, title)` maps to a file path via `note_filepath` /

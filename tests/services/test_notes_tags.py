@@ -71,6 +71,8 @@ def test_normalize_with_warnings_drops_invalid_and_dedups():
 
 def test_add_tags_unions_into_frontmatter(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python"])["note_id"]
+    before = service._crud_repo.get(note_id, owner_id="u1")
+    assert before is not None
 
     result = service.add_tags(note_id, "u1", str(workspace), ["work", "python"])
 
@@ -79,6 +81,9 @@ def test_add_tags_unions_into_frontmatter(service, workspace):
     assert result["warnings"] == []
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert set(note.tags) == {"python", "work"}
+    after = service._crud_repo.get(note_id, owner_id="u1")
+    assert after is not None
+    assert after.index_generation == before.index_generation
 
 
 def test_add_tags_idempotent_no_extra_commit(service, workspace):

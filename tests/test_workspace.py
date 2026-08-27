@@ -139,6 +139,32 @@ def test_write_and_read_note_file(workspace):
     assert "Treść notatki" in result["content"]
 
 
+def test_write_note_file_failure_keeps_previous_file(workspace, monkeypatch):
+    from kajet_turbo import workspace as workspace_module
+
+    path = note_filepath(str(workspace), "", "Test Note")
+    Path(path).write_text("previous content")
+
+    def fail_after_partial_write(_post, stream) -> None:
+        stream.write("partial replacement")
+        raise OSError("disk full")
+
+    monkeypatch.setattr(workspace_module.frontmatter, "dump", fail_after_partial_write)
+    with pytest.raises(OSError, match="disk full"):
+        write_note_file(
+            path,
+            note_id="abc1234",
+            title="Test Note",
+            tags=[],
+            created_at="2026-06-08T12:00:00+00:00",
+            updated_at="2026-06-08T12:01:00+00:00",
+            content="replacement",
+        )
+
+    assert Path(path).read_text() == "previous content"
+    assert list(Path(path).parent.glob(f".{Path(path).name}.*.tmp")) == []
+
+
 def test_scan_notes_finds_all_including_subfolders(workspace):
     for i in range(2):
         path = note_filepath(str(workspace), "", f"Notatka {i}")

@@ -107,6 +107,68 @@ def test_replace_chunks_empty_clears(database):
     assert vec_count == 0
 
 
+def test_replace_chunks_skips_superseded_revision(database):
+    _note(database)
+    repo = NoteChunkRepository(database.engine)
+    original = [Chunk(ordinal=0, header_path=[], content="current", char_start=0, char_end=7)]
+    stale = [Chunk(ordinal=0, header_path=[], content="stale", char_start=0, char_end=5)]
+    assert repo.replace_chunks(
+        "n1",
+        "ws",
+        "u1",
+        "T",
+        original,
+        embeddings=None,
+        dim=None,
+        expected_generation=1,
+    )
+    with Session(database.engine) as session:
+        note = session.get(Note, "n1")
+        assert note is not None
+        note.index_generation += 1
+        session.add(note)
+        session.commit()
+
+    applied = repo.replace_chunks(
+        "n1",
+        "ws",
+        "u1",
+        "T",
+        stale,
+        embeddings=None,
+        dim=None,
+        expected_generation=1,
+    )
+
+    assert applied is False
+    assert [row["content"] for row in repo.get_chunks("n1")] == ["current"]
+
+
+def test_metadata_only_update_does_not_supersede_content_index(database):
+    _note(database)
+    repo = NoteChunkRepository(database.engine)
+    with Session(database.engine) as session:
+        note = session.get(Note, "n1")
+        assert note is not None
+        note.updated_at = "2026-01-02"
+        session.add(note)
+        session.commit()
+
+    applied = repo.replace_chunks(
+        "n1",
+        "ws",
+        "u1",
+        "T",
+        [Chunk(ordinal=0, header_path=[], content="current", char_start=0, char_end=7)],
+        embeddings=None,
+        dim=None,
+        expected_generation=1,
+    )
+
+    assert applied is True
+    assert [row["content"] for row in repo.get_chunks("n1")] == ["current"]
+
+
 def test_replace_chunks_embedding_count_must_match(database):
     _note(database)
     repo = NoteChunkRepository(database.engine)

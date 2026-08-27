@@ -108,7 +108,7 @@ def test_nested_restore_releases_workspace_before_reindexing(service, workspace,
     index_started = Event()
     release_index = Event()
 
-    def paused_index(*_args) -> None:
+    def paused_index(*_args, **_kwargs) -> None:
         index_started.set()
         assert release_index.wait(timeout=5)
 

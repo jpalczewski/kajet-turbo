@@ -238,13 +238,28 @@ class NoteService:
             sha=sha,
         )
 
-    def _index(self, note_id: str, ws_name: str, owner_id: str, title: str, content: str) -> None:
+    def _index(
+        self,
+        note_id: str,
+        ws_name: str,
+        owner_id: str,
+        title: str,
+        content: str,
+        expected_generation: int,
+    ) -> None:
         # Chunks + FTS are the reliable search backbone (written by replace_chunks inside
         # index_note); a real DB write error surfaces. The embedding HTTP roundtrip is
         # deferred to an embed_note job — index_note only enqueues, never hits the network.
         if self._indexer is None:
             return
-        self._indexer.index_note(note_id, ws_name, owner_id, title, content)
+        self._indexer.index_note(
+            note_id,
+            ws_name,
+            owner_id,
+            title,
+            content,
+            expected_generation=expected_generation,
+        )
 
     def _clear_index(self, note_id: str) -> None:
         if self._indexer is None:
@@ -286,7 +301,7 @@ class NoteService:
             self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
         defer_workspace_postprocess(
-            ws_path, partial(self._index, note_id, ws_name, user_id, title, content)
+            ws_path, partial(self._index, note_id, ws_name, user_id, title, content, 1)
         )
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
@@ -420,7 +435,13 @@ class NoteService:
         # from the caller's perspective, including the existing error behavior.
         if self._indexer is not None:
             index_payload = [
-                {"id": s["note_id"], "title": s["title"], "content": s["content"]} for s in valid
+                {
+                    "id": s["note_id"],
+                    "title": s["title"],
+                    "content": s["content"],
+                    "index_generation": 1,
+                }
+                for s in valid
             ]
             defer_workspace_postprocess(
                 ws_path, partial(self._indexer.index_many, ws_name, user_id, index_payload)
@@ -776,6 +797,7 @@ class NoteService:
             tags=new_tags,
             updated_at=now,
             folder=new_folder,
+            bump_index_generation=True,
         )
         self._link_service.persist(note_id, note.workspace, owner_id, links)
         self._tag_service.sync_tags(note_id, note.workspace, owner_id, new_tags, new_content)
@@ -790,7 +812,15 @@ class NoteService:
         logger.info("note_updated", note_id=note_id, folder=new_folder)
         defer_workspace_postprocess(
             ws_path,
-            partial(self._index, note_id, note.workspace, owner_id, new_title, new_content),
+            partial(
+                self._index,
+                note_id,
+                note.workspace,
+                owner_id,
+                new_title,
+                new_content,
+                note.index_generation + 1,
+            ),
         )
         if self._reconcile_repo is not None and identity_changed:
             self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
@@ -931,6 +961,7 @@ class NoteService:
                 tags=p.new_tags,
                 updated_at=now,
                 folder=p.loc.note.folder,
+                bump_index_generation=True,
             )
         self._link_service.persist_many(
             ws_name,
@@ -945,7 +976,12 @@ class NoteService:
 
         if self._indexer is not None:
             index_payload = [
-                {"id": p.note_id, "title": p.loc.note.title, "content": p.new_content}
+                {
+                    "id": p.note_id,
+                    "title": p.loc.note.title,
+                    "content": p.new_content,
+                    "index_generation": p.loc.note.index_generation + 1,
+                }
                 for p in prepared
             ]
             defer_workspace_postprocess(
@@ -1136,7 +1172,12 @@ class NoteService:
                     ws_name,
                     owner_id,
                     [
-                        {"id": n["id"], "title": n["title"] or "", "content": n["content"] or ""}
+                        {
+                            "id": n["id"],
+                            "title": n["title"] or "",
+                            "content": n["content"] or "",
+                            "index_generation": 1,
+                        }
                         for n in notes
                     ],
                 )

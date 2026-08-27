@@ -365,6 +365,7 @@ class NoteTagService:
                 tags=item.new_tags,
                 updated_at=now,
                 folder=item.note.folder,
+                bump_index_generation=item.body_changed,
             )
         # One transaction and one orphan sweep for the batch, not one per note.
         self._tag_repo.sync_note_tags_many(
@@ -378,7 +379,12 @@ class NoteTagService:
         # Chunks are title + content, so only a rewritten body invalidates the search index.
         if self._indexer is not None and rewritten:
             index_payload = [
-                {"id": item.note.id, "title": item.note.title, "content": item.new_body}
+                {
+                    "id": item.note.id,
+                    "title": item.note.title,
+                    "content": item.new_body,
+                    "index_generation": item.note.index_generation + 1,
+                }
                 for item in rewritten
             ]
             defer_workspace_postprocess(
