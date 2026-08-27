@@ -21,6 +21,16 @@ class SettingDef:
 
 
 REGISTRY: dict[str, SettingDef] = {
+    "include_in_search_all": SettingDef(
+        key="include_in_search_all",
+        type="bool",
+        default=True,
+        label="Uwzględniaj w wyszukiwaniu globalnym",
+        description=(
+            "Wyłączenie usuwa workspace z wyników search_notes dla workspace='all'. "
+            "Nadal można go przeszukać, podając jego nazwę wprost."
+        ),
+    ),
     "validate_links": SettingDef(
         key="validate_links",
         type="bool",

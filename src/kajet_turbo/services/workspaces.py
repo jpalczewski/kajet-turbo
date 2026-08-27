@@ -22,6 +22,11 @@ from kajet_turbo.workspace import workspace_path as _workspace_path
 _EMPTY_META = {"description": "", "folder": "", "tags": []}
 
 
+def _decode_settings(blob: str | None) -> dict:
+    raw = json.loads(blob) if blob else None
+    return workspace_settings.coerce_all(raw)
+
+
 class WorkspaceService:
     def __init__(
         self,
@@ -90,6 +95,13 @@ class WorkspaceService:
     def list_accessible(self, user_id: str) -> list[str]:
         return self._repo.list_user_workspaces(user_id)
 
+    def list_searchable_in_all(self, user_id: str) -> list[str]:
+        names = self.list_accessible(user_id)
+        blobs = self._meta_repo.get_settings_many(user_id, names)
+        return [
+            name for name in names if _decode_settings(blobs.get(name))["include_in_search_all"]
+        ]
+
     def set_meta(
         self,
         user_id: str,
@@ -146,9 +158,7 @@ class WorkspaceService:
         return result
 
     def get_settings(self, user_id: str, name: str) -> dict:
-        blob = self._meta_repo.get_settings(user_id, name)
-        raw = json.loads(blob) if blob else None
-        return workspace_settings.coerce_all(raw)
+        return _decode_settings(self._meta_repo.get_settings(user_id, name))
 
     def set_setting(self, user_id: str, name: str, key: str, value: object) -> dict:
         coerced = workspace_settings.validate(key, value)  # raises ValueError on bad key/type

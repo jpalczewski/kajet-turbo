@@ -11,7 +11,10 @@ async def test_list_workspace_settings_shape(workspaces_dir, mcp_server):
     data = json.loads(result.content[0].text)
     assert "settings" in data
     keys = {s["key"] for s in data["settings"]}
-    assert "validate_links" in keys
+    assert {"include_in_search_all", "validate_links"} <= keys
+    search_all = next(s for s in data["settings"] if s["key"] == "include_in_search_all")
+    assert search_all["value"] is True
+    assert search_all["default"] is True
     vl = next(s for s in data["settings"] if s["key"] == "validate_links")
     assert vl["value"] is True
     assert vl["default"] is True

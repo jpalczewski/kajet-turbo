@@ -102,6 +102,37 @@ async def test_search_notes_all_workspaces(workspaces_dir, mcp_server):
         assert "ws2" in text or "Notatka w ws2" in text
 
 
+async def test_search_all_excludes_opted_out_workspace_but_named_search_finds_it(
+    workspaces_dir, mcp_server
+):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        await client.call_tool(
+            "save_note",
+            {"title": "Private search note", "content": "selective-keyword", "tags": []},
+        )
+        await client.call_tool(
+            "set_workspace_setting",
+            {"name": "test-ws", "setting": "include_in_search_all", "value": False},
+        )
+
+    # Remove both persisted fallback scopes so neither assertion can accidentally use
+    # activation left behind by the setup client.
+    mcp_server.active_workspace_repo.delete_for_workspace("u1", "test-ws")
+
+    async with Client(mcp) as client:
+        all_result = await client.call_tool(
+            "search_notes", {"query": "selective-keyword", "workspace": "all"}
+        )
+        named_result = await client.call_tool(
+            "search_notes", {"query": "selective-keyword", "workspace": "test-ws"}
+        )
+
+    assert all_result.content == []
+    assert "Private search note" in named_result.content[0].text
+
+
 async def test_grep_notes_finds_literal_line(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:

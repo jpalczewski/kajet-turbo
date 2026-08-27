@@ -111,6 +111,24 @@ async def test_search_all_scope_without_prior_activation(workspaces_dir, mcp_ser
     assert not search_result.is_error
 
 
+async def test_search_active_still_requires_prior_activation(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        with pytest.raises(ToolError, match="activate_workspace"):
+            await client.call_tool("search_notes", {"query": "anything"})
+
+
+async def test_search_named_workspace_checks_access_without_prior_activation(
+    workspaces_dir, mcp_server
+):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        with pytest.raises(ToolError) as exc_info:
+            await client.call_tool("search_notes", {"query": "anything", "workspace": "no-such-ws"})
+    data = json.loads(str(exc_info.value))
+    assert data["available"] == ["test-ws"]
+
+
 async def test_same_session_fast_path_unchanged(workspaces_dir, mcp_server):
     """Single-session activate+save still works (Claude Code path, no DB needed on read)."""
     mcp, _ = mcp_server

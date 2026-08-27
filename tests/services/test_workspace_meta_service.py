@@ -67,15 +67,32 @@ def test_set_meta_rejects_invalid_tag(database: Database):
 def test_get_settings_returns_defaults_when_unset(workspace_service: WorkspaceService, uid: str):
     workspace_service._repo.grant_access(uid, "ws")
     workspace_service._meta_repo.ensure(uid, "ws")
-    assert workspace_service.get_settings(uid, "ws") == {"validate_links": True}
+    assert workspace_service.get_settings(uid, "ws") == {
+        "include_in_search_all": True,
+        "validate_links": True,
+    }
 
 
 def test_set_setting_persists_and_returns_full_dict(workspace_service: WorkspaceService, uid: str):
     workspace_service._repo.grant_access(uid, "ws")
     workspace_service._meta_repo.ensure(uid, "ws")
     out = workspace_service.set_setting(uid, "ws", "validate_links", False)
-    assert out == {"validate_links": False}
-    assert workspace_service.get_settings(uid, "ws") == {"validate_links": False}
+    assert out == {"include_in_search_all": True, "validate_links": False}
+    assert workspace_service.get_settings(uid, "ws") == {
+        "include_in_search_all": True,
+        "validate_links": False,
+    }
+
+
+def test_list_searchable_in_all_filters_opted_out_workspaces(
+    workspace_service: WorkspaceService, uid: str
+):
+    for name in ["alpha", "beta", "without-meta"]:
+        workspace_service._repo.grant_access(uid, name)
+    workspace_service._meta_repo.ensure(uid, "alpha")
+    workspace_service.set_setting(uid, "beta", "include_in_search_all", False)
+
+    assert workspace_service.list_searchable_in_all(uid) == ["alpha", "without-meta"]
 
 
 def test_set_setting_rejects_unknown_key(workspace_service: WorkspaceService, uid: str):
