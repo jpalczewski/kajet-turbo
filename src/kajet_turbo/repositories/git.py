@@ -2,15 +2,17 @@ import contextlib
 import fcntl
 import os
 import shutil
+import stat
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 from dulwich import porcelain
 from dulwich.diff_tree import TreeChange
 from dulwich.errors import NotGitRepository
-from dulwich.object_store import tree_lookup_path
+from dulwich.object_store import iter_tree_contents, tree_lookup_path
 from dulwich.objects import Blob, Commit
 from dulwich.repo import Repo
 from nanoid import generate
@@ -84,6 +86,14 @@ class GitError(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class GitSnapshot:
+    """An immutable commit selected for an export."""
+
+    sha: str
+    timestamp: int
+
+
 _LOCK_TIMEOUT = float(os.getenv("KAJET_GIT_LOCK_TIMEOUT", "10"))
 
 
@@ -154,6 +164,12 @@ class GitRepository:
         # GitHub/Gitea mirrors). current_branch reads HEAD, so push is unaffected.
         Repo(path).refs.set_symbolic_ref(b"HEAD", b"refs/heads/main")  # ty: ignore[invalid-argument-type] - Literal[bytes] satisfies Ref type
         return cls(path)
+
+    @contextlib.contextmanager
+    def transaction(self) -> Iterator[GitRepository]:
+        """Serialize a read-modify-write operation against this workspace."""
+        with _workspace_lock(self._workspace_path):
+            yield self
 
     def commit_file(self, relative_path: str, message: str) -> None:
         with _workspace_lock(self._workspace_path):
@@ -317,6 +333,41 @@ class GitRepository:
                 "last_commit_time_failed", workspace=self._workspace_path
             )
             return None
+
+    def head_snapshot(self) -> GitSnapshot | None:
+        """Return the current HEAD commit identity, or ``None`` for an empty repo."""
+        try:
+            commit_id = self._repo.head()
+            commit = self._repo[commit_id]
+            assert isinstance(commit, Commit)
+            return GitSnapshot(sha=commit.id.decode("ascii"), timestamp=commit.commit_time)
+        except KeyError:
+            return None
+        except Exception as e:
+            raise GitError(str(e)) from e
+
+    def write_snapshot_files(
+        self, snapshot: GitSnapshot, write_file: Callable[[str, bytes, int], None]
+    ) -> None:
+        """Send regular files from ``snapshot`` to ``write_file`` in Git tree order.
+
+        The caller owns archive formatting. Reading blobs by the selected commit
+        rather than the worktree prevents temporary or uncommitted filesystem
+        changes from leaking into an export.
+        """
+        try:
+            commit = self._repo[snapshot.sha.encode("ascii")]
+            assert isinstance(commit, Commit)
+            for entry in iter_tree_contents(self._repo.object_store, commit.tree):
+                if entry.mode is None or not stat.S_ISREG(entry.mode):
+                    continue
+                assert entry.path is not None and entry.sha is not None
+                blob = self._repo[entry.sha]
+                assert isinstance(blob, Blob)
+                relative_path = entry.path.decode("utf-8", errors="surrogateescape")
+                write_file(relative_path, blob.data, entry.mode)
+        except Exception as e:
+            raise GitError(str(e)) from e
 
     def file_history(self, relative_path: str, limit: int = 50) -> list[dict]:
         return self.file_histories([relative_path], limit)[relative_path]

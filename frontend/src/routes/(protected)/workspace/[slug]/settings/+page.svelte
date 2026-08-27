@@ -11,7 +11,7 @@
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
   import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
-  import { workspacesPath } from '$lib/routes';
+  import { workspaceExportUrl, workspacesPath } from '$lib/routes';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
 
   const slug = $derived(page.params.slug as string);
@@ -101,6 +101,29 @@
     </button>
     {#if reindexAction.error}<p class="reindex__error">{reindexAction.error}</p>{/if}
     {#if reindexMsg}<p class="reindex__msg">{reindexMsg}</p>{/if}
+  </section>
+
+  <section class="export">
+    <h2>Eksport</h2>
+    <p class="hint">
+      Pobierz spójny snapshot plików z aktualnego commita albo pełną historię workspace'u.
+    </p>
+    <div class="export__actions">
+      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- API download, not SPA navigation -->
+      <a class="btn-ghost export__btn" href={workspaceExportUrl(slug, 'zip')}> Snapshot (.zip) </a>
+      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- API download, not SPA navigation -->
+      <a class="btn-ghost export__btn" href={workspaceExportUrl(slug, 'tar.zst')}>
+        Snapshot (.tar.zst)
+      </a>
+      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- API download, not SPA navigation -->
+      <a class="btn-ghost export__btn" href={workspaceExportUrl(slug, 'bundle')}>
+        Pełna historia Git (.bundle)
+      </a>
+    </div>
+    <p class="export__hint">
+      Bundle odtworzysz poleceniem <code>git clone nazwa.bundle katalog</code>. Format
+      <code>.tar.zst</code> wymaga obsługi Zstandard.
+    </p>
   </section>
 
   <section class="danger">
@@ -217,6 +240,40 @@
       padding: 9px 18px;
       white-space: nowrap;
       margin-top: v.$space-sm;
+    }
+  }
+
+  .export {
+    margin-top: v.$space-lg;
+    padding-top: v.$space-lg;
+    border-top: 1px solid v.$border;
+
+    h2 {
+      font-size: 1.1rem;
+      margin-bottom: v.$space-sm;
+    }
+
+    &__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: v.$space-sm;
+      margin-top: v.$space-md;
+    }
+
+    &__btn {
+      width: auto;
+      text-decoration: none;
+    }
+
+    &__hint {
+      margin-top: v.$space-md;
+      font-size: 0.8rem;
+      color: v.$text-secondary;
+
+      code {
+        font-family: v.$font-mono;
+        color: v.$text-primary;
+      }
     }
   }
 </style>
