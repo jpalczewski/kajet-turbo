@@ -100,6 +100,7 @@ class Note(SQLModel, table=True):
     tags: str | None = Field(default=None, sa_column=Column(Text))
     created_at: str
     updated_at: str
+    index_generation: int = Field(default=1)
     index_state: str = Field(default="stale")  # 'stale' | 'indexed'
     indexed_at: str | None = None
 

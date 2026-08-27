@@ -12,9 +12,60 @@ def test_save_perf_span_records_phases(service, workspace):
         service.save("u1", "ws", str(workspace), "Perf", "# Head\n\nbody text", [])
     # FTS-only test indexer => no embedding HTTP, but git/db/chunk phases are recorded.
     assert span.fields["git_ms"] > 0
+    assert span.fields["workspace_write_ms"] >= span.fields["git_ms"]
     assert "git_lock_wait_ms" in span.fields
     assert "db_ms" in span.fields
     assert span.fields["chunks"] >= 1
+
+
+def test_older_index_callback_cannot_overwrite_newer_edit(service, workspace, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from kajet_turbo.services import indexing as indexing_module
+
+    note_id = service.save("u1", "ws", str(workspace), "Title", "initial body", [])["note_id"]
+    initial_sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    older_chunking = Event()
+    release_older = Event()
+    real_chunk_markdown = indexing_module.chunk_markdown
+
+    def paused_chunk_markdown(content, *args, **kwargs):
+        if content == "older edit":
+            older_chunking.set()
+            assert release_older.wait(timeout=5)
+        return real_chunk_markdown(content, *args, **kwargs)
+
+    monkeypatch.setattr(indexing_module, "chunk_markdown", paused_chunk_markdown)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        older = pool.submit(
+            service.update,
+            note_id,
+            owner_id="u1",
+            ws_path=str(workspace),
+            expected_sha=initial_sha,
+            content="older edit",
+        )
+        assert older_chunking.wait(timeout=5)
+        newer_sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+        try:
+            newer = pool.submit(
+                service.update,
+                note_id,
+                owner_id="u1",
+                ws_path=str(workspace),
+                expected_sha=newer_sha,
+                content="newer edit",
+            )
+            newer.result(timeout=5)
+        finally:
+            release_older.set()
+        older.result(timeout=5)
+
+    chunks = service._chunk_repo.get_chunks(note_id)
+    indexed = " ".join(chunk["content"] for chunk in chunks)
+    assert "newer edit" in indexed
+    assert "older edit" not in indexed
 
 
 def test_save_creates_file_and_db_record(service, workspace):

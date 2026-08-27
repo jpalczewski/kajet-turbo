@@ -6,7 +6,7 @@ from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import IndexedNote
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
-from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes.links import NoteLinkService
@@ -37,6 +37,7 @@ class NoteFolderService:
         self._folder_meta_repo = folder_meta_repo
         self._reconcile_repo = reconcile_repo
 
+    @workspace_write_transaction
     def move(self, note_id: str, owner_id: str, ws_path: str, folder: str) -> dict:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
@@ -89,6 +90,7 @@ class NoteFolderService:
             self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
         return {"note_id": note_id, "folder": new_folder}
 
+    @workspace_write_transaction
     def move_folder(
         self, src: str, dst: str, *, owner_id: str, ws_path: str, workspace: str
     ) -> dict:
@@ -201,6 +203,7 @@ class NoteFolderService:
             self._reconcile_repo.mark_and_enqueue(owner_id, workspace, affected_sources)
         return {"moved": len(notes), "src": src_n, "dst": dst_n}
 
+    @workspace_write_transaction
     def prune_empty_folders(self, ws_path: str) -> dict:
         """Remove every completely-empty directory (orphans left by past moves). Folders
         holding a ``.gitkeep`` are kept."""

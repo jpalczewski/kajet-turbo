@@ -1,5 +1,6 @@
 import contextlib
 import fcntl
+import inspect
 import os
 import shutil
 import stat
@@ -7,6 +8,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 
 from dulwich import porcelain
@@ -18,7 +20,7 @@ from dulwich.repo import Repo
 from nanoid import generate
 
 from kajet_turbo.log import logger
-from kajet_turbo.perf import record
+from kajet_turbo.perf import record, timed
 
 COMMITTER = b"Kajet <bot@kajet.app>"
 
@@ -64,22 +66,62 @@ def _matching_followed(followed: Iterable[bytes], changed_path: bytes) -> list[b
     ]
 
 
-_REPO_LOCKS: dict[str, threading.Lock] = {}
+_REPO_LOCKS: dict[str, threading.RLock] = {}
 _REPO_LOCKS_GUARD = threading.Lock()
+_LOCK_STATE = threading.local()
+
+
+class _TransactionState:
+    def __init__(self) -> None:
+        self.post_commit = False
+        self.post_release: list[Callable[[], None]] = []
 
 
 def _lock_key(workspace_path: str) -> str:
     return str(Path(workspace_path).resolve())
 
 
-def _repo_lock(workspace_path: str) -> threading.Lock:
+def _repo_lock(workspace_path: str) -> threading.RLock:
     key = _lock_key(workspace_path)
     with _REPO_LOCKS_GUARD:
         lock = _REPO_LOCKS.get(key)
         if lock is None:
-            lock = threading.Lock()
+            lock = threading.RLock()
             _REPO_LOCKS[key] = lock
         return lock
+
+
+def _transaction_states() -> dict[str, _TransactionState]:
+    states = getattr(_LOCK_STATE, "states", None)
+    if states is None:
+        states = {}
+        _LOCK_STATE.states = states
+    return states
+
+
+def _record_post_commit(workspace_path: str) -> None:
+    """Queue one hook notification for the outermost workspace transaction."""
+    state = _transaction_states().get(_lock_key(workspace_path))
+    if state is None:
+        # Defensive fallback: callers normally record while holding _workspace_lock.
+        _fire_post_commit(workspace_path)
+    else:
+        state.post_commit = True
+
+
+def defer_workspace_postprocess(workspace_path: str, callback: Callable[[], None]) -> None:
+    """Run ``callback`` synchronously after the outer workspace lock is released.
+
+    Service methods use this for derived work such as search indexing: callers still
+    observe failures before the method returns, but another writer is not held behind
+    CPU work or unrelated database/job-queue I/O. Outside a transaction the callback
+    runs immediately, keeping the helper safe for shared lower-level code.
+    """
+    state = _transaction_states().get(_lock_key(workspace_path))
+    if state is None:
+        callback()
+    else:
+        state.post_release.append(callback)
 
 
 class GitError(Exception):
@@ -128,19 +170,76 @@ def _cross_process_lock(workspace_path: str):
 
 @contextlib.contextmanager
 def _workspace_lock(workspace_path: str):
-    """One thread per process (cheap, no flock spin) + one process globally.
+    """One writer per workspace across threads and processes, reentrant per thread.
 
-    Centrally feeds the perf span: time spent acquiring the lock vs. time holding it
-    doing git work — so e.g. edit_note's per-backlink commit loop shows its lock cost.
+    Only the outermost acquisition opens and flocks the lock file. Nested commit helpers
+    reuse the transaction held by their caller, avoiding both RLock and flock deadlocks.
+    Lock perf fields, post-commit hooks, and deferred postprocessing are likewise handled
+    once for the outer transaction.
     """
+    key = _lock_key(workspace_path)
+    states = _transaction_states()
+    nested = key in states
+    pending_post_commit = False
+    post_release: list[Callable[[], None]] = []
     t0 = time.monotonic()
-    with _repo_lock(workspace_path), _cross_process_lock(workspace_path):
-        record("git_lock_wait_ms", (time.monotonic() - t0) * 1000)
-        t1 = time.monotonic()
-        try:
-            yield
-        finally:
-            record("git_ms", (time.monotonic() - t1) * 1000)
+    try:
+        with _repo_lock(workspace_path):
+            if nested:
+                yield
+                return
+
+            state = _TransactionState()
+            states[key] = state
+            try:
+                with _cross_process_lock(workspace_path):
+                    record("git_lock_wait_ms", (time.monotonic() - t0) * 1000)
+                    t1 = time.monotonic()
+                    try:
+                        yield
+                    finally:
+                        record("workspace_write_ms", (time.monotonic() - t1) * 1000)
+            finally:
+                pending_post_commit = state.post_commit
+                post_release = state.post_release
+                states.pop(key, None)
+    finally:
+        if not nested:
+            # Run external side effects only after both locks have been released. Multiple
+            # commits in one transaction intentionally coalesce into one auto-push enqueue.
+            # The hook goes first so a deferred indexing failure cannot suppress auto-push.
+            if pending_post_commit:
+                _fire_post_commit(workspace_path)
+            for callback in post_release:
+                callback()
+
+
+@contextlib.contextmanager
+def _git_write(workspace_path: str):
+    """Lock one Git mutation and account only its Dulwich/filesystem work as git_ms."""
+    with _workspace_lock(workspace_path), timed("git_ms"):
+        yield
+
+
+def workspace_write_transaction[**P, T](fn: Callable[P, T]) -> Callable[P, T]:
+    """Wrap a synchronous service method's full workspace mutation in one lock.
+
+    The method must expose a ``ws_path`` argument. Binding by signature keeps the
+    decorator correct for both positional and keyword calls without duplicating a
+    fragile parameter index at every call site.
+    """
+    signature = inspect.signature(fn)
+    if "ws_path" not in signature.parameters:
+        raise TypeError("workspace_write_transaction requires a ws_path parameter")
+
+    @wraps(fn)
+    def wrapped(*args: P.args, **kwargs: P.kwargs) -> T:
+        bound = signature.bind(*args, **kwargs)
+        workspace_path = str(bound.arguments["ws_path"])
+        with _workspace_lock(workspace_path):
+            return fn(*args, **kwargs)
+
+    return wrapped
 
 
 class GitRepository:
@@ -167,12 +266,12 @@ class GitRepository:
 
     @contextlib.contextmanager
     def transaction(self) -> Iterator[GitRepository]:
-        """Serialize a read-modify-write operation against this workspace."""
+        """Serialize a workspace read-modify-write sequence through its final commit."""
         with _workspace_lock(self._workspace_path):
             yield self
 
     def commit_file(self, relative_path: str, message: str) -> None:
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             try:
                 if not Path(self._workspace_path, relative_path).exists():
                     raise GitError(f"File not found: {relative_path}")
@@ -183,12 +282,12 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
+                _record_post_commit(self._workspace_path)
             except Exception as e:
                 raise GitError(str(e)) from e
-        _fire_post_commit(self._workspace_path)
 
     def delete_file(self, relative_path: str, message: str) -> None:
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             try:
                 Path(self._workspace_path, relative_path).unlink(missing_ok=True)
                 porcelain.rm(self._workspace_path, paths=[relative_path])
@@ -198,11 +297,11 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
+                _record_post_commit(self._workspace_path)
             except GitError:
                 raise
             except Exception as e:
                 raise GitError(str(e)) from e
-        _fire_post_commit(self._workspace_path)
 
     def delete_files(self, relative_paths: list[str], message: str) -> None:
         """Unstage and commit removal of multiple files in a single commit (one lock,
@@ -210,7 +309,7 @@ class GitRepository:
         """
         if not relative_paths:
             return
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             try:
                 for rel in relative_paths:
                     Path(self._workspace_path, rel).unlink(missing_ok=True)
@@ -221,14 +320,14 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
+                _record_post_commit(self._workspace_path)
             except GitError:
                 raise
             except Exception as e:
                 raise GitError(str(e)) from e
-        _fire_post_commit(self._workspace_path)
 
     def rename_file(self, old_rel: str, new_rel: str, message: str) -> None:
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             old_full = Path(self._workspace_path, old_rel)
             new_full = Path(self._workspace_path, new_rel)
             try:
@@ -246,6 +345,7 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
+                _record_post_commit(self._workspace_path)
             except GitError:
                 raise
             except Exception as e:
@@ -253,7 +353,6 @@ class GitRepository:
                     old_full.parent.mkdir(parents=True, exist_ok=True)
                     new_full.rename(old_full)
                 raise GitError(str(e)) from e
-        _fire_post_commit(self._workspace_path)
 
     def commit_moves(self, removed_rels: list[str], added_rels: list[str], message: str) -> None:
         """Record a set of moved files in a single commit: drop ``removed_rels`` from the
@@ -261,7 +360,7 @@ class GitRepository:
         (folder move uses a temp dir), so this only reconciles git state."""
         if not removed_rels and not added_rels:
             return
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             try:
                 if removed_rels:
                     # cached=True: drop from the index only. The caller already moved the
@@ -276,9 +375,9 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
+                _record_post_commit(self._workspace_path)
             except Exception as e:
                 raise GitError(str(e)) from e
-        _fire_post_commit(self._workspace_path)
 
     def commit_files(self, relative_paths: list[str], message: str) -> None:
         """Stage and commit multiple files in a single commit (one lock, one ref update).
@@ -288,7 +387,7 @@ class GitRepository:
         """
         if not relative_paths:
             return
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             try:
                 for rel in relative_paths:
                     if not Path(self._workspace_path, rel).exists():
@@ -300,17 +399,17 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
+                _record_post_commit(self._workspace_path)
             except GitError:
                 raise
             except Exception as e:
                 raise GitError(str(e)) from e
-        _fire_post_commit(self._workspace_path)
 
     def rename_master_to_main(self) -> bool:
         """Idempotently move this repo from ``master`` to ``main``: point HEAD at
         main and rename the branch ref. No-op (returns False) if HEAD is not on
         master. Holds the workspace lock — it mutates refs."""
-        with _workspace_lock(self._workspace_path):
+        with _git_write(self._workspace_path):
             repo = Repo(self._workspace_path)
             head = repo.refs.read_ref(b"HEAD")  # ty: ignore[invalid-argument-type] - Literal[bytes] satisfies Ref type
             if head != b"ref: refs/heads/master":

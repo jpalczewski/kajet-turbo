@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 
 from kajet_turbo.cache import WorkspaceCache
@@ -12,7 +13,12 @@ from kajet_turbo.markdown import (
     rewrite_inline_tags,
 )
 from kajet_turbo.models import Note
-from kajet_turbo.repositories.git import GitError, GitRepository
+from kajet_turbo.repositories.git import (
+    GitError,
+    GitRepository,
+    defer_workspace_postprocess,
+    workspace_write_transaction,
+)
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
@@ -125,6 +131,7 @@ class NoteTagService:
         """Index the note's tags: union of frontmatter (normalized) and inline, frontmatter wins."""
         self._tag_repo.sync_note_tags(note_id, ws_name, owner_id, self._tagged(fm_tags, content))
 
+    @workspace_write_transaction
     def _apply_tag_change(
         self,
         note_id: str,
@@ -224,6 +231,7 @@ class NoteTagService:
 
         return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
 
+    @workspace_write_transaction
     def set_tags(
         self,
         note_id: str,
@@ -252,6 +260,7 @@ class NoteTagService:
             note_id, owner_id, ws_path, lambda current, content: (normalized, warnings)
         )
 
+    @workspace_write_transaction
     def rename_tag(
         self,
         old: str,
@@ -356,6 +365,7 @@ class NoteTagService:
                 tags=item.new_tags,
                 updated_at=now,
                 folder=item.note.folder,
+                bump_index_generation=item.body_changed,
             )
         # One transaction and one orphan sweep for the batch, not one per note.
         self._tag_repo.sync_note_tags_many(
@@ -368,13 +378,17 @@ class NoteTagService:
         rewritten = [item for item in staged if item.body_changed]
         # Chunks are title + content, so only a rewritten body invalidates the search index.
         if self._indexer is not None and rewritten:
-            self._indexer.index_many(
-                ws_name,
-                owner_id,
-                [
-                    {"id": item.note.id, "title": item.note.title, "content": item.new_body}
-                    for item in rewritten
-                ],
+            index_payload = [
+                {
+                    "id": item.note.id,
+                    "title": item.note.title,
+                    "content": item.new_body,
+                    "index_generation": item.note.index_generation + 1,
+                }
+                for item in rewritten
+            ]
+            defer_workspace_postprocess(
+                ws_path, partial(self._indexer.index_many, ws_name, owner_id, index_payload)
             )
         logger.info(
             "tag_renamed",

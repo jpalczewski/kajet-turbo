@@ -35,21 +35,55 @@ class NoteIndexer:
         self._enqueue_embed = enqueue_embed
 
     def index_note(
-        self, note_id: str, workspace: str, owner_id: str, title: str, content: str
+        self,
+        note_id: str,
+        workspace: str,
+        owner_id: str,
+        title: str,
+        content: str,
+        *,
+        expected_generation: int | None = None,
     ) -> None:
-        if not self._write_chunks(note_id, workspace, owner_id, title, content):
+        if not self._write_chunks(
+            note_id,
+            workspace,
+            owner_id,
+            title,
+            content,
+            expected_generation=expected_generation,
+        ):
             return
         if self._enqueue_embed is not None and self._resolve_cfg(owner_id) is not None:
             self._enqueue_embed(note_id, workspace, owner_id)
 
     def _write_chunks(
-        self, note_id: str, workspace: str, owner_id: str, title: str, content: str
+        self,
+        note_id: str,
+        workspace: str,
+        owner_id: str,
+        title: str,
+        content: str,
+        *,
+        expected_generation: int | None = None,
     ) -> bool:
         """Chunk and persist (always vector-less → ``stale``). Returns True when the
         note produced chunks, i.e. there is something to embed."""
         with timed("chunk_ms"):
             chunks = chunk_markdown(content, title=title)
-        self._repo.replace_chunks(note_id, workspace, owner_id, title, chunks, None, None)
+        applied = self._repo.replace_chunks(
+            note_id,
+            workspace,
+            owner_id,
+            title,
+            chunks,
+            None,
+            None,
+            expected_generation=expected_generation,
+        )
+        if not applied:
+            incr("index_superseded")
+            logger.info("index_superseded", note_id=note_id)
+            return False
         if chunks:
             incr("chunks", len(chunks))
         return bool(chunks)
@@ -113,6 +147,7 @@ class NoteIndexer:
                     owner_id,
                     note.get("title") or "",
                     note.get("content") or "",
+                    expected_generation=note.get("index_generation"),
                 )
                 if has_chunks and embeddable:
                     assert self._enqueue_embed is not None  # narrowed by `embeddable`

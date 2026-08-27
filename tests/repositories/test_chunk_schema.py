@@ -24,7 +24,7 @@ def test_chunk_tables_and_columns(database):
         "dim",
         "created_at",
     } <= chunk_cols
-    assert {"index_state", "indexed_at"} <= note_cols
+    assert {"index_generation", "index_state", "indexed_at"} <= note_cols
 
 
 def test_notes_vec_is_gone(database):

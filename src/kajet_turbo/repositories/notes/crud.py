@@ -233,6 +233,7 @@ class NoteRepository(DbRepository):
         tags: list[str] | None = None,
         updated_at: str = "",
         folder: str | None = None,
+        bump_index_generation: bool = False,
     ) -> None:
         with self.operation("update", note_id=note_id, owner_id=owner_id) as operation:
             session = operation.session
@@ -251,6 +252,8 @@ class NoteRepository(DbRepository):
             note.updated_at = updated_at
             if folder is not None:
                 note.folder = folder
+            if bump_index_generation:
+                note.index_generation += 1
 
             session.add(note)
             session.commit()

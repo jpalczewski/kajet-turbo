@@ -71,6 +71,8 @@ def test_normalize_with_warnings_drops_invalid_and_dedups():
 
 def test_add_tags_unions_into_frontmatter(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python"])["note_id"]
+    before = service._crud_repo.get(note_id, owner_id="u1")
+    assert before is not None
 
     result = service.add_tags(note_id, "u1", str(workspace), ["work", "python"])
 
@@ -79,6 +81,9 @@ def test_add_tags_unions_into_frontmatter(service, workspace):
     assert result["warnings"] == []
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert set(note.tags) == {"python", "work"}
+    after = service._crud_repo.get(note_id, owner_id="u1")
+    assert after is not None
+    assert after.index_generation == before.index_generation
 
 
 def test_add_tags_idempotent_no_extra_commit(service, workspace):
@@ -287,3 +292,64 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(service, work
     assert service.get_history(a["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"] == (
         head_before
     )
+
+
+def test_rename_tag_serializes_with_a_concurrent_tag_edit(service, workspace, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from kajet_turbo.services.notes import tags as tags_module
+
+    note_id = service.save("u1", "ws", str(workspace), "A", "body #work", ["work"])["note_id"]
+    rename_read = Event()
+    release_rename = Event()
+    real_rewrite = tags_module.rewrite_inline_tags
+
+    def paused_rewrite(*args, **kwargs):
+        rename_read.set()
+        assert release_rename.wait(timeout=2)
+        return real_rewrite(*args, **kwargs)
+
+    monkeypatch.setattr(tags_module, "rewrite_inline_tags", paused_rewrite)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        rename = pool.submit(_rename, service, workspace, "work", "job")
+        assert rename_read.wait(timeout=2)
+        add = pool.submit(service.add_tags, note_id, "u1", str(workspace), ["extra"])
+        assert not add.done()
+        release_rename.set()
+        rename.result(timeout=2)
+        add.result(timeout=2)
+
+    note = service.get_with_content(note_id, "u1", str(workspace))
+    assert note is not None
+    assert note.tags == ["job", "extra"]
+    assert "#job" in note.content
+
+
+def test_rename_tag_releases_workspace_before_reindexing(service, workspace, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    note_id = service.save("u1", "ws", str(workspace), "A", "body #work", ["work"])["note_id"]
+    index_started = Event()
+    release_index = Event()
+
+    def paused_index(*_args) -> None:
+        index_started.set()
+        assert release_index.wait(timeout=5)
+
+    monkeypatch.setattr(service._indexer, "index_many", paused_index)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        rename = pool.submit(_rename, service, workspace, "work", "job")
+        assert index_started.wait(timeout=5)
+        try:
+            add = pool.submit(service.add_tags, note_id, "u1", str(workspace), ["extra"])
+            add.result(timeout=2)
+        finally:
+            release_index.set()
+        rename.result(timeout=5)
+
+    note = service.get_with_content(note_id, "u1", str(workspace))
+    assert note is not None
+    assert note.tags == ["job", "extra"]
+    assert "#job" in note.content
