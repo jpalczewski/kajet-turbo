@@ -7,7 +7,7 @@ class _RecordingIndexer:
         self.indexed = []
         self.cleared = []
 
-    def index_note(self, note_id, workspace, owner_id, title, content):
+    def index_note(self, note_id, workspace, owner_id, title, content, **_kwargs):
         self.indexed.append((note_id, title, content))
 
     def clear_note(self, note_id):

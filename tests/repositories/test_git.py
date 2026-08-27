@@ -183,6 +183,17 @@ def _commit_one(args: tuple[str, int]) -> None:
     GitRepository(ws).commit_file(f"proc-{i}.md", f"add {i}")
 
 
+def _append_in_transaction(args: tuple[str, int]) -> None:
+    """Module-level so multiprocessing can pickle it under spawn."""
+    ws, i = args
+    repo = GitRepository(ws)
+    path = Path(ws, "shared.txt")
+    with repo.transaction():
+        current = path.read_text()
+        path.write_text(f"{current}{i}\n")
+        repo.commit_file("shared.txt", f"append {i}")
+
+
 def test_parallel_commits_across_processes_keep_all(tmp_path):
     """Cross-process: the in-process threading.Lock does not span processes, so
     without the flock two processes racing add+commit overwrite HEAD and lose a
@@ -201,6 +212,74 @@ def test_parallel_commits_across_processes_keep_all(tmp_path):
 
     commits = list(Repo(str(tmp_path)).get_walker())
     assert len(commits) == 8
+
+
+def test_transaction_serializes_read_modify_write_across_threads(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    repo = GitRepository.init(str(tmp_path))
+    path = tmp_path / "shared.txt"
+    path.write_text("base\n")
+    repo.commit_file("shared.txt", "seed")
+    first_acquired = Event()
+    release_first = Event()
+    second_acquired = Event()
+
+    def first() -> None:
+        with GitRepository(str(tmp_path)).transaction() as tx:
+            current = path.read_text()
+            first_acquired.set()
+            assert release_first.wait(timeout=2)
+            path.write_text(f"{current}first\n")
+            tx.commit_file("shared.txt", "first")
+
+    def second() -> None:
+        with GitRepository(str(tmp_path)).transaction() as tx:
+            second_acquired.set()
+            current = path.read_text()
+            path.write_text(f"{current}second\n")
+            tx.commit_file("shared.txt", "second")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first_future = pool.submit(first)
+        assert first_acquired.wait(timeout=2)
+        second_future = pool.submit(second)
+        assert not second_acquired.wait(timeout=0.1)
+        release_first.set()
+        first_future.result(timeout=2)
+        second_future.result(timeout=2)
+
+    assert path.read_text() == "base\nfirst\nsecond\n"
+
+
+def test_transaction_serializes_read_modify_write_across_processes(tmp_path):
+    import multiprocessing as mp
+
+    repo = GitRepository.init(str(tmp_path))
+    path = tmp_path / "shared.txt"
+    path.write_text("")
+    repo.commit_file("shared.txt", "seed")
+
+    ctx = mp.get_context("spawn")
+    with ctx.Pool(4) as pool:
+        pool.map(_append_in_transaction, [(str(tmp_path), i) for i in range(4)])
+
+    assert set(path.read_text().splitlines()) == {"0", "1", "2", "3"}
+    assert len(list(DulwichRepo(str(tmp_path)).get_walker())) == 5
+
+
+def test_transaction_releases_lock_after_exception(tmp_path):
+    repo = GitRepository.init(str(tmp_path))
+
+    with pytest.raises(RuntimeError, match="boom"), repo.transaction():
+        raise RuntimeError("boom")
+
+    with repo.transaction():
+        (tmp_path / "after.md").write_text("ok")
+        repo.commit_file("after.md", "after")
+
+    assert (tmp_path / "after.md").read_text() == "ok"
 
 
 def test_commit_files_creates_single_commit_over_many(git_ws, tmp_path):

@@ -94,9 +94,17 @@ class NoteChunkRepository(DbRepository):
         chunks: list,  # list[kajet_turbo.markdown.Chunk]
         embeddings: list[list[float]] | None,
         dim: int | None,
-    ) -> None:
+        *,
+        expected_generation: int | None = None,
+    ) -> bool:
         """Replace all chunks (and vectors) for a note. ``embeddings`` is None (chunks only
-        → stale) or one vector per chunk (→ indexed, vectors into note_chunks_vec_{dim})."""
+        → stale) or one vector per chunk (→ indexed, vectors into note_chunks_vec_{dim}).
+
+        When ``expected_generation`` is provided, the first statement acquires SQLite's
+        write lock and verifies the note revision. A superseded indexer therefore cannot
+        delete or overwrite chunks produced by a newer edit, even across processes.
+        Returns whether the replacement was applied.
+        """
         if embeddings is not None:
             if dim is None:
                 raise ValueError("dim is required when embeddings are provided")
@@ -114,6 +122,19 @@ class NoteChunkRepository(DbRepository):
             vectorized=embeddings is not None,
         ) as operation:
             session = operation.session
+            if expected_generation is not None:
+                current = session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(
+                        "UPDATE notes SET index_state = 'stale', indexed_at = NULL"
+                        " WHERE id = :nid AND index_generation = :expected"
+                        " RETURNING id"
+                    ),
+                    {"nid": note_id, "expected": expected_generation},
+                ).fetchone()
+                if current is None:
+                    session.rollback()
+                    operation.outcome = "superseded"
+                    return False
             old = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     "SELECT DISTINCT dim FROM note_chunks WHERE note_id = :nid AND dim IS NOT NULL"
@@ -200,6 +221,7 @@ class NoteChunkRepository(DbRepository):
                 },
             )
             session.commit()
+            return True
 
     def attach_vectors(
         self,

@@ -3,6 +3,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 
 import frontmatter
@@ -21,8 +22,12 @@ from kajet_turbo.markdown import (
     split_target,
 )
 from kajet_turbo.models import Note
-from kajet_turbo.perf import timed
-from kajet_turbo.repositories.git import GitError, GitRepository
+from kajet_turbo.repositories.git import (
+    GitError,
+    GitRepository,
+    defer_workspace_postprocess,
+    workspace_write_transaction,
+)
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
@@ -233,19 +238,35 @@ class NoteService:
             sha=sha,
         )
 
-    def _index(self, note_id: str, ws_name: str, owner_id: str, title: str, content: str) -> None:
+    def _index(
+        self,
+        note_id: str,
+        ws_name: str,
+        owner_id: str,
+        title: str,
+        content: str,
+        expected_generation: int,
+    ) -> None:
         # Chunks + FTS are the reliable search backbone (written by replace_chunks inside
         # index_note); a real DB write error surfaces. The embedding HTTP roundtrip is
         # deferred to an embed_note job — index_note only enqueues, never hits the network.
         if self._indexer is None:
             return
-        self._indexer.index_note(note_id, ws_name, owner_id, title, content)
+        self._indexer.index_note(
+            note_id,
+            ws_name,
+            owner_id,
+            title,
+            content,
+            expected_generation=expected_generation,
+        )
 
     def _clear_index(self, note_id: str) -> None:
         if self._indexer is None:
             return
         self._indexer.clear_note(note_id)
 
+    @workspace_write_transaction
     def save(
         self,
         user_id: str,
@@ -269,8 +290,7 @@ class NoteService:
         relative = str(Path(filepath).relative_to(ws_path))
         write_note_file(filepath, note_id, title, tags, now, now, content)
         try:
-            with timed("git_ms"):
-                GitRepository(ws_path).commit_file(relative, f"note: add {title}")
+            GitRepository(ws_path).commit_file(relative, f"note: add {title}")
         except GitError:
             Path(filepath).unlink(missing_ok=True)
             raise
@@ -280,11 +300,14 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
-        self._index(note_id, ws_name, user_id, title, content)
+        defer_workspace_postprocess(
+            ws_path, partial(self._index, note_id, ws_name, user_id, title, content, 1)
+        )
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
         return {"note_id": note_id, "warnings": wikilink_warnings(links)}
 
+    @workspace_write_transaction
     def save_many(
         self,
         user_id: str,
@@ -408,12 +431,20 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
 
-        # Phase 5: index — embedding parallelized across the threadpool, best-effort.
+        # Phase 5: index after releasing the workspace write lock. It remains synchronous
+        # from the caller's perspective, including the existing error behavior.
         if self._indexer is not None:
-            self._indexer.index_many(
-                ws_name,
-                user_id,
-                [{"id": s["note_id"], "title": s["title"], "content": s["content"]} for s in valid],
+            index_payload = [
+                {
+                    "id": s["note_id"],
+                    "title": s["title"],
+                    "content": s["content"],
+                    "index_generation": 1,
+                }
+                for s in valid
+            ]
+            defer_workspace_postprocess(
+                ws_path, partial(self._indexer.index_many, ws_name, user_id, index_payload)
             )
 
         for s in valid:
@@ -659,6 +690,7 @@ class NoteService:
         logger.info("notes_grep", ws=ws_name, matches=len(matches), truncated=truncated)
         return {"matches": matches, "truncated": truncated}
 
+    @workspace_write_transaction
     def update(
         self,
         note_id: str,
@@ -765,6 +797,7 @@ class NoteService:
             tags=new_tags,
             updated_at=now,
             folder=new_folder,
+            bump_index_generation=True,
         )
         self._link_service.persist(note_id, note.workspace, owner_id, links)
         self._tag_service.sync_tags(note_id, note.workspace, owner_id, new_tags, new_content)
@@ -777,7 +810,18 @@ class NoteService:
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_updated", note_id=note_id, folder=new_folder)
-        self._index(note_id, note.workspace, owner_id, new_title, new_content)
+        defer_workspace_postprocess(
+            ws_path,
+            partial(
+                self._index,
+                note_id,
+                note.workspace,
+                owner_id,
+                new_title,
+                new_content,
+                note.index_generation + 1,
+            ),
+        )
         if self._reconcile_repo is not None and identity_changed:
             self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
         return {
@@ -786,6 +830,7 @@ class NoteService:
             "warnings": wikilink_warnings(links),
         }
 
+    @workspace_write_transaction
     def edit_many(
         self,
         user_id: str,
@@ -916,6 +961,7 @@ class NoteService:
                 tags=p.new_tags,
                 updated_at=now,
                 folder=p.loc.note.folder,
+                bump_index_generation=True,
             )
         self._link_service.persist_many(
             ws_name,
@@ -929,13 +975,17 @@ class NoteService:
             self._cache.bump(ws_name, user_id)
 
         if self._indexer is not None:
-            self._indexer.index_many(
-                ws_name,
-                user_id,
-                [
-                    {"id": p.note_id, "title": p.loc.note.title, "content": p.new_content}
-                    for p in prepared
-                ],
+            index_payload = [
+                {
+                    "id": p.note_id,
+                    "title": p.loc.note.title,
+                    "content": p.new_content,
+                    "index_generation": p.loc.note.index_generation + 1,
+                }
+                for p in prepared
+            ]
+            defer_workspace_postprocess(
+                ws_path, partial(self._indexer.index_many, ws_name, user_id, index_payload)
             )
 
         results = [
@@ -952,6 +1002,7 @@ class NoteService:
         logger.info("notes_edited_batch", ws=ws_name, count=len(prepared))
         return {"applied": True, "results": results}
 
+    @workspace_write_transaction
     def delete(
         self, note_id: str, owner_id: str, ws_path: str, expected_sha: str | None = None
     ) -> dict:
@@ -989,6 +1040,7 @@ class NoteService:
             self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
         return {"note_id": note_id}
 
+    @workspace_write_transaction
     def delete_many(
         self,
         user_id: str,
@@ -1120,7 +1172,12 @@ class NoteService:
                     ws_name,
                     owner_id,
                     [
-                        {"id": n["id"], "title": n["title"] or "", "content": n["content"] or ""}
+                        {
+                            "id": n["id"],
+                            "title": n["title"] or "",
+                            "content": n["content"] or "",
+                            "index_generation": 1,
+                        }
                         for n in notes
                     ],
                 )
@@ -1139,6 +1196,7 @@ class NoteService:
             "count": len(notes),
         }
 
+    @workspace_write_transaction
     def restore_version(
         self,
         note_id: str,

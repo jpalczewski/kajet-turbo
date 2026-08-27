@@ -1,5 +1,7 @@
 import os
 import re
+import stat
+import tempfile
 from pathlib import Path
 
 import frontmatter
@@ -163,9 +165,31 @@ def write_note_file(
         created_at=created_at,
         updated_at=updated_at,
     )
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with Path(path).open("w") as f:
-        frontmatter.dump(post, f)
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        mode = stat.S_IMODE(target.stat().st_mode)
+    except FileNotFoundError:
+        mode = 0o644
+    fd, temp_path = tempfile.mkstemp(
+        dir=target.parent,
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+    )
+    temp = Path(temp_path)
+    try:
+        os.fchmod(fd, mode)
+        stream = os.fdopen(fd, "w")
+        fd = -1  # stream owns the descriptor from here
+        with stream:
+            frontmatter.dump(post, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temp.replace(target)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        temp.unlink(missing_ok=True)
 
 
 def read_note_file(path: str) -> dict:
