@@ -29,6 +29,23 @@ router = APIRouter(
 )
 
 
+def _create_folder_marker(ws_path: str, path: str) -> None:
+    repo = GitRepository(ws_path)
+    ws_root = Path(ws_path).resolve()
+    gitkeep = ws_root / path / ".gitkeep"
+    with repo.transaction():
+        gitkeep.parent.mkdir(parents=True, exist_ok=True)
+        if gitkeep.exists():
+            return
+        gitkeep.touch()
+        relative = str(gitkeep.relative_to(ws_root))
+        try:
+            repo.commit_file(relative, f"folder: add {path}")
+        except GitError:
+            gitkeep.unlink(missing_ok=True)
+            raise
+
+
 @router.post(
     "/api/workspaces/{name}/folders",
     response_model=CreateFolderResponse,
@@ -61,20 +78,10 @@ async def api_create_folder(
         target.relative_to(ws_root)
     except ValueError:
         raise HTTPException(status_code=422, detail=FolderError.PATH_INVALID) from None
-    gitkeep = target / ".gitkeep"
-    gitkeep.parent.mkdir(parents=True, exist_ok=True)
-    if not gitkeep.exists():
-        gitkeep.touch()
-        relative = str(gitkeep.relative_to(ws_root))
-        try:
-            await run_sync(
-                lambda: GitRepository(ws_path).commit_file(relative, f"folder: add {path}")
-            )
-        except GitError as e:
-            gitkeep.unlink(missing_ok=True)
-            raise HTTPException(
-                status_code=500, detail={"error": "GIT_ERROR", "detail": str(e)}
-            ) from e
+    try:
+        await run_sync(_create_folder_marker, ws_path, path)
+    except GitError as e:
+        raise HTTPException(status_code=500, detail={"error": "GIT_ERROR", "detail": str(e)}) from e
     logger.info("folder_created", ws=name, path=path)
     return JSONResponse({"path": path})
 

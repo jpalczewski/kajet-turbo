@@ -1,10 +1,12 @@
 import contextlib
 import fcntl
+import inspect
 import os
 import shutil
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
+from functools import wraps
 from pathlib import Path
 
 from dulwich import porcelain
@@ -62,22 +64,46 @@ def _matching_followed(followed: Iterable[bytes], changed_path: bytes) -> list[b
     ]
 
 
-_REPO_LOCKS: dict[str, threading.Lock] = {}
+_REPO_LOCKS: dict[str, threading.RLock] = {}
 _REPO_LOCKS_GUARD = threading.Lock()
+_LOCK_STATE = threading.local()
+
+
+class _TransactionState:
+    def __init__(self) -> None:
+        self.post_commit = False
 
 
 def _lock_key(workspace_path: str) -> str:
     return str(Path(workspace_path).resolve())
 
 
-def _repo_lock(workspace_path: str) -> threading.Lock:
+def _repo_lock(workspace_path: str) -> threading.RLock:
     key = _lock_key(workspace_path)
     with _REPO_LOCKS_GUARD:
         lock = _REPO_LOCKS.get(key)
         if lock is None:
-            lock = threading.Lock()
+            lock = threading.RLock()
             _REPO_LOCKS[key] = lock
         return lock
+
+
+def _transaction_states() -> dict[str, _TransactionState]:
+    states = getattr(_LOCK_STATE, "states", None)
+    if states is None:
+        states = {}
+        _LOCK_STATE.states = states
+    return states
+
+
+def _record_post_commit(workspace_path: str) -> None:
+    """Queue one hook notification for the outermost workspace transaction."""
+    state = _transaction_states().get(_lock_key(workspace_path))
+    if state is None:
+        # Defensive fallback: callers normally record while holding _workspace_lock.
+        _fire_post_commit(workspace_path)
+    else:
+        state.post_commit = True
 
 
 class GitError(Exception):
@@ -118,19 +144,62 @@ def _cross_process_lock(workspace_path: str):
 
 @contextlib.contextmanager
 def _workspace_lock(workspace_path: str):
-    """One thread per process (cheap, no flock spin) + one process globally.
+    """One writer per workspace across threads and processes, reentrant per thread.
 
-    Centrally feeds the perf span: time spent acquiring the lock vs. time holding it
-    doing git work — so e.g. edit_note's per-backlink commit loop shows its lock cost.
+    Only the outermost acquisition opens and flocks the lock file. Nested commit helpers
+    reuse the transaction held by their caller, avoiding both RLock and flock deadlocks.
+    Perf fields and post-commit hooks are likewise emitted once for the outer transaction.
     """
+    key = _lock_key(workspace_path)
+    states = _transaction_states()
+    nested = key in states
+    pending_post_commit = False
     t0 = time.monotonic()
-    with _repo_lock(workspace_path), _cross_process_lock(workspace_path):
-        record("git_lock_wait_ms", (time.monotonic() - t0) * 1000)
-        t1 = time.monotonic()
-        try:
-            yield
-        finally:
-            record("git_ms", (time.monotonic() - t1) * 1000)
+    try:
+        with _repo_lock(workspace_path):
+            if nested:
+                yield
+                return
+
+            state = _TransactionState()
+            states[key] = state
+            try:
+                with _cross_process_lock(workspace_path):
+                    record("git_lock_wait_ms", (time.monotonic() - t0) * 1000)
+                    t1 = time.monotonic()
+                    try:
+                        yield
+                    finally:
+                        record("git_ms", (time.monotonic() - t1) * 1000)
+            finally:
+                pending_post_commit = state.post_commit
+                states.pop(key, None)
+    finally:
+        if not nested and pending_post_commit:
+            # Run external side effects only after both locks have been released. Multiple
+            # commits in one transaction intentionally coalesce into one auto-push enqueue.
+            _fire_post_commit(workspace_path)
+
+
+def workspace_write_transaction[**P, T](fn: Callable[P, T]) -> Callable[P, T]:
+    """Wrap a synchronous service method's full workspace mutation in one lock.
+
+    The method must expose a ``ws_path`` argument. Binding by signature keeps the
+    decorator correct for both positional and keyword calls without duplicating a
+    fragile parameter index at every call site.
+    """
+    signature = inspect.signature(fn)
+    if "ws_path" not in signature.parameters:
+        raise TypeError("workspace_write_transaction requires a ws_path parameter")
+
+    @wraps(fn)
+    def wrapped(*args: P.args, **kwargs: P.kwargs) -> T:
+        bound = signature.bind(*args, **kwargs)
+        workspace_path = str(bound.arguments["ws_path"])
+        with _workspace_lock(workspace_path):
+            return fn(*args, **kwargs)
+
+    return wrapped
 
 
 class GitRepository:
@@ -155,6 +224,12 @@ class GitRepository:
         Repo(path).refs.set_symbolic_ref(b"HEAD", b"refs/heads/main")  # ty: ignore[invalid-argument-type] - Literal[bytes] satisfies Ref type
         return cls(path)
 
+    @contextlib.contextmanager
+    def transaction(self) -> Iterator[GitRepository]:
+        """Serialize a workspace read-modify-write sequence through its final commit."""
+        with _workspace_lock(self._workspace_path):
+            yield self
+
     def commit_file(self, relative_path: str, message: str) -> None:
         with _workspace_lock(self._workspace_path):
             try:
@@ -167,9 +242,9 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
+                _record_post_commit(self._workspace_path)
             except Exception as e:
                 raise GitError(str(e)) from e
-        _fire_post_commit(self._workspace_path)
 
     def delete_file(self, relative_path: str, message: str) -> None:
         with _workspace_lock(self._workspace_path):
@@ -182,11 +257,11 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
+                _record_post_commit(self._workspace_path)
             except GitError:
                 raise
             except Exception as e:
                 raise GitError(str(e)) from e
-        _fire_post_commit(self._workspace_path)
 
     def delete_files(self, relative_paths: list[str], message: str) -> None:
         """Unstage and commit removal of multiple files in a single commit (one lock,
@@ -205,11 +280,11 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
+                _record_post_commit(self._workspace_path)
             except GitError:
                 raise
             except Exception as e:
                 raise GitError(str(e)) from e
-        _fire_post_commit(self._workspace_path)
 
     def rename_file(self, old_rel: str, new_rel: str, message: str) -> None:
         with _workspace_lock(self._workspace_path):
@@ -230,6 +305,7 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
+                _record_post_commit(self._workspace_path)
             except GitError:
                 raise
             except Exception as e:
@@ -237,7 +313,6 @@ class GitRepository:
                     old_full.parent.mkdir(parents=True, exist_ok=True)
                     new_full.rename(old_full)
                 raise GitError(str(e)) from e
-        _fire_post_commit(self._workspace_path)
 
     def commit_moves(self, removed_rels: list[str], added_rels: list[str], message: str) -> None:
         """Record a set of moved files in a single commit: drop ``removed_rels`` from the
@@ -260,9 +335,9 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
+                _record_post_commit(self._workspace_path)
             except Exception as e:
                 raise GitError(str(e)) from e
-        _fire_post_commit(self._workspace_path)
 
     def commit_files(self, relative_paths: list[str], message: str) -> None:
         """Stage and commit multiple files in a single commit (one lock, one ref update).
@@ -284,11 +359,11 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
+                _record_post_commit(self._workspace_path)
             except GitError:
                 raise
             except Exception as e:
                 raise GitError(str(e)) from e
-        _fire_post_commit(self._workspace_path)
 
     def rename_master_to_main(self) -> bool:
         """Idempotently move this repo from ``master`` to ``main``: point HEAD at

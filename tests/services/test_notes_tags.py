@@ -287,3 +287,35 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(service, work
     assert service.get_history(a["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"] == (
         head_before
     )
+
+
+def test_rename_tag_serializes_with_a_concurrent_tag_edit(service, workspace, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from kajet_turbo.services.notes import tags as tags_module
+
+    note_id = service.save("u1", "ws", str(workspace), "A", "body #work", ["work"])["note_id"]
+    rename_read = Event()
+    release_rename = Event()
+    real_rewrite = tags_module.rewrite_inline_tags
+
+    def paused_rewrite(*args, **kwargs):
+        rename_read.set()
+        assert release_rename.wait(timeout=2)
+        return real_rewrite(*args, **kwargs)
+
+    monkeypatch.setattr(tags_module, "rewrite_inline_tags", paused_rewrite)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        rename = pool.submit(_rename, service, workspace, "work", "job")
+        assert rename_read.wait(timeout=2)
+        add = pool.submit(service.add_tags, note_id, "u1", str(workspace), ["extra"])
+        assert not add.done()
+        release_rename.set()
+        rename.result(timeout=2)
+        add.result(timeout=2)
+
+    note = service.get_with_content(note_id, "u1", str(workspace))
+    assert note is not None
+    assert note.tags == ["job", "extra"]
+    assert "#job" in note.content

@@ -12,7 +12,7 @@ from kajet_turbo.markdown import (
     rewrite_inline_tags,
 )
 from kajet_turbo.models import Note
-from kajet_turbo.repositories.git import GitError, GitRepository
+from kajet_turbo.repositories.git import GitError, GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
@@ -125,6 +125,7 @@ class NoteTagService:
         """Index the note's tags: union of frontmatter (normalized) and inline, frontmatter wins."""
         self._tag_repo.sync_note_tags(note_id, ws_name, owner_id, self._tagged(fm_tags, content))
 
+    @workspace_write_transaction
     def _apply_tag_change(
         self,
         note_id: str,
@@ -224,6 +225,7 @@ class NoteTagService:
 
         return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
 
+    @workspace_write_transaction
     def set_tags(
         self,
         note_id: str,
@@ -252,6 +254,7 @@ class NoteTagService:
             note_id, owner_id, ws_path, lambda current, content: (normalized, warnings)
         )
 
+    @workspace_write_transaction
     def rename_tag(
         self,
         old: str,

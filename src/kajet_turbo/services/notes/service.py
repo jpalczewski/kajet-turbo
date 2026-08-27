@@ -21,8 +21,7 @@ from kajet_turbo.markdown import (
     split_target,
 )
 from kajet_turbo.models import Note
-from kajet_turbo.perf import timed
-from kajet_turbo.repositories.git import GitError, GitRepository
+from kajet_turbo.repositories.git import GitError, GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
@@ -246,6 +245,7 @@ class NoteService:
             return
         self._indexer.clear_note(note_id)
 
+    @workspace_write_transaction
     def save(
         self,
         user_id: str,
@@ -269,8 +269,7 @@ class NoteService:
         relative = str(Path(filepath).relative_to(ws_path))
         write_note_file(filepath, note_id, title, tags, now, now, content)
         try:
-            with timed("git_ms"):
-                GitRepository(ws_path).commit_file(relative, f"note: add {title}")
+            GitRepository(ws_path).commit_file(relative, f"note: add {title}")
         except GitError:
             Path(filepath).unlink(missing_ok=True)
             raise
@@ -285,6 +284,7 @@ class NoteService:
             self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
         return {"note_id": note_id, "warnings": wikilink_warnings(links)}
 
+    @workspace_write_transaction
     def save_many(
         self,
         user_id: str,
@@ -659,6 +659,7 @@ class NoteService:
         logger.info("notes_grep", ws=ws_name, matches=len(matches), truncated=truncated)
         return {"matches": matches, "truncated": truncated}
 
+    @workspace_write_transaction
     def update(
         self,
         note_id: str,
@@ -786,6 +787,7 @@ class NoteService:
             "warnings": wikilink_warnings(links),
         }
 
+    @workspace_write_transaction
     def edit_many(
         self,
         user_id: str,
@@ -952,6 +954,7 @@ class NoteService:
         logger.info("notes_edited_batch", ws=ws_name, count=len(prepared))
         return {"applied": True, "results": results}
 
+    @workspace_write_transaction
     def delete(
         self, note_id: str, owner_id: str, ws_path: str, expected_sha: str | None = None
     ) -> dict:
@@ -989,6 +992,7 @@ class NoteService:
             self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
         return {"note_id": note_id}
 
+    @workspace_write_transaction
     def delete_many(
         self,
         user_id: str,
@@ -1139,6 +1143,7 @@ class NoteService:
             "count": len(notes),
         }
 
+    @workspace_write_transaction
     def restore_version(
         self,
         note_id: str,

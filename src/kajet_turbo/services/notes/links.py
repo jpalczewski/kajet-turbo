@@ -19,7 +19,7 @@ from kajet_turbo.markdown import (
     rewrite_wikilinks,
 )
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
-from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
 from kajet_turbo.workspace import note_filepath, path_segments, read_note_file, write_note_file
 
@@ -69,6 +69,7 @@ class WorkspaceLinks:
     def resolver(self, source_folder: str = "") -> LinkResolver:
         return lambda target: self.index.resolve(target, source_folder)
 
+    @workspace_write_transaction
     def rewrite_backlinks(self, moves: list[NoteMove], ws_path: str) -> None:
         self._service._rewrite_backlinks(self, moves, ws_path)
 
