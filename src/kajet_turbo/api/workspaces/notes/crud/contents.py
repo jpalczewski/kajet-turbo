@@ -8,7 +8,6 @@ from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.api.workspaces.notes._views import enrich_note_items
 from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
 from kajet_turbo.errors import AuthError, FolderError
-from kajet_turbo.log import logged_route
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.workspace import relative_folder
@@ -40,7 +39,6 @@ def _child_folders(folders: list[str], parent: str) -> list[str]:
     response_model=WorkspaceContentsResponse,
     responses={400: {"model": ErrorResponse}},
 )
-@logged_route
 def api_workspace_contents(
     name: str,
     user: dict = Depends(get_required_user),

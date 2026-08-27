@@ -11,7 +11,6 @@ from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_required_user, get_workspace_service
 from kajet_turbo.errors import AuthError, WorkspaceError
-from kajet_turbo.log import logged_route
 from kajet_turbo.services.workspaces import WorkspaceService
 
 router = APIRouter(
@@ -23,7 +22,6 @@ router = APIRouter(
 
 
 @router.get("/api/workspaces", response_model=WorkspacesListResponse)
-@logged_route
 def api_list_workspaces(
     user: dict = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
@@ -37,7 +35,6 @@ def api_list_workspaces(
     response_model=CreateWorkspaceResponse,
     responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-@logged_route
 async def api_create_workspace(
     request: Request,
     user: dict = Depends(get_required_user),
@@ -76,7 +73,6 @@ async def api_create_workspace(
     response_model=UpdateWorkspaceResponse,
     responses={422: {"model": ErrorResponse}},
 )
-@logged_route
 async def api_update_workspace(
     name: str,
     request: Request,
@@ -110,7 +106,6 @@ async def api_update_workspace(
     "/api/workspaces/{name}",
     response_model=DeleteWorkspaceResponse,
 )
-@logged_route
 async def api_delete_workspace(
     name: str,
     user: dict = Depends(get_required_user),

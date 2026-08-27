@@ -14,7 +14,6 @@ from kajet_turbo.api.workspaces.notes._views import enrich_note_items
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
 from kajet_turbo.errors import AuthError, FolderError, NoteError
-from kajet_turbo.log import logged_route
 from kajet_turbo.markdown import BrokenWikilinkError
 from kajet_turbo.repositories.git import GitError  # exception class, not errors.GitError StrEnum
 from kajet_turbo.services.notes import NoteService
@@ -33,7 +32,6 @@ router = APIRouter(
     "/api/workspaces/{name}/notes",
     response_model=NotesListResponse,
 )
-@logged_route
 def api_list_notes(
     name: str,
     user: dict = Depends(get_required_user),
@@ -61,7 +59,6 @@ def api_list_notes(
     response_model=CreateNoteResponse,
     responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-@logged_route
 async def api_create_note(
     name: str,
     request: Request,
@@ -107,7 +104,6 @@ async def api_create_note(
     response_model=BatchCreateNotesResponse,
     responses={422: {"model": ErrorResponse}},
 )
-@logged_route
 async def api_create_notes_batch(
     name: str,
     request: Request,
@@ -143,7 +139,6 @@ async def api_create_notes_batch(
         422: {"model": ErrorResponse},
     },
 )
-@logged_route
 async def api_update_note(
     name: str,
     note_id: str,
@@ -205,7 +200,6 @@ async def api_update_note(
         422: {"model": ErrorResponse},
     },
 )
-@logged_route
 async def api_move_note(
     name: str,
     note_id: str,
@@ -250,7 +244,6 @@ async def api_move_note(
     response_model=DeleteNoteResponse,
     responses={404: {"model": ErrorResponse}},
 )
-@logged_route
 async def api_delete_note(
     name: str,
     note_id: str,

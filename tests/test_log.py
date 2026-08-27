@@ -220,6 +220,95 @@ def test_logging_middleware_logs_http_entry(capsys):
     assert "duration_ms" in e
 
 
+def test_logging_middleware_logs_route_template_and_only_safe_path_params(capsys):
+    from fastapi import Query
+    from pydantic import BaseModel
+    from starlette.testclient import TestClient
+
+    app = make_logging_app()
+
+    class PrivateBody(BaseModel):
+        text: str
+
+    @app.put("/api/workspaces/{name}/notes/{note_id}")
+    async def update_note(
+        name: str,
+        note_id: str,
+        body: PrivateBody,
+        title: str = Query(),
+    ):
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/workspaces/private-workspace/notes/n-safe?title=private-query",
+            json={"text": "private body"},
+        )
+
+    assert response.status_code == 200
+    (entry,) = entries_named(read_log_entries(capsys), "http")
+    assert entry["path"] == "/api/workspaces/{name}/notes/{note_id}"
+    assert entry["note_id"] == "n-safe"
+    rendered = json.dumps(entry)
+    assert "private-workspace" not in rendered
+    assert "private-query" not in rendered
+    assert "private body" not in rendered
+
+
+def test_logging_middleware_uses_same_safe_path_for_sync_route(capsys):
+    from starlette.testclient import TestClient
+
+    app = make_logging_app()
+
+    @app.get("/api/jobs/{job_id}")
+    def get_job(job_id: str):
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        response = client.get("/api/jobs/job-safe")
+
+    assert response.status_code == 200
+    (entry,) = entries_named(read_log_entries(capsys), "http")
+    assert entry["path"] == "/api/jobs/{job_id}"
+    assert entry["job_id"] == "job-safe"
+
+
+def test_logging_middleware_collapses_root_mounted_spa_path(capsys):
+    from fastapi import FastAPI
+    from starlette.testclient import TestClient
+
+    app = make_logging_app()
+    spa = FastAPI()
+
+    @spa.get("/{path:path}")
+    def page(path: str):
+        return {"ok": True}
+
+    app.mount("/", spa)
+
+    with TestClient(app) as client:
+        response = client.get("/workspace/private-workspace/notes/private-folder")
+
+    assert response.status_code == 200
+    (entry,) = entries_named(read_log_entries(capsys), "http")
+    assert entry["path"] == "/{path:path}"
+    assert "private" not in json.dumps(entry)
+
+
+def test_logging_middleware_collapses_unmatched_path(capsys):
+    from starlette.testclient import TestClient
+
+    app = make_logging_app()
+
+    with TestClient(app) as client:
+        response = client.get("/private-unmatched-path")
+
+    assert response.status_code == 404
+    (entry,) = entries_named(read_log_entries(capsys), "http")
+    assert entry["path"] == "<unmatched>"
+    assert "private-unmatched-path" not in json.dumps(entry)
+
+
 def test_logging_middleware_injects_request_id(capsys):
     from loguru import logger
     from starlette.testclient import TestClient

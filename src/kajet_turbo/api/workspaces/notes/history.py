@@ -7,7 +7,6 @@ from kajet_turbo.api.workspaces.notes.content import _render_html
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
 from kajet_turbo.errors import AuthError, NoteError
-from kajet_turbo.log import logged_route
 from kajet_turbo.repositories.git import GitError as RepoGitError
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -25,7 +24,6 @@ router = APIRouter(
     response_model=NoteHistoryResponse,
     responses={404: {"model": ErrorResponse}},
 )
-@logged_route
 def api_note_history(
     name: str,
     note_id: str,
@@ -48,7 +46,6 @@ def api_note_history(
     response_model=NoteHtmlResponse,
     responses={404: {"model": ErrorResponse}},
 )
-@logged_route
 def api_note_version(
     name: str,
     note_id: str,
@@ -87,7 +84,6 @@ def api_note_version(
     response_model=RestoreVersionResponse,
     responses={404: {"model": ErrorResponse}},
 )
-@logged_route
 async def api_restore_note_version(
     name: str,
     note_id: str,

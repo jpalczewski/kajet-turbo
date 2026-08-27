@@ -8,7 +8,6 @@ from kajet_turbo.dependencies import (
     get_workspace_remote_service,
     get_workspace_service,
 )
-from kajet_turbo.log import logged_route
 from kajet_turbo.services.workspace_remote import WorkspaceRemoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -23,7 +22,6 @@ def _guard(user: dict, name: str, ws_service: WorkspaceService) -> JSONResponse 
 
 
 @router.get("/api/workspaces/{name}/remote", response_model=WorkspaceRemoteResponse)
-@logged_route
 def api_get_workspace_remote(
     name: str,
     user: dict = Depends(get_required_user),
@@ -36,7 +34,6 @@ def api_get_workspace_remote(
 
 
 @router.put("/api/workspaces/{name}/remote")
-@logged_route
 async def api_set_workspace_remote(
     name: str,
     request: Request,
@@ -65,7 +62,6 @@ async def api_set_workspace_remote(
 
 
 @router.delete("/api/workspaces/{name}/remote")
-@logged_route
 def api_delete_workspace_remote(
     name: str,
     user: dict = Depends(get_required_user),
@@ -80,7 +76,6 @@ def api_delete_workspace_remote(
 
 
 @router.post("/api/workspaces/{name}/remote/push")
-@logged_route
 def api_trigger_workspace_push(
     name: str,
     user: dict = Depends(get_required_user),
