@@ -11,6 +11,67 @@
 # default, which the MCP StreamableHTTP transport relies on.
 :80, :8000 {
 	@mcp path /mcp /mcp/* /authorize* /token* /register* /revoke* /.well-known/*
-	reverse_proxy @mcp kajet-mcp:8000
-	reverse_proxy kajet-api:8000
+	@api path /api /api/* /healthz /readyz
+	@docs path /docs /docs/* /redoc /redoc/* /openapi.json
+	@non_static_method not method GET HEAD
+
+	@spa_root {
+		method GET HEAD
+		header Accept *text/html*
+		path /
+	}
+	@spa_navigation {
+		method GET HEAD
+		header Accept *text/html*
+		path_regexp ^/(?:.*/)?[^./][^/.]*/*$
+		not path_regexp (^|/)\.[^/]+
+	}
+	@workspace_notes_navigation {
+		method GET HEAD
+		header Accept *text/html*
+		path_regexp ^/workspace/[A-Za-z0-9][A-Za-z0-9_-]{0,49}/notes/.+$
+		not path_regexp (^|/)\.[^/]+
+	}
+
+	# Keep route order explicit: public backend routes must win before static files.
+	route {
+		handle @mcp {
+			reverse_proxy kajet-mcp:8000
+		}
+		handle @api {
+			reverse_proxy kajet-api:8000
+		}
+		handle @docs {
+			respond 404
+		}
+		handle @non_static_method {
+			respond 404
+		}
+		handle @spa_root {
+			root * /srv
+			header Cache-Control "no-cache"
+			try_files {path} /index.html
+			file_server
+		}
+		handle @spa_navigation {
+			root * /srv
+			header Cache-Control "no-cache"
+			try_files {path} /index.html
+			file_server
+		}
+		handle @workspace_notes_navigation {
+			root * /srv
+			header Cache-Control "no-cache"
+			try_files {path} /index.html
+			file_server
+		}
+		handle {
+			root * /srv
+			@immutable_assets path /_app/immutable/*
+			header @immutable_assets Cache-Control "public, max-age=31536000, immutable"
+			@index path /index.html
+			header @index Cache-Control "no-cache"
+			file_server
+		}
+	}
 }

@@ -7,6 +7,8 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastmcp.utilities.lifespan import combine_lifespans
+from starlette.datastructures import Headers
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import Request as StarletteRequest
 
 from kajet_turbo.api import api_router
@@ -125,19 +127,40 @@ async def _worker_lifespan(app: FastAPI):
         thread.join(timeout=10.0)
 
 
+def _is_spa_navigation(path: str, scope: dict) -> bool:
+    """Whether a missing path is a browser navigation eligible for the SPA shell.
+
+    A root-mounted static app must not turn scanner probes into successful responses.
+    The explorer route is the one exception to the extension rule: user folder names may
+    contain dots (for example ``2026.08``), while hidden path segments stay ineligible.
+    """
+    if scope["method"] not in {"GET", "HEAD"} or "text/html" not in Headers(scope=scope).get(
+        "accept", ""
+    ):
+        return False
+    segments = [segment for segment in path.split("/") if segment]
+    if any(segment.startswith(".") for segment in segments):
+        return False
+    if path.startswith("workspace/") and "/notes/" in path:
+        return True
+    final_segment = segments[-1] if segments else ""
+    return not final_segment or "." not in final_segment
+
+
 class _SPAFiles:
-    """Starlette mount serving index.html for any path without a matching file (SPA fallback)."""
+    """Serve static files and the SPA shell only for eligible browser navigations."""
 
     def __init__(self, directory: str) -> None:
-        from starlette.exceptions import HTTPException as StarletteHTTPException
         from starlette.staticfiles import StaticFiles
 
         class _SPA(StaticFiles):
             async def get_response(self, path: str, scope):
+                if scope["method"] not in {"GET", "HEAD"}:
+                    raise StarletteHTTPException(status_code=404)
                 try:
                     return await super().get_response(path, scope)
                 except StarletteHTTPException as exc:
-                    if exc.status_code == 404:
+                    if exc.status_code == 404 and _is_spa_navigation(path, scope):
                         return await super().get_response("index.html", scope)
                     raise
 
@@ -191,7 +214,7 @@ def _add_oauth_routes(app: FastAPI) -> None:
 
 def _mount_spa(app: FastAPI) -> None:
     dist = Path(__file__).parent.parent.parent / "dist"
-    if dist.exists():
+    if os.getenv("KAJET_SERVE_SPA", "1") == "1" and dist.exists():
         app.mount("/", _SPAFiles(str(dist)))
 
 

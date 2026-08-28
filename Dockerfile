@@ -5,7 +5,7 @@ RUN bun install --frozen-lockfile
 COPY frontend/ .
 RUN bun run build
 
-FROM ghcr.io/astral-sh/uv:bookworm-slim
+FROM ghcr.io/astral-sh/uv:bookworm-slim AS app-base
 
 WORKDIR /app
 
@@ -27,11 +27,18 @@ COPY alembic/ alembic/
 COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh
 
-COPY --from=frontend /app/dist ./dist
-
 ENV MCP_HOST=0.0.0.0
 ENV MCP_PORT=8000
 
 EXPOSE 8000
 
 CMD ["/app/entrypoint.sh"]
+
+FROM caddy:2-alpine AS ingress
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY --from=frontend /app/dist /srv
+
+EXPOSE 80 8000
+
+FROM app-base AS app
+COPY --from=frontend /app/dist ./dist

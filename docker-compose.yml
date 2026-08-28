@@ -22,7 +22,8 @@ services:
   kajet-turbo:
     build:
       context: .
-      dockerfile: Dockerfile.caddy
+      target: ingress
+    image: kajet-turbo-ingress:local
     expose:
       - "8000"
     depends_on:
@@ -37,13 +38,16 @@ services:
       retries: 5
       start_period: 10s
 
-  # Stateless REST API + SPA. Scales to any worker count.
+  # Stateless REST API. Caddy serves the SPA in this production topology.
   kajet-api:
-    build: .
+    build:
+      context: .
+      target: app
     image: kajet-turbo:local
     env_file: .env
     environment:
       KAJET_ROLE: api
+      KAJET_SERVE_SPA: "0"
       API_WORKERS: "2"
     volumes:
       - kajet_data:/data
