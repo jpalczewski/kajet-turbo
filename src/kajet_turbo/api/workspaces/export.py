@@ -36,8 +36,6 @@ async def api_export_workspace(
         ws_path = ws_service.workspace_path(user["id"], name)
         export = await run_sync(_exports.create, name, ws_path, format)
     except GitError as e:
-        raise HTTPException(
-            status_code=500, detail={"error": "GIT_ERROR", "detail": str(e)}
-        ) from e
+        raise HTTPException(status_code=500, detail={"error": "GIT_ERROR", "detail": str(e)}) from e
     background_tasks.add_task(export.path.unlink, missing_ok=True)
     return FileResponse(export.path, media_type=export.media_type, filename=export.filename)
