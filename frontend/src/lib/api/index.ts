@@ -391,6 +391,19 @@ export type ApiPendingInfoApiPendingGetParams = {
 id: string;
 };
 
+export type ApiExportWorkspaceApiWorkspacesNameExportGetParams = {
+format?: ApiExportWorkspaceApiWorkspacesNameExportGetFormat;
+};
+
+export type ApiExportWorkspaceApiWorkspacesNameExportGetFormat = typeof ApiExportWorkspaceApiWorkspacesNameExportGetFormat[keyof typeof ApiExportWorkspaceApiWorkspacesNameExportGetFormat];
+
+
+export const ApiExportWorkspaceApiWorkspacesNameExportGetFormat = {
+  zip: 'zip',
+  tarzst: 'tar.zst',
+  bundle: 'bundle',
+} as const;
+
 export type ApiListNotesApiWorkspacesNameNotesGetParams = {
 folder?: string | null;
 tag?: string | null;
@@ -943,6 +956,73 @@ export const apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatch = async (n
   {
     ...options,
     method: 'PATCH'
+
+
+  }
+);}
+
+
+
+export type apiExportWorkspaceApiWorkspacesNameExportGetResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type apiExportWorkspaceApiWorkspacesNameExportGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiExportWorkspaceApiWorkspacesNameExportGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiExportWorkspaceApiWorkspacesNameExportGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiExportWorkspaceApiWorkspacesNameExportGetResponse500 = {
+  data: ErrorResponse
+  status: 500
+}
+
+export type apiExportWorkspaceApiWorkspacesNameExportGetResponseSuccess = (apiExportWorkspaceApiWorkspacesNameExportGetResponse200) & {
+  headers: Headers;
+};
+export type apiExportWorkspaceApiWorkspacesNameExportGetResponseError = (apiExportWorkspaceApiWorkspacesNameExportGetResponse401 | apiExportWorkspaceApiWorkspacesNameExportGetResponse403 | apiExportWorkspaceApiWorkspacesNameExportGetResponse422 | apiExportWorkspaceApiWorkspacesNameExportGetResponse500) & {
+  headers: Headers;
+};
+
+export type apiExportWorkspaceApiWorkspacesNameExportGetResponse = (apiExportWorkspaceApiWorkspacesNameExportGetResponseSuccess | apiExportWorkspaceApiWorkspacesNameExportGetResponseError)
+
+export const getApiExportWorkspaceApiWorkspacesNameExportGetUrl = (name: string,
+    params?: ApiExportWorkspaceApiWorkspacesNameExportGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/workspaces/${name}/export?${stringifiedParams}` : `/api/workspaces/${name}/export`
+}
+
+/**
+ * @summary Api Export Workspace
+ */
+export const apiExportWorkspaceApiWorkspacesNameExportGet = async (name: string,
+    params?: ApiExportWorkspaceApiWorkspacesNameExportGetParams, options?: RequestInit): Promise<apiExportWorkspaceApiWorkspacesNameExportGetResponse> => {
+
+  return customFetch<apiExportWorkspaceApiWorkspacesNameExportGetResponse>(getApiExportWorkspaceApiWorkspacesNameExportGetUrl(name,params),
+  {
+    ...options,
+    method: 'GET'
 
 
   }

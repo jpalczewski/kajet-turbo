@@ -1,4 +1,4 @@
-import { resolve } from '$app/paths';
+import { base, resolve } from '$app/paths';
 
 // The only place app URLs are built. Builders return resolve(...) directly so
 // their inferred type is ResolvedPathname, which satisfies the
@@ -46,3 +46,8 @@ export const noteChunksPath = (slug: string, id: string) =>
 
 export const workspaceSettingsPath = (slug: string) =>
   resolve('/(protected)/workspace/[slug]/settings', { slug });
+
+export type WorkspaceExportFormat = 'zip' | 'tar.zst' | 'bundle';
+
+export const workspaceExportUrl = (slug: string, format: WorkspaceExportFormat) =>
+  `${base}/api/workspaces/${encodeURIComponent(slug)}/export?format=${encodeURIComponent(format)}`;
