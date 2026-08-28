@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,6 +27,8 @@ from kajet_turbo.dependencies import (
 from kajet_turbo.health import add_health_routes
 from kajet_turbo.log import LoggingMiddleware, install_loop_exception_handler, logger, setup_logging
 from kajet_turbo.mcp import build_mcp
+
+_SPA_EXPLORER_PATH = re.compile(r"^workspace/[A-Za-z0-9][A-Za-z0-9_-]{0,49}/notes(?:/.*)?$")
 
 
 def _make_sweep_handler(event_repo, job_repo):
@@ -141,7 +144,7 @@ def _is_spa_navigation(path: str, scope: dict) -> bool:
     segments = [segment for segment in path.split("/") if segment]
     if any(segment.startswith(".") for segment in segments):
         return False
-    if path.startswith("workspace/") and "/notes/" in path:
+    if _SPA_EXPLORER_PATH.fullmatch(path):
         return True
     final_segment = segments[-1] if segments else ""
     return not final_segment or "." not in final_segment

@@ -46,6 +46,8 @@ def test_spa_navigation_policy_handles_assets_and_dotted_explorer_folders():
     assert _is_spa_navigation("some/client/route", html_get)
     assert not _is_spa_navigation(".env", html_get)
     assert not _is_spa_navigation("workspace/ws/notes/.git", html_get)
+    assert not _is_spa_navigation("workspace/ws/other/notes/wp-config.php", html_get)
+    assert not _is_spa_navigation("workspace/bad.slug/notes/wp-config.php", html_get)
     assert not _is_spa_navigation("missing.js", html_get)
     assert not _is_spa_navigation("some/client/route", {"method": "GET", "headers": []})
 
