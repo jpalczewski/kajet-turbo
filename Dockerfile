@@ -41,6 +41,7 @@ RUN chmod +x entrypoint.sh
 
 ENV MCP_HOST=0.0.0.0
 ENV MCP_PORT=8000
+ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8000
 
