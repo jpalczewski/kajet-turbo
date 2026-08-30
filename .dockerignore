@@ -1,0 +1,54 @@
+# Source control and automation metadata
+.git
+.gitattributes
+.github
+.gitignore
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+
+# Python environments, bytecode, caches, and reports
+.venv
+venv
+**/__pycache__
+*.py[cod]
+.cache
+.coverage*
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.tox
+htmlcov
+
+# Frontend dependencies and generated output
+node_modules
+frontend/node_modules
+frontend/.svelte-kit
+frontend/dist
+dist
+
+# Logs and operational/development-only material
+*.log
+logs
+ops
+tests
+docs
+scripts
+README*
+CLAUDE*
+docker-compose*.yml
+
+# Editors, agents, and operating-system files
+.agents
+.claude
+.codex
+.idea
+.serena
+.superpowers
+.vscode
+.DS_Store

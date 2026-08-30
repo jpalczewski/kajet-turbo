@@ -18,13 +18,15 @@ jobs:
     name: ruff + ty
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
 
-      # Installs the interpreter named in .python-version (3.14t, free-threaded)
+      # Installs the interpreter named in .python-version (3.14.3t, free-threaded)
       # and the dev dependency group.
       - run: uv sync --locked
 
@@ -47,9 +49,11 @@ jobs:
     name: pytest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
 
@@ -67,12 +71,14 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       # Pinned because bun is the runtime for vitest, not just a package manager:
       # a minor bump can change how the tests behave. uv is deliberately left
       # floating — uv.lock plus --locked already fixes everything it installs.
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: frontend/.bun-version
 
@@ -88,3 +94,141 @@ jobs:
       - name: test
         if: ${{ !cancelled() }}
         run: bun run test
+
+  compose-config:
+    name: docker compose config
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Keep Docker and CI on the same Bun version
+        shell: bash
+        run: |
+          bun_version="$(<frontend/.bun-version)"
+          grep -Fq "FROM oven/bun:${bun_version}@sha256:" Dockerfile
+
+      - name: Validate Compose configuration
+        shell: bash
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.yml config --quiet
+
+  container-images:
+    name: image ${{ matrix.target }} (${{ matrix.architecture }})
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: app
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - target: app
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - target: ingress
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - target: ingress
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    env:
+      LOCAL_IMAGE: kajet-turbo-ci:${{ matrix.target }}-${{ matrix.architecture }}-${{ github.sha }}
+      TRIVY_EXIT_ON_EOL: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - name: Record build timestamp
+        id: metadata
+        shell: bash
+        run: echo "created=$(git show -s --format=%cI "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
+
+      - name: Build and load final image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: ${{ matrix.platform }}
+          tags: ${{ env.LOCAL_IMAGE }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.metadata.outputs.created }}
+            org.opencontainers.image.version=sha-${{ github.sha }}
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=kajet-turbo-${{ matrix.target }}-${{ matrix.architecture }}
+          cache-to: type=gha,mode=max,scope=kajet-turbo-${{ matrix.target }}-${{ matrix.architecture }}
+
+      - name: Validate image identity
+        if: ${{ steps.build.outcome == 'success' && !cancelled() }}
+        shell: bash
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          test "$(docker image inspect --format '{{.Architecture}}' "$LOCAL_IMAGE")" = "$EXPECTED_ARCHITECTURE"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$LOCAL_IMAGE")" = "$GITHUB_SHA"
+
+      - name: Validate packaged Caddy configuration
+        if: ${{ matrix.target == 'ingress' && steps.build.outcome == 'success' && !cancelled() }}
+        run: docker run --rm --entrypoint caddy "$LOCAL_IMAGE" validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Trivy gate
+        id: trivy
+        if: ${{ steps.build.outcome == 'success' && !cancelled() }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          scanners: vuln,secret
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "1"
+          format: table
+          hide-progress: true
+
+      - name: Create Trivy SARIF
+        id: sarif
+        if: ${{ steps.build.outcome == 'success' && !cancelled() }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          scanners: vuln,secret
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+          format: sarif
+          output: trivy-${{ matrix.target }}-${{ matrix.architecture }}.sarif
+          limit-severities-for-sarif: true
+          hide-progress: true
+          skip-setup-trivy: true
+          cache: false
+
+      - name: Upload Trivy SARIF
+        if: ${{ !cancelled() && steps.sarif.outcome == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: trivy-${{ matrix.target }}-${{ matrix.architecture }}.sarif
+          category: trivy-${{ matrix.target }}-${{ matrix.architecture }}

@@ -1,0 +1,418 @@
+name: Develop Images
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  # Never interrupt a run between promoting the two packages. A newer main run
+  # waits, then the head-SHA check prevents an older run from moving develop.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  APP_IMAGE: ghcr.io/jpalczewski/kajet-turbo-app
+  INGRESS_IMAGE: ghcr.io/jpalczewski/kajet-turbo-ingress
+
+jobs:
+  publish-platforms:
+    name: publish ${{ matrix.target }} (${{ matrix.architecture }})
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+      security-events: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: app
+            image: ghcr.io/jpalczewski/kajet-turbo-app
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - target: app
+            image: ghcr.io/jpalczewski/kajet-turbo-app
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - target: ingress
+            image: ghcr.io/jpalczewski/kajet-turbo-ingress
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - target: ingress
+            image: ghcr.io/jpalczewski/kajet-turbo-ingress
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    env:
+      LOCAL_IMAGE: kajet-turbo-ci:${{ matrix.target }}-${{ matrix.architecture }}-${{ github.sha }}
+      PLATFORM_TAG: ${{ matrix.image }}:build-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.architecture }}
+      SBOM_PATH: sbom-${{ matrix.target }}-${{ matrix.architecture }}.cdx.json
+      TRIVY_EXIT_ON_EOL: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - name: Record build timestamp
+        id: metadata
+        shell: bash
+        run: echo "created=$(git show -s --format=%cI "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
+
+      - name: Build and load final image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: ${{ matrix.platform }}
+          tags: ${{ env.LOCAL_IMAGE }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.metadata.outputs.created }}
+            org.opencontainers.image.version=sha-${{ github.sha }}
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=kajet-turbo-${{ matrix.target }}-${{ matrix.architecture }}
+          cache-to: type=gha,mode=max,scope=kajet-turbo-${{ matrix.target }}-${{ matrix.architecture }}
+
+      - name: Validate image identity
+        id: identity
+        if: ${{ steps.build.outcome == 'success' && !cancelled() }}
+        shell: bash
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          test "$(docker image inspect --format '{{.Architecture}}' "$LOCAL_IMAGE")" = "$EXPECTED_ARCHITECTURE"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$LOCAL_IMAGE")" = "$GITHUB_SHA"
+
+      - name: Validate packaged Caddy configuration
+        id: caddy
+        if: ${{ matrix.target == 'ingress' && steps.build.outcome == 'success' && !cancelled() }}
+        run: docker run --rm --entrypoint caddy "$LOCAL_IMAGE" validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Trivy gate
+        id: trivy
+        if: ${{ steps.build.outcome == 'success' && !cancelled() }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          scanners: vuln,secret
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "1"
+          format: table
+          hide-progress: true
+
+      - name: Create Trivy SARIF
+        id: sarif
+        if: ${{ steps.build.outcome == 'success' && !cancelled() }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          scanners: vuln,secret
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+          format: sarif
+          output: trivy-${{ matrix.target }}-${{ matrix.architecture }}.sarif
+          limit-severities-for-sarif: true
+          hide-progress: true
+          skip-setup-trivy: true
+          cache: false
+
+      - name: Upload Trivy SARIF
+        if: ${{ !cancelled() && steps.sarif.outcome == 'success' }}
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: trivy-${{ matrix.target }}-${{ matrix.architecture }}.sarif
+          category: trivy-${{ matrix.target }}-${{ matrix.architecture }}
+
+      - name: Generate CycloneDX SBOM
+        id: sbom
+        if: ${{ steps.identity.outcome == 'success' && steps.trivy.outcome == 'success' && (matrix.target != 'ingress' || steps.caddy.outcome == 'success') && !cancelled() }}
+        shell: bash
+        run: trivy image --scanners vuln --format cyclonedx --output "$SBOM_PATH" "$LOCAL_IMAGE"
+
+      - name: Log in to GHCR
+        id: login
+        if: ${{ steps.sbom.outcome == 'success' && !cancelled() }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push scanned platform image
+        id: push
+        if: ${{ steps.sbom.outcome == 'success' && steps.login.outcome == 'success' && !cancelled() }}
+        shell: bash
+        run: |
+          docker tag "$LOCAL_IMAGE" "$PLATFORM_TAG"
+          docker push "$PLATFORM_TAG"
+          digest="$(docker buildx imagetools inspect "$PLATFORM_TAG" --format '{{json .Manifest}}' | jq -r .digest)"
+          test -n "$digest"
+          test "$digest" != "null"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest platform provenance
+        if: ${{ steps.push.outcome == 'success' && !cancelled() }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ matrix.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-version: build-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.architecture }}
+          push-to-registry: true
+
+      - name: Attest platform SBOM
+        if: ${{ steps.push.outcome == 'success' && !cancelled() }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ matrix.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-version: build-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.architecture }}
+          sbom-path: ${{ env.SBOM_PATH }}
+          push-to-registry: true
+
+  assemble-and-promote:
+    name: assemble and promote develop
+    if: ${{ github.event_name == 'push' }}
+    needs: publish-platforms
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assemble immutable multi-platform images
+        id: assemble
+        shell: bash
+        run: |
+          ensure_platform_tag() {
+            local image="$1"
+            local architecture="$2"
+            local stable="${image}:sha-${GITHUB_SHA}-${architecture}"
+            local staging="${image}:build-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${architecture}"
+            if ! docker buildx imagetools inspect "$stable" >/dev/null 2>&1; then
+              docker buildx imagetools create --prefer-index=false --tag "$stable" "$staging"
+            fi
+          }
+
+          ensure_index() {
+            local image="$1"
+            local stable="${image}:sha-${GITHUB_SHA}"
+            if ! docker buildx imagetools inspect "$stable" >/dev/null 2>&1; then
+              docker buildx imagetools create \
+                --tag "$stable" \
+                "${image}:sha-${GITHUB_SHA}-amd64" \
+                "${image}:sha-${GITHUB_SHA}-arm64"
+            fi
+            docker buildx imagetools inspect --raw "${image}:sha-${GITHUB_SHA}" \
+              | jq -e '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]'
+          }
+
+          ensure_platform_tag "$APP_IMAGE" amd64
+          ensure_platform_tag "$APP_IMAGE" arm64
+          ensure_platform_tag "$INGRESS_IMAGE" amd64
+          ensure_platform_tag "$INGRESS_IMAGE" arm64
+          ensure_index "$APP_IMAGE"
+          ensure_index "$INGRESS_IMAGE"
+
+          app_digest="$(docker buildx imagetools inspect "$APP_IMAGE:sha-$GITHUB_SHA" --format '{{json .Manifest}}' | jq -r .digest)"
+          ingress_digest="$(docker buildx imagetools inspect "$INGRESS_IMAGE:sha-$GITHUB_SHA" --format '{{json .Manifest}}' | jq -r .digest)"
+          test -n "$app_digest"
+          test -n "$ingress_digest"
+          echo "app_digest=$app_digest" >> "$GITHUB_OUTPUT"
+          echo "ingress_digest=$ingress_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest app index provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ env.APP_IMAGE }}
+          subject-digest: ${{ steps.assemble.outputs.app_digest }}
+          subject-version: sha-${{ github.sha }}
+          push-to-registry: true
+
+      - name: Attest ingress index provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ env.INGRESS_IMAGE }}
+          subject-digest: ${{ steps.assemble.outputs.ingress_digest }}
+          subject-version: sha-${{ github.sha }}
+          push-to-registry: true
+
+      - name: Confirm this run still represents main
+        shell: bash
+        run: |
+          current_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | cut -f1)"
+          test "$current_main" = "$GITHUB_SHA"
+
+      - name: Require anonymous access to both packages
+        shell: bash
+        run: |
+          docker logout ghcr.io
+          docker buildx imagetools inspect "$APP_IMAGE:sha-$GITHUB_SHA" >/dev/null
+          docker buildx imagetools inspect "$INGRESS_IMAGE:sha-$GITHUB_SHA" >/dev/null
+
+      - name: Log back in to GHCR for promotion
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote immutable images to develop
+        shell: bash
+        run: |
+          docker buildx imagetools create --tag "$APP_IMAGE:develop" "$APP_IMAGE:sha-$GITHUB_SHA"
+          docker buildx imagetools create --tag "$INGRESS_IMAGE:develop" "$INGRESS_IMAGE:sha-$GITHUB_SHA"
+
+          app_develop="$(docker buildx imagetools inspect "$APP_IMAGE:develop" --format '{{json .Manifest}}' | jq -r .digest)"
+          ingress_develop="$(docker buildx imagetools inspect "$INGRESS_IMAGE:develop" --format '{{json .Manifest}}' | jq -r .digest)"
+          test "$app_develop" = "${{ steps.assemble.outputs.app_digest }}"
+          test "$ingress_develop" = "${{ steps.assemble.outputs.ingress_digest }}"
+
+  inspect-develop:
+    name: inspect published develop pair
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Verify app and ingress come from the same revision
+        shell: bash
+        run: |
+          docker pull --platform linux/amd64 "$APP_IMAGE:develop"
+          docker pull --platform linux/amd64 "$INGRESS_IMAGE:develop"
+          app_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$APP_IMAGE:develop")"
+          ingress_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$INGRESS_IMAGE:develop")"
+          test -n "$app_revision"
+          test "$app_revision" = "$ingress_revision"
+
+  scheduled-scan:
+    name: weekly scan ${{ matrix.target }} (${{ matrix.architecture }})
+    if: ${{ github.event_name == 'schedule' }}
+    needs: inspect-develop
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: app
+            image: ghcr.io/jpalczewski/kajet-turbo-app
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - target: app
+            image: ghcr.io/jpalczewski/kajet-turbo-app
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - target: ingress
+            image: ghcr.io/jpalczewski/kajet-turbo-ingress
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - target: ingress
+            image: ghcr.io/jpalczewski/kajet-turbo-ingress
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    env:
+      SCAN_IMAGE: ${{ matrix.image }}:develop
+      TRIVY_EXIT_ON_EOL: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Pull requested platform
+        shell: bash
+        run: docker pull --platform "${{ matrix.platform }}" "$SCAN_IMAGE"
+
+      - name: Validate pulled platform
+        shell: bash
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: test "$(docker image inspect --format '{{.Architecture}}' "$SCAN_IMAGE")" = "$EXPECTED_ARCHITECTURE"
+
+      - name: Trivy gate
+        id: trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.SCAN_IMAGE }}
+          scanners: vuln,secret
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "1"
+          format: table
+          hide-progress: true
+
+      - name: Create Trivy SARIF
+        id: sarif
+        if: ${{ !cancelled() }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.SCAN_IMAGE }}
+          scanners: vuln,secret
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+          format: sarif
+          output: trivy-${{ matrix.target }}-${{ matrix.architecture }}.sarif
+          limit-severities-for-sarif: true
+          hide-progress: true
+          skip-setup-trivy: true
+          cache: false
+
+      - name: Upload Trivy SARIF
+        if: ${{ !cancelled() && steps.sarif.outcome == 'success' }}
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: trivy-${{ matrix.target }}-${{ matrix.architecture }}.sarif
+          category: trivy-${{ matrix.target }}-${{ matrix.architecture }}
