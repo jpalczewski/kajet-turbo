@@ -26,37 +26,76 @@ vulnerabilities:
     expired_at: 2026-09-30
     statement: Debian 13 has not published fixed ncurses packages.
   - id: CVE-2026-13221
-    purls: ["pkg:deb/debian/perl-base"]
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
     expired_at: 2026-09-30
     statement: Debian 13 has not published a fixed perl-base package.
   - id: CVE-2026-42496
-    purls: ["pkg:deb/debian/perl-base"]
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
     expired_at: 2026-09-30
     statement: Debian 13 has deferred the perl-base fix.
   - id: CVE-2026-8376
-    purls: ["pkg:deb/debian/perl-base"]
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
     expired_at: 2026-09-30
     statement: Debian 13 has not published a fixed perl-base package.
   - id: CVE-2026-42497
-    purls: ["pkg:deb/debian/perl-base"]
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
     expired_at: 2026-09-30
     statement: Debian 13 has deferred the perl-base fix.
   - id: CVE-2026-48962
-    purls: ["pkg:deb/debian/perl-base"]
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
     expired_at: 2026-09-30
     statement: Debian 13 has not published a fixed perl-base package.
   - id: CVE-2026-57432
-    purls: ["pkg:deb/debian/perl-base"]
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
     expired_at: 2026-09-30
     statement: Debian 13 has not published a fixed perl-base package.
   - id: CVE-2026-57433
-    purls: ["pkg:deb/debian/perl-base"]
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
     expired_at: 2026-09-30
     statement: Debian 13 has not published a fixed perl-base package.
   - id: CVE-2026-9538
-    purls: ["pkg:deb/debian/perl-base"]
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
     expired_at: 2026-09-30
     statement: Debian 13 has deferred the perl-base fix.
+
+  # Runtime-only packages pulled in by git and openssh-client have the same
+  # Debian no-fix status. They are required for workspace bundles and SSH push.
+  - id: CVE-2026-12064
+    purls: ["pkg:deb/debian/libcurl3t64-gnutls"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libcurl package.
+  - id: CVE-2026-8286
+    purls: ["pkg:deb/debian/libcurl3t64-gnutls"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libcurl package.
+  - id: CVE-2026-8458
+    purls: ["pkg:deb/debian/libcurl3t64-gnutls"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libcurl package.
+  - id: CVE-2026-8927
+    purls: ["pkg:deb/debian/libcurl3t64-gnutls"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libcurl package.
+  - id: CVE-2026-66046
+    purls: ["pkg:deb/debian/libexpat1"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libexpat package.
+  - id: CVE-2026-58050
+    purls: ["pkg:deb/debian/libssh2-1t64"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libssh2 package.
+  - id: CVE-2026-60002
+    purls: ["pkg:deb/debian/openssh-client"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed OpenSSH client package.
+  - id: CVE-2026-59999
+    purls: ["pkg:deb/debian/openssh-client"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed OpenSSH client package.
+  - id: CVE-2026-60000
+    purls: ["pkg:deb/debian/openssh-client"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed OpenSSH client package.
 
   # Caddy 2.11.4 is the latest upstream release, but its binary was compiled
   # before these Go fixes. Scope each exception to that exact binary/package
