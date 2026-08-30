@@ -88,6 +88,10 @@ podatności ujawnione już po publikacji. Obrazy CI są artefaktami developerski
 workflow nie wywołuje deploymentu i nie przekazuje ich do Coolify. Coolify
 pozostaje źródłem prawdy dla produkcji i sam buduje oba targety z Dockerfile.
 
+Wąskie wyjątki od bramki Trivy znajdują się w `.trivyignore.yaml`. Każdy jest
+ograniczony do konkretnego pakietu lub ścieżki oraz ma datę wygaśnięcia;
+wyjątek bez tych ograniczeń nie powinien być dodawany.
+
 ### Dane
 
 | Zmienna | Domyślnie | Opis |

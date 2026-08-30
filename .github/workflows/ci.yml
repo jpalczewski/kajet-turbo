@@ -200,6 +200,7 @@ jobs:
           scan-type: image
           image-ref: ${{ env.LOCAL_IMAGE }}
           scanners: vuln,secret
+          trivyignores: .trivyignore.yaml
           vuln-type: os,library
           severity: HIGH,CRITICAL
           ignore-unfixed: false
@@ -215,6 +216,7 @@ jobs:
           scan-type: image
           image-ref: ${{ env.LOCAL_IMAGE }}
           scanners: vuln,secret
+          trivyignores: .trivyignore.yaml
           vuln-type: os,library
           severity: HIGH,CRITICAL
           ignore-unfixed: false

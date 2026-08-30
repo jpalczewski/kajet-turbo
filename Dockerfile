@@ -5,7 +5,7 @@ RUN bun install --frozen-lockfile
 COPY frontend/ .
 RUN bun run build
 
-FROM ghcr.io/astral-sh/uv:0.9.30-bookworm-slim@sha256:22334efe746f1b69217d455049b484d7b8cacfb2d5f42555580b62415a98e0a3 AS app-base
+FROM ghcr.io/astral-sh/uv:0.12.7-trixie-slim@sha256:92d38da241c7962f8f863e288cc1c39795b79b6553245f623a82db6be95bdae0 AS app-base
 
 WORKDIR /app
 
@@ -13,7 +13,8 @@ LABEL org.opencontainers.image.source="https://github.com/jpalczewski/kajet-turb
 
 # openssh-client: dulwich's SubprocessSSHVendor shells out to `ssh` for git push
 # over SSH (workspace auto-push). Without it: FileNotFoundError [Errno 2] 'ssh'.
-RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client && \
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends git openssh-client && \
     rm -rf /var/lib/apt/lists/* && \
     git config --global user.email "kajet@localhost" && \
     git config --global user.name "kajet-turbo"
@@ -38,6 +39,7 @@ CMD ["/app/entrypoint.sh"]
 
 FROM caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 AS ingress
 LABEL org.opencontainers.image.source="https://github.com/jpalczewski/kajet-turbo"
+RUN apk upgrade --no-cache
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY --from=frontend /app/dist /srv
 
