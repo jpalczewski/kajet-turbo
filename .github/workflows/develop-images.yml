@@ -1,0 +1,277 @@
+name: Develop Images
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never interrupt a run between promoting the two packages. A newer main run
+  # waits, then the head-SHA check prevents an older run from moving develop.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  APP_IMAGE: ghcr.io/jpalczewski/kajet-turbo-app
+  INGRESS_IMAGE: ghcr.io/jpalczewski/kajet-turbo-ingress
+
+jobs:
+  publish-platforms:
+    name: publish ${{ matrix.target }} (${{ matrix.architecture }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+      security-events: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: app
+            image: ghcr.io/jpalczewski/kajet-turbo-app
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - target: app
+            image: ghcr.io/jpalczewski/kajet-turbo-app
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - target: ingress
+            image: ghcr.io/jpalczewski/kajet-turbo-ingress
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - target: ingress
+            image: ghcr.io/jpalczewski/kajet-turbo-ingress
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    env:
+      LOCAL_IMAGE: kajet-turbo-ci:${{ matrix.target }}-${{ matrix.architecture }}-${{ github.sha }}
+      PLATFORM_TAG: ${{ matrix.image }}:build-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.architecture }}
+      SBOM_PATH: sbom-${{ matrix.target }}-${{ matrix.architecture }}.cdx.json
+      TRIVY_EXIT_ON_EOL: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Build and load final image
+        id: build
+        uses: ./.github/actions/build-image
+        with:
+          target: ${{ matrix.target }}
+          architecture: ${{ matrix.architecture }}
+          platform: ${{ matrix.platform }}
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          revision: ${{ github.sha }}
+          cache-scope: kajet-turbo-${{ matrix.target }}-${{ matrix.architecture }}
+
+      - name: Validate final image
+        id: validation
+        uses: ./.github/actions/validate-image
+        with:
+          target: ${{ matrix.target }}
+          image-ref: ${{ env.LOCAL_IMAGE }}
+
+      - name: Scan final image
+        id: scan
+        uses: ./.github/actions/scan-image
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          target: ${{ matrix.target }}
+          architecture: ${{ matrix.architecture }}
+
+      - name: Upload Trivy SARIF
+        if: ${{ !cancelled() && steps.scan.outputs.sarif_file != '' }}
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif_file }}
+          category: trivy-${{ matrix.target }}-${{ matrix.architecture }}
+
+      - name: Generate CycloneDX SBOM
+        id: sbom
+        if: ${{ steps.build.outcome == 'success' && steps.validation.outcome == 'success' && steps.scan.outcome == 'success' && !cancelled() }}
+        shell: bash
+        run: trivy image --scanners vuln --format cyclonedx --output "$SBOM_PATH" "$LOCAL_IMAGE"
+
+      - name: Log in to GHCR
+        id: login
+        if: ${{ steps.sbom.outcome == 'success' && !cancelled() }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push scanned platform image
+        id: push
+        if: ${{ steps.sbom.outcome == 'success' && steps.login.outcome == 'success' && !cancelled() }}
+        shell: bash
+        run: |
+          docker tag "$LOCAL_IMAGE" "$PLATFORM_TAG"
+          docker push "$PLATFORM_TAG"
+          digest="$(docker buildx imagetools inspect "$PLATFORM_TAG" --format '{{json .Manifest}}' | jq -r .digest)"
+          test -n "$digest"
+          test "$digest" != "null"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest platform provenance
+        if: ${{ steps.push.outcome == 'success' && !cancelled() }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ matrix.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-version: build-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.architecture }}
+          push-to-registry: true
+
+      - name: Attest platform SBOM
+        if: ${{ steps.push.outcome == 'success' && !cancelled() }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ matrix.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-version: build-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.architecture }}
+          sbom-path: ${{ env.SBOM_PATH }}
+          push-to-registry: true
+
+  assemble_images:
+    name: assemble immutable images
+    needs: publish-platforms
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      app_digest: ${{ steps.assemble.outputs.app_digest }}
+      ingress_digest: ${{ steps.assemble.outputs.ingress_digest }}
+    steps:
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assemble immutable multi-platform images
+        id: assemble
+        shell: bash
+        run: |
+          ensure_platform_tag() {
+            local image="$1"
+            local architecture="$2"
+            local stable="${image}:sha-${GITHUB_SHA}-${architecture}"
+            local staging="${image}:build-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${architecture}"
+            if ! docker buildx imagetools inspect "$stable" >/dev/null 2>&1; then
+              docker buildx imagetools create --prefer-index=false --tag "$stable" "$staging"
+            fi
+          }
+
+          ensure_index() {
+            local image="$1"
+            local stable="${image}:sha-${GITHUB_SHA}"
+            if ! docker buildx imagetools inspect "$stable" >/dev/null 2>&1; then
+              docker buildx imagetools create \
+                --tag "$stable" \
+                "${image}:sha-${GITHUB_SHA}-amd64" \
+                "${image}:sha-${GITHUB_SHA}-arm64"
+            fi
+            docker buildx imagetools inspect --raw "$stable" \
+              | jq -e '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]'
+          }
+
+          ensure_platform_tag "$APP_IMAGE" amd64
+          ensure_platform_tag "$APP_IMAGE" arm64
+          ensure_platform_tag "$INGRESS_IMAGE" amd64
+          ensure_platform_tag "$INGRESS_IMAGE" arm64
+          ensure_index "$APP_IMAGE"
+          ensure_index "$INGRESS_IMAGE"
+
+          app_digest="$(docker buildx imagetools inspect "$APP_IMAGE:sha-$GITHUB_SHA" --format '{{json .Manifest}}' | jq -r .digest)"
+          ingress_digest="$(docker buildx imagetools inspect "$INGRESS_IMAGE:sha-$GITHUB_SHA" --format '{{json .Manifest}}' | jq -r .digest)"
+          test -n "$app_digest"
+          test -n "$ingress_digest"
+          echo "app_digest=$app_digest" >> "$GITHUB_OUTPUT"
+          echo "ingress_digest=$ingress_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest app index provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ env.APP_IMAGE }}
+          subject-digest: ${{ steps.assemble.outputs.app_digest }}
+          subject-version: sha-${{ github.sha }}
+          push-to-registry: true
+
+      - name: Attest ingress index provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ${{ env.INGRESS_IMAGE }}
+          subject-digest: ${{ steps.assemble.outputs.ingress_digest }}
+          subject-version: sha-${{ github.sha }}
+          push-to-registry: true
+
+  promote_develop:
+    name: promote develop pair
+    needs: assemble_images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Confirm this run still represents main
+        shell: bash
+        run: |
+          current_main="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | cut -f1)"
+          test "$current_main" = "$GITHUB_SHA"
+
+      - name: Require anonymous access to both packages
+        shell: bash
+        run: |
+          docker logout ghcr.io
+          docker buildx imagetools inspect "$APP_IMAGE:sha-$GITHUB_SHA" >/dev/null
+          docker buildx imagetools inspect "$INGRESS_IMAGE:sha-$GITHUB_SHA" >/dev/null
+
+      - name: Log back in to GHCR for promotion
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote immutable images to develop
+        shell: bash
+        env:
+          EXPECTED_APP_DIGEST: ${{ needs.assemble_images.outputs.app_digest }}
+          EXPECTED_INGRESS_DIGEST: ${{ needs.assemble_images.outputs.ingress_digest }}
+        run: |
+          docker buildx imagetools create --tag "$APP_IMAGE:develop" "$APP_IMAGE:sha-$GITHUB_SHA"
+          docker buildx imagetools create --tag "$INGRESS_IMAGE:develop" "$INGRESS_IMAGE:sha-$GITHUB_SHA"
+
+          app_develop="$(docker buildx imagetools inspect "$APP_IMAGE:develop" --format '{{json .Manifest}}' | jq -r .digest)"
+          ingress_develop="$(docker buildx imagetools inspect "$INGRESS_IMAGE:develop" --format '{{json .Manifest}}' | jq -r .digest)"
+          test "$app_develop" = "$EXPECTED_APP_DIGEST"
+          test "$ingress_develop" = "$EXPECTED_INGRESS_DIGEST"

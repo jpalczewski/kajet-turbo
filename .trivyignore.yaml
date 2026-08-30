@@ -1,0 +1,169 @@
+vulnerabilities:
+  # Debian 13 currently classifies these findings as affected or fix_deferred
+  # and publishes no fixed version. Keep the scope at package level and force
+  # a review next month; fixed findings remain blocking.
+  - id: CVE-2026-41992
+    purls: ["pkg:deb/debian/gzip"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed gzip package.
+  - id: CVE-2026-54369
+    purls: ["pkg:deb/debian/libacl1"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libacl1 package.
+  - id: CVE-2026-11822
+    purls: ["pkg:deb/debian/libsqlite3-0"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libsqlite3 package.
+  - id: CVE-2026-11824
+    purls: ["pkg:deb/debian/libsqlite3-0"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libsqlite3 package.
+  - id: CVE-2025-69720
+    purls:
+      - "pkg:deb/debian/libtinfo6"
+      - "pkg:deb/debian/ncurses-base"
+      - "pkg:deb/debian/ncurses-bin"
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published fixed ncurses packages.
+  - id: CVE-2026-13221
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed perl-base package.
+  - id: CVE-2026-42496
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has deferred the perl-base fix.
+  - id: CVE-2026-8376
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed perl-base package.
+  - id: CVE-2026-42497
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has deferred the perl-base fix.
+  - id: CVE-2026-48962
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed perl-base package.
+  - id: CVE-2026-57432
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed perl-base package.
+  - id: CVE-2026-57433
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed perl-base package.
+  - id: CVE-2026-9538
+    purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has deferred the perl-base fix.
+
+  # Runtime-only packages pulled in by git and openssh-client have the same
+  # Debian no-fix status. They are required for workspace bundles and SSH push.
+  - id: CVE-2026-12064
+    purls: ["pkg:deb/debian/libcurl3t64-gnutls"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libcurl package.
+  - id: CVE-2026-8286
+    purls: ["pkg:deb/debian/libcurl3t64-gnutls"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libcurl package.
+  - id: CVE-2026-8458
+    purls: ["pkg:deb/debian/libcurl3t64-gnutls"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libcurl package.
+  - id: CVE-2026-8927
+    purls: ["pkg:deb/debian/libcurl3t64-gnutls"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libcurl package.
+  - id: CVE-2026-66046
+    purls: ["pkg:deb/debian/libexpat1"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libexpat package.
+  - id: CVE-2026-58050
+    purls: ["pkg:deb/debian/libssh2-1t64"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libssh2 package.
+  - id: CVE-2026-60002
+    purls: ["pkg:deb/debian/openssh-client"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed OpenSSH client package.
+  - id: CVE-2026-59999
+    purls: ["pkg:deb/debian/openssh-client"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed OpenSSH client package.
+  - id: CVE-2026-60000
+    purls: ["pkg:deb/debian/openssh-client"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed OpenSSH client package.
+
+  # Caddy 2.11.4 is the latest upstream release, but its binary was compiled
+  # before these Go fixes. Scope each exception to that exact binary/package
+  # version so a rebuilt Caddy cannot silently inherit it. Review on expiry.
+  - id: CVE-2026-46600
+    paths: [usr/bin/caddy]
+    purls:
+      - "pkg:golang/golang.org/x/net@v0.55.0"
+      - "pkg:golang/stdlib@v1.26.3"
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with patched Go dependencies.
+  - id: CVE-2026-56852
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/golang.org/x/text@v0.37.0"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with patched Go dependencies.
+  - id: GHSA-hrxh-6v49-42gf
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/google.golang.org/grpc@v1.81.0"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with patched Go dependencies.
+  - id: CVE-2026-27145
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/stdlib@v1.26.3"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with a patched Go toolchain.
+  - id: CVE-2026-33818
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/stdlib@v1.26.3"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with a patched Go toolchain.
+  - id: CVE-2026-39821
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/stdlib@v1.26.3"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with a patched Go toolchain.
+  - id: CVE-2026-39822
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/stdlib@v1.26.3"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with a patched Go toolchain.
+  - id: CVE-2026-42504
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/stdlib@v1.26.3"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with a patched Go toolchain.
+  - id: CVE-2026-56853
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/stdlib@v1.26.3"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with a patched Go toolchain.
+  - id: CVE-2026-56858
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/stdlib@v1.26.3"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with a patched Go toolchain.
+  - id: CVE-2026-56859
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/stdlib@v1.26.3"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with a patched Go toolchain.
+  - id: CVE-2026-56860
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/stdlib@v1.26.3"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with a patched Go toolchain.
+  - id: CVE-2026-56862
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/stdlib@v1.26.3"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with a patched Go toolchain.

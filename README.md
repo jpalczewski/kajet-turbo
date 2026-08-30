@@ -33,6 +33,65 @@ Topologia produkcyjna (`docker-compose.yml`): ingress (Caddy) + `kajet-api`
 (SQLite) i `/workspaces` (git) **na tym samym hoście**. Host-proxy kieruje tylko
 `Host → ingress:8000`; podział ścieżek robi `Caddyfile`.
 
+## Obrazy developerskie
+
+CI buduje finalne targety Dockerfile dla `linux/amd64` i `linux/arm64`:
+
+- `ghcr.io/jpalczewski/kajet-turbo-app`
+- `ghcr.io/jpalczewski/kajet-turbo-ingress`
+
+Pull requesty tylko budują, walidują i skanują obrazy. Push do `main` publikuje
+obrazy, które przeszły skan Trivy, pod niezmiennym tagiem `sha-<commit>`. Po
+udanym zbudowaniu obu targetów dla obu architektur CI przesuwa także wygodny,
+ruchomy tag `develop`.
+
+Przy pierwszej publikacji ustaw oba pakiety na `Public` w ich ustawieniach na
+GitHubie. Workflow sprawdza anonimowy odczyt obu obrazów przed przesunięciem
+`develop`, więc prywatny pakiet zatrzyma promocję; po zmianie widoczności można
+bezpiecznie ponowić ten sam run.
+
+```bash
+# Najnowsza poprawna wersja developerska
+docker pull ghcr.io/jpalczewski/kajet-turbo-app:develop
+docker pull ghcr.io/jpalczewski/kajet-turbo-ingress:develop
+
+# Odtwarzalna para obrazów z jednego commitu
+docker pull ghcr.io/jpalczewski/kajet-turbo-app:sha-<commit>
+docker pull ghcr.io/jpalczewski/kajet-turbo-ingress:sha-<commit>
+```
+
+Do wdrożeń lub debugowania pary usług używaj tego samego tagu `sha-<commit>`
+dla obu obrazów. GHCR nie aktualizuje dwóch pakietów transakcyjnie, więc
+`develop` jest wyłącznie skrótem do codziennej pracy.
+
+Każdy wariant platformowy ma CycloneDX SBOM i provenance podpisane przez
+GitHub Actions. Atestację indeksu multi-arch można zweryfikować tak:
+
+```bash
+gh attestation verify \
+  oci://ghcr.io/jpalczewski/kajet-turbo-app:sha-<commit> \
+  -R jpalczewski/kajet-turbo
+```
+
+SBOM jest przypięty do konkretnego manifestu platformowego (`amd64` lub
+`arm64`):
+
+```bash
+gh attestation verify \
+  oci://ghcr.io/jpalczewski/kajet-turbo-app:sha-<commit>-arm64 \
+  -R jpalczewski/kajet-turbo \
+  --predicate-type https://cyclonedx.org/bom
+```
+
+Raz w tygodniu CI ponownie skanuje opublikowane obrazy `develop`, aby wykrywać
+podatności ujawnione już po publikacji. Obrazy CI są artefaktami developerskimi:
+workflow nie wywołuje deploymentu i nie przekazuje ich do Coolify. Coolify
+pozostaje źródłem prawdy dla produkcji i sam buduje oba targety z Dockerfile.
+
+Wąskie wyjątki od bramki Trivy znajdują się w `.trivyignore.yaml`. Każdy jest
+ograniczony do konkretnego pakietu lub ścieżki oraz ma datę wygaśnięcia;
+wyjątek bez tych ograniczeń nie powinien być dodawany.
+
 ### Dane
 
 | Zmienna | Domyślnie | Opis |

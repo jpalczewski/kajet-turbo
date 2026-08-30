@@ -14,17 +14,47 @@ permissions:
   contents: read
 
 jobs:
+  ci-definitions:
+    name: CI definitions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+
+      # The official image also bundles ShellCheck and pyflakes, so actionlint
+      # can validate inline run blocks without installing extra tools.
+      - name: actionlint
+        run: docker run --rm --volume "$GITHUB_WORKSPACE:/repo" --workdir /repo "$ACTIONLINT_IMAGE" -color
+
+      - name: zizmor
+        run: uvx "zizmor@1.29.0" --offline --strict-collection --persona=regular --min-severity=medium --min-confidence=medium --format=github .
+
+      # Reuse the ShellCheck binary from the already-pulled actionlint image.
+      # Shebangs select POSIX sh for entrypoint.sh and Bash for scripts/*.sh.
+      - name: ShellCheck repository scripts
+        run: docker run --rm --entrypoint /usr/local/bin/shellcheck --volume "$GITHUB_WORKSPACE:/repo" --workdir /repo "$ACTIONLINT_IMAGE" entrypoint.sh scripts/*.sh
+
   backend-checks:
     name: ruff + ty
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
 
-      # Installs the interpreter named in .python-version (3.14t, free-threaded)
+      # Installs the interpreter named in .python-version (3.14.3t, free-threaded)
       # and the dev dependency group.
       - run: uv sync --locked
 
@@ -47,9 +77,11 @@ jobs:
     name: pytest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
 
@@ -67,16 +99,26 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       # Pinned because bun is the runtime for vitest, not just a package manager:
       # a minor bump can change how the tests behave. uv is deliberately left
       # floating — uv.lock plus --locked already fixes everything it installs.
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: frontend/.bun-version
 
-      - run: bun install --frozen-lockfile
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+
+      - run: bun ci
+
+      - name: Install backend dependencies for API generation
+        working-directory: .
+        run: uv sync --locked
 
       - name: lint
         run: bun run lint
@@ -88,3 +130,105 @@ jobs:
       - name: test
         if: ${{ !cancelled() }}
         run: bun run test
+
+      - name: Generated API client is current
+        if: ${{ !cancelled() }}
+        working-directory: .
+        shell: bash
+        run: |
+          bash scripts/generate-api.sh
+          drift="$(git status --short --untracked-files=all -- frontend/src/lib/api)"
+          if [[ -n "$drift" ]]; then
+            echo "Generated API client is stale:"
+            printf '%s\n' "$drift"
+            git diff -- frontend/src/lib/api
+            exit 1
+          fi
+
+  compose-config:
+    name: docker compose config
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Keep Docker and CI on the same Bun version
+        shell: bash
+        run: |
+          bun_version="$(<frontend/.bun-version)"
+          grep -Fq "FROM oven/bun:${bun_version}@sha256:" Dockerfile
+
+      - name: Validate Compose configuration
+        shell: bash
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.yml config --quiet
+
+  container-images:
+    name: image ${{ matrix.target }} (${{ matrix.architecture }})
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: app
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - target: app
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - target: ingress
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - target: ingress
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    env:
+      LOCAL_IMAGE: kajet-turbo-ci:${{ matrix.target }}-${{ matrix.architecture }}-${{ github.sha }}
+      TRIVY_EXIT_ON_EOL: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Build and load final image
+        uses: ./.github/actions/build-image
+        with:
+          target: ${{ matrix.target }}
+          architecture: ${{ matrix.architecture }}
+          platform: ${{ matrix.platform }}
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          revision: ${{ github.sha }}
+          cache-scope: kajet-turbo-${{ matrix.target }}-${{ matrix.architecture }}
+
+      - name: Validate final image
+        uses: ./.github/actions/validate-image
+        with:
+          target: ${{ matrix.target }}
+          image-ref: ${{ env.LOCAL_IMAGE }}
+
+      - name: Scan final image
+        id: scan
+        uses: ./.github/actions/scan-image
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          target: ${{ matrix.target }}
+          architecture: ${{ matrix.architecture }}
+
+      - name: Upload Trivy SARIF
+        if: ${{ !cancelled() && steps.scan.outputs.sarif_file != '' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif_file }}
+          category: trivy-${{ matrix.target }}-${{ matrix.architecture }}
