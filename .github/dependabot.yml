@@ -7,6 +7,8 @@ updates:
       day: monday
       time: "04:00"
       timezone: Europe/Warsaw
+    cooldown:
+      default-days: 7
     groups:
       github-actions-minor-patch:
         patterns: ["*"]
@@ -19,6 +21,8 @@ updates:
       day: monday
       time: "04:10"
       timezone: Europe/Warsaw
+    cooldown:
+      default-days: 7
     groups:
       docker-minor-patch:
         patterns: ["*"]
@@ -31,6 +35,8 @@ updates:
       day: monday
       time: "04:20"
       timezone: Europe/Warsaw
+    cooldown:
+      default-days: 7
     groups:
       python-minor-patch:
         patterns: ["*"]
@@ -43,6 +49,8 @@ updates:
       day: monday
       time: "04:30"
       timezone: Europe/Warsaw
+    cooldown:
+      default-days: 7
     groups:
       frontend-minor-patch:
         patterns: ["*"]
