@@ -1,9 +1,8 @@
 """Chunk, FTS5, and vec0 repository.
 
-All queries in this file use session.execute(text(...)) rather than session.exec()
-because FTS5 and vec0 are SQLite virtual tables that do not expose a column API
-compatible with SQLModel's select() builder. This is not deprecated usage —
-session.exec() is the SQLModel preference for *regular* tables only.
+FTS5 and vec0 queries use session.execute(text(...)) because SQLite virtual tables
+do not expose a column API compatible with SQLModel's select() builder. Regular
+``note_chunks`` operations use typed SQLAlchemy Core statements.
 # ty: ignore[deprecated] comments on individual execute() calls below are
 suppressing a false positive from ty's SQLModel-specific deprecation rule.
 """
@@ -13,11 +12,12 @@ import re
 from datetime import UTC, datetime
 
 from nanoid import generate
-from sqlalchemy import CursorResult, text
-from sqlmodel import Session
+from sqlalchemy import CursorResult, delete, text
+from sqlmodel import Session, col, select
 
 from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.log import logger
+from kajet_turbo.models import NoteChunk
 from kajet_turbo.perf import timed
 from kajet_turbo.repositories import DbRepository
 
@@ -135,23 +135,7 @@ class NoteChunkRepository(DbRepository):
                     session.rollback()
                     operation.outcome = "superseded"
                     return False
-            old = session.execute(  # ty: ignore[deprecated] - raw SQL
-                text(
-                    "SELECT DISTINCT dim FROM note_chunks WHERE note_id = :nid AND dim IS NOT NULL"
-                ),
-                {"nid": note_id},
-            ).fetchall()
-            for (old_dim,) in old:
-                session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text(f"DELETE FROM note_chunks_vec_{int(old_dim)} WHERE note_id = :nid"),
-                    {"nid": note_id},
-                )
-            session.execute(  # ty: ignore[deprecated] - raw SQL
-                text("DELETE FROM note_chunks WHERE note_id = :nid"), {"nid": note_id}
-            )
-            session.execute(  # ty: ignore[deprecated] - raw SQL
-                text("DELETE FROM notes_fts WHERE note_id = :nid"), {"nid": note_id}
-            )
+            self.delete_chunks(note_id, session)
 
             for i, chunk in enumerate(chunks):
                 chunk_id = generate(size=12)
@@ -303,6 +287,27 @@ class NoteChunkRepository(DbRepository):
                 {"nid": note_id},
             ).fetchall()
         return [dict(r._mapping) for r in rows]
+
+    @staticmethod
+    def delete_chunks(note_id: str, session: Session) -> None:
+        """Delete a note's chunks, FTS rows, and vectors in a caller-owned session."""
+        params = {"note_id": note_id}
+        dims = session.exec(
+            select(NoteChunk.dim)
+            .where(col(NoteChunk.note_id) == note_id, col(NoteChunk.dim).is_not(None))
+            .distinct()
+        ).all()
+        for dim in dims:
+            assert dim is not None
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(f"DELETE FROM note_chunks_vec_{int(dim)} WHERE note_id = :note_id"), params
+            )
+        session.execute(  # ty: ignore[deprecated] - raw SQL
+            text("DELETE FROM notes_fts WHERE note_id = :note_id"), params
+        )
+        session.execute(  # ty: ignore[deprecated] - DELETE statement
+            delete(NoteChunk).where(col(NoteChunk.note_id) == note_id)
+        )
 
     _CHUNK_SELECT = (
         " c.note_id AS note_id, n.title AS title, n.folder AS folder, n.updated_at AS updated_at,"
@@ -492,14 +497,17 @@ class NoteChunkRepository(DbRepository):
         session; does not commit. Must be called BEFORE NoteRepository.delete_for_workspace
         in the same session — note_chunks has an FK to notes.id with no cascade."""
         params = {"workspace": workspace, "owner_id": owner_id}
-        dims = session.execute(  # ty: ignore[deprecated] - raw SQL
-            text(
-                "SELECT DISTINCT dim FROM note_chunks"
-                " WHERE workspace = :workspace AND owner_id = :owner_id AND dim IS NOT NULL"
-            ),
-            params,
-        ).fetchall()
-        for (dim,) in dims:
+        dims = session.exec(
+            select(NoteChunk.dim)
+            .where(
+                col(NoteChunk.workspace) == workspace,
+                col(NoteChunk.owner_id) == owner_id,
+                col(NoteChunk.dim).is_not(None),
+            )
+            .distinct()
+        ).all()
+        for dim in dims:
+            assert dim is not None
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
                     f"DELETE FROM note_chunks_vec_{int(dim)}"
@@ -516,7 +524,9 @@ class NoteChunkRepository(DbRepository):
             ),
             params,
         )
-        session.execute(  # ty: ignore[deprecated] - raw SQL
-            text("DELETE FROM note_chunks WHERE workspace = :workspace AND owner_id = :owner_id"),
-            params,
+        session.execute(  # ty: ignore[deprecated] - DELETE statement
+            delete(NoteChunk).where(
+                col(NoteChunk.workspace) == workspace,
+                col(NoteChunk.owner_id) == owner_id,
+            )
         )

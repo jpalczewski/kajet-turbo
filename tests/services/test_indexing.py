@@ -118,11 +118,3 @@ def test_index_note_empty_content_clears_chunks_and_skips_enqueue(database):
     indexer.index_note("n1", "ws", "u1", "T", "   \n\n  ")
     assert repo.get_chunks("n1") == []
     assert enqueued == [("n1", "ws", "u1")]  # only the first, chunk-producing index
-
-
-def test_clear_note_removes_chunks(database):
-    _note(database)
-    indexer, repo, _enqueued = _indexer(database, cfg=_cfg())
-    indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
-    indexer.clear_note("n1")
-    assert repo.get_chunks("n1") == []

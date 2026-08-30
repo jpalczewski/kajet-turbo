@@ -2,6 +2,7 @@
 
 import pytest
 
+from kajet_turbo.markdown import Chunk
 from kajet_turbo.repositories.git import GitRepository
 
 
@@ -130,3 +131,46 @@ def test_delete_many_clears_tags_links_and_index(service, workspace):
     assert result["applied"] is True
     assert service.backlinks(r2["note_id"], "u1") == []
     assert service.get_with_content(r2["note_id"], "u1", str(workspace)) is not None
+
+
+def test_delete_clears_chunks_without_an_indexer(service, workspace):
+    result = service.save("u1", "ws", str(workspace), "First", "body\n", [])
+    note_id = result["note_id"]
+    service._chunk_repo.replace_chunks(
+        note_id, "ws", "u1", "First", [Chunk(0, ["# First"], "body", 0, 4)], None, None
+    )
+    service._indexer = None
+
+    service.delete(note_id, "u1", str(workspace))
+
+    assert service._crud_repo.get(note_id, owner_id="u1") is None
+    assert service._chunk_repo.get_chunks(note_id) == []
+
+
+def test_delete_many_rolls_back_database_teardowns(service, workspace, monkeypatch):
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", ["first"])
+    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", ["second"])
+    sha1 = _head_sha(workspace, "First.md")
+    sha2 = _head_sha(workspace, "Second.md")
+    original = service._link_repo.delete_links_to_in_session
+
+    def fail_on_second(session, note_id):
+        if note_id == r2["note_id"]:
+            raise RuntimeError("injected teardown failure")
+        original(session, note_id)
+
+    monkeypatch.setattr(service._link_repo, "delete_links_to_in_session", fail_on_second)
+
+    with pytest.raises(RuntimeError, match="injected teardown failure"):
+        service.delete_many(
+            "u1",
+            "ws",
+            str(workspace),
+            [
+                {"note_id": r1["note_id"], "expected_sha": sha1},
+                {"note_id": r2["note_id"], "expected_sha": sha2},
+            ],
+        )
+
+    assert service._crud_repo.get(r1["note_id"], owner_id="u1") is not None
+    assert service._crud_repo.get(r2["note_id"], owner_id="u1") is not None

@@ -2,6 +2,8 @@ import os
 import re
 import stat
 import tempfile
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import frontmatter
@@ -16,6 +18,23 @@ _WINDOWS_RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", re.IGNO
 
 class InvalidFolderError(ValueError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class ScannedNote:
+    """Frontmatter data needed to rebuild the derived note index.
+
+    Dates deliberately keep PyYAML's current ``str | datetime`` behavior until #105
+    centralizes coercion at the file-read boundary.
+    """
+
+    note_id: str | None
+    title: str | None
+    tags: list[str] | str | None
+    created_at: str | datetime | None
+    updated_at: str | datetime | None
+    content: str
+    folder: str
 
 
 def title_to_windows_filename(title: str) -> str:
@@ -205,7 +224,7 @@ def read_note_file(path: str) -> dict:
     }
 
 
-def scan_notes(workspace_path: str) -> list[dict]:
+def scan_notes(workspace_path: str) -> list[ScannedNote]:
     ws = Path(workspace_path)
     if not ws.exists():
         return []
@@ -213,7 +232,18 @@ def scan_notes(workspace_path: str) -> list[dict]:
     for p in sorted(ws.rglob("*.md")):
         if ".git" in p.parts:
             continue
-        results.append(read_note_file(str(p)) | {"folder": note_folder(workspace_path, p)})
+        note = read_note_file(str(p))
+        results.append(
+            ScannedNote(
+                note_id=note["id"],
+                title=note["title"],
+                tags=note["tags"],
+                created_at=note["created_at"],
+                updated_at=note["updated_at"],
+                content=note["content"],
+                folder=note_folder(workspace_path, p),
+            )
+        )
     return results
 
 

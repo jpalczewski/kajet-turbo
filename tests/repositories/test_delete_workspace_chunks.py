@@ -79,3 +79,23 @@ def test_delete_workspace_notes_is_owner_scoped(database):
             _text("SELECT content FROM notes_fts WHERE note_id='n2'")
         ).fetchall()
     assert [r.content for r in kept] == ["beta"]
+
+
+def test_delete_chunks_clears_one_note_before_its_row(database):
+    chunk_repo = NoteChunkRepository(database.engine)
+    note_repo = NoteRepository(database.engine)
+    _note(database, "n1")
+    chunk_repo.replace_chunks("n1", "ws", "u1", "T", [Chunk(0, ["# T"], "body", 0, 4)], None, None)
+
+    with Session(database.engine) as session:
+        chunk_repo.delete_chunks("n1", session)
+        note_repo.delete_in_session(session, "n1", "u1")
+        session.commit()
+
+    assert chunk_repo.get_chunks("n1") == []
+    with Session(database.engine) as session:
+        fts = session.execute(
+            _text("SELECT COUNT(*) FROM notes_fts WHERE note_id='n1'")
+        ).scalar()
+        assert fts == 0
+        assert session.get(Note, "n1") is None

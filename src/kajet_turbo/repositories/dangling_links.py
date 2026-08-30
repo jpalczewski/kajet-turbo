@@ -152,10 +152,14 @@ class DanglingLinkRepository(DbRepository):
             "delete_for_workspace", owner_id=owner_id, workspace=workspace
         ) as operation:
             session = operation.session
-            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
-                delete(DanglingLink).where(
-                    col(DanglingLink.owner_id) == owner_id,
-                    col(DanglingLink.workspace) == workspace,
-                )
-            )
+            self.delete_for_workspace_in_session(session, owner_id, workspace)
             session.commit()
+
+    @staticmethod
+    def delete_for_workspace_in_session(session: Session, owner_id: str, workspace: str) -> None:
+        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+            delete(DanglingLink).where(
+                col(DanglingLink.owner_id) == owner_id,
+                col(DanglingLink.workspace) == workspace,
+            )
+        )

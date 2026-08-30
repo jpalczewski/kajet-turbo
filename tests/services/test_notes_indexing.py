@@ -5,13 +5,9 @@ from tests.services.conftest import build_note_service
 class _RecordingIndexer:
     def __init__(self):
         self.indexed = []
-        self.cleared = []
 
     def index_note(self, note_id, workspace, owner_id, title, content, **_kwargs):
         self.indexed.append((note_id, title, content))
-
-    def clear_note(self, note_id):
-        self.cleared.append(note_id)
 
 
 def test_save_triggers_indexing(database, git_workspace_factory):
@@ -53,9 +49,6 @@ def test_save_surfaces_chunk_write_failure(database, git_workspace_factory):
         def index_note(self, *a, **k):
             raise RuntimeError("DB exploded")
 
-        def clear_note(self, *a, **k):
-            pass
-
     service = build_note_service(database, indexer=_BadIndexer())
     ws = git_workspace_factory("ws")
     with pytest.raises(RuntimeError):
@@ -78,13 +71,13 @@ def test_update_reindexes_with_new_content(database, git_workspace_factory):
     assert any("brand new body" in c for _, _, c in indexer.indexed)
 
 
-def test_delete_clears_chunks_before_row_delete(database, git_workspace_factory):
+def test_delete_does_not_require_indexer_cleanup(database, git_workspace_factory):
     indexer = _RecordingIndexer()
     service = build_note_service(database, indexer=indexer)
     ws = git_workspace_factory("ws")
     res = service.save("u1", "ws", str(ws), "Title", "# Title\n\nbody\n", tags=[])
     service.delete(res["note_id"], owner_id="u1", ws_path=str(ws))
-    assert res["note_id"] in indexer.cleared
+    assert service._crud_repo.get(res["note_id"], owner_id="u1") is None
 
 
 def test_no_indexer_is_a_noop(database, git_workspace_factory):

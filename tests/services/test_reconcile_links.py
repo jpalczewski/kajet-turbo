@@ -141,7 +141,7 @@ def test_missing_source_file_is_logged_cleaned_and_acknowledged(database, git_wo
     service, _jobs, dirty, dangling, handler = _wiring(database, ws.parent.parent)
     notes = NoteRepository(database.engine)
     links = NoteLinkRepository(database.engine)
-    notes.insert("source", "ws", "u1", "Missing", [], "now", "now", "[[Target]]")
+    notes.insert("source", "ws", "u1", "Missing", [], "now", "now")
     links.replace_links("source", "ws", "u1", {"target"})
     dangling.replace_for_source("source", "ws", "u1", [("", "Other")])
     dirty.mark_and_enqueue("u1", "ws", {"source"})
@@ -162,8 +162,8 @@ def test_legacy_heal_payload_uses_new_handler_without_dirty_marker(
     _service, _jobs, dirty, dangling, handler = _wiring(database, ws.parent.parent)
     notes = NoteRepository(database.engine)
     links = NoteLinkRepository(database.engine)
-    notes.insert("source", "ws", "u1", "Source", [], "now", "now", "[[Target]]")
-    notes.insert("target", "ws", "u1", "Target", [], "now", "now", "body")
+    notes.insert("source", "ws", "u1", "Source", [], "now", "now")
+    notes.insert("target", "ws", "u1", "Target", [], "now", "now")
     note_file_factory(ws, "Source", note_id="source", content="[[Target]]")
     dangling.replace_for_source("source", "ws", "u1", [("", "Target")])
 
@@ -183,10 +183,10 @@ def test_targeted_job_does_not_scan_unmarked_dangling_sources(
     notes = NoteRepository(database.engine)
     links = NoteLinkRepository(database.engine)
     for source_id in ("source-1", "source-2"):
-        notes.insert(source_id, "ws", "u1", source_id, [], "now", "now", "[[Target]]")
+        notes.insert(source_id, "ws", "u1", source_id, [], "now", "now")
         note_file_factory(ws, source_id, note_id=source_id, content="[[Target]]")
         dangling.replace_for_source(source_id, "ws", "u1", [("", "Target")])
-    notes.insert("target", "ws", "u1", "Target", [], "now", "now", "body")
+    notes.insert("target", "ws", "u1", "Target", [], "now", "now")
     dirty.mark_and_enqueue("u1", "ws", {"source-1"})
 
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
