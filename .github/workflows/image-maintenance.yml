@@ -1,0 +1,98 @@
+name: Image Maintenance
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  APP_IMAGE: ghcr.io/jpalczewski/kajet-turbo-app
+  INGRESS_IMAGE: ghcr.io/jpalczewski/kajet-turbo-ingress
+
+jobs:
+  inspect-develop:
+    name: inspect published develop pair
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify app and ingress come from the same revision
+        shell: bash
+        run: |
+          docker pull --platform linux/amd64 "$APP_IMAGE:develop"
+          docker pull --platform linux/amd64 "$INGRESS_IMAGE:develop"
+          app_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$APP_IMAGE:develop")"
+          ingress_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$INGRESS_IMAGE:develop")"
+          test -n "$app_revision"
+          test "$app_revision" = "$ingress_revision"
+
+  scheduled-scan:
+    name: weekly scan ${{ matrix.target }} (${{ matrix.architecture }})
+    needs: inspect-develop
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: app
+            image: ghcr.io/jpalczewski/kajet-turbo-app
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - target: app
+            image: ghcr.io/jpalczewski/kajet-turbo-app
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - target: ingress
+            image: ghcr.io/jpalczewski/kajet-turbo-ingress
+            architecture: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - target: ingress
+            image: ghcr.io/jpalczewski/kajet-turbo-ingress
+            architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    env:
+      SCAN_IMAGE: ${{ matrix.image }}:develop
+      TRIVY_EXIT_ON_EOL: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Pull requested platform
+        shell: bash
+        run: docker pull --platform "${{ matrix.platform }}" "$SCAN_IMAGE"
+
+      - name: Validate pulled platform
+        shell: bash
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: test "$(docker image inspect --format '{{.Architecture}}' "$SCAN_IMAGE")" = "$EXPECTED_ARCHITECTURE"
+
+      - name: Scan published image
+        id: scan
+        uses: ./.github/actions/scan-image
+        with:
+          image-ref: ${{ env.SCAN_IMAGE }}
+          target: ${{ matrix.target }}
+          architecture: ${{ matrix.architecture }}
+
+      - name: Upload Trivy SARIF
+        if: ${{ !cancelled() && steps.scan.outputs.sarif_file != '' }}
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif_file }}
+          category: trivy-${{ matrix.target }}-${{ matrix.architecture }}

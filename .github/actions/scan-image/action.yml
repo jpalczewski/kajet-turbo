@@ -1,0 +1,62 @@
+name: Scan local image
+description: Gate a local image with Trivy and emit a SARIF report.
+
+inputs:
+  image-ref:
+    description: Local image reference to scan.
+    required: true
+  target:
+    description: Image target used in the SARIF filename.
+    required: true
+  architecture:
+    description: Image architecture used in the SARIF filename.
+    required: true
+
+outputs:
+  sarif_file:
+    description: Path to the generated SARIF report.
+    value: ${{ steps.metadata.outputs.sarif_file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Select SARIF path
+      id: metadata
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        ARCHITECTURE: ${{ inputs.architecture }}
+      run: echo "sarif_file=trivy-${TARGET}-${ARCHITECTURE}.sarif" >> "$GITHUB_OUTPUT"
+
+    - name: Trivy gate
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        scan-type: image
+        image-ref: ${{ inputs.image-ref }}
+        scanners: vuln,secret
+        trivyignores: .trivyignore.yaml
+        vuln-type: os,library
+        severity: HIGH,CRITICAL
+        ignore-unfixed: false
+        exit-code: "1"
+        format: table
+        hide-progress: true
+
+    - name: Create Trivy SARIF
+      if: ${{ !cancelled() }}
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        scan-type: image
+        image-ref: ${{ inputs.image-ref }}
+        scanners: vuln,secret
+        trivyignores: .trivyignore.yaml
+        vuln-type: os,library
+        severity: HIGH,CRITICAL
+        ignore-unfixed: false
+        exit-code: "0"
+        format: sarif
+        output: ${{ steps.metadata.outputs.sarif_file }}
+        limit-severities-for-sarif: true
+        hide-progress: true
+        skip-setup-trivy: true
+        cache: false

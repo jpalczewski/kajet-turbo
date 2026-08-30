@@ -1,0 +1,63 @@
+name: Build local image
+description: Build one native-platform image and verify its immutable identity.
+
+inputs:
+  target:
+    description: Dockerfile target to build.
+    required: true
+  architecture:
+    description: Expected Docker architecture, for example amd64 or arm64.
+    required: true
+  platform:
+    description: Docker platform, for example linux/amd64.
+    required: true
+  image-ref:
+    description: Local image reference populated by the build.
+    required: true
+  revision:
+    description: Git revision embedded in the OCI labels.
+    required: true
+  cache-scope:
+    description: GitHub Actions BuildKit cache scope.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+    - name: Record build timestamp
+      id: metadata
+      shell: bash
+      env:
+        REVISION: ${{ inputs.revision }}
+      run: echo "created=$(git show -s --format=%cI "$REVISION")" >> "$GITHUB_OUTPUT"
+
+    - name: Build and load final image
+      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+      with:
+        context: .
+        target: ${{ inputs.target }}
+        platforms: ${{ inputs.platform }}
+        tags: ${{ inputs.image-ref }}
+        labels: |
+          org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          org.opencontainers.image.revision=${{ inputs.revision }}
+          org.opencontainers.image.created=${{ steps.metadata.outputs.created }}
+          org.opencontainers.image.version=sha-${{ inputs.revision }}
+        load: true
+        push: false
+        provenance: false
+        sbom: false
+        cache-from: type=gha,scope=${{ inputs.cache-scope }},version=2
+        cache-to: type=gha,mode=max,scope=${{ inputs.cache-scope }},version=2
+
+    - name: Validate image identity
+      shell: bash
+      env:
+        EXPECTED_ARCHITECTURE: ${{ inputs.architecture }}
+        EXPECTED_REVISION: ${{ inputs.revision }}
+        IMAGE_REF: ${{ inputs.image-ref }}
+      run: |
+        test "$(docker image inspect --format '{{.Architecture}}' "$IMAGE_REF")" = "$EXPECTED_ARCHITECTURE"
+        test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE_REF")" = "$EXPECTED_REVISION"

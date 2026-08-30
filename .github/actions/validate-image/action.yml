@@ -1,0 +1,64 @@
+name: Validate local image runtime
+description: Exercise the target-specific runtime contract of a locally loaded image.
+
+inputs:
+  target:
+    description: Image target, app or ingress.
+    required: true
+  image-ref:
+    description: Local image reference to validate.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Start app smoke test
+      if: ${{ inputs.target == 'app' }}
+      shell: bash
+      env:
+        IMAGE_REF: ${{ inputs.image-ref }}
+      run: |
+        docker run --detach --name kajet-app-smoke \
+          --env-file .env.example \
+          --env KAJET_ROLE=api \
+          --env API_WORKERS=1 \
+          --env KAJET_SERVE_SPA=0 \
+          --env DB_PATH=/data/kajet.db \
+          --env WORKSPACES_DIR=/tmp/kajet-workspaces \
+          --tmpfs /data:rw,size=64m,mode=1777 \
+          "$IMAGE_REF"
+
+    - name: Verify app readiness
+      if: ${{ inputs.target == 'app' }}
+      shell: bash
+      run: |
+        ready=false
+        deadline=$((SECONDS + 30))
+        while (( SECONDS < deadline )); do
+          if [[ "$(docker inspect --format '{{.State.Running}}' kajet-app-smoke)" != true ]]; then
+            docker logs kajet-app-smoke
+            exit 1
+          fi
+          if docker exec kajet-app-smoke /app/.venv/bin/python -c \
+            'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/readyz", timeout=1).read()'; then
+            ready=true
+            break
+          fi
+          sleep 1
+        done
+        if [[ "$ready" != true ]]; then
+          docker logs kajet-app-smoke
+          exit 1
+        fi
+
+    - name: Remove app smoke container
+      if: ${{ always() && inputs.target == 'app' }}
+      shell: bash
+      run: docker rm --force kajet-app-smoke >/dev/null 2>&1 || true
+
+    - name: Validate packaged Caddy configuration
+      if: ${{ inputs.target == 'ingress' }}
+      shell: bash
+      env:
+        IMAGE_REF: ${{ inputs.image-ref }}
+      run: docker run --rm --entrypoint caddy "$IMAGE_REF" validate --config /etc/caddy/Caddyfile --adapter caddyfile

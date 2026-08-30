@@ -114,7 +114,7 @@ jobs:
         with:
           enable-cache: true
 
-      - run: bun install --frozen-lockfile
+      - run: bun ci
 
       - name: Install backend dependencies for API generation
         working-directory: .
@@ -202,127 +202,33 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
-
-      - name: Record build timestamp
-        id: metadata
-        shell: bash
-        run: echo "created=$(git show -s --format=%cI "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
-
       - name: Build and load final image
-        id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: ./.github/actions/build-image
         with:
-          context: .
           target: ${{ matrix.target }}
-          platforms: ${{ matrix.platform }}
-          tags: ${{ env.LOCAL_IMAGE }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ steps.metadata.outputs.created }}
-            org.opencontainers.image.version=sha-${{ github.sha }}
-          load: true
-          push: false
-          provenance: false
-          sbom: false
-          cache-from: type=gha,scope=kajet-turbo-${{ matrix.target }}-${{ matrix.architecture }}
-          cache-to: type=gha,mode=max,scope=kajet-turbo-${{ matrix.target }}-${{ matrix.architecture }}
-
-      - name: Validate image identity
-        if: ${{ steps.build.outcome == 'success' && !cancelled() }}
-        shell: bash
-        env:
-          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
-        run: |
-          test "$(docker image inspect --format '{{.Architecture}}' "$LOCAL_IMAGE")" = "$EXPECTED_ARCHITECTURE"
-          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$LOCAL_IMAGE")" = "$GITHUB_SHA"
-
-      # Start before Trivy so migrations and server boot overlap the image scan.
-      - name: Start app smoke test
-        if: ${{ matrix.target == 'app' && steps.build.outcome == 'success' && !cancelled() }}
-        shell: bash
-        run: |
-          docker run --detach --name kajet-app-smoke \
-            --env-file .env.example \
-            --env KAJET_ROLE=api \
-            --env API_WORKERS=1 \
-            --env KAJET_SERVE_SPA=0 \
-            --env DB_PATH=/data/kajet.db \
-            --env WORKSPACES_DIR=/tmp/kajet-workspaces \
-            --tmpfs /data:rw,size=64m,mode=1777 \
-            "$LOCAL_IMAGE"
-
-      - name: Validate packaged Caddy configuration
-        if: ${{ matrix.target == 'ingress' && steps.build.outcome == 'success' && !cancelled() }}
-        run: docker run --rm --entrypoint caddy "$LOCAL_IMAGE" validate --config /etc/caddy/Caddyfile --adapter caddyfile
-
-      - name: Trivy gate
-        id: trivy
-        if: ${{ steps.build.outcome == 'success' && !cancelled() }}
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: image
+          architecture: ${{ matrix.architecture }}
+          platform: ${{ matrix.platform }}
           image-ref: ${{ env.LOCAL_IMAGE }}
-          scanners: vuln,secret
-          trivyignores: .trivyignore.yaml
-          vuln-type: os,library
-          severity: HIGH,CRITICAL
-          ignore-unfixed: false
-          exit-code: "1"
-          format: table
-          hide-progress: true
+          revision: ${{ github.sha }}
+          cache-scope: kajet-turbo-${{ matrix.target }}-${{ matrix.architecture }}
 
-      - name: Verify app readiness
-        if: ${{ matrix.target == 'app' && steps.build.outcome == 'success' && !cancelled() }}
-        shell: bash
-        run: |
-          ready=false
-          deadline=$((SECONDS + 30))
-          while (( SECONDS < deadline )); do
-            if [[ "$(docker inspect --format '{{.State.Running}}' kajet-app-smoke)" != true ]]; then
-              docker logs kajet-app-smoke
-              exit 1
-            fi
-            if docker exec kajet-app-smoke uv run --no-dev python -c \
-              'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/readyz", timeout=1).read()'; then
-              ready=true
-              break
-            fi
-            sleep 1
-          done
-          if [[ "$ready" != true ]]; then
-            docker logs kajet-app-smoke
-            exit 1
-          fi
-
-      - name: Create Trivy SARIF
-        id: sarif
-        if: ${{ steps.build.outcome == 'success' && !cancelled() }}
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      - name: Validate final image
+        uses: ./.github/actions/validate-image
         with:
-          scan-type: image
+          target: ${{ matrix.target }}
           image-ref: ${{ env.LOCAL_IMAGE }}
-          scanners: vuln,secret
-          trivyignores: .trivyignore.yaml
-          vuln-type: os,library
-          severity: HIGH,CRITICAL
-          ignore-unfixed: false
-          exit-code: "0"
-          format: sarif
-          output: trivy-${{ matrix.target }}-${{ matrix.architecture }}.sarif
-          limit-severities-for-sarif: true
-          hide-progress: true
-          skip-setup-trivy: true
-          cache: false
+
+      - name: Scan final image
+        id: scan
+        uses: ./.github/actions/scan-image
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          target: ${{ matrix.target }}
+          architecture: ${{ matrix.architecture }}
 
       - name: Upload Trivy SARIF
-        if: ${{ !cancelled() && steps.sarif.outcome == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !cancelled() && steps.scan.outputs.sarif_file != '' && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
-          sarif_file: trivy-${{ matrix.target }}-${{ matrix.architecture }}.sarif
+          sarif_file: ${{ steps.scan.outputs.sarif_file }}
           category: trivy-${{ matrix.target }}-${{ matrix.architecture }}
-
-      - name: Remove app smoke container
-        if: ${{ always() && matrix.target == 'app' }}
-        run: docker rm --force kajet-app-smoke >/dev/null 2>&1 || true
