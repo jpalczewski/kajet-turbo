@@ -1,4 +1,9 @@
 from .auth import ConsentResponse, LoginResponse, OkResponse, PendingInfoResponse, SessionResponse
+from .backfill import (
+    ApplyTemporalBackfillRequest,
+    ApplyTemporalBackfillResponse,
+    TemporalBackfillPreviewResponse,
+)
 from .embedding import EmbeddingProfileItem, EmbeddingProfilesResponse
 from .errors import ErrorResponse
 from .jobs import JobItem, JobsResponse
@@ -12,6 +17,7 @@ from .notes import (
     CreateNoteRequest,
     CreateNoteResponse,
     DeleteNoteResponse,
+    EntriesInResponse,
     FolderMetaResponse,
     LinksResponse,
     MoveNoteRequest,
@@ -49,6 +55,8 @@ from .workspaces import (
 )
 
 __all__ = [
+    "ApplyTemporalBackfillRequest",
+    "ApplyTemporalBackfillResponse",
     "BatchCreateNotesRequest",
     "BatchCreateNotesResponse",
     "ChunkPreviewItem",
@@ -63,6 +71,7 @@ __all__ = [
     "DeleteWorkspaceResponse",
     "EmbeddingProfileItem",
     "EmbeddingProfilesResponse",
+    "EntriesInResponse",
     "ErrorResponse",
     "FolderMetaResponse",
     "JobItem",
@@ -90,6 +99,7 @@ __all__ = [
     "SshKeysResponse",
     "TagNode",
     "TagsResponse",
+    "TemporalBackfillPreviewResponse",
     "UpdateFolderMetaRequest",
     "UpdateNoteRequest",
     "UpdateNoteResponse",

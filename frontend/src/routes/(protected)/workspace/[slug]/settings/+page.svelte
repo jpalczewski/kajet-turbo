@@ -5,9 +5,12 @@
   import {
     apiDeleteWorkspaceApiWorkspacesNameDelete,
     apiReindexWorkspaceApiWorkspacesNameReindexPost,
+    apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPost,
     apiGetWorkspaceSettingsApiWorkspacesNameSettingsGet as getSettings,
+    apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPost,
     apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatch as patchSettings,
     type SettingDefinition,
+    type TemporalBackfillPreviewResponse,
   } from '$lib/api';
   import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
   import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
@@ -40,6 +43,39 @@
   let definitions = $state<SettingDefinition[]>([]);
   let values = $state<Record<string, unknown>>({});
   let settingsError = $state('');
+  const backfillAction = useAsyncAction();
+  let backfillPreview = $state<TemporalBackfillPreviewResponse | null>(null);
+  let backfillMsg = $state('');
+
+  async function previewBackfill() {
+    backfillMsg = '';
+    await backfillAction.run(async () => {
+      const res =
+        await apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPost(slug);
+      if (res.status !== 200) throw new Error('Nie udało się przeanalizować metadanych czasowych.');
+      backfillPreview = res.data;
+    }, 'Nie udało się przeanalizować metadanych czasowych.');
+  }
+
+  async function applyBackfill() {
+    const preview = backfillPreview;
+    if (!preview?.candidates.length) return;
+    backfillMsg = '';
+    await backfillAction.run(async () => {
+      const res = await apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPost(
+        slug,
+        { candidates: preview.candidates },
+      );
+      if (res.status !== 200) throw new Error('Dane zmieniły się — uruchom analizę ponownie.');
+      backfillMsg = `Uzupełniono metadane w ${res.data.applied} notatkach.`;
+      backfillPreview = null;
+    }, 'Nie udało się zastosować backfillu.');
+    // useAsyncAction.run swallows the error into backfillAction.error and resolves either
+    // way; applyBackfill is used as ConfirmDialog's onconfirm, which only keeps the dialog
+    // open (and shows the error inline there) when the promise it awaits rejects — so a
+    // failure has to be rethrown here, the same way deleteWorkspace above does it.
+    if (backfillAction.error) throw new Error(backfillAction.error);
+  }
 
   onMount(async () => {
     try {
@@ -101,6 +137,56 @@
     </button>
     {#if reindexAction.error}<p class="reindex__error">{reindexAction.error}</p>{/if}
     {#if reindexMsg}<p class="reindex__msg">{reindexMsg}</p>{/if}
+  </section>
+
+  <section class="backfill">
+    <h2>Metadane czasowe</h2>
+    <p class="hint">
+      Odczytuje daty z tytułów notatek i uzupełnia frontmatter bez przebudowy indeksu wyszukiwania.
+    </p>
+    <button
+      type="button"
+      class="btn-ghost"
+      disabled={backfillAction.busy}
+      onclick={previewBackfill}
+    >
+      {backfillAction.busy ? 'Analizowanie…' : 'Przeanalizuj istniejące notatki'}
+    </button>
+    {#if backfillPreview}
+      <p class="backfill__summary">
+        Jednoznaczne: {backfillPreview.candidates.length}; wymagające decyzji:
+        {backfillPreview.ambiguous.length}; pominięte: {backfillPreview.skipped.length}.
+      </p>
+      {#if backfillPreview.ambiguous.length}
+        <ul class="backfill__list">
+          {#each backfillPreview.ambiguous as item (item.note_id)}
+            <li><code>{item.folder}/{item.title}</code> — {item.reason}</li>
+          {/each}
+        </ul>
+      {/if}
+      {#if backfillPreview.candidates.length}
+        <ConfirmDialog
+          title="Uzupełnij metadane czasowe"
+          message={`Zapisać metadane dla ${backfillPreview.candidates.length} notatek? Nie spowoduje to reindeksacji.`}
+          confirmLabel="Uzupełnij metadane"
+          confirmVariant="primary"
+          onconfirm={applyBackfill}
+        >
+          {#snippet trigger({ open })}
+            <button
+              type="button"
+              class="btn-primary backfill__apply"
+              disabled={backfillAction.busy}
+              onclick={open}
+            >
+              Uzupełnij {backfillPreview?.candidates.length ?? 0} notatek
+            </button>
+          {/snippet}
+        </ConfirmDialog>
+      {/if}
+    {/if}
+    {#if backfillAction.error}<p class="reindex__error">{backfillAction.error}</p>{/if}
+    {#if backfillMsg}<p class="reindex__msg">{backfillMsg}</p>{/if}
   </section>
 
   <section class="export">
@@ -221,6 +307,29 @@
       font-size: 0.85rem;
       font-family: v.$font-mono;
       color: v.$text-secondary;
+    }
+  }
+
+  .backfill {
+    margin-top: v.$space-lg;
+    padding-top: v.$space-lg;
+    border-top: 1px solid v.$border;
+
+    h2 {
+      font-size: 1.1rem;
+      margin-bottom: v.$space-sm;
+    }
+    &__summary {
+      margin-top: v.$space-md;
+    }
+    &__list {
+      margin: v.$space-sm 0;
+      padding-left: v.$space-lg;
+      color: v.$text-secondary;
+    }
+    &__apply {
+      width: auto;
+      margin-top: v.$space-sm;
     }
   }
 

@@ -2,11 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from kajet_turbo import workspace_settings as ws_settings
-from kajet_turbo.api.schemas import UpdateWorkspaceSettingsResponse, WorkspaceSettingsResponse
+from kajet_turbo.api.schemas import (
+    ApplyTemporalBackfillRequest,
+    ApplyTemporalBackfillResponse,
+    TemporalBackfillPreviewResponse,
+    UpdateWorkspaceSettingsResponse,
+    WorkspaceSettingsResponse,
+)
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.dependencies import get_required_user, get_workspace_service
+from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
 from kajet_turbo.errors import AuthError, WorkspaceError
+from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
 router = APIRouter(
@@ -58,3 +65,51 @@ async def api_update_workspace_settings(
     if not result:
         result = await run_sync(ws_service.get_settings, user["id"], name)
     return JSONResponse({"values": result})
+
+
+@router.post(
+    "/api/workspaces/{name}/settings/temporal-backfill/preview",
+    response_model=TemporalBackfillPreviewResponse,
+)
+async def api_temporal_backfill_preview(
+    name: str,
+    user: dict = Depends(get_required_user),
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    if not ws_service.has_access(user["id"], name):
+        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
+    result = await run_sync(
+        note_service.temporal_backfill_preview,
+        name,
+        user["id"],
+        ws_service.workspace_path(user["id"], name),
+    )
+    return JSONResponse(result)
+
+
+@router.post(
+    "/api/workspaces/{name}/settings/temporal-backfill/apply",
+    response_model=ApplyTemporalBackfillResponse,
+    responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+async def api_apply_temporal_backfill(
+    name: str,
+    body: ApplyTemporalBackfillRequest,
+    user: dict = Depends(get_required_user),
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    if not ws_service.has_access(user["id"], name):
+        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
+    try:
+        result = await run_sync(
+            note_service.apply_temporal_backfill,
+            name,
+            user["id"],
+            ws_service.workspace_path(user["id"], name),
+            [candidate.model_dump() for candidate in body.candidates],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse(result)

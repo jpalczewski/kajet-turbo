@@ -5,6 +5,31 @@
  * OpenAPI spec version: 0.1.0
  */
 import { customFetch } from './fetcher';
+export type TemporalBackfillCandidateField = typeof TemporalBackfillCandidateField[keyof typeof TemporalBackfillCandidateField];
+
+
+export const TemporalBackfillCandidateField = {
+  occurred_at: 'occurred_at',
+  period: 'period',
+} as const;
+
+export interface TemporalBackfillCandidate {
+  note_id: string;
+  title: string;
+  folder: string;
+  field: TemporalBackfillCandidateField;
+  value: string;
+  sha: string | null;
+}
+
+export interface ApplyTemporalBackfillRequest {
+  candidates: TemporalBackfillCandidate[];
+}
+
+export interface ApplyTemporalBackfillResponse {
+  applied: number;
+}
+
 export type AuthError = typeof AuthError[keyof typeof AuthError];
 
 
@@ -95,6 +120,24 @@ export interface EmbeddingProfileItem {
 
 export interface EmbeddingProfilesResponse {
   profiles: EmbeddingProfileItem[];
+}
+
+export interface NoteItem {
+  note_id: string;
+  workspace: string;
+  owner_id: string;
+  title: string;
+  folder: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+  occurred_at?: string | null;
+  period?: string | null;
+  size_bytes: number;
+}
+
+export interface EntriesInResponse {
+  notes: NoteItem[];
 }
 
 export type WorkspaceError = typeof WorkspaceError[keyof typeof WorkspaceError];
@@ -231,20 +274,6 @@ export interface NoteHtmlResponse {
   sha: string;
 }
 
-export interface NoteItem {
-  note_id: string;
-  workspace: string;
-  owner_id: string;
-  title: string;
-  folder: string;
-  tags: string[];
-  created_at: string;
-  updated_at: string;
-  occurred_at?: string | null;
-  period?: string | null;
-  size_bytes: number;
-}
-
 export interface NoteMarkdownResponse {
   note_id: string;
   title: string;
@@ -314,6 +343,24 @@ export interface TagNode {
 
 export interface TagsResponse {
   tags: TagNode[];
+}
+
+export interface TemporalBackfillAmbiguous {
+  note_id: string;
+  reason: string;
+  title: string;
+  folder: string;
+}
+
+export interface TemporalBackfillSkipped {
+  note_id: string;
+  reason: string;
+}
+
+export interface TemporalBackfillPreviewResponse {
+  candidates: TemporalBackfillCandidate[];
+  ambiguous: TemporalBackfillAmbiguous[];
+  skipped: TemporalBackfillSkipped[];
 }
 
 export interface UpdateFolderMetaRequest {
@@ -419,6 +466,11 @@ include_descendants?: boolean;
 
 export type ApiWorkspaceContentsApiWorkspacesNameContentsGetParams = {
 path?: string;
+};
+
+export type ApiEntriesInApiWorkspacesNameEntriesGetParams = {
+period: string;
+folder?: string | null;
 };
 
 export type apiLoginApiLoginPostResponse200 = {
@@ -970,6 +1022,118 @@ export const apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatch = async (n
 
 
 
+export type apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse200 = {
+  data: TemporalBackfillPreviewResponse
+  status: 200
+}
+
+export type apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponseSuccess = (apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse200) & {
+  headers: Headers;
+};
+export type apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponseError = (apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse401 | apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse403 | apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse422) & {
+  headers: Headers;
+};
+
+export type apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse = (apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponseSuccess | apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponseError)
+
+export const getApiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/settings/temporal-backfill/preview`
+}
+
+/**
+ * @summary Api Temporal Backfill Preview
+ */
+export const apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPost = async (name: string, options?: RequestInit): Promise<apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse> => {
+
+  return customFetch<apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse>(getApiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostUrl(name),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse200 = {
+  data: ApplyTemporalBackfillResponse
+  status: 200
+}
+
+export type apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse422 = {
+  data: ErrorResponse
+  status: 422
+}
+
+export type apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponseSuccess = (apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse200) & {
+  headers: Headers;
+};
+export type apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponseError = (apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse401 | apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse403 | apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse409 | apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse422) & {
+  headers: Headers;
+};
+
+export type apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse = (apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponseSuccess | apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponseError)
+
+export const getApiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/settings/temporal-backfill/apply`
+}
+
+/**
+ * @summary Api Apply Temporal Backfill
+ */
+export const apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPost = async (name: string,
+    applyTemporalBackfillRequest: ApplyTemporalBackfillRequest, options?: RequestInit): Promise<apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse> => {
+
+  return customFetch<apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse>(getApiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostUrl(name),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(applyTemporalBackfillRequest)
+  }
+);}
+
+
+
 export type apiExportWorkspaceApiWorkspacesNameExportGetResponse200 = {
   data: unknown
   status: 200
@@ -1457,6 +1621,68 @@ export const apiWorkspaceContentsApiWorkspacesNameContentsGet = async (name: str
     params?: ApiWorkspaceContentsApiWorkspacesNameContentsGetParams, options?: RequestInit): Promise<apiWorkspaceContentsApiWorkspacesNameContentsGetResponse> => {
 
   return customFetch<apiWorkspaceContentsApiWorkspacesNameContentsGetResponse>(getApiWorkspaceContentsApiWorkspacesNameContentsGetUrl(name,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiEntriesInApiWorkspacesNameEntriesGetResponse200 = {
+  data: EntriesInResponse
+  status: 200
+}
+
+export type apiEntriesInApiWorkspacesNameEntriesGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiEntriesInApiWorkspacesNameEntriesGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiEntriesInApiWorkspacesNameEntriesGetResponse422 = {
+  data: ErrorResponse
+  status: 422
+}
+
+export type apiEntriesInApiWorkspacesNameEntriesGetResponseSuccess = (apiEntriesInApiWorkspacesNameEntriesGetResponse200) & {
+  headers: Headers;
+};
+export type apiEntriesInApiWorkspacesNameEntriesGetResponseError = (apiEntriesInApiWorkspacesNameEntriesGetResponse401 | apiEntriesInApiWorkspacesNameEntriesGetResponse403 | apiEntriesInApiWorkspacesNameEntriesGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiEntriesInApiWorkspacesNameEntriesGetResponse = (apiEntriesInApiWorkspacesNameEntriesGetResponseSuccess | apiEntriesInApiWorkspacesNameEntriesGetResponseError)
+
+export const getApiEntriesInApiWorkspacesNameEntriesGetUrl = (name: string,
+    params: ApiEntriesInApiWorkspacesNameEntriesGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/workspaces/${name}/entries?${stringifiedParams}` : `/api/workspaces/${name}/entries`
+}
+
+/**
+ * @summary Api Entries In
+ */
+export const apiEntriesInApiWorkspacesNameEntriesGet = async (name: string,
+    params: ApiEntriesInApiWorkspacesNameEntriesGetParams, options?: RequestInit): Promise<apiEntriesInApiWorkspacesNameEntriesGetResponse> => {
+
+  return customFetch<apiEntriesInApiWorkspacesNameEntriesGetResponse>(getApiEntriesInApiWorkspacesNameEntriesGetUrl(name,params),
   {
     ...options,
     method: 'GET'
