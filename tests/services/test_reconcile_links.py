@@ -1,40 +1,17 @@
-from pathlib import Path
-
 import pytest
 from dulwich.repo import Repo
 
-from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
-from kajet_turbo.services.reconcile_links_handler import ReconcileLinksHandler
-from tests.services.conftest import build_note_service, seed_user
-
-
-def _wiring(database, base: Path):
-    jobs = JobRepository(database.engine)
-    dirty = LinkReconcileRepository(database.engine, jobs)
-    dangling = DanglingLinkRepository(database.engine)
-    service = build_note_service(
-        database,
-        link_validation_enabled=lambda _ws, _owner: False,
-        dangling_repo=dangling,
-        reconcile_repo=dirty,
-    )
-    handler = ReconcileLinksHandler(
-        NoteRepository(database.engine),
-        service._link_service,
-        dangling,
-        dirty,
-        str(base),
-    )
-    return service, jobs, dirty, dangling, handler
+from tests.services.conftest import seed_user
+from tests.services.helpers import build_reconcile_wiring
 
 
 def test_target_creation_marks_only_dangling_source_and_reconciles(database, git_workspace_factory):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    service, jobs, dirty, dangling, handler = _wiring(database, ws.parent.parent)
+    service, jobs, dirty, dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
 
     source_id = service.save("u1", "ws", str(ws), "Source", "[[Target]]", [])["note_id"]
     assert dirty.list_dirty("u1", "ws") == {}
@@ -74,7 +51,7 @@ def test_concurrent_source_mutation_cannot_leave_stale_graph(
 ):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    service, _jobs, dirty, _dangling, handler = _wiring(database, ws.parent.parent)
+    service, _jobs, dirty, _dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
     first_id = service.save("u1", "ws", str(ws), "First", "body", [])["note_id"]
     second_id = service.save("u1", "ws", str(ws), "Second", "body", [])["note_id"]
     source_id = service.save("u1", "ws", str(ws), "Source", "[[First]]", [])["note_id"]
@@ -138,7 +115,7 @@ def test_dirty_markers_roll_back_when_enqueue_fails(database, monkeypatch):
 def test_missing_source_file_is_logged_cleaned_and_acknowledged(database, git_workspace_factory):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    service, _jobs, dirty, dangling, handler = _wiring(database, ws.parent.parent)
+    service, _jobs, dirty, dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
     notes = NoteRepository(database.engine)
     links = NoteLinkRepository(database.engine)
     notes.insert("source", "ws", "u1", "Missing", [], "now", "now")
@@ -159,7 +136,7 @@ def test_legacy_heal_payload_uses_new_handler_without_dirty_marker(
 ):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    _service, _jobs, dirty, dangling, handler = _wiring(database, ws.parent.parent)
+    _service, _jobs, dirty, dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
     notes = NoteRepository(database.engine)
     links = NoteLinkRepository(database.engine)
     notes.insert("source", "ws", "u1", "Source", [], "now", "now")
@@ -179,7 +156,7 @@ def test_targeted_job_does_not_scan_unmarked_dangling_sources(
 ):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    _service, _jobs, dirty, dangling, handler = _wiring(database, ws.parent.parent)
+    _service, _jobs, dirty, dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
     notes = NoteRepository(database.engine)
     links = NoteLinkRepository(database.engine)
     for source_id in ("source-1", "source-2"):
@@ -202,7 +179,7 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
 ):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    service, _jobs, dirty, _dangling, handler = _wiring(database, ws.parent.parent)
+    service, _jobs, dirty, _dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
     target_id = service.save("u1", "ws", str(ws), "Target", "body", [], folder="Old")["note_id"]
     source_id = service.save("u1", "ws", str(ws), "Source", "[[Old/Target]]", [])["note_id"]
 

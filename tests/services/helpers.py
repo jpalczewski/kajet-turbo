@@ -2,6 +2,39 @@
 file moves to the suite's helpers.py — it does not get copied."
 """
 
+from pathlib import Path
+
+
+def build_reconcile_wiring(database, base: Path):
+    """A NoteService wired with a real LinkReconcileRepository + DanglingLinkRepository,
+    plus the ReconcileLinksHandler that can drain the jobs it enqueues — for tests that
+    need to observe dangling-link healing end to end (mark_and_enqueue -> handler ->
+    link graph), not just that a job got queued."""
+    from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
+    from kajet_turbo.repositories.jobs import JobRepository
+    from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
+    from kajet_turbo.repositories.notes import NoteRepository
+    from kajet_turbo.services.reconcile_links_handler import ReconcileLinksHandler
+    from tests.services.conftest import build_note_service
+
+    jobs = JobRepository(database.engine)
+    dirty = LinkReconcileRepository(database.engine, jobs)
+    dangling = DanglingLinkRepository(database.engine)
+    service = build_note_service(
+        database,
+        link_validation_enabled=lambda _ws, _owner: False,
+        dangling_repo=dangling,
+        reconcile_repo=dirty,
+    )
+    handler = ReconcileLinksHandler(
+        NoteRepository(database.engine),
+        service._link_service,
+        dangling,
+        dirty,
+        str(base),
+    )
+    return service, jobs, dirty, dangling, handler
+
 
 def make_flaky_write(real_write, *, fail_on_call: int = 2, message: str = "disk full"):
     """A ``write_note_file`` stand-in that raises ``OSError`` on the Nth call, delegating to

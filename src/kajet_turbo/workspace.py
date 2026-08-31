@@ -281,14 +281,20 @@ def read_note_file(path: str) -> tuple[NoteFrontmatter, str]:
     return parse_frontmatter(frontmatter.load(path))
 
 
-def scan_notes(workspace_path: str) -> list[ScannedNote]:
+def iter_note_paths(workspace_path: str) -> list[str]:
+    """Every ``.md`` file's workspace-relative path, sorted for deterministic order.
+    Does not read file content — used where only the path set matters (reconcile)."""
     ws = Path(workspace_path)
     if not ws.exists():
         return []
+    return [str(p.relative_to(ws)) for p in sorted(ws.rglob("*.md")) if ".git" not in p.parts]
+
+
+def scan_notes(workspace_path: str) -> list[ScannedNote]:
+    ws = Path(workspace_path)
     results = []
-    for p in sorted(ws.rglob("*.md")):
-        if ".git" in p.parts:
-            continue
+    for relative in iter_note_paths(workspace_path):
+        p = ws / relative
         meta, content = read_note_file(str(p))
         results.append(
             ScannedNote(

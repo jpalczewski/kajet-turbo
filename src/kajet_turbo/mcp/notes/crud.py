@@ -576,7 +576,10 @@ def build_crud(
     async def reindex_workspace(
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> ReindexResult:
-        """Przebudowuje indeks SQLite z plików .md w aktywnym workspace."""
+        """Reconciles the SQLite index against the .md files in the active workspace:
+        repairs drifted or missing rows without wiping and rebuilding. Refuses (raises)
+        if it would delete an unusually large share of the workspace's notes — that
+        signals a path or mount problem worth investigating before retrying."""
         result = await run_sync(
             note_service.reindex, ws.name, owner_id=ws.owner_id, ws_path=ws.path
         )

@@ -3,6 +3,7 @@
 from fastmcp import Client
 
 from kajet_turbo.repositories.git import GitRepository
+from tests.mcp_tools.helpers import call_json
 
 
 async def test_list_notes(workspaces_dir, mcp_server):
@@ -180,10 +181,7 @@ async def test_reindex_workspace(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
-        reindex_result = await client.call_tool("reindex_workspace")
-        assert (
-            "ok" in reindex_result.content[0].text.lower()
-            or "reindeks" in reindex_result.content[0].text.lower()
-        )
+        reindex_result = await call_json(client, "reindex_workspace")
+        assert reindex_result["count"] == 1
         search_result = await client.call_tool("search_notes", {"query": "Reindexed"})
         assert "Reindexed note" in search_result.content[0].text
