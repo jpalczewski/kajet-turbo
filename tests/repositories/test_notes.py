@@ -85,34 +85,6 @@ def test_insert_and_get_note(notes):
     assert note.owner_id == "u1"
 
 
-def test_insert_many_persists_a_batch(notes):
-    notes.insert_many(
-        [
-            Note(
-                id="batch-1",
-                workspace="ws1",
-                owner_id="u1",
-                title="First",
-                created_at=_now(),
-                updated_at=_now(),
-            ),
-            Note(
-                id="batch-2",
-                workspace="ws1",
-                owner_id="u1",
-                title="Second",
-                created_at=_now(),
-                updated_at=_now(),
-            ),
-        ]
-    )
-
-    assert [note.id for note in notes.get_many(["batch-1", "batch-2"], "u1")] == [
-        "batch-1",
-        "batch-2",
-    ]
-
-
 def test_get_note_returns_none_for_missing(notes):
     assert notes.get("nieistnieje") is None
 

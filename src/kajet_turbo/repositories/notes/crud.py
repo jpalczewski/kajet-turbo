@@ -39,31 +39,25 @@ class NoteRepository(DbRepository):
             "insert", note_id=note_id, workspace=workspace, owner_id=owner_id
         ) as operation:
             session = operation.session
-            note = Note(
-                id=note_id,
-                workspace=workspace,
-                owner_id=owner_id,
-                title=title,
-                folder=folder,
-                tags=json.dumps(tags),
-                created_at=created_at,
-                updated_at=updated_at,
+            self.insert_in_session(
+                session,
+                Note(
+                    id=note_id,
+                    workspace=workspace,
+                    owner_id=owner_id,
+                    title=title,
+                    folder=folder,
+                    tags=json.dumps(tags),
+                    created_at=created_at,
+                    updated_at=updated_at,
+                ),
             )
-            session.add(note)
             session.commit()
 
-    def insert_many(self, notes: list[Note]) -> None:
-        """Insert a homogeneous batch of note rows in one transaction."""
-        if not notes:
-            return
-        with self.operation(
-            "insert_many",
-            workspace=notes[0].workspace,
-            owner_id=notes[0].owner_id,
-            count=len(notes),
-        ) as operation:
-            operation.session.add_all(notes)
-            operation.session.commit()
+    @staticmethod
+    def insert_in_session(session: Session, note: Note) -> None:
+        """Add one new note row in a caller-owned transaction; does not commit."""
+        session.add(note)
 
     def check_unique(self, workspace: str, owner_id: str, folder: str, title: str) -> bool:
         """Returns True if no note with this (workspace, owner_id, folder, title) exists."""
@@ -245,30 +239,58 @@ class NoteRepository(DbRepository):
         tags: list[str] | None = None,
         updated_at: str = "",
         folder: str | None = None,
+        created_at: str | None = None,
         bump_index_generation: bool = False,
     ) -> None:
         with self.operation("update", note_id=note_id, owner_id=owner_id) as operation:
             session = operation.session
-            q = select(Note).where(Note.id == note_id)
-            if owner_id is not None:
-                q = q.where(Note.owner_id == owner_id)
-            note = session.exec(q).first()
-            if note is None:
-                raise ValueError(f"Note {note_id} not found")
-
-            new_title = title if title is not None else note.title
-            new_tags = tags if tags is not None else json.loads(note.tags or "[]")
-
-            note.title = new_title
-            note.tags = json.dumps(new_tags)
-            note.updated_at = updated_at
-            if folder is not None:
-                note.folder = folder
-            if bump_index_generation:
-                note.index_generation += 1
-
-            session.add(note)
+            self.update_in_session(
+                session,
+                note_id,
+                owner_id=owner_id,
+                title=title,
+                tags=tags,
+                updated_at=updated_at,
+                folder=folder,
+                created_at=created_at,
+                bump_index_generation=bump_index_generation,
+            )
             session.commit()
+
+    @staticmethod
+    def update_in_session(
+        session: Session,
+        note_id: str,
+        owner_id: str | None = None,
+        title: str | None = None,
+        tags: list[str] | None = None,
+        updated_at: str = "",
+        folder: str | None = None,
+        created_at: str | None = None,
+        bump_index_generation: bool = False,
+    ) -> None:
+        """Update one note row in a caller-owned transaction; does not commit."""
+        q = select(Note).where(Note.id == note_id)
+        if owner_id is not None:
+            q = q.where(Note.owner_id == owner_id)
+        note = session.exec(q).first()
+        if note is None:
+            raise ValueError(f"Note {note_id} not found")
+
+        new_title = title if title is not None else note.title
+        new_tags = tags if tags is not None else json.loads(note.tags or "[]")
+
+        note.title = new_title
+        note.tags = json.dumps(new_tags)
+        note.updated_at = updated_at
+        if folder is not None:
+            note.folder = folder
+        if created_at is not None:
+            note.created_at = created_at
+        if bump_index_generation:
+            note.index_generation += 1
+
+        session.add(note)
 
     def delete(self, note_id: str, owner_id: str | None = None) -> None:
         with self.operation("delete", note_id=note_id, owner_id=owner_id) as operation:

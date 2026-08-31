@@ -33,29 +33,37 @@ def test_reindex_finds_notes_in_subfolders(service, workspace, note_file_factory
     assert result["count"] == 2
 
 
-def test_reindex_batches_note_insert_and_tag_sync(
+def test_reindex_batches_note_writes_and_tag_sync(
     service, workspace, note_file_factory, monkeypatch
 ):
+    """Both new notes land in ONE DB transaction (reconcile_paths wraps every insert/
+    update for the whole reconcile in a single ``operation()``, not one commit per
+    note), and tag sync stays a single batched call."""
+    from contextlib import contextmanager
+
     note_file_factory(workspace, "First", note_id="first", tags=["one"])
     note_file_factory(workspace, "Second", note_id="second", tags=["two"])
-    insert_many = service._crud_repo.insert_many
+    note_op = service._crud_repo.operation
     sync_many = service._tag_repo.sync_note_tags_many
-    calls = {"insert": 0, "tags": 0}
+    calls = {"note_op": 0, "tags": 0}
 
-    def record_insert(notes):
-        calls["insert"] += 1
-        return insert_many(notes)
+    @contextmanager
+    def record_note_op(*args, **kwargs):
+        calls["note_op"] += 1
+        with note_op(*args, **kwargs) as op:
+            yield op
 
     def record_tags(workspace_name, owner_id, tagged_by_note):
         calls["tags"] += 1
         return sync_many(workspace_name, owner_id, tagged_by_note)
 
-    monkeypatch.setattr(service._crud_repo, "insert_many", record_insert)
+    monkeypatch.setattr(service._crud_repo, "operation", record_note_op)
     monkeypatch.setattr(service._tag_repo, "sync_note_tags_many", record_tags)
 
-    service.reindex("ws", owner_id="u1", ws_path=str(workspace))
+    result = service.reindex("ws", owner_id="u1", ws_path=str(workspace))
 
-    assert calls == {"insert": 1, "tags": 1}
+    assert result["count"] == 2
+    assert calls == {"note_op": 1, "tags": 1}
 
 
 def test_get_history_returns_commits(service, workspace):
