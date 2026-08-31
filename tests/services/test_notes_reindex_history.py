@@ -4,16 +4,18 @@ import pytest
 
 
 def test_reindex_rebuilds_fts(service, workspace):
-    from kajet_turbo.workspace import note_filepath, write_note_file
+    from kajet_turbo.workspace import NoteFrontmatter, note_filepath, write_note_file
 
     path = note_filepath(str(workspace), "", "Zewnętrzna notatka")
     write_note_file(
         path,
-        "ext001",
-        "Zewnętrzna notatka",
-        [],
-        "2026-01-01T00:00:00+00:00",
-        "2026-01-01T00:00:00+00:00",
+        NoteFrontmatter(
+            id="ext001",
+            title="Zewnętrzna notatka",
+            tags=[],
+            created_at="2026-01-01T00:00:00+00:00",
+            updated_at="2026-01-01T00:00:00+00:00",
+        ),
         "treść zewnętrzna",
     )
     result = service.reindex("ws", owner_id="u1", ws_path=str(workspace))
@@ -129,6 +131,51 @@ def test_restore_version_reverts_content(service, workspace):
 
     current = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert current.content == "treść oryginalna"
+
+
+def test_restore_version_reverts_tags_and_extras(service, workspace):
+    """#105: restoring a version brings back its tags AND custom frontmatter keys, not
+    the current state — while id/created_at/title/folder stay put and updated_at bumps."""
+    from dataclasses import replace
+    from pathlib import Path
+
+    from kajet_turbo.repositories.git import GitRepository
+    from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
+
+    result = service.save("u1", "ws", str(workspace), "Historia", "treść v1", ["stary"])
+    note_id = result["note_id"]
+    original_note = service._crud_repo.get(note_id, owner_id="u1")
+
+    path = note_filepath(str(workspace), "", "Historia")
+    meta, content = read_note_file(path)
+    write_note_file(path, replace(meta, extras={"aliases": ["V1"]}), content)
+    relative = str(Path(path).relative_to(workspace))
+    GitRepository(str(workspace)).commit_file(relative, "note: hand-edit extras for v1")
+    sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha_v1,
+        content="treść v2",
+        tags=["nowy"],
+    )
+
+    service.restore_version(note_id, sha_v1, owner_id="u1", ws_path=str(workspace))
+
+    current = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert current.content == "treść v1"
+    assert current.tags == ["stary"]
+    restored_meta, _ = read_note_file(path)
+    assert restored_meta.extras == {"aliases": ["V1"]}
+
+    restored_note = service._crud_repo.get(note_id, owner_id="u1")
+    assert restored_note.id == original_note.id
+    assert restored_note.created_at == original_note.created_at
+    assert restored_note.title == original_note.title
+    assert restored_note.folder == original_note.folder
+    assert restored_note.updated_at != original_note.updated_at
 
 
 def test_restore_version_still_works_after_expected_sha_added(service, workspace):

@@ -4,6 +4,7 @@ import pytest
 
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.workspace import (
+    NoteFrontmatter,
     create_workspace,
     normalize_folder,
     note_filepath,
@@ -123,20 +124,20 @@ def test_note_filepath_sanitizes_title():
 
 def test_write_and_read_note_file(workspace):
     path = note_filepath(str(workspace), "", "Test Note")
-    write_note_file(
-        path,
-        note_id="abc1234",
+    meta = NoteFrontmatter(
+        id="abc1234",
         title="Test Note",
         tags=["python"],
         created_at="2026-06-08T12:00:00+00:00",
         updated_at="2026-06-08T12:00:00+00:00",
-        content="# Hello\n\nTreść notatki.",
     )
-    result = read_note_file(path)
-    assert result["id"] == "abc1234"
-    assert result["title"] == "Test Note"
-    assert result["tags"] == ["python"]
-    assert "Treść notatki" in result["content"]
+    write_note_file(path, meta, "# Hello\n\nTreść notatki.")
+    result, content = read_note_file(path)
+    assert result.id == "abc1234"
+    assert result.title == "Test Note"
+    assert result.tags == ["python"]
+    assert result.extras == {}
+    assert "Treść notatki" in content
 
 
 def test_write_note_file_failure_keeps_previous_file(workspace, monkeypatch):
@@ -150,43 +151,98 @@ def test_write_note_file_failure_keeps_previous_file(workspace, monkeypatch):
         raise OSError("disk full")
 
     monkeypatch.setattr(workspace_module.frontmatter, "dump", fail_after_partial_write)
+    meta = NoteFrontmatter(
+        id="abc1234",
+        title="Test Note",
+        tags=[],
+        created_at="2026-06-08T12:00:00+00:00",
+        updated_at="2026-06-08T12:01:00+00:00",
+    )
     with pytest.raises(OSError, match="disk full"):
-        write_note_file(
-            path,
-            note_id="abc1234",
-            title="Test Note",
-            tags=[],
-            created_at="2026-06-08T12:00:00+00:00",
-            updated_at="2026-06-08T12:01:00+00:00",
-            content="replacement",
-        )
+        write_note_file(path, meta, "replacement")
 
     assert Path(path).read_text() == "previous content"
     assert list(Path(path).parent.glob(f".{Path(path).name}.*.tmp")) == []
+
+
+def test_note_frontmatter_rejects_extras_shadowing_reserved_key():
+    with pytest.raises(ValueError, match="tags"):
+        NoteFrontmatter(
+            id="id1",
+            title="Title",
+            tags=[],
+            created_at=None,
+            updated_at=None,
+            extras={"tags": ["sneaky"]},
+        )
+
+
+def test_write_note_file_round_trips_hand_written_extras(workspace):
+    path = note_filepath(str(workspace), "", "Test Note")
+    Path(path).write_text(
+        "---\n"
+        "id: abc1234\n"
+        "title: Test Note\n"
+        "tags: []\n"
+        "created_at: 2026-06-08T12:00:00+00:00\n"
+        "updated_at: 2026-06-08T12:00:00+00:00\n"
+        "aliases:\n"
+        "  - Old Name\n"
+        "---\n"
+        "Body.\n"
+    )
+    meta, content = read_note_file(path)
+    assert meta.extras == {"aliases": ["Old Name"]}
+
+    write_note_file(path, meta, content)
+    reread_meta, reread_content = read_note_file(path)
+    assert reread_meta.extras == {"aliases": ["Old Name"]}
+    assert reread_content.strip() == "Body."
+
+
+def test_write_note_file_key_order_is_deterministic(workspace):
+    """extras insertion order must not leak into the written frontmatter block —
+    yaml.safe_dump sorts keys, so the same fields written in a different order
+    produce byte-identical output. Pins #105's "no churn per save" invariant."""
+    path_a = note_filepath(str(workspace), "", "Note A")
+    path_b = note_filepath(str(workspace), "", "Note B")
+    common = {
+        "id": "id1",
+        "title": "Note",
+        "tags": ["a", "b"],
+        "created_at": "2026-06-08T12:00:00+00:00",
+        "updated_at": "2026-06-08T12:00:00+00:00",
+    }
+    write_note_file(path_a, NoteFrontmatter(**common, extras={"z_key": 1, "a_key": 2}), "Body.")
+    write_note_file(path_b, NoteFrontmatter(**common, extras={"a_key": 2, "z_key": 1}), "Body.")
+    text_a = Path(path_a).read_text()
+    text_b = Path(path_b).read_text()
+    assert text_a.replace("Note A", "Note").replace("Note B", "Note") == text_b
 
 
 def test_scan_notes_finds_all_including_subfolders(workspace):
     for i in range(2):
         path = note_filepath(str(workspace), "", f"Notatka {i}")
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        write_note_file(
-            path,
-            f"id{i}",
-            f"Notatka {i}",
-            [],
-            "2026-06-08T12:00:00+00:00",
-            "2026-06-08T12:00:00+00:00",
-            f"treść {i}",
+        meta = NoteFrontmatter(
+            id=f"id{i}",
+            title=f"Notatka {i}",
+            tags=[],
+            created_at="2026-06-08T12:00:00+00:00",
+            updated_at="2026-06-08T12:00:00+00:00",
         )
+        write_note_file(path, meta, f"treść {i}")
     path_sub = note_filepath(str(workspace), "Projekty", "Sub-notatka")
     Path(path_sub).parent.mkdir(parents=True, exist_ok=True)
     write_note_file(
         path_sub,
-        "idsub",
-        "Sub-notatka",
-        [],
-        "2026-06-08T12:00:00+00:00",
-        "2026-06-08T12:00:00+00:00",
+        NoteFrontmatter(
+            id="idsub",
+            title="Sub-notatka",
+            tags=[],
+            created_at="2026-06-08T12:00:00+00:00",
+            updated_at="2026-06-08T12:00:00+00:00",
+        ),
         "sub",
     )
     notes = scan_notes(str(workspace))
@@ -200,11 +256,13 @@ def test_scan_notes_ignores_non_note_md(workspace):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     write_note_file(
         path,
-        "r1",
-        "Real Note",
-        [],
-        "2026-06-08T12:00:00+00:00",
-        "2026-06-08T12:00:00+00:00",
+        NoteFrontmatter(
+            id="r1",
+            title="Real Note",
+            tags=[],
+            created_at="2026-06-08T12:00:00+00:00",
+            updated_at="2026-06-08T12:00:00+00:00",
+        ),
         "content",
     )
     notes = scan_notes(str(workspace))

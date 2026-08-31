@@ -72,7 +72,7 @@ class ReconcileLinksHandler:
             content = None
             if path is not None and Path(path).is_file():
                 with suppress(FileNotFoundError):
-                    content = read_note_file(path)["content"]
+                    _, content = read_note_file(path)
             states[source_id] = _SourceState(note, path, content)
         return states
 

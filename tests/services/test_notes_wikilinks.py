@@ -198,6 +198,29 @@ def test_rename_via_update_rewrites_backlink(service, workspace):
     assert "[[Renamed]]" in src.content
 
 
+def test_rename_via_update_backlink_rewrite_preserves_source_extras(service, workspace):
+    """#105: _rewrite_backlinks used to source tags/dates from the DB row after already
+    reading (and discarding) the file — every rename dropped a linking note's custom
+    frontmatter keys. It must now come from what was actually read."""
+    from dataclasses import replace
+
+    from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
+
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
+    src_path = note_filepath(str(workspace), "", "Source")
+    src_meta, src_content = read_note_file(src_path)
+    write_note_file(src_path, replace(src_meta, extras={"aliases": ["Old Source"]}), src_content)
+
+    sha = service.get_history(tid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(tid, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="Renamed")
+
+    src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
+    assert "[[Renamed]]" in src.content
+    after_meta, _ = read_note_file(src_path)
+    assert after_meta.extras == {"aliases": ["Old Source"]}
+
+
 def test_rewrite_backlinks_write_failing_partway_rolls_back_and_makes_no_commit(
     service, workspace, monkeypatch
 ):

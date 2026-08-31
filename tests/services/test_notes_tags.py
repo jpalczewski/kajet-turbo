@@ -1,8 +1,10 @@
 """Tag indexing plus add/remove/set-tags/rename_tag coverage for NoteService."""
 
+from dataclasses import replace
+
 import pytest
 
-from kajet_turbo.workspace import note_filepath, read_note_file
+from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
 
 
 def test_save_indexes_frontmatter_and_inline_tags(service, workspace):
@@ -84,6 +86,20 @@ def test_add_tags_unions_into_frontmatter(service, workspace):
     after = service._crud_repo.get(note_id, owner_id="u1")
     assert after is not None
     assert after.index_generation == before.index_generation
+
+
+def test_add_tags_preserves_hand_written_extras(service, workspace):
+    """#105: _apply_tag_change only ever changed tags, but reconstructed the whole
+    file from five scalars — any other frontmatter key was silently dropped."""
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python"])["note_id"]
+    path = note_filepath(str(workspace), "", "Notka")
+    meta, content = read_note_file(path)
+    write_note_file(path, replace(meta, extras={"aliases": ["Old Name"]}), content)
+
+    service.add_tags(note_id, "u1", str(workspace), ["work"])
+
+    after_meta, _ = read_note_file(path)
+    assert after_meta.extras == {"aliases": ["Old Name"]}
 
 
 def test_add_tags_idempotent_no_extra_commit(service, workspace):
@@ -182,6 +198,21 @@ def test_rename_tag_moves_the_subtree_and_spares_lookalikes(service, workspace):
     assert paths == {"job", "job/projects", "workflow"}
 
 
+def test_rename_tag_preserves_hand_written_extras(service, workspace):
+    """#105: rename_tag builds its own frontmatter from five scalars, dropping any
+    other key — pinned separately from _apply_tag_change's shared path."""
+    service.save("u1", "ws", str(workspace), "A", "body", ["work"])
+    path = note_filepath(str(workspace), "", "A")
+    meta, content = read_note_file(path)
+    write_note_file(path, replace(meta, extras={"aliases": ["Old A"]}), content)
+
+    result = _rename(service, workspace, "work", "job")
+
+    assert result["renamed"] == 1
+    after_meta, _ = read_note_file(path)
+    assert after_meta.extras == {"aliases": ["Old A"]}
+
+
 def test_rename_tag_rewrites_inline_hashtags_so_the_old_tag_stays_gone(service, workspace):
     # Without the body rewrite, sync_tags would union '#cwiczenia' straight back in.
     saved = service.save("u1", "ws", str(workspace), "A", "patrz #cwiczenia tutaj", [])
@@ -268,6 +299,10 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(service, work
 
     a = service.save("u1", "ws", str(workspace), "A", "body", ["work"])
     service.save("u1", "ws", str(workspace), "B", "body", ["work"])
+    # A hand-written extra key must survive the rollback exactly like the tags do (#105).
+    a_path = note_filepath(str(workspace), "", "A")
+    a_meta, a_content = read_note_file(a_path)
+    write_note_file(a_path, replace(a_meta, extras={"aliases": ["Old A"]}), a_content)
     head_before = service.get_history(a["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     real_write = tags_module.write_note_file
@@ -287,8 +322,10 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(service, work
     # The files are the source of truth here — NoteData.tags reads the DB row, which the
     # aborted rename never reached.
     for title in ("A", "B"):
-        on_disk = read_note_file(note_filepath(str(workspace), "", title))
-        assert on_disk["tags"] == ["work"]
+        on_disk, _ = read_note_file(note_filepath(str(workspace), "", title))
+        assert on_disk.tags == ["work"]
+    a_meta_after, _ = read_note_file(a_path)
+    assert a_meta_after.extras == {"aliases": ["Old A"]}
     assert service.get_history(a["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"] == (
         head_before
     )

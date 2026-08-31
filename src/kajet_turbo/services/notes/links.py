@@ -352,8 +352,7 @@ class NoteLinkService:
             loc = locate_note(src, ws_path)
             if not loc.file_exists:
                 continue
-            data = read_note_file(loc.filepath)
-            old_content = data["content"]
+            data_meta, old_content = read_note_file(loc.filepath)
             # A source that moved along with its targets (folder move) must be ranked from
             # where it *was* when its links were written, not from its new folder.
             new_body, changed = rewrite_wikilinks(
@@ -366,30 +365,14 @@ class NoteLinkService:
             )
             if not changed:
                 continue
-            tags = json.loads(src.tags or "[]")
+            # Identity stays DB-sourced defensively; tags/dates/extras come from the file
+            # just read, not the DB row — this rewrite never changes them (#105).
+            meta = replace(data_meta, id=src.id, title=src.title)
             items.append(
                 StagedWrite(
                     relative=loc.relative,
-                    apply=partial(
-                        write_note_file,
-                        loc.filepath,
-                        src.id,
-                        src.title,
-                        tags,
-                        src.created_at,
-                        src.updated_at,
-                        new_body,
-                    ),
-                    restore=partial(
-                        write_note_file,
-                        loc.filepath,
-                        src.id,
-                        src.title,
-                        tags,
-                        src.created_at,
-                        src.updated_at,
-                        old_content,
-                    ),
+                    apply=partial(write_note_file, loc.filepath, meta, new_body),
+                    restore=partial(write_note_file, loc.filepath, meta, old_content),
                 )
             )
             rewrites.append((src.id, new_body, src.updated_at))
