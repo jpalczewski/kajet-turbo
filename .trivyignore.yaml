@@ -107,6 +107,14 @@ vulnerabilities:
       - "pkg:golang/stdlib@v1.26.3"
     expired_at: 2026-09-30
     statement: Awaiting a Caddy release built with patched Go dependencies.
+  - id: CVE-2026-56854
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/golang.org/x/crypto@v0.52.0"]
+    expired_at: 2026-09-30
+    statement: >-
+      golang.org/x/crypto/ssh auth-bypass fix, not yet in an upstream Caddy release.
+      This ingress image runs Caddy as a reverse proxy / static file server only —
+      no SSH server or client functionality is exposed.
   - id: CVE-2026-56852
     paths: [usr/bin/caddy]
     purls: ["pkg:golang/golang.org/x/text@v0.37.0"]

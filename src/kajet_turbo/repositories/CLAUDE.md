@@ -34,6 +34,10 @@ Separately: when a repository composes another one inside its own session, it ca
 job row commit together, and so no second write session opens against SQLite while the
 outer one already holds the write lock. Calling `enqueue()` there would cost both.
 
+`#142` tracks replacing the `ContextVar` coupling above with an explicit return value —
+the ordering hazard this section describes is a known, tracked wart, not an accepted
+permanent shape.
+
 ## Index generation is a cross-process compare-and-swap
 
 Nothing locks an editing request against the indexing worker — they are routinely in
@@ -87,6 +91,9 @@ Reuse one of the reason texts already in the package (`raw SQL`, `DELETE stateme
 `sqlite INSERT ON CONFLICT requires execute(), not exec()`) rather than inventing a new
 phrasing. Normalize stragglers in code you are already changing; do not open a pass over
 the rest.
+
+`#141` tracks collapsing the ~96 occurrences of this shape into one `DbRepository` helper.
+Once it lands, call that helper instead of repeating the pattern by hand.
 
 ## A returned row must be safe to read after its session closes
 
