@@ -346,6 +346,84 @@ def test_reconcile_heals_dangling_link_when_target_removed(database, git_workspa
     assert dangling.exists("u1", "ws") is True
 
 
+def test_reconcile_adopts_headless_file_preserving_extras_in_one_commit(
+    service, workspace, note_file_factory
+):
+    """A hand-written file with no ``id`` is adopted: a fresh id is generated, written
+    back into frontmatter, committed, and inserted into the DB — the whole point of
+    #108. Custom frontmatter keys (``aliases``) must survive the round trip untouched."""
+    from kajet_turbo.repositories.git import GitRepository
+    from kajet_turbo.workspace import read_note_file
+
+    path = note_file_factory(
+        workspace, "Hand-written", note_id=None, tags=["x"], extras={"aliases": ["hw"]}
+    )
+    relative = _rel(workspace, path)
+
+    report = service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=[relative])
+
+    assert len(report.adopted) == 1
+    new_id = report.adopted[0]
+    assert report.inserted == [new_id]
+
+    meta, _content = read_note_file(path)
+    assert meta.id == new_id
+    assert meta.extras == {"aliases": ["hw"]}
+
+    note = service._crud_repo.get(new_id, owner_id="u1")
+    assert note is not None and note.title == "Hand-written"
+
+    history = GitRepository(str(workspace)).file_history(relative, limit=5)
+    assert [h["message"] for h in history] == ["note: adopt 1 file"]
+
+
+def test_reconcile_batches_multiple_adoptions_into_one_commit(
+    service, workspace, note_file_factory
+):
+    from kajet_turbo.repositories.git import GitRepository
+
+    paths = [
+        _rel(workspace, note_file_factory(workspace, f"Headless {i}", note_id=None))
+        for i in range(3)
+    ]
+
+    report = service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=paths)
+
+    assert len(report.adopted) == 3
+    git_repo = GitRepository(str(workspace))
+    histories = git_repo.file_histories(paths, limit=5)
+    shas = {h[0]["sha"] for h in histories.values()}
+    messages = {h[0]["message"] for h in histories.values()}
+    # All three adoptions land in the SAME commit, not one commit per file.
+    assert len(shas) == 1
+    assert messages == {"note: adopt 3 files"}
+
+
+def test_reconcile_adoption_failure_restores_file_and_skips_db_insert(
+    service, workspace, note_file_factory, monkeypatch
+):
+    """A failed batch commit must roll back every file it touched and never reach the
+    DB transaction — same all-or-nothing contract as save_many/delete_many."""
+    from kajet_turbo.repositories.git import GitError, GitRepository
+
+    path = note_file_factory(workspace, "Doomed", note_id=None, extras={"aliases": ["d"]})
+    relative = _rel(workspace, path)
+    original_bytes = Path(path).read_bytes()
+
+    def boom(self, relative_paths, message):
+        raise GitError("simulated commit failure")
+
+    monkeypatch.setattr(GitRepository, "commit_files", boom)
+
+    with pytest.raises(GitError, match="simulated commit failure"):
+        service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=[relative])
+
+    # Nothing changed: the file is byte-identical to before, no id was left half-written.
+    assert Path(path).read_bytes() == original_bytes
+    # No DB row exists for any id — the only candidate id was never committed.
+    assert service._crud_repo.list_paths("ws", "u1") == []
+
+
 def test_reconcile_holds_workspace_lock_against_concurrent_save(
     service, workspace, note_file_factory, monkeypatch
 ):

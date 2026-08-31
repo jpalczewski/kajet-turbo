@@ -117,6 +117,36 @@ class _PresentFile:
     relative: str
 
 
+def _present_file(
+    note_id: str, meta: NoteFrontmatter, content: str, folder: str, relative: str
+) -> _PresentFile:
+    return _PresentFile(
+        note_id=note_id,
+        title=meta.title or "",
+        tags=NoteTagService.normalize_tags(cast(list[str], meta.tags or [])),
+        created_at=str(meta.created_at or ""),
+        updated_at=str(meta.updated_at or ""),
+        content=content,
+        folder=folder,
+        relative=relative,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _AdoptionCandidate:
+    """An on-disk file with no ``id`` in frontmatter, found during a reconcile scan."""
+
+    relative: str
+    filepath: Path
+    meta: NoteFrontmatter
+    content: str
+
+
+def _restore_bytes(path: Path, data: bytes) -> None:
+    """``Path.write_bytes`` returns the byte count; ``StagedWrite.restore`` wants ``None``."""
+    path.write_bytes(data)
+
+
 @dataclass(frozen=True, slots=True)
 class ReconcileReport:
     """Outcome of reconciling DB rows against a set of workspace paths."""
@@ -127,6 +157,7 @@ class ReconcileReport:
     unchanged: int
     duplicate_ids: list[str]
     unreadable_paths: list[str]
+    adopted: list[str]
 
     @property
     def present(self) -> int:
@@ -1227,6 +1258,10 @@ class NoteService:
           deletion, since "unreadable" is not evidence the note is gone.
         - Two files sharing an id: the first (sorted path order) is reconciled; the rest are
           reported in ``duplicate_ids`` and left untouched — never last-write-wins.
+        - A file with no ``id`` is adopted, not skipped: a fresh id is generated and written
+          back into its frontmatter (every other key preserved via
+          ``NoteFrontmatter.extras``), then it is treated like any newly-present note. All
+          adoptions in one run share a single git commit.
         """
         start = time.monotonic()
         root = Path(ws_path)
@@ -1235,6 +1270,7 @@ class NoteService:
         present: dict[str, _PresentFile] = {}
         duplicate_ids: list[str] = []
         unreadable_paths: list[str] = []
+        adoption_candidates: list[_AdoptionCandidate] = []
         for relative in sorted(scoped_paths):
             filepath = root / relative
             if not filepath.exists():
@@ -1248,6 +1284,11 @@ class NoteService:
                 )
                 continue
             if not meta.id:
+                adoption_candidates.append(
+                    _AdoptionCandidate(
+                        relative=relative, filepath=filepath, meta=meta, content=content
+                    )
+                )
                 continue
             if meta.id in present:
                 duplicate_ids.append(meta.id)
@@ -1259,16 +1300,45 @@ class NoteService:
                     kept_path=present[meta.id].relative,
                 )
                 continue
-            present[meta.id] = _PresentFile(
-                note_id=meta.id,
-                title=meta.title or "",
-                tags=NoteTagService.normalize_tags(cast(list[str], meta.tags or [])),
-                created_at=str(meta.created_at or ""),
-                updated_at=str(meta.updated_at or ""),
-                content=content,
-                folder=note_folder(ws_path, filepath),
-                relative=relative,
+            present[meta.id] = _present_file(
+                meta.id, meta, content, note_folder(ws_path, filepath), relative
             )
+
+        adopted_ids: list[str] = []
+        if adoption_candidates:
+            items: list[StagedWrite] = []
+            pending: list[tuple[str, _AdoptionCandidate]] = []
+            for candidate in adoption_candidates:
+                new_id = generate(size=7)
+                new_meta = replace(candidate.meta, id=new_id)
+                original_bytes = candidate.filepath.read_bytes()
+                items.append(
+                    StagedWrite(
+                        relative=candidate.relative,
+                        apply=partial(
+                            write_note_file, str(candidate.filepath), new_meta, candidate.content
+                        ),
+                        restore=partial(_restore_bytes, candidate.filepath, original_bytes),
+                    )
+                )
+                pending.append((new_id, candidate))
+            n = len(items)
+            with staged_note_write(
+                GitRepository(ws_path), items, f"note: adopt {n} file{'' if n == 1 else 's'}"
+            ):
+                pass
+            for new_id, candidate in pending:
+                present[new_id] = _present_file(
+                    new_id,
+                    candidate.meta,
+                    candidate.content,
+                    note_folder(ws_path, candidate.filepath),
+                    candidate.relative,
+                )
+                adopted_ids.append(new_id)
+                logger.info(
+                    "reconcile_note_adopted", ws=ws_name, note_id=new_id, path=candidate.relative
+                )
 
         present_ids = set(present)
         # A path that failed to parse is not evidence its row is gone — drop it from the
@@ -1441,6 +1511,7 @@ class NoteService:
             unchanged=unchanged,
             duplicates=len(duplicate_ids),
             unreadable=len(unreadable_paths),
+            adopted=len(adopted_ids),
             duration_ms=round((time.monotonic() - start) * 1000),
         )
         return ReconcileReport(
@@ -1450,6 +1521,7 @@ class NoteService:
             unchanged=unchanged,
             duplicate_ids=duplicate_ids,
             unreadable_paths=unreadable_paths,
+            adopted=adopted_ids,
         )
 
     def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
@@ -1464,11 +1536,12 @@ class NoteService:
             for n in indexed
         }
         report = self.reconcile_paths(ws_name, owner_id, ws_path, disk_paths | db_paths)
+        adopted_clause = f", {len(report.adopted)} adopted" if report.adopted else ""
         return {
             "message": (
                 f"Reconciled workspace '{ws_name}': {len(report.inserted)} inserted, "
                 f"{len(report.updated)} updated, {len(report.removed)} removed, "
-                f"{report.unchanged} unchanged."
+                f"{report.unchanged} unchanged{adopted_clause}."
             ),
             "count": report.present,
         }
