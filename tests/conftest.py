@@ -99,7 +99,7 @@ def note_file_factory() -> Callable[..., str]:
         workspace: str | Path,
         title: str = "Test Note",
         *,
-        note_id: str = "note-001",
+        note_id: str | None = "note-001",
         folder: str = "",
         tags: list[str] | None = None,
         content: str = "Test content",
