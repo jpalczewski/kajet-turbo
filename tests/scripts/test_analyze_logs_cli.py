@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 _spec = importlib.util.spec_from_file_location(
     "analyze_logs", Path(__file__).parent.parent.parent / "scripts" / "analyze-logs.py"
 )
+assert _spec is not None and _spec.loader is not None  # a file that exists always yields both
 analyze_logs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(analyze_logs)
 
