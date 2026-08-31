@@ -162,8 +162,8 @@ def test_save_many_filename_collision_dedup(service, workspace):
     # The surviving file's content must belong to the FIRST note.
     from kajet_turbo.workspace import read_note_file
 
-    data = read_note_file(str(md_files[0]))
-    assert data["content"].strip() == "first"
+    _, content = read_note_file(str(md_files[0]))
+    assert content.strip() == "first"
 
     # DB row for the first note exists; no second row for "A B".
     note = service._crud_repo.get(results[0]["note_id"], owner_id="u1")

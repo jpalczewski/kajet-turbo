@@ -38,7 +38,7 @@ import shutil
 
 from kajet_turbo.db import Database
 from kajet_turbo.repositories.git import GitRepository
-from kajet_turbo.workspace import note_filepath, write_note_file
+from kajet_turbo.workspace import NoteFrontmatter, note_filepath, write_note_file
 
 
 @pytest.fixture(scope="session")
@@ -105,17 +105,18 @@ def note_file_factory() -> Callable[..., str]:
         content: str = "Test content",
         created_at: str = "2026-01-01T00:00:00+00:00",
         updated_at: str = "2026-01-01T00:00:00+00:00",
+        extras: dict[str, object] | None = None,
     ) -> str:
         path = note_filepath(str(workspace), folder, title)
-        write_note_file(
-            path,
-            note_id,
-            title,
-            tags or [],
-            created_at,
-            updated_at,
-            content,
+        meta = NoteFrontmatter(
+            id=note_id,
+            title=title,
+            tags=tags or [],
+            created_at=created_at,
+            updated_at=updated_at,
+            extras=extras or {},
         )
+        write_note_file(path, meta, content)
         return path
 
     return create

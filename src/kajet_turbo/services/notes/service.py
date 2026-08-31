@@ -53,11 +53,12 @@ from kajet_turbo.services.notes.types import NoteData
 from kajet_turbo.workspace import (
     InvalidFolderError,
     LocatedNote,
-    extract_note_fields,
+    NoteFrontmatter,
     locate_note,
     normalize_folder,
     note_filepath,
     note_folder,
+    parse_frontmatter,
     read_note_file,
     scan_notes,
     write_note_file,
@@ -81,6 +82,7 @@ class _PreparedEdit:
     index: int
     note_id: str
     loc: LocatedNote
+    meta: NoteFrontmatter
     old_content: str
     old_tags: list[str]
     new_content: str
@@ -208,7 +210,7 @@ class NoteService:
             raise ValueError(
                 f"Notatka {loc.note.id} nie ma historii commitów (niespójny stan repo)."
             )
-        content = read_note_file(loc.filepath)["content"]
+        _, content = read_note_file(loc.filepath)
         return NoteData(
             note_id=loc.note.id,
             workspace=loc.note.workspace,
@@ -276,9 +278,10 @@ class NoteService:
         now = datetime.now(UTC).isoformat()
         filepath = note_filepath(ws_path, folder, title)
         relative = str(Path(filepath).relative_to(ws_path))
+        meta = NoteFrontmatter(id=note_id, title=title, tags=tags, created_at=now, updated_at=now)
         item = StagedWrite(
             relative=relative,
-            apply=partial(write_note_file, filepath, note_id, title, tags, now, now, content),
+            apply=partial(write_note_file, filepath, meta, content),
             restore=partial(Path(filepath).unlink, missing_ok=True),
         )
         with staged_note_write(GitRepository(ws_path), [item], f"note: add {title}"):
@@ -390,11 +393,13 @@ class NoteService:
                 apply=partial(
                     write_note_file,
                     s["filepath"],
-                    s["note_id"],
-                    s["title"],
-                    s["tags"],
-                    now,
-                    now,
+                    NoteFrontmatter(
+                        id=s["note_id"],
+                        title=s["title"],
+                        tags=s["tags"],
+                        created_at=now,
+                        updated_at=now,
+                    ),
                     s["content"],
                 ),
                 restore=partial(Path(s["filepath"]).unlink, missing_ok=True),
@@ -538,7 +543,7 @@ class NoteService:
         filepath = note_filepath(ws_path, note.folder, note.title)
         if not Path(filepath).exists():
             return None
-        content = read_note_file(filepath)["content"]
+        _, content = read_note_file(filepath)
         sections, preamble_chars, preamble_lines = build_outline(content)
         return {
             "note_id": note.id,
@@ -572,7 +577,7 @@ class NoteService:
             filepath = note_filepath(ws_path, note.folder, note.title)
             if not Path(filepath).exists():
                 continue
-            content = read_note_file(filepath)["content"]
+            _, content = read_note_file(filepath)
             heading_path = join_target(note.folder, note.title)
             tags = json.loads(note.tags or "[]")
             tag_line = f"_Tagi: {', '.join(tags)}_\n\n" if tags else ""
@@ -658,10 +663,9 @@ class NoteService:
             if scope is not None and not (folder == scope or folder.startswith(scope + "/")):
                 continue
             raw = filepath.read_text(encoding="utf-8")
-            fields = extract_note_fields(frontmatter.loads(raw))
-            note_id = str(fields["id"] or "")
-            title = str(fields["title"] or "")
-            content = fields["content"]
+            meta, content = parse_frontmatter(frontmatter.loads(raw))
+            note_id = str(meta.id or "")
+            title = str(meta.title or "")
             # line_number is relative to the note body (what get_note returns as
             # `content`), since that's the only view an agent can act on — a raw
             # file line number would point at nothing in the API response. Offset
@@ -705,6 +709,8 @@ class NoteService:
         old_str: str | None = None,
         new_str: str | None = None,
         replace_all: bool = False,
+        *,
+        extras: dict[str, object] | None = None,
     ) -> dict:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
@@ -736,8 +742,8 @@ class NoteService:
                 )
             if Path(new_path).exists():
                 raise FileExistsError(f"Plik docelowy '{new_rel}' już istnieje.")
-        note_data = read_note_file(old_path)
-        old_content = note_data["content"]
+        existing_meta, old_content = read_note_file(old_path)
+        new_extras = extras if extras is not None else existing_meta.extras
         # apply_edit owns every mode/parameter rule, including "overwrite without content
         # leaves the body alone" — the metadata-only edit path.
         edit_result = apply_edit(
@@ -770,28 +776,27 @@ class NoteService:
         if old_path != new_path:
             Path(new_path).parent.mkdir(parents=True, exist_ok=True)
             repo.rename_file(old_rel, new_rel, f"note: rename to {new_title}")
+        apply_meta = replace(
+            existing_meta,
+            id=note_id,
+            title=new_title,
+            tags=new_tags,
+            created_at=note.created_at,
+            updated_at=now,
+            extras=new_extras,
+        )
+        restore_meta = replace(
+            existing_meta,
+            id=note_id,
+            title=note.title,
+            tags=current_tags,
+            created_at=note.created_at,
+            updated_at=note.updated_at,
+        )
         item = StagedWrite(
             relative=new_rel,
-            apply=partial(
-                write_note_file,
-                new_path,
-                note_id,
-                new_title,
-                new_tags,
-                note.created_at,
-                now,
-                new_content,
-            ),
-            restore=partial(
-                write_note_file,
-                new_path,
-                note_id,
-                note.title,
-                current_tags,
-                note.created_at,
-                note.updated_at,
-                old_content,
-            ),
+            apply=partial(write_note_file, new_path, apply_meta, new_content),
+            restore=partial(write_note_file, new_path, restore_meta, old_content),
         )
         with staged_note_write(repo, [item], f"note: update {new_title}"):
             pass
@@ -869,8 +874,7 @@ class NoteService:
                 errors.append(item.as_dict())
                 continue
             index, raw, note_id, loc = item.index, item.raw, item.note_id, item.loc
-            note_data = read_note_file(loc.filepath)
-            old_content = note_data["content"]
+            existing_meta, old_content = read_note_file(loc.filepath)
             # 'overwrite' without content is edit_note's metadata-only path, but this batch
             # cannot rename or move — so with no tags either, the item has nothing left to
             # change and would commit an untouched file while reporting success. Every other
@@ -909,7 +913,7 @@ class NoteService:
                 errors.append({"index": index, "note_id": note_id, "error": str(e)})
                 continue
             raw_tags = raw.get("tags")
-            current_tags = NoteTagService.normalize_tags(note_data["tags"])
+            current_tags = NoteTagService.normalize_tags(existing_meta.tags)
             new_tags = (
                 NoteTagService.normalize_tags(raw_tags) if raw_tags is not None else current_tags
             )
@@ -918,6 +922,7 @@ class NoteService:
                     index=index,
                     note_id=note_id,
                     loc=loc,
+                    meta=existing_meta,
                     old_content=old_content,
                     old_tags=current_tags,
                     new_content=new_content,
@@ -938,21 +943,27 @@ class NoteService:
                 apply=partial(
                     write_note_file,
                     p.loc.filepath,
-                    p.note_id,
-                    p.loc.note.title,
-                    p.new_tags,
-                    p.loc.note.created_at,
-                    now,
+                    replace(
+                        p.meta,
+                        id=p.note_id,
+                        title=p.loc.note.title,
+                        tags=p.new_tags,
+                        created_at=p.loc.note.created_at,
+                        updated_at=now,
+                    ),
                     p.new_content,
                 ),
                 restore=partial(
                     write_note_file,
                     p.loc.filepath,
-                    p.note_id,
-                    p.loc.note.title,
-                    p.old_tags,
-                    p.loc.note.created_at,
-                    p.loc.note.updated_at,
+                    replace(
+                        p.meta,
+                        id=p.note_id,
+                        title=p.loc.note.title,
+                        tags=p.old_tags,
+                        created_at=p.loc.note.created_at,
+                        updated_at=p.loc.note.updated_at,
+                    ),
                     p.old_content,
                 ),
             )
@@ -1178,8 +1189,8 @@ class NoteService:
         tagged_by_note = {}
         for note in notes:
             content = note.content
-            # note.tags is already list[str]: extract_note_fields coerces a non-list
-            # frontmatter `tags:` (hand-edited scalar) to [] at read time, so #105's
+            # note.tags is already list[str]: parse_frontmatter coerces a non-list
+            # frontmatter `tags:` (hand-edited scalar) to [] at read time, so that
             # scalar-YAML-tags boundary can no longer be reached from here.
             fm_tags = NoteTagService.normalize_tags(cast(list[str], note.tags or []))
             assert note.note_id is not None  # filtered above; narrows for dict keys
@@ -1246,6 +1257,8 @@ class NoteService:
             ws_path=ws_path,
             expected_sha=current_sha,
             content=version["content"],
+            tags=version["tags"],
+            extras=version["extras"],
         )
 
     # Delegation to peer services (public API unchanged):

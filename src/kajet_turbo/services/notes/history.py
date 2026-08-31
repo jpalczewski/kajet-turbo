@@ -5,7 +5,7 @@ import frontmatter
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
-from kajet_turbo.workspace import extract_note_fields, note_filepath
+from kajet_turbo.workspace import note_filepath, parse_frontmatter
 
 
 class NoteVersionService:
@@ -37,7 +37,7 @@ class NoteVersionService:
         filepath = note_filepath(ws_path, note.folder, note.title)
         relative = str(Path(filepath).relative_to(ws_path))
         raw = GitRepository(ws_path).file_content_at_commit(relative, sha)
-        fields = extract_note_fields(frontmatter.loads(raw))
+        meta, content = parse_frontmatter(frontmatter.loads(raw))
 
         def or_default(value, default):
             return value if value is not None else default
@@ -46,11 +46,12 @@ class NoteVersionService:
             "note_id": note_id,
             "workspace": note.workspace,
             "owner_id": note.owner_id,
-            "title": str(or_default(fields["title"], note.title)),
+            "title": str(or_default(meta.title, note.title)),
             "folder": note.folder,
-            "tags": fields["tags"],
-            "created_at": str(or_default(fields["created_at"], note.created_at)),
-            "updated_at": str(or_default(fields["updated_at"], note.updated_at)),
-            "content": fields["content"],
+            "tags": meta.tags,
+            "extras": meta.extras,
+            "created_at": str(or_default(meta.created_at, note.created_at)),
+            "updated_at": str(or_default(meta.updated_at, note.updated_at)),
+            "content": content,
             "sha": sha,
         }

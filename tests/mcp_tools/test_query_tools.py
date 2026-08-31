@@ -161,17 +161,19 @@ async def test_export_folder(workspaces_dir, mcp_server):
 
 
 async def test_reindex_workspace(workspaces_dir, mcp_server):
-    from kajet_turbo.workspace import note_filepath, write_note_file
+    from kajet_turbo.workspace import NoteFrontmatter, note_filepath, write_note_file
 
     ws_path = workspaces_dir / "test-ws"
     path = note_filepath(str(ws_path), "", "Reindexed note")
     write_note_file(
         path,
-        "zzz1111",
-        "Reindexed note",
-        ["test"],
-        "2026-06-08T12:00:00+00:00",
-        "2026-06-08T12:00:00+00:00",
+        NoteFrontmatter(
+            id="zzz1111",
+            title="Reindexed note",
+            tags=["test"],
+            created_at="2026-06-08T12:00:00+00:00",
+            updated_at="2026-06-08T12:00:00+00:00",
+        ),
         "treść",
     )
 

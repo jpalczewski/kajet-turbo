@@ -2,9 +2,10 @@ import os
 import re
 import stat
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 import frontmatter
 
@@ -16,18 +17,40 @@ WORKSPACES_DIR = os.getenv("WORKSPACES_DIR", "/workspaces")
 _WINDOWS_FORBIDDEN = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 _WINDOWS_RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", re.IGNORECASE)
 
+RESERVED_FRONTMATTER_KEYS = frozenset({"id", "title", "tags", "created_at", "updated_at"})
+
 
 class InvalidFolderError(ValueError):
     pass
 
 
 @dataclass(frozen=True, slots=True)
+class NoteFrontmatter:
+    """Parsed note frontmatter: the five reserved keys plus everything else in ``extras``.
+
+    ``extras`` cannot shadow a reserved key — validated here so a bad state is rejected
+    where it is built, not where it is next written. Dates deliberately keep PyYAML's
+    ``str | datetime`` behavior; no coercion is added here.
+    """
+
+    id: str | None
+    title: str | None
+    tags: list[str]
+    created_at: str | datetime | None
+    updated_at: str | datetime | None
+    extras: dict[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        shadowed = RESERVED_FRONTMATTER_KEYS & self.extras.keys()
+        if shadowed:
+            raise ValueError(f"extras cannot shadow reserved frontmatter keys: {sorted(shadowed)}")
+
+
+@dataclass(frozen=True, slots=True)
 class ScannedNote:
     """Frontmatter data needed to rebuild the derived note index.
 
-    Dates deliberately keep PyYAML's current ``str | datetime`` behavior until #105
-    centralizes coercion at the file-read boundary. ``tags`` is already normalized to a
-    list by ``read_note_file``/``extract_note_fields``.
+    ``tags`` is already normalized to a list by ``read_note_file``/``parse_frontmatter``.
     """
 
     note_id: str | None
@@ -190,23 +213,23 @@ def note_folder(ws_path: str, path: str | Path) -> str:
     return relative_folder(ws_path, Path(path).parent)
 
 
-def write_note_file(
-    path: str,
-    note_id: str,
-    title: str,
-    tags: list[str],
-    created_at: str,
-    updated_at: str,
-    content: str,
-) -> None:
-    post = frontmatter.Post(
-        content,
-        id=note_id,
-        title=title,
-        tags=tags,
-        created_at=created_at,
-        updated_at=updated_at,
-    )
+def write_note_file(path: str, meta: NoteFrontmatter, body: str) -> None:
+    """Writes ``meta``'s reserved fields and ``extras`` verbatim into ``body``'s frontmatter.
+
+    Builds ``post.metadata`` as a plain dict rather than passing ``extras`` through
+    ``Post(**kwargs)`` — an extras key that isn't a string, or that happens to be named
+    ``content``/``handler``, would otherwise raise or get silently swallowed by
+    ``Post.__init__``'s own parameters.
+    """
+    post = frontmatter.Post(body)
+    post.metadata = {
+        "id": meta.id,
+        "title": meta.title,
+        "tags": meta.tags,
+        "created_at": meta.created_at,
+        "updated_at": meta.updated_at,
+        **meta.extras,
+    }
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -234,28 +257,28 @@ def write_note_file(
         temp.unlink(missing_ok=True)
 
 
-def extract_note_fields(post: frontmatter.Post, *, path: str | None = None) -> dict:
-    """The one place every frontmatter reader extracts fields from a parsed ``Post``.
+def parse_frontmatter(post: frontmatter.Post) -> tuple[NoteFrontmatter, str]:
+    """The one place every frontmatter reader turns a parsed ``Post`` into ``(meta, content)``.
 
     Only a YAML list is a valid ``tags`` value; anything else (a bare scalar from
     hand-edited frontmatter) becomes ``[]`` rather than propagating untyped garbage.
+    Every other top-level key becomes ``meta.extras``, verbatim.
     """
-    tags = post.get("tags", [])
-    fields = {
-        "id": post.get("id"),
-        "title": post.get("title"),
-        "tags": list(tags) if isinstance(tags, list) else [],
-        "created_at": post.get("created_at"),
-        "updated_at": post.get("updated_at"),
-        "content": post.content,
-    }
-    if path is not None:
-        fields["path"] = path
-    return fields
+    metadata: dict[str, object] = dict(post.metadata)
+    tags = metadata.pop("tags", [])
+    meta = NoteFrontmatter(
+        id=cast("str | None", metadata.pop("id", None)),
+        title=cast("str | None", metadata.pop("title", None)),
+        tags=cast("list[str]", list(tags)) if isinstance(tags, list) else [],
+        created_at=cast("str | datetime | None", metadata.pop("created_at", None)),
+        updated_at=cast("str | datetime | None", metadata.pop("updated_at", None)),
+        extras=metadata,
+    )
+    return meta, post.content
 
 
-def read_note_file(path: str) -> dict:
-    return extract_note_fields(frontmatter.load(path), path=path)
+def read_note_file(path: str) -> tuple[NoteFrontmatter, str]:
+    return parse_frontmatter(frontmatter.load(path))
 
 
 def scan_notes(workspace_path: str) -> list[ScannedNote]:
@@ -266,15 +289,15 @@ def scan_notes(workspace_path: str) -> list[ScannedNote]:
     for p in sorted(ws.rglob("*.md")):
         if ".git" in p.parts:
             continue
-        note = read_note_file(str(p))
+        meta, content = read_note_file(str(p))
         results.append(
             ScannedNote(
-                note_id=note["id"],
-                title=note["title"],
-                tags=note["tags"],
-                created_at=note["created_at"],
-                updated_at=note["updated_at"],
-                content=note["content"],
+                note_id=meta.id,
+                title=meta.title,
+                tags=meta.tags,
+                created_at=meta.created_at,
+                updated_at=meta.updated_at,
+                content=content,
                 folder=note_folder(workspace_path, p),
             )
         )

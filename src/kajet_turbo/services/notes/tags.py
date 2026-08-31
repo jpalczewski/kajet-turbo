@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 
@@ -20,7 +20,13 @@ from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes.staged_write import StagedWrite, staged_note_write
 from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
-from kajet_turbo.workspace import LocatedNote, locate_note, read_note_file, write_note_file
+from kajet_turbo.workspace import (
+    LocatedNote,
+    NoteFrontmatter,
+    locate_note,
+    read_note_file,
+    write_note_file,
+)
 
 type TaggedPairs = list[tuple[str, str]]
 
@@ -30,6 +36,7 @@ class _RenamedNote:
     """One note staged for a tag rename: what to write, and what body changed for chunking."""
 
     loc: LocatedNote
+    meta: NoteFrontmatter
     new_tags: list[str]
     new_body: str
     old_tags: list[str]
@@ -128,35 +135,32 @@ class NoteTagService:
         loc = locate_note(note, ws_path)
         if not loc.file_exists:
             raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
-        data = read_note_file(loc.filepath)
-        content = data["content"]
-        current = NoteTagService.normalize_tags(data["tags"])
+        existing_meta, content = read_note_file(loc.filepath)
+        current = NoteTagService.normalize_tags(existing_meta.tags)
         new_tags, warnings = mutate(current, content)
         changed = new_tags != current
         if changed:
             now = datetime.now(UTC).isoformat()
+            apply_meta = replace(
+                existing_meta,
+                id=note_id,
+                title=note.title,
+                tags=new_tags,
+                created_at=note.created_at,
+                updated_at=now,
+            )
+            restore_meta = replace(
+                existing_meta,
+                id=note_id,
+                title=note.title,
+                tags=current,
+                created_at=note.created_at,
+                updated_at=note.updated_at,
+            )
             item = StagedWrite(
                 relative=loc.relative,
-                apply=partial(
-                    write_note_file,
-                    loc.filepath,
-                    note_id,
-                    note.title,
-                    new_tags,
-                    note.created_at,
-                    now,
-                    content,
-                ),
-                restore=partial(
-                    write_note_file,
-                    loc.filepath,
-                    note_id,
-                    note.title,
-                    current,
-                    note.created_at,
-                    note.updated_at,
-                    content,
-                ),
+                apply=partial(write_note_file, loc.filepath, apply_meta, content),
+                restore=partial(write_note_file, loc.filepath, restore_meta, content),
             )
             with staged_note_write(GitRepository(ws_path), [item], f"note: tag {note.title}"):
                 pass
@@ -303,19 +307,20 @@ class NoteTagService:
             if not loc.file_exists:
                 warnings.append(f"{note.title}: plik notatki nie istnieje — pominięta")
                 continue
-            data = read_note_file(loc.filepath)
-            old_tags = NoteTagService.normalize_tags(data["tags"])
+            existing_meta, content = read_note_file(loc.filepath)
+            old_tags = NoteTagService.normalize_tags(existing_meta.tags)
             new_tags = list(dict.fromkeys(remap(t) or t for t in old_tags))
-            new_body, _ = rewrite_inline_tags(data["content"], remap)
-            if new_tags == old_tags and new_body == data["content"]:
+            new_body, _ = rewrite_inline_tags(content, remap)
+            if new_tags == old_tags and new_body == content:
                 continue
             staged.append(
                 _RenamedNote(
                     loc=loc,
+                    meta=existing_meta,
                     new_tags=new_tags,
                     new_body=new_body,
                     old_tags=old_tags,
-                    old_body=data["content"],
+                    old_body=content,
                 )
             )
         if not staged:
@@ -328,21 +333,27 @@ class NoteTagService:
                 apply=partial(
                     write_note_file,
                     item.loc.filepath,
-                    item.note.id,
-                    item.note.title,
-                    item.new_tags,
-                    item.note.created_at,
-                    now,
+                    replace(
+                        item.meta,
+                        id=item.note.id,
+                        title=item.note.title,
+                        tags=item.new_tags,
+                        created_at=item.note.created_at,
+                        updated_at=now,
+                    ),
                     item.new_body,
                 ),
                 restore=partial(
                     write_note_file,
                     item.loc.filepath,
-                    item.note.id,
-                    item.note.title,
-                    item.old_tags,
-                    item.note.created_at,
-                    item.note.updated_at,
+                    replace(
+                        item.meta,
+                        id=item.note.id,
+                        title=item.note.title,
+                        tags=item.old_tags,
+                        created_at=item.note.created_at,
+                        updated_at=item.note.updated_at,
+                    ),
                     item.old_body,
                 ),
             )
