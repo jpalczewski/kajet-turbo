@@ -770,13 +770,11 @@ class NoteService:
         if old_path != new_path:
             Path(new_path).parent.mkdir(parents=True, exist_ok=True)
             repo.rename_file(old_rel, new_rel, f"note: rename to {new_title}")
-        target_path = new_path if old_path != new_path else old_path
-        target_rel = new_rel if old_path != new_path else old_rel
         item = StagedWrite(
-            relative=target_rel,
+            relative=new_rel,
             apply=partial(
                 write_note_file,
-                target_path,
+                new_path,
                 note_id,
                 new_title,
                 new_tags,
@@ -786,7 +784,7 @@ class NoteService:
             ),
             restore=partial(
                 write_note_file,
-                target_path,
+                new_path,
                 note_id,
                 note.title,
                 current_tags,
@@ -1180,7 +1178,9 @@ class NoteService:
         tagged_by_note = {}
         for note in notes:
             content = note.content
-            # #105 validates scalar YAML tags at this boundary; preserve today's behavior here.
+            # note.tags is already list[str]: extract_note_fields coerces a non-list
+            # frontmatter `tags:` (hand-edited scalar) to [] at read time, so #105's
+            # scalar-YAML-tags boundary can no longer be reached from here.
             fm_tags = NoteTagService.normalize_tags(cast(list[str], note.tags or []))
             assert note.note_id is not None  # filtered above; narrows for dict keys
             tagged_by_note[note.note_id] = NoteTagService.tagged(fm_tags, content)

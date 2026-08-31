@@ -3,6 +3,7 @@
 import pytest
 
 from kajet_turbo.markdown import BrokenWikilinkError, IndexedNote, render_markdown
+from tests.services.helpers import make_flaky_write
 
 
 def test_save_with_valid_wikilink_succeeds(service, workspace):
@@ -212,13 +213,7 @@ def test_rewrite_backlinks_write_failing_partway_rolls_back_and_makes_no_commit(
     sha = service.get_history(tid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     real_write = links_module.write_note_file
-    calls = {"n": 0}
-
-    def flaky_write(*args, **kwargs):
-        calls["n"] += 1
-        if calls["n"] == 2:
-            raise OSError("disk full")
-        return real_write(*args, **kwargs)
+    flaky_write = make_flaky_write(real_write)
 
     monkeypatch.setattr(links_module, "write_note_file", flaky_write)
     with pytest.raises(OSError, match="disk full"):

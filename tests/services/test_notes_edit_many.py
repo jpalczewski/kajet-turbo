@@ -6,6 +6,7 @@ import pytest
 
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.services.notes import service as service_module
+from tests.services.helpers import make_flaky_write
 
 
 def test_edit_many_applies_all_in_one_commit(service, workspace):
@@ -225,14 +226,7 @@ def test_edit_many_write_failing_partway_rolls_back_and_makes_no_commit(service,
     r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
     head_before = _head_sha(workspace, "First.md")
 
-    real_write = service_module.write_note_file
-    calls = {"n": 0}
-
-    def flaky_write(*args, **kwargs):
-        calls["n"] += 1
-        if calls["n"] == 2:
-            raise OSError("disk full")
-        return real_write(*args, **kwargs)
+    flaky_write = make_flaky_write(service_module.write_note_file)
 
     with (
         patch.object(service_module, "write_note_file", flaky_write),

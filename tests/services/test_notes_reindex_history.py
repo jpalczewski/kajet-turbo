@@ -93,6 +93,30 @@ def test_get_version_returns_historical_content(service, workspace):
     assert version["note_id"] == note_id
 
 
+def test_get_version_falls_back_to_db_title_for_explicit_null_frontmatter(service, workspace):
+    """get_version's or_default falls back to the DB row when a frontmatter field is
+    missing OR explicitly null — pinned deliberately after #104's parser consolidation
+    changed this from str(None) (the literal string) to the DB value."""
+    from pathlib import Path
+
+    from kajet_turbo.repositories.git import GitRepository
+    from kajet_turbo.workspace import note_filepath
+
+    result = service.save("u1", "ws", str(workspace), "Historia", "treść", [])
+    note_id = result["note_id"]
+    path = note_filepath(str(workspace), "", "Historia")
+    Path(path).write_text(
+        f"---\nid: {note_id}\ntitle:\ntags: []\n---\ntreść zmieniona\n", encoding="utf-8"
+    )
+    relative = str(Path(path).relative_to(workspace))
+    GitRepository(str(workspace)).commit_file(relative, "note: hand-edit null title")
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    version = service.get_version(note_id, sha, owner_id="u1", ws_path=str(workspace))
+
+    assert version["title"] == "Historia"  # DB fallback, not the literal string "None"
+
+
 def test_restore_version_reverts_content(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Historia", "treść oryginalna", [])
     note_id = result["note_id"]
