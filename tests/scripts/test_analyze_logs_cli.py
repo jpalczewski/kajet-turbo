@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -94,6 +95,48 @@ def test_compare_applies_msg_filter_and_ignores_booleans(monkeypatch, capsys):
     count_line = next(line for line in output.splitlines() if line.strip().startswith("count"))
     assert "1.0" in count_line
     assert "1000" not in output
+
+
+def test_bursts_in_modes_and_args(monkeypatch):
+    assert "bursts" in analyze_logs.MODES
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "analyze-logs.py",
+            "x.log",
+            "--mode",
+            "bursts",
+            "--pct-field",
+            "db_ms",
+            "--group-by",
+            "operation",
+        ],
+    )
+    args = analyze_logs.parse_args()
+    assert args.mode == "bursts"
+    assert args.burst_window == 2.0
+    assert args.burst_min == 4
+    assert args.burst_ratio == 3.0
+
+
+def test_grep_composes_with_json(monkeypatch, capsys):
+    """Regression test: --json used to return before --grep was applied, so `--grep X
+    --json` silently ignored the filter and dumped every event. --grep must narrow the
+    JSON stream the same way --msg already does."""
+    events = [
+        {"ts": "2026-01-01T00:00:00Z", "msg": "wanted", "note_id": "n1"},
+        {"ts": "2026-01-01T00:00:01Z", "msg": "other", "note_id": "n2"},
+    ]
+    monkeypatch.setattr(analyze_logs, "load_events", lambda **kwargs: events)
+    monkeypatch.setattr(
+        sys, "argv", ["analyze-logs.py", "capture.log", "--grep", "wanted", "--json"]
+    )
+
+    analyze_logs.main()
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert [e["note_id"] for e in lines] == ["n1"]
 
 
 def test_docker_banner_names_resolved_latest_file(monkeypatch, capsys, tmp_path):

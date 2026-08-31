@@ -13,6 +13,10 @@ Usage:
     uv run python scripts/analyze-logs.py --mode http            # HTTP requests
     uv run python scripts/analyze-logs.py --mode percentiles --pct-field db_ms --group-by tool
     # p50/p95/p99; --pct-field also takes duration_ms/fts_ms/vec_ms/meta_ms
+    uv run python scripts/analyze-logs.py --mode bursts --pct-field db_ms --group-by operation
+    # escalating-latency detector: same-op calls packed together whose duration climbs
+    # through the cluster — the single-writer-contention signature (see #145). Tune with
+    # --burst-window/--burst-min/--burst-ratio.
     uv run python scripts/analyze-logs.py --grep save_note       # filter by substring
     uv run python scripts/analyze-logs.py --grep "note_upd|ws_c" --re  # regex grep
     uv run python scripts/analyze-logs.py --msg save_note        # filter by msg field
@@ -33,13 +37,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from collections import Counter, defaultdict
+from datetime import UTC, datetime
 from pathlib import Path
 
 from log_analysis import (
     LEVEL_ORDER,
+    detect_bursts,
+    filter_grep,
     latest_log,
     load_events,
     normalize_env,
@@ -217,14 +223,7 @@ def mode_http(events: list[dict]) -> None:
 
 
 def mode_grep(events: list[dict], pattern: str, use_re: bool = False) -> None:
-    compiled = re.compile(pattern, re.IGNORECASE) if use_re else None
-    for e in events:
-        raw = json.dumps(e)
-        if compiled:
-            if not compiled.search(raw):
-                continue
-        elif pattern.lower() not in raw.lower():
-            continue
+    for e in filter_grep(events, pattern, use_re=use_re) if pattern else events:
         ts = e.get("ts", "")[:19]
         lvl = (e.get("level") or "")[:4].upper()
         msg = e.get("msg", "")
@@ -278,6 +277,47 @@ def mode_percentiles(events: list[dict], field: str, group_by: str) -> None:
         )
 
 
+def mode_bursts(
+    events: list[dict],
+    field: str,
+    group_by: str,
+    window_s: float,
+    min_group: int,
+    ratio_threshold: float,
+) -> None:
+    """Escalating-latency detector: clusters of same-``group_by`` calls packed within
+    ``window_s`` of each other whose ``field`` climbs through the cluster — concurrent
+    callers queuing on a single-writer resource, each waiting a little longer than the
+    last (see #145: index_many's replace_chunks growing ~5ms → 1.1s across one batch,
+    all serialized on SQLite's write lock)."""
+    bursts = detect_bursts(
+        events,
+        field,
+        group_by,
+        window_s=window_s,
+        min_group=min_group,
+        ratio_threshold=ratio_threshold,
+    )
+    if not bursts:
+        print(
+            f"No escalating bursts found ({group_by}/{field}, window={window_s}s, "
+            f"min_group={min_group}, ratio>={ratio_threshold}x)."
+        )
+        return
+    print(
+        f"{group_by:<28}  {'start':<19}  {'n':>4}  {'first~':>8}  {'last~':>8}  "
+        f"{'peak':>8}  {'ratio':>7}"
+    )
+    print("-" * 92)
+    for b in bursts[:25]:
+        start = datetime.fromtimestamp(b["start_ts"], tz=UTC).strftime("%Y-%m-%dT%H:%M:%S")
+        print(
+            f"{b['group']:<28}  {start:<19}  {b['count']:>4}  "
+            f"{_fmt_number(b['first_avg']):>8}  {_fmt_number(b['last_avg']):>8}  "
+            f"{_fmt_number(b['peak']):>8}  {b['ratio']:>6.1f}x"
+        )
+
+
 def mode_compare(events: list[dict], boundary: str, field: str) -> None:
     """Same field, before and after a moment — the "did that change anything?" view."""
     before, after = split_at(events, boundary)
@@ -325,7 +365,17 @@ def mode_fields(events: list[dict], fields: list[str]) -> None:
 
 # ── main ───────────────────────────────────────────────────────────────────────
 
-MODES = ("sessions", "workspaces", "errors", "tools", "events", "http", "percentiles", "all")
+MODES = (
+    "sessions",
+    "workspaces",
+    "errors",
+    "tools",
+    "events",
+    "http",
+    "percentiles",
+    "bursts",
+    "all",
+)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -363,7 +413,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--group-by",
         default="tool",
-        help="Grouping field for percentiles mode (default: tool; e.g. op, path)",
+        help="Grouping field for percentiles/bursts mode (default: tool; e.g. operation, op, path)",
+    )
+    parser.add_argument(
+        "--burst-window",
+        type=float,
+        default=2.0,
+        metavar="SECONDS",
+        help="bursts mode: max gap between consecutive same-group events to stay in one "
+        "cluster (default: 2.0)",
+    )
+    parser.add_argument(
+        "--burst-min",
+        type=int,
+        default=4,
+        metavar="N",
+        help="bursts mode: minimum cluster size to consider (default: 4)",
+    )
+    parser.add_argument(
+        "--burst-ratio",
+        type=float,
+        default=3.0,
+        metavar="X",
+        help="bursts mode: minimum last-third/first-third average ratio to flag (default: 3.0x)",
     )
     parser.add_argument(
         "--source",
@@ -436,6 +508,10 @@ def main() -> None:
         wanted = set(msg_filter)
         events = [event for event in events if event.get("msg") in wanted]
 
+    # Applied here (not just in mode_grep) so --grep composes with --json too.
+    if args.grep:
+        events = filter_grep(events, args.grep, use_re=args.use_re)
+
     if args.json:
         for e in events:
             print(json.dumps(e, ensure_ascii=False))
@@ -458,9 +534,9 @@ def main() -> None:
         mode_fields(events, fields)
         return
 
-    # --grep
+    # --grep (already applied to `events` above, ahead of --json)
     if args.grep:
-        mode_grep(events, args.grep, use_re=args.use_re)
+        mode_grep(events, "", use_re=False)
         return
 
     # named modes
@@ -489,6 +565,16 @@ def main() -> None:
 
     if args.mode == "percentiles":
         mode_percentiles(events, args.pct_field, args.group_by)
+
+    if args.mode == "bursts":
+        mode_bursts(
+            events,
+            args.pct_field,
+            args.group_by,
+            args.burst_window,
+            args.burst_min,
+            args.burst_ratio,
+        )
 
     if args.mode == "errors" or args.mode == "all":
         print("═══ ERRORS / WARNINGS ═══")

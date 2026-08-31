@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -89,6 +90,81 @@ def event_time(event: dict) -> float | None:
         return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
     except ValueError:
         return None
+
+
+def filter_grep(events: list[dict], pattern: str, use_re: bool = False) -> list[dict]:
+    """Events whose full JSON contains ``pattern`` (substring, case-insensitive) or,
+    with ``use_re``, matches it as a case-insensitive regex. Pure filter — no printing —
+    so it composes with ``--json`` the same way ``--msg`` already does."""
+    compiled = re.compile(pattern, re.IGNORECASE) if use_re else None
+    if compiled:
+        return [e for e in events if compiled.search(json.dumps(e))]
+    needle = pattern.lower()
+    return [e for e in events if needle in json.dumps(e).lower()]
+
+
+def detect_bursts(
+    events: list[dict],
+    field: str,
+    group_by: str,
+    *,
+    window_s: float = 2.0,
+    min_group: int = 4,
+    ratio_threshold: float = 3.0,
+) -> list[dict]:
+    """Find clusters of same-``group_by`` events packed within ``window_s`` of each other
+    whose ``field`` climbs at least ``ratio_threshold``x from the first third of the
+    cluster to the last third. That climb is the signature of concurrent callers queuing
+    on a single-writer resource — each one waits a little longer than the one before it —
+    as opposed to ordinary jitter, which doesn't trend. This is how #145's contention
+    (index_many's replace_chunks growing from ~5ms to 1.1s across one 37-note batch, all
+    queued on SQLite's single writer) would have surfaced automatically instead of by
+    hand-tracing a timeline. Returns clusters sorted worst-ratio-first."""
+    keyed: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    for e in events:
+        g = e.get(group_by)
+        v = e.get(field)
+        t = event_time(e)
+        if g is None or t is None or not isinstance(v, int | float) or isinstance(v, bool):
+            continue
+        keyed[str(g)].append((t, float(v)))
+
+    def _flush(g: str, cluster: list[tuple[float, float]]) -> dict | None:
+        if len(cluster) < min_group:
+            return None
+        third = max(1, len(cluster) // 3)
+        first_avg = sum(v for _, v in cluster[:third]) / third
+        last_avg = sum(v for _, v in cluster[-third:]) / third
+        ratio = (last_avg / first_avg) if first_avg > 0 else float("inf")
+        if ratio < ratio_threshold:
+            return None
+        return {
+            "group": g,
+            "start_ts": cluster[0][0],
+            "count": len(cluster),
+            "first_avg": first_avg,
+            "last_avg": last_avg,
+            "peak": max(v for _, v in cluster),
+            "ratio": ratio,
+        }
+
+    bursts: list[dict] = []
+    for g, points in keyed.items():
+        points.sort(key=lambda p: p[0])
+        cluster: list[tuple[float, float]] = []
+        for t, v in points:
+            if cluster and t - cluster[-1][0] > window_s:
+                burst = _flush(g, cluster)
+                if burst is not None:
+                    bursts.append(burst)
+                cluster = []
+            cluster.append((t, v))
+        burst = _flush(g, cluster)
+        if burst is not None:
+            bursts.append(burst)
+
+    bursts.sort(key=lambda b: b["ratio"], reverse=True)
+    return bursts
 
 
 def split_at(events: list[dict], boundary: str) -> tuple[list[dict], list[dict]]:

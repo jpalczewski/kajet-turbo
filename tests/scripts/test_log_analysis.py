@@ -5,7 +5,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from log_analysis import (
     _percentile,
+    detect_bursts,
     event_time,
+    filter_grep,
     normalize_env,
     operations,
     percentile_summary,
@@ -157,3 +159,96 @@ def test_event_time_returns_none_instead_of_raising():
     assert event_time({"ts": "nope"}) is None
     assert event_time({}) is None
     assert event_time({"ts": "2026-08-23T10:00:00Z"}) is not None
+
+
+# ── filter_grep ───────────────────────────────────────────────────────────────
+
+
+def test_filter_grep_substring_is_case_insensitive():
+    events = [
+        {"msg": "SAVE_NOTE", "note_id": "n1"},
+        {"msg": "get_note", "note_id": "n2"},
+    ]
+    assert [e["note_id"] for e in filter_grep(events, "save_note")] == ["n1"]
+
+
+def test_filter_grep_regex_matches_across_fields():
+    events = [
+        {"msg": "x", "error_type": "BrokenWikilinkError"},
+        {"msg": "x", "error_type": "ToolError"},
+    ]
+    matched = filter_grep(events, "Broken|Anchor", use_re=True)
+    assert [e["error_type"] for e in matched] == ["BrokenWikilinkError"]
+
+
+def test_filter_grep_empty_pattern_matches_everything():
+    events = [{"msg": "a"}, {"msg": "b"}]
+    assert filter_grep(events, "") == events
+
+
+# ── detect_bursts ────────────────────────────────────────────────────────────
+
+
+def _burst_note(i: int, db_ms: float, gap: float = 0.05) -> dict:
+    """i-th event of a burst starting at 2026-08-31T05:58:44Z, gap seconds apart."""
+    base = 1788242324.0  # 2026-08-31T05:58:44Z, arbitrary fixed epoch for the test
+    return {
+        "ts": _iso(base + i * gap),
+        "operation": "note_chunks.replace_chunks",
+        "db_ms": db_ms,
+    }
+
+
+def _iso(epoch: float) -> str:
+    from datetime import UTC, datetime
+
+    return datetime.fromtimestamp(epoch, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def test_detect_bursts_flags_escalating_latency_within_one_cluster():
+    """The #145 shape: same-op writes packed close together, each slower than the last —
+    the signature of concurrent callers queuing on a single-writer lock."""
+    durations = [5, 6, 7, 8, 150, 340, 440, 540, 640, 740, 840, 1144]
+    events = [_burst_note(i, d) for i, d in enumerate(durations)]
+
+    bursts = detect_bursts(events, "db_ms", "operation", window_s=2.0, min_group=4)
+
+    assert len(bursts) == 1
+    b = bursts[0]
+    assert b["group"] == "note_chunks.replace_chunks"
+    assert b["count"] == len(durations)
+    assert b["peak"] == 1144
+    assert b["ratio"] > 3.0
+
+
+def test_detect_bursts_ignores_flat_jitter():
+    """Ordinary noise around a stable mean must not trend upward and must not be flagged."""
+    durations = [30, 32, 28, 31, 29, 33, 27, 30]
+    events = [_burst_note(i, d) for i, d in enumerate(durations)]
+
+    assert detect_bursts(events, "db_ms", "operation", window_s=2.0, min_group=4) == []
+
+
+def test_detect_bursts_requires_the_gap_to_stay_inside_the_window():
+    """Two escalating pairs 10s apart are two separate two-event clusters, neither of
+    which reaches min_group — not one artificially long burst."""
+    events = [
+        _burst_note(0, 5, gap=0),
+        {**_burst_note(1, 500, gap=0), "ts": _iso(1788242324.0 + 10)},
+        {**_burst_note(2, 5, gap=0), "ts": _iso(1788242324.0 + 20)},
+        {**_burst_note(3, 500, gap=0), "ts": _iso(1788242324.0 + 30)},
+    ]
+
+    assert detect_bursts(events, "db_ms", "operation", window_s=2.0, min_group=2) == []
+
+
+def test_detect_bursts_below_min_group_is_not_flagged():
+    events = [_burst_note(i, d) for i, d in enumerate([5, 500, 1000])]
+
+    assert detect_bursts(events, "db_ms", "operation", window_s=2.0, min_group=4) == []
+
+
+def test_detect_bursts_treats_booleans_as_not_numeric():
+    events = [_burst_note(i, True) for i in range(6)]
+
+    assert detect_bursts(events, "db_ms", "operation", window_s=2.0, min_group=4) == []
