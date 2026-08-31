@@ -1,6 +1,8 @@
+import asyncio
 import json
 import threading
 import time
+from typing import cast
 
 import pytest
 
@@ -679,16 +681,24 @@ def test_logging_middleware_ignores_identity_lookup_failure(capsys, monkeypatch)
 _FakeConnectionClosedError = type("ConnectionClosedError", (Exception,), {})
 
 
+def _recording_loop() -> tuple[asyncio.AbstractEventLoop, list[dict]]:
+    """A loop stand-in plus the list of contexts it was asked to handle.
+
+    ``_handle_loop_exception`` only ever reaches ``default_exception_handler``, so a
+    cast beats stubbing the rest of ``AbstractEventLoop``.
+    """
+    calls: list[dict] = []
+    loop = type("FakeLoop", (), {"default_exception_handler": lambda self, c: calls.append(c)})()
+    return cast(asyncio.AbstractEventLoop, loop), calls
+
+
 def test_handle_loop_exception_downgrades_shielded_connection_closed(capsys):
     from kajet_turbo.log import _handle_loop_exception, setup_logging
 
     setup_logging()
     exc = _FakeConnectionClosedError("sent 1011 (internal error) keepalive ping timeout")
     context = {"message": "ConnectionClosedError exception in shielded future", "exception": exc}
-    calls = []
-    fake_loop = type(
-        "FakeLoop", (), {"default_exception_handler": lambda self, c: calls.append(c)}
-    )()
+    fake_loop, calls = _recording_loop()
 
     _handle_loop_exception(fake_loop, context)
 
@@ -704,10 +714,7 @@ def test_handle_loop_exception_delegates_other_exceptions(capsys):
 
     setup_logging()
     context = {"message": "exception in shielded future", "exception": ValueError("boom")}
-    calls = []
-    fake_loop = type(
-        "FakeLoop", (), {"default_exception_handler": lambda self, c: calls.append(c)}
-    )()
+    fake_loop, calls = _recording_loop()
 
     _handle_loop_exception(fake_loop, context)
 
@@ -722,10 +729,7 @@ def test_handle_loop_exception_delegates_non_shielded_connection_closed(capsys):
     setup_logging()
     exc = _FakeConnectionClosedError("some other failure, not from asyncio.shield")
     context = {"message": "Task exception was never retrieved", "exception": exc}
-    calls = []
-    fake_loop = type(
-        "FakeLoop", (), {"default_exception_handler": lambda self, c: calls.append(c)}
-    )()
+    fake_loop, calls = _recording_loop()
 
     _handle_loop_exception(fake_loop, context)
 

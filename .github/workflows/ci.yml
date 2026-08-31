@@ -67,11 +67,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run ruff format --check .
 
-      # Scoped to src/: tests/ and scripts/ carry a known baseline of diagnostics
-      # from ty being pre-1.0. Widen this once that baseline is cleared.
+      # Whole repo: tests/ and scripts/ no longer carry a diagnostics baseline.
       - name: ty
         if: ${{ !cancelled() }}
-        run: uv run ty check src/
+        run: uv run ty check
 
   backend-tests:
     name: pytest
