@@ -77,9 +77,7 @@ def _now() -> str:
 
 
 def test_insert_and_get_note(notes):
-    notes.insert(
-        "abc1234", "ws1", "u1", "Moja notatka", ["python"], _now(), _now()
-    )
+    notes.insert("abc1234", "ws1", "u1", "Moja notatka", ["python"], _now(), _now())
     note = notes.get("abc1234")
     assert note.id == "abc1234"
     assert note.title == "Moja notatka"

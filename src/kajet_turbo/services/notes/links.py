@@ -186,20 +186,10 @@ class NoteLinkService:
                     self._dangling_repo.delete_for_source_in_session(session, source_id)
             session.commit()
 
-    def delete_dangling_for_source(self, note_id: str) -> None:
-        """Remove dangling link rows for a deleted source note. No-op when not wired."""
-        if self._dangling_repo is not None:
-            self._dangling_repo.delete_for_source(note_id)
-
     def delete_dangling_for_source_in_session(self, session: Session, note_id: str) -> None:
         """Remove a deleted source's dangling rows without owning the transaction."""
         if self._dangling_repo is not None:
             self._dangling_repo.delete_for_source_in_session(session, note_id)
-
-    def delete_dangling_for_workspace(self, ws_name: str, owner_id: str) -> None:
-        """Remove every dangling link row of a workspace. No-op when not wired."""
-        if self._dangling_repo is not None:
-            self._dangling_repo.delete_for_workspace(owner_id, ws_name)
 
     def delete_dangling_for_workspace_in_session(
         self, session: Session, ws_name: str, owner_id: str

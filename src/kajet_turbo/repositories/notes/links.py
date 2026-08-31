@@ -85,25 +85,11 @@ class NoteLinkRepository(DbRepository):
             delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id)
         )
 
-    def delete_links_to(self, target_note_id: str) -> None:
-        with self.operation("delete_links_to", target_note_id=target_note_id) as operation:
-            session = operation.session
-            self.delete_links_to_in_session(session, target_note_id)
-            session.commit()
-
     @staticmethod
     def delete_links_to_in_session(session: Session, target_note_id: str) -> None:
         session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
             delete(NoteLink).where(col(NoteLink.target_note_id) == target_note_id)
         )
-
-    def delete_workspace_links(self, workspace: str, owner_id: str) -> None:
-        with self.operation(
-            "delete_workspace_links", workspace=workspace, owner_id=owner_id
-        ) as operation:
-            session = operation.session
-            self.delete_workspace_links_in_session(session, workspace, owner_id)
-            session.commit()
 
     @staticmethod
     def delete_workspace_links_in_session(session: Session, workspace: str, owner_id: str) -> None:

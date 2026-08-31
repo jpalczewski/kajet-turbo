@@ -1032,9 +1032,12 @@ class NoteService:
         affected_sources.discard(note_id)  # this source is synchronously deleted below
         if file_exists:
             GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
-        with self._crud_repo.operation(
-            "delete", note_id=note_id, workspace=note.workspace, owner_id=owner_id
-        ) as operation, operation.session.begin():
+        with (
+            self._crud_repo.operation(
+                "delete", note_id=note_id, workspace=note.workspace, owner_id=owner_id
+            ) as operation,
+            operation.session.begin(),
+        ):
             self._teardown_note(operation.session, note)
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
@@ -1087,9 +1090,12 @@ class NoteService:
             [p.loc.relative for p in prepared], f"note: delete {n} note{'' if n == 1 else 's'}"
         )
 
-        with self._crud_repo.operation(
-            "delete_many", workspace=ws_name, owner_id=user_id, count=len(prepared)
-        ) as operation, operation.session.begin():
+        with (
+            self._crud_repo.operation(
+                "delete_many", workspace=ws_name, owner_id=user_id, count=len(prepared)
+            ) as operation,
+            operation.session.begin(),
+        ):
             for p in prepared:
                 self._teardown_note(operation.session, p.loc.note)
         for p in prepared:

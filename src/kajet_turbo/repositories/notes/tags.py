@@ -131,15 +131,6 @@ class NoteTagRepository(DbRepository):
         )
         self._gc_tags(session, workspace, owner_id)
 
-    def delete_workspace_tags(self, workspace: str, owner_id: str) -> None:
-        """Drop all tags + note_tags for a workspace (used before reindex)."""
-        with self.operation(
-            "delete_workspace_tags", workspace=workspace, owner_id=owner_id
-        ) as operation:
-            session = operation.session
-            self.delete_workspace_tags_in_session(session, workspace, owner_id)
-            session.commit()
-
     @staticmethod
     def delete_workspace_tags_in_session(session: Session, workspace: str, owner_id: str) -> None:
         """Drop all workspace tag rows in a caller-owned transaction."""

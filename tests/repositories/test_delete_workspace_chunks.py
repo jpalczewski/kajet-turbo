@@ -94,7 +94,7 @@ def test_delete_chunks_clears_one_note_before_its_row(database):
 
     assert chunk_repo.get_chunks("n1") == []
     with Session(database.engine) as session:
-        fts = session.execute(
+        fts = session.execute(  # ty: ignore[deprecated] - raw SQL
             _text("SELECT COUNT(*) FROM notes_fts WHERE note_id='n1'")
         ).scalar()
         assert fts == 0
