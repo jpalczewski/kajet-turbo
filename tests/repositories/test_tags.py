@@ -15,7 +15,7 @@ def repo(database: Database) -> NoteTagRepository:
 
 
 def _insert_note(note_repo: NoteRepository, note_id: str, folder: str = "") -> None:
-    note_repo.insert(note_id, "ws", "u1", f"Title {note_id}", [], "t", "t", "body", folder)
+    note_repo.insert(note_id, "ws", "u1", f"Title {note_id}", [], "t", "t", folder)
 
 
 def test_sync_materializes_ancestors(note_repo: NoteRepository, repo: NoteTagRepository):

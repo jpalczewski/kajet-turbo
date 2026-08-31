@@ -157,7 +157,3 @@ class NoteIndexer:
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             list(pool.map(_one, notes))
-
-    def clear_note(self, note_id: str) -> None:
-        """Drop a note's chunks + vectors (best-effort). Used before deleting the note row."""
-        self._repo.replace_chunks(note_id, "", "", "", [], None, None)

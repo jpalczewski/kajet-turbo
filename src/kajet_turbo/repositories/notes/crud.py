@@ -1,7 +1,7 @@
 import json
 import re
 
-from sqlalchemy import func, text
+from sqlalchemy import delete, func, text
 from sqlmodel import Session, col, select
 
 from kajet_turbo.markdown import IndexedNote
@@ -33,7 +33,6 @@ class NoteRepository(DbRepository):
         tags: list[str],
         created_at: str,
         updated_at: str,
-        content: str,
         folder: str = "",
     ) -> None:
         with self.operation(
@@ -52,6 +51,19 @@ class NoteRepository(DbRepository):
             )
             session.add(note)
             session.commit()
+
+    def insert_many(self, notes: list[Note]) -> None:
+        """Insert a homogeneous batch of note rows in one transaction."""
+        if not notes:
+            return
+        with self.operation(
+            "insert_many",
+            workspace=notes[0].workspace,
+            owner_id=notes[0].owner_id,
+            count=len(notes),
+        ) as operation:
+            operation.session.add_all(notes)
+            operation.session.commit()
 
     def check_unique(self, workspace: str, owner_id: str, folder: str, title: str) -> bool:
         """Returns True if no note with this (workspace, owner_id, folder, title) exists."""
@@ -261,15 +273,19 @@ class NoteRepository(DbRepository):
     def delete(self, note_id: str, owner_id: str | None = None) -> None:
         with self.operation("delete", note_id=note_id, owner_id=owner_id) as operation:
             session = operation.session
-            q = select(Note).where(Note.id == note_id)
-            if owner_id is not None:
-                q = q.where(Note.owner_id == owner_id)
-            note = session.exec(q).first()
-            if note:
-                session.delete(note)
-            else:
+            count = self.delete_in_session(session, note_id, owner_id)
+            if not count:
                 operation.suppress_log()
             session.commit()
+
+    @staticmethod
+    def delete_in_session(session: Session, note_id: str, owner_id: str | None = None) -> int:
+        """Delete one note in a caller-owned transaction and return affected rows."""
+        stmt = delete(Note).where(col(Note.id) == note_id)
+        if owner_id is not None:
+            stmt = stmt.where(col(Note.owner_id) == owner_id)
+        result = session.execute(stmt)  # ty: ignore[deprecated] - DELETE statement
+        return result.rowcount  # ty: ignore[unresolved-attribute] - Result has rowcount at runtime
 
     def list_notes(
         self,

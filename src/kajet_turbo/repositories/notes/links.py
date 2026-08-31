@@ -85,26 +85,20 @@ class NoteLinkRepository(DbRepository):
             delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id)
         )
 
-    def delete_links_to(self, target_note_id: str) -> None:
-        with self.operation("delete_links_to", target_note_id=target_note_id) as operation:
-            session = operation.session
-            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
-                delete(NoteLink).where(col(NoteLink.target_note_id) == target_note_id)
-            )
-            session.commit()
+    @staticmethod
+    def delete_links_to_in_session(session: Session, target_note_id: str) -> None:
+        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+            delete(NoteLink).where(col(NoteLink.target_note_id) == target_note_id)
+        )
 
-    def delete_workspace_links(self, workspace: str, owner_id: str) -> None:
-        with self.operation(
-            "delete_workspace_links", workspace=workspace, owner_id=owner_id
-        ) as operation:
-            session = operation.session
-            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
-                delete(NoteLink).where(
-                    col(NoteLink.workspace) == workspace,
-                    col(NoteLink.owner_id) == owner_id,
-                )
+    @staticmethod
+    def delete_workspace_links_in_session(session: Session, workspace: str, owner_id: str) -> None:
+        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+            delete(NoteLink).where(
+                col(NoteLink.workspace) == workspace,
+                col(NoteLink.owner_id) == owner_id,
             )
-            session.commit()
+        )
 
     def backlinks(self, target_note_id: str, same_workspace: str | None = None) -> list[str]:
         """Return source note_ids that link to ``target_note_id``.

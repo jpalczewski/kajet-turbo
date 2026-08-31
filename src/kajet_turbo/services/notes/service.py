@@ -5,9 +5,11 @@ from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
+from typing import cast
 
 import frontmatter
 from nanoid import generate
+from sqlmodel import Session
 
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
@@ -261,10 +263,14 @@ class NoteService:
             expected_generation=expected_generation,
         )
 
-    def _clear_index(self, note_id: str) -> None:
-        if self._indexer is None:
-            return
-        self._indexer.clear_note(note_id)
+    def _teardown_note(self, session: Session, note: Note) -> None:
+        """Remove every DB artifact of ``note`` inside the caller's transaction."""
+        self._tag_repo.delete_note_tags_in_session(session, note.id, note.workspace, note.owner_id)
+        self._chunk_repo.delete_chunks(note.id, session)
+        self._crud_repo.delete_in_session(session, note.id, owner_id=note.owner_id)
+        self._link_repo.delete_links_from_in_session(session, note.id)
+        self._link_repo.delete_links_to_in_session(session, note.id)
+        self._link_service.delete_dangling_for_source_in_session(session, note.id)
 
     @workspace_write_transaction
     def save(
@@ -294,7 +300,7 @@ class NoteService:
         except GitError:
             Path(filepath).unlink(missing_ok=True)
             raise
-        self._crud_repo.insert(note_id, ws_name, user_id, title, tags, now, now, content, folder)
+        self._crud_repo.insert(note_id, ws_name, user_id, title, tags, now, now, folder)
         self._link_service.persist(note_id, ws_name, user_id, links)
         self._tag_service.sync_tags(note_id, ws_name, user_id, tags, content)
         if self._cache is not None:
@@ -417,7 +423,6 @@ class NoteService:
                 s["tags"],
                 now,
                 now,
-                s["content"],
                 s["folder"],
             )
         self._link_service.persist_many(
@@ -1027,12 +1032,13 @@ class NoteService:
         affected_sources.discard(note_id)  # this source is synchronously deleted below
         if file_exists:
             GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
-        self._tag_repo.delete_note_tags(note_id, note.workspace, owner_id)
-        self._clear_index(note_id)
-        self._crud_repo.delete(note_id, owner_id=owner_id)
-        self._link_repo.delete_links_from(note_id)
-        self._link_repo.delete_links_to(note_id)
-        self._link_service.delete_dangling_for_source(note_id)
+        with (
+            self._crud_repo.operation(
+                "delete", note_id=note_id, workspace=note.workspace, owner_id=owner_id
+            ) as operation,
+            operation.session.begin(),
+        ):
+            self._teardown_note(operation.session, note)
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_deleted", note_id=note_id)
@@ -1048,11 +1054,12 @@ class NoteService:
         ws_path: str,
         deletes: list[dict],
     ) -> dict:
-        """Delete multiple notes in ONE atomic commit. All-or-nothing: any invalid
-        item (missing note, duplicate note_id, stale expected_sha) rejects the whole
-        batch — nothing is deleted. Each input dict: {note_id, expected_sha} — sha is
-        the note's current HEAD commit sha (from get_history), proving the caller has
-        seen the version it is about to destroy; a mismatch rejects the item without
+        """Delete multiple notes in one Git commit and one DB transaction.
+
+        All-or-nothing: an invalid item (missing note, duplicate note_id, stale expected_sha)
+        rejects the whole batch — nothing is deleted. Each input dict has ``note_id`` and
+        ``expected_sha``. The latter is the current HEAD commit sha (from get_history), proving the
+        caller has seen the version it is about to destroy; a mismatch rejects the item without
         revealing the current sha, forcing a real re-read instead of a blind retry.
         """
         if not deletes:
@@ -1083,16 +1090,16 @@ class NoteService:
             [p.loc.relative for p in prepared], f"note: delete {n} note{'' if n == 1 else 's'}"
         )
 
+        with (
+            self._crud_repo.operation(
+                "delete_many", workspace=ws_name, owner_id=user_id, count=len(prepared)
+            ) as operation,
+            operation.session.begin(),
+        ):
+            for p in prepared:
+                self._teardown_note(operation.session, p.loc.note)
         for p in prepared:
-            note_id = p.note_id
-            note = p.loc.note
-            self._tag_repo.delete_note_tags(note_id, note.workspace, user_id)
-            self._clear_index(note_id)
-            self._crud_repo.delete(note_id, owner_id=user_id)
-            self._link_repo.delete_links_from(note_id)
-            self._link_repo.delete_links_to(note_id)
-            self._link_service.delete_dangling_for_source(note_id)
-            logger.info("note_deleted", note_id=note_id)
+            logger.info("note_deleted", note_id=p.note_id)
 
         if self._cache is not None:
             self._cache.bump(ws_name, user_id)
@@ -1126,45 +1133,53 @@ class NoteService:
     def clear_workspace_data(self, ws_name: str, owner_id: str) -> None:
         """Delete every note-related row for a workspace: tags, chunks (+ FTS/vec),
         notes, and links. Used by reindex (before rescanning) and by workspace deletion."""
-        self._tag_repo.delete_workspace_tags(ws_name, owner_id)
-        # Atomic: chunk cleanup + note row deletion share one session.
         # FK ordering: chunks must be deleted before notes (note_chunks.note_id FK).
         with self._crud_repo.operation(
             "clear_workspace_data", workspace=ws_name, owner_id=owner_id
         ) as operation:
             session = operation.session
-            self._chunk_repo.delete_for_workspace(ws_name, owner_id, session)
-            self._crud_repo.delete_for_workspace(ws_name, owner_id, session)
-            session.commit()
-        self._link_repo.delete_workspace_links(ws_name, owner_id)
-        self._link_service.delete_dangling_for_workspace(ws_name, owner_id)
+            with session.begin():
+                self._tag_repo.delete_workspace_tags_in_session(session, ws_name, owner_id)
+                self._chunk_repo.delete_for_workspace(ws_name, owner_id, session)
+                self._crud_repo.delete_for_workspace(ws_name, owner_id, session)
+                self._link_repo.delete_workspace_links_in_session(session, ws_name, owner_id)
+                self._link_service.delete_dangling_for_workspace_in_session(
+                    session, ws_name, owner_id
+                )
         logger.info("workspace_data_cleared", ws=ws_name, owner_id=owner_id)
 
     def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
         start = time.monotonic()
-        notes = [n for n in scan_notes(ws_path) if n["id"]]
+        notes = [note for note in scan_notes(ws_path) if note.note_id]
         self.clear_workspace_data(ws_name, owner_id)
-        for note in notes:
-            self._crud_repo.insert(
-                note["id"],
-                ws_name,
-                owner_id,
-                note["title"] or "",
-                note["tags"] or [],
-                str(note["created_at"] or ""),
-                str(note["updated_at"] or ""),
-                note["content"] or "",
-                note["folder"],
-            )
+        self._crud_repo.insert_many(
+            [
+                Note(
+                    id=str(note.note_id),
+                    workspace=ws_name,
+                    owner_id=owner_id,
+                    title=note.title or "",
+                    folder=note.folder,
+                    tags=json.dumps(note.tags or []),
+                    created_at=str(note.created_at or ""),
+                    updated_at=str(note.updated_at or ""),
+                )
+                for note in notes
+            ]
+        )
         # Link graph and dangling rows are rebuilt with the same resolution as save-time
         # validation (short titles, suffix paths, cross-workspace ids) against one index.
         workspace_links = self._link_service.for_workspace(ws_name, owner_id)
         resolutions = {}
+        tagged_by_note = {}
         for note in notes:
-            content = note["content"] or ""
-            fm_tags = NoteTagService.normalize_tags(note["tags"] or [])
-            self._tag_service.sync_tags(note["id"], ws_name, owner_id, fm_tags, content)
-            resolutions[note["id"]] = workspace_links.resolve(content, note["folder"])
+            content = note.content
+            # #105 validates scalar YAML tags at this boundary; preserve today's behavior here.
+            fm_tags = NoteTagService.normalize_tags(cast(list[str], note.tags or []))
+            assert note.note_id is not None  # filtered above; narrows for dict keys
+            tagged_by_note[note.note_id] = NoteTagService.tagged(fm_tags, content)
+            resolutions[note.note_id] = workspace_links.resolve(content, note.folder)
+        self._tag_repo.sync_note_tags_many(ws_name, owner_id, tagged_by_note)
         self._link_service.persist_many(ws_name, owner_id, resolutions)
         if self._indexer is not None:
             try:
@@ -1173,9 +1188,9 @@ class NoteService:
                     owner_id,
                     [
                         {
-                            "id": n["id"],
-                            "title": n["title"] or "",
-                            "content": n["content"] or "",
+                            "id": n.note_id,
+                            "title": n.title or "",
+                            "content": n.content,
                             "index_generation": 1,
                         }
                         for n in notes

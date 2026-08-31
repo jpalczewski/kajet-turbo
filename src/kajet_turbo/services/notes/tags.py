@@ -118,7 +118,7 @@ class NoteTagService:
         return out, warnings
 
     @staticmethod
-    def _tagged(fm_tags: list[str], content: str) -> TaggedPairs:
+    def tagged(fm_tags: list[str], content: str) -> TaggedPairs:
         """Effective ``(path, source)`` pairs: frontmatter wins over the same inline tag."""
         tagged: dict[str, str] = dict.fromkeys(fm_tags, "frontmatter")
         for tag in extract_inline_tags(content):
@@ -129,7 +129,7 @@ class NoteTagService:
         self, note_id: str, ws_name: str, owner_id: str, fm_tags: list[str], content: str
     ) -> None:
         """Index the note's tags: union of frontmatter (normalized) and inline, frontmatter wins."""
-        self._tag_repo.sync_note_tags(note_id, ws_name, owner_id, self._tagged(fm_tags, content))
+        self._tag_repo.sync_note_tags(note_id, ws_name, owner_id, self.tagged(fm_tags, content))
 
     @workspace_write_transaction
     def _apply_tag_change(
@@ -371,7 +371,7 @@ class NoteTagService:
         self._tag_repo.sync_note_tags_many(
             ws_name,
             owner_id,
-            {item.note.id: self._tagged(item.new_tags, item.new_body) for item in staged},
+            {item.note.id: self.tagged(item.new_tags, item.new_body) for item in staged},
         )
         if self._cache is not None:
             self._cache.bump(ws_name, owner_id)

@@ -190,7 +190,7 @@ def test_scan_notes_finds_all_including_subfolders(workspace):
         "sub",
     )
     notes = scan_notes(str(workspace))
-    ids = [n["id"] for n in notes if n["id"]]
+    ids = [n.note_id for n in notes if n.note_id]
     assert set(ids) == {"id0", "id1", "idsub"}
 
 
@@ -208,7 +208,7 @@ def test_scan_notes_ignores_non_note_md(workspace):
         "content",
     )
     notes = scan_notes(str(workspace))
-    ids = [n["id"] for n in notes if n["id"]]
+    ids = [n.note_id for n in notes if n.note_id]
     assert ids == ["r1"]
 
 

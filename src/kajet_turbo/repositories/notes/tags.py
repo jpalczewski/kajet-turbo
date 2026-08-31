@@ -119,26 +119,28 @@ class NoteTagRepository(DbRepository):
             "delete_note_tags", note_id=note_id, workspace=workspace, owner_id=owner_id
         ) as operation:
             session = operation.session
-            session.execute(  # ty: ignore[deprecated] - DELETE statement
-                delete(NoteTag).where(col(NoteTag.note_id) == note_id)
-            )
-            self._gc_tags(session, workspace, owner_id)
+            self.delete_note_tags_in_session(session, note_id, workspace, owner_id)
             session.commit()
 
-    def delete_workspace_tags(self, workspace: str, owner_id: str) -> None:
-        """Drop all tags + note_tags for a workspace (used before reindex)."""
-        with self.operation(
-            "delete_workspace_tags", workspace=workspace, owner_id=owner_id
-        ) as operation:
-            session = operation.session
-            tag_ids = select(Tag.id).where(Tag.workspace == workspace, Tag.owner_id == owner_id)
-            session.execute(  # ty: ignore[deprecated] - DELETE statement
-                delete(NoteTag).where(col(NoteTag.tag_id).in_(tag_ids))
-            )
-            session.execute(  # ty: ignore[deprecated] - DELETE statement
-                delete(Tag).where(col(Tag.workspace) == workspace, col(Tag.owner_id) == owner_id)
-            )
-            session.commit()
+    def delete_note_tags_in_session(
+        self, session: Session, note_id: str, workspace: str, owner_id: str
+    ) -> None:
+        """Remove one note's tag rows and collect orphan tags without committing."""
+        session.execute(  # ty: ignore[deprecated] - DELETE statement
+            delete(NoteTag).where(col(NoteTag.note_id) == note_id)
+        )
+        self._gc_tags(session, workspace, owner_id)
+
+    @staticmethod
+    def delete_workspace_tags_in_session(session: Session, workspace: str, owner_id: str) -> None:
+        """Drop all workspace tag rows in a caller-owned transaction."""
+        tag_ids = select(Tag.id).where(Tag.workspace == workspace, Tag.owner_id == owner_id)
+        session.execute(  # ty: ignore[deprecated] - DELETE statement
+            delete(NoteTag).where(col(NoteTag.tag_id).in_(tag_ids))
+        )
+        session.execute(  # ty: ignore[deprecated] - DELETE statement
+            delete(Tag).where(col(Tag.workspace) == workspace, col(Tag.owner_id) == owner_id)
+        )
 
     def _descendant_tag_ids(
         self,

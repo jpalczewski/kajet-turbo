@@ -135,12 +135,6 @@ class DanglingLinkRepository(DbRepository):
             )
             session.commit()
 
-    def delete_for_source(self, source_note_id: str) -> None:
-        with self.operation("delete_for_source", source_note_id=source_note_id) as operation:
-            session = operation.session
-            self.delete_for_source_in_session(session, source_note_id)
-            session.commit()
-
     @staticmethod
     def delete_for_source_in_session(session: Session, source_note_id: str) -> None:
         session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
@@ -152,10 +146,14 @@ class DanglingLinkRepository(DbRepository):
             "delete_for_workspace", owner_id=owner_id, workspace=workspace
         ) as operation:
             session = operation.session
-            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
-                delete(DanglingLink).where(
-                    col(DanglingLink.owner_id) == owner_id,
-                    col(DanglingLink.workspace) == workspace,
-                )
-            )
+            self.delete_for_workspace_in_session(session, owner_id, workspace)
             session.commit()
+
+    @staticmethod
+    def delete_for_workspace_in_session(session: Session, owner_id: str, workspace: str) -> None:
+        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+            delete(DanglingLink).where(
+                col(DanglingLink.owner_id) == owner_id,
+                col(DanglingLink.workspace) == workspace,
+            )
+        )
