@@ -168,6 +168,40 @@ def test_create_note_returns_note_id(auth_client):
     assert len(data["note_id"]) > 0
 
 
+def test_create_note_response_matches_declared_schema(auth_client):
+    # note_service.save's return dict carries occurred_at/period (echoed to MCP callers)
+    # that this REST endpoint doesn't declare — pinned so a future passthrough refactor
+    # (JSONResponse(result, ...)) can't silently leak them into the POST response body.
+    client, _, _ = auth_client
+    resp = client.post(
+        "/api/workspaces/test-ws/notes",
+        json={"title": "Schema Note", "content": "c", "occurred_at": "2026-03-22"},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data == {"note_id": data["note_id"], "warnings": []}
+
+
+def test_create_note_accepts_temporal_metadata(auth_client):
+    client, note_svc, ws_path = auth_client
+    response = client.post(
+        "/api/workspaces/test-ws/notes",
+        json={"title": "Event", "occurred_at": "2026-03-22"},
+    )
+    assert response.status_code == 201
+    note = note_svc.get_with_content(response.json()["note_id"], owner_id="u1", ws_path=ws_path)
+    assert note is not None and note.occurred_at == "2026-03-22"
+
+
+def test_create_note_rejects_malformed_period_with_422_not_409(auth_client):
+    client, _, _ = auth_client
+    resp = client.post(
+        "/api/workspaces/test-ws/notes",
+        json={"title": "Bad Period Note", "period": "not-a-period"},
+    )
+    assert resp.status_code == 422
+
+
 def test_create_note_in_subfolder(auth_client):
     client, note_svc, ws_path = auth_client
     resp = client.post(
@@ -231,6 +265,32 @@ def test_update_note_response_matches_declared_schema(auth_client):
         json={"content": "new content", "expected_sha": sha},
     )
     assert resp.json() == {"note_id": note_id, "warnings": []}
+
+
+def test_update_note_rejects_malformed_period_with_422_not_404(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Period Note", "c", [])["note_id"]
+    sha = note_svc.get_history(note_id, owner_id="u1", ws_path=ws_path)[0]["sha"]
+    resp = client.patch(
+        f"/api/workspaces/test-ws/notes/{note_id}",
+        json={"period": "not-a-period", "expected_sha": sha},
+    )
+    assert resp.status_code == 422
+
+
+def test_update_note_explicit_null_occurred_at_leaves_it_unchanged(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save(
+        "u1", "test-ws", ws_path, "Dated Note", "c", [], occurred_at="2026-03-22"
+    )["note_id"]
+    sha = note_svc.get_history(note_id, owner_id="u1", ws_path=ws_path)[0]["sha"]
+    resp = client.patch(
+        f"/api/workspaces/test-ws/notes/{note_id}",
+        json={"title": "Renamed", "occurred_at": None, "expected_sha": sha},
+    )
+    assert resp.status_code == 200
+    updated = note_svc.get_with_content(note_id, owner_id="u1", ws_path=ws_path)
+    assert updated is not None and updated.occurred_at == "2026-03-22"
 
 
 def test_update_note_title(auth_client):

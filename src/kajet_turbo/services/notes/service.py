@@ -57,10 +57,12 @@ from kajet_turbo.workspace import (
     iter_note_paths,
     locate_note,
     normalize_folder,
+    normalize_temporal_metadata,
     note_filepath,
     note_folder,
     parse_frontmatter,
     read_note_file,
+    resolve_temporal_fields,
     write_note_file,
 )
 
@@ -87,6 +89,8 @@ class _PreparedEdit:
     old_tags: list[str]
     new_content: str
     new_tags: list[str]
+    occurred_at: str | None
+    period: str | None
     links: LinkResolution
     replaced: int | None
 
@@ -112,6 +116,8 @@ class _PresentFile:
     tags: list[str]
     created_at: str
     updated_at: str
+    occurred_at: str | None
+    period: str | None
     content: str
     folder: str
     relative: str
@@ -126,6 +132,8 @@ def _present_file(
         tags=NoteTagService.normalize_tags(cast(list[str], meta.tags or [])),
         created_at=str(meta.created_at or ""),
         updated_at=str(meta.updated_at or ""),
+        occurred_at=meta.occurred_at,
+        period=meta.period,
         content=content,
         folder=folder,
         relative=relative,
@@ -169,6 +177,7 @@ class ReconcileReport:
 # handful of notes to a legitimate cleanup never trip this (the floor guards that).
 _RECONCILE_MAX_DELETE_RATIO = 0.2
 _RECONCILE_MIN_DELETE_FLOOR = 5
+_UNCHANGED = object()
 
 
 class NoteService:
@@ -288,6 +297,8 @@ class NoteService:
             tags=json.loads(loc.note.tags or "[]"),
             created_at=loc.note.created_at,
             updated_at=loc.note.updated_at,
+            occurred_at=loc.note.occurred_at,
+            period=loc.note.period,
             content=content,
             sha=sha,
         )
@@ -334,8 +345,11 @@ class NoteService:
         content: str,
         tags: list[str],
         folder: str = "",
+        occurred_at: object = None,
+        period: object = None,
     ) -> dict:
         folder = normalize_folder(folder)
+        occurred_at, period = normalize_temporal_metadata(occurred_at, period)
         if not self._crud_repo.check_unique(ws_name, user_id, folder, title):
             raise ValueError(f"Notatka '{title}' już istnieje w folderze '{folder or 'root'}'.")
         tags = NoteTagService.normalize_tags(tags)
@@ -346,7 +360,15 @@ class NoteService:
         now = datetime.now(UTC).isoformat()
         filepath = note_filepath(ws_path, folder, title)
         relative = str(Path(filepath).relative_to(ws_path))
-        meta = NoteFrontmatter(id=note_id, title=title, tags=tags, created_at=now, updated_at=now)
+        meta = NoteFrontmatter(
+            id=note_id,
+            title=title,
+            tags=tags,
+            created_at=now,
+            updated_at=now,
+            occurred_at=occurred_at,
+            period=period,
+        )
         item = StagedWrite(
             relative=relative,
             apply=partial(write_note_file, filepath, meta, content),
@@ -354,7 +376,9 @@ class NoteService:
         )
         with staged_note_write(GitRepository(ws_path), [item], f"note: add {title}"):
             pass
-        self._crud_repo.insert(note_id, ws_name, user_id, title, tags, now, now, folder)
+        self._crud_repo.insert(
+            note_id, ws_name, user_id, title, tags, now, now, folder, occurred_at, period
+        )
         self._link_service.persist(note_id, ws_name, user_id, links)
         self._tag_service.sync_tags(note_id, ws_name, user_id, tags, content)
         if self._cache is not None:
@@ -365,7 +389,12 @@ class NoteService:
         )
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
-        return {"note_id": note_id, "warnings": wikilink_warnings(links)}
+        return {
+            "note_id": note_id,
+            "warnings": wikilink_warnings(links),
+            "occurred_at": occurred_at,
+            "period": period,
+        }
 
     @workspace_write_transaction
     def save_many(
@@ -432,8 +461,20 @@ class NoteService:
                     "folder": folder,
                     "filepath": filepath,
                     "relative": relative,
+                    "occurred_at": None,
+                    "period": None,
                 }
             )
+            try:
+                survivors[-1]["occurred_at"], survivors[-1]["period"] = normalize_temporal_metadata(
+                    raw.get("occurred_at"), raw.get("period")
+                )
+            except ValueError as e:
+                results[index] = {"index": index, "error": str(e)}
+                survivors.pop()
+                accepted.remove(key)
+                accepted_paths.remove(relative)
+                batch_notes.pop()
 
         # Phase 2: wikilink resolution against existing notes union the batch, sharing one
         # index. Non-cascading: the index is not rebuilt as notes are dropped, so a link to
@@ -467,6 +508,8 @@ class NoteService:
                         tags=s["tags"],
                         created_at=now,
                         updated_at=now,
+                        occurred_at=s["occurred_at"],
+                        period=s["period"],
                     ),
                     s["content"],
                 ),
@@ -490,6 +533,8 @@ class NoteService:
                 now,
                 now,
                 s["folder"],
+                s["occurred_at"],
+                s["period"],
             )
         self._link_service.persist_many(
             ws_name,
@@ -544,6 +589,8 @@ class NoteService:
             "tags": json.loads(note.tags or "[]"),
             "created_at": note.created_at,
             "updated_at": note.updated_at,
+            "occurred_at": note.occurred_at,
+            "period": note.period,
         }
 
     def get_with_content(self, note_id: str, owner_id: str, ws_path: str) -> NoteData | None:
@@ -779,6 +826,9 @@ class NoteService:
         replace_all: bool = False,
         *,
         extras: dict[str, object] | None = None,
+        occurred_at: object = _UNCHANGED,
+        period: object = _UNCHANGED,
+        clear_date_metadata: bool = False,
     ) -> dict:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
@@ -791,6 +841,14 @@ class NoteService:
             raise InvalidFolderError(str(e)) from e
         current_tags = json.loads(note.tags or "[]")
         new_tags = NoteTagService.normalize_tags(tags) if tags is not None else current_tags
+        new_occurred_at, new_period = resolve_temporal_fields(
+            has_occurred_at=occurred_at is not _UNCHANGED,
+            has_period=period is not _UNCHANGED,
+            occurred_at=occurred_at,
+            period=period,
+            clear=clear_date_metadata,
+            fallback=(note.occurred_at, note.period),
+        )
 
         old_path = note_filepath(ws_path, note.folder, note.title)
         new_path = note_filepath(ws_path, new_folder, new_title)
@@ -811,6 +869,10 @@ class NoteService:
             if Path(new_path).exists():
                 raise FileExistsError(f"Plik docelowy '{new_rel}' już istnieje.")
         existing_meta, old_content = read_note_file(old_path)
+        if not clear_date_metadata and occurred_at is _UNCHANGED and period is _UNCHANGED:
+            # The file is source of truth during a read-modify-write. This also repairs
+            # a temporal value hand-edited since the last reconcile instead of overwriting it.
+            new_occurred_at, new_period = existing_meta.occurred_at, existing_meta.period
         new_extras = extras if extras is not None else existing_meta.extras
         # apply_edit owns every mode/parameter rule, including "overwrite without content
         # leaves the body alone" — the metadata-only edit path.
@@ -852,6 +914,8 @@ class NoteService:
             created_at=note.created_at,
             updated_at=now,
             extras=new_extras,
+            occurred_at=new_occurred_at,
+            period=new_period,
         )
         restore_meta = replace(
             existing_meta,
@@ -860,6 +924,8 @@ class NoteService:
             tags=current_tags,
             created_at=note.created_at,
             updated_at=note.updated_at,
+            occurred_at=note.occurred_at,
+            period=note.period,
         )
         item = StagedWrite(
             relative=new_rel,
@@ -877,6 +943,8 @@ class NoteService:
             tags=new_tags,
             updated_at=now,
             folder=new_folder,
+            occurred_at=new_occurred_at,
+            period=new_period,
             bump_index_generation=True,
         )
         self._link_service.persist(note_id, note.workspace, owner_id, links)
@@ -908,6 +976,8 @@ class NoteService:
             "note_id": note_id,
             "replaced": replaced,
             "warnings": wikilink_warnings(links),
+            "occurred_at": new_occurred_at,
+            "period": new_period,
         }
 
     @workspace_write_transaction
@@ -951,6 +1021,9 @@ class NoteService:
                 raw.get("mode", "append") == "overwrite"
                 and raw.get("content") is None
                 and raw.get("tags") is None
+                and "occurred_at" not in raw
+                and "period" not in raw
+                and not raw.get("clear_date_metadata", False)
             ):
                 errors.append(
                     {
@@ -985,6 +1058,21 @@ class NoteService:
             new_tags = (
                 NoteTagService.normalize_tags(raw_tags) if raw_tags is not None else current_tags
             )
+            has_occurred_at = "occurred_at" in raw
+            has_period = "period" in raw
+            clear_date_metadata = bool(raw.get("clear_date_metadata", False))
+            try:
+                occurred_at, period = resolve_temporal_fields(
+                    has_occurred_at=has_occurred_at,
+                    has_period=has_period,
+                    occurred_at=raw.get("occurred_at"),
+                    period=raw.get("period"),
+                    clear=clear_date_metadata,
+                    fallback=(existing_meta.occurred_at, existing_meta.period),
+                )
+            except ValueError as e:
+                errors.append({"index": index, "note_id": note_id, "error": str(e)})
+                continue
             prepared.append(
                 _PreparedEdit(
                     index=index,
@@ -995,6 +1083,8 @@ class NoteService:
                     old_tags=current_tags,
                     new_content=new_content,
                     new_tags=new_tags,
+                    occurred_at=occurred_at,
+                    period=period,
                     links=links,
                     replaced=edit_result.replaced,
                 )
@@ -1018,6 +1108,8 @@ class NoteService:
                         tags=p.new_tags,
                         created_at=p.loc.note.created_at,
                         updated_at=now,
+                        occurred_at=p.occurred_at,
+                        period=p.period,
                     ),
                     p.new_content,
                 ),
@@ -1031,6 +1123,8 @@ class NoteService:
                         tags=p.old_tags,
                         created_at=p.loc.note.created_at,
                         updated_at=p.loc.note.updated_at,
+                        occurred_at=p.loc.note.occurred_at,
+                        period=p.loc.note.period,
                     ),
                     p.old_content,
                 ),
@@ -1049,6 +1143,8 @@ class NoteService:
                 tags=p.new_tags,
                 updated_at=now,
                 folder=p.loc.note.folder,
+                occurred_at=p.occurred_at,
+                period=p.period,
                 bump_index_generation=True,
             )
         self._link_service.persist_many(
@@ -1390,6 +1486,8 @@ class NoteService:
                 or json.loads(existing.tags or "[]") != pf.tags
                 or existing.created_at != pf.created_at
                 or existing.updated_at != pf.updated_at
+                or existing.occurred_at != pf.occurred_at
+                or existing.period != pf.period
             )
             if drifted:
                 updated.append(note_id)
@@ -1437,6 +1535,8 @@ class NoteService:
                         tags=json.dumps(pf.tags),
                         created_at=pf.created_at,
                         updated_at=pf.updated_at,
+                        occurred_at=pf.occurred_at,
+                        period=pf.period,
                     ),
                 )
             for note_id in updated:
@@ -1450,6 +1550,8 @@ class NoteService:
                     updated_at=pf.updated_at,
                     folder=pf.folder,
                     created_at=pf.created_at,
+                    occurred_at=pf.occurred_at,
+                    period=pf.period,
                     bump_index_generation=True,
                 )
 
@@ -1577,6 +1679,8 @@ class NoteService:
             content=version["content"],
             tags=version["tags"],
             extras=version["extras"],
+            occurred_at=version["occurred_at"],
+            period=version["period"],
         )
 
     # Delegation to peer services (public API unchanged):

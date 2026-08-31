@@ -69,6 +69,8 @@ def api_note_version(
             "tags": version["tags"],
             "created_at": version["created_at"],
             "updated_at": version["updated_at"],
+            "occurred_at": version["occurred_at"],
+            "period": version["period"],
             "content_html": _render_html(
                 version["content"],
                 resolver=note_service.link_resolver(name, user["id"], version["folder"]),

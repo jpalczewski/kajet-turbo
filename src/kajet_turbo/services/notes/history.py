@@ -52,6 +52,8 @@ class NoteVersionService:
             "extras": meta.extras,
             "created_at": str(or_default(meta.created_at, note.created_at)),
             "updated_at": str(or_default(meta.updated_at, note.updated_at)),
+            "occurred_at": meta.occurred_at,
+            "period": meta.period,
             "content": content,
             "sha": sha,
         }

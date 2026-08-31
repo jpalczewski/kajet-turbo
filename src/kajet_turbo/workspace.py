@@ -3,13 +3,14 @@ import re
 import stat
 import tempfile
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import cast
 
 import frontmatter
 
 from kajet_turbo.models import Note
+from kajet_turbo.periods import parse_period_key
 from kajet_turbo.repositories.git import GitRepository, delete_workspace_tree
 
 WORKSPACES_DIR = os.getenv("WORKSPACES_DIR", "/workspaces")
@@ -17,16 +18,23 @@ WORKSPACES_DIR = os.getenv("WORKSPACES_DIR", "/workspaces")
 _WINDOWS_FORBIDDEN = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 _WINDOWS_RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", re.IGNORECASE)
 
-RESERVED_FRONTMATTER_KEYS = frozenset({"id", "title", "tags", "created_at", "updated_at"})
+RESERVED_FRONTMATTER_KEYS = frozenset(
+    {"id", "title", "tags", "created_at", "updated_at", "occurred_at", "period"}
+)
 
 
 class InvalidFolderError(ValueError):
     pass
 
 
+class TemporalMetadataError(ValueError):
+    """Invalid or conflicting occurred_at/period input. Distinct from a bare ValueError
+    so callers (the API layer) can map it to 422 instead of the generic not-found 404."""
+
+
 @dataclass(frozen=True, slots=True)
 class NoteFrontmatter:
-    """Parsed note frontmatter: the five reserved keys plus everything else in ``extras``.
+    """Parsed note frontmatter: reserved keys plus everything else in ``extras``.
 
     ``extras`` cannot shadow a reserved key — validated here so a bad state is rejected
     where it is built, not where it is next written. Dates deliberately keep PyYAML's
@@ -38,12 +46,17 @@ class NoteFrontmatter:
     tags: list[str]
     created_at: str | datetime | None
     updated_at: str | datetime | None
+    occurred_at: str | None = field(default=None, kw_only=True)
+    period: str | None = field(default=None, kw_only=True)
     extras: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         shadowed = RESERVED_FRONTMATTER_KEYS & self.extras.keys()
         if shadowed:
             raise ValueError(f"extras cannot shadow reserved frontmatter keys: {sorted(shadowed)}")
+        occurred_at, period = normalize_temporal_metadata(self.occurred_at, self.period)
+        if (occurred_at, period) != (self.occurred_at, self.period):
+            raise ValueError("occurred_at and period must use canonical string values.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +71,8 @@ class ScannedNote:
     tags: list[str]
     created_at: str | datetime | None
     updated_at: str | datetime | None
+    occurred_at: str | None
+    period: str | None
     content: str
     folder: str
 
@@ -228,6 +243,8 @@ def write_note_file(path: str, meta: NoteFrontmatter, body: str) -> None:
         "tags": meta.tags,
         "created_at": meta.created_at,
         "updated_at": meta.updated_at,
+        "occurred_at": meta.occurred_at,
+        "period": meta.period,
         **meta.extras,
     }
     target = Path(path)
@@ -266,15 +283,102 @@ def parse_frontmatter(post: frontmatter.Post) -> tuple[NoteFrontmatter, str]:
     """
     metadata: dict[str, object] = dict(post.metadata)
     tags = metadata.pop("tags", [])
+    occurred_at = _parse_occurred_at(metadata.pop("occurred_at", None))
+    period = _parse_period(metadata.pop("period", None))
     meta = NoteFrontmatter(
         id=cast("str | None", metadata.pop("id", None)),
         title=cast("str | None", metadata.pop("title", None)),
         tags=cast("list[str]", list(tags)) if isinstance(tags, list) else [],
         created_at=cast("str | datetime | None", metadata.pop("created_at", None)),
         updated_at=cast("str | datetime | None", metadata.pop("updated_at", None)),
+        occurred_at=occurred_at,
+        period=period,
         extras=metadata,
     )
     return meta, post.content
+
+
+def _parse_occurred_at(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime) or not isinstance(value, (str, date)):
+        raise TemporalMetadataError("occurred_at must be an ISO calendar date (YYYY-MM-DD).")
+    try:
+        parsed = date.fromisoformat(value) if isinstance(value, str) else value
+    except ValueError as exc:
+        raise TemporalMetadataError(
+            "occurred_at must be an ISO calendar date (YYYY-MM-DD)."
+        ) from exc
+    if parsed.isoformat() != (value if isinstance(value, str) else parsed.isoformat()):
+        raise TemporalMetadataError("occurred_at must be an ISO calendar date (YYYY-MM-DD).")
+    return parsed.isoformat()
+
+
+def _parse_period(value: object) -> str | None:
+    if value is None:
+        return None
+    # PyYAML parses a bare 4-digit year like `period: 2026` as int, not str, so a
+    # hand-written year period needs the same native-type accommodation _parse_occurred_at
+    # gives `date`. bool is an int subclass, so it's excluded explicitly.
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise TemporalMetadataError("period must be a canonical period key.")
+    try:
+        return parse_period_key(str(value)).key
+    except ValueError as exc:
+        raise TemporalMetadataError("period must be a canonical period key.") from exc
+
+
+def normalize_temporal_metadata(
+    occurred_at: object = None, period: object = None
+) -> tuple[str | None, str | None]:
+    """Validate and canonicalize the two mutually-exclusive temporal note facts."""
+    normalized_occurred_at = _parse_occurred_at(occurred_at)
+    normalized_period = _parse_period(period)
+    if normalized_occurred_at is not None and normalized_period is not None:
+        raise TemporalMetadataError("occurred_at and period are mutually exclusive.")
+    return normalized_occurred_at, normalized_period
+
+
+def temporal_kwargs(occurred_at: str | None, period: str | None) -> dict[str, str]:
+    """Keyword args for occurred_at/period, omitting unset fields entirely.
+
+    Shared by every caller that must distinguish "leave unchanged" (omitted) from
+    "set to this value" before calling NoteService.update, which treats an omitted
+    kwarg differently from an explicit None (see NoteService._UNCHANGED).
+    """
+    return {
+        key: value
+        for key, value in (("occurred_at", occurred_at), ("period", period))
+        if value is not None
+    }
+
+
+def resolve_temporal_fields(
+    *,
+    has_occurred_at: bool,
+    has_period: bool,
+    occurred_at: object,
+    period: object,
+    clear: bool,
+    fallback: tuple[str | None, str | None],
+) -> tuple[str | None, str | None]:
+    """The shared occurred_at/period resolution rule for a note update: clear both,
+    set one or both explicitly, or fall back to the caller-supplied unchanged values.
+    Used by both NoteService.update and NoteService.edit_many, which differ only in
+    how "was this field passed" is detected and what the fallback source is."""
+    if clear and (has_occurred_at or has_period):
+        raise TemporalMetadataError(
+            "clear_date_metadata cannot be combined with occurred_at or period."
+        )
+    if clear:
+        return None, None
+    if has_occurred_at and has_period:
+        return normalize_temporal_metadata(occurred_at, period)
+    if has_occurred_at:
+        return normalize_temporal_metadata(occurred_at, None)
+    if has_period:
+        return normalize_temporal_metadata(None, period)
+    return fallback
 
 
 def read_note_file(path: str) -> tuple[NoteFrontmatter, str]:
@@ -303,6 +407,8 @@ def scan_notes(workspace_path: str) -> list[ScannedNote]:
                 tags=meta.tags,
                 created_at=meta.created_at,
                 updated_at=meta.updated_at,
+                occurred_at=meta.occurred_at,
+                period=meta.period,
                 content=content,
                 folder=note_folder(workspace_path, p),
             )

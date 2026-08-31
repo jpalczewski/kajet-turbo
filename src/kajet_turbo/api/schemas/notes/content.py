@@ -20,6 +20,8 @@ class NoteHtmlResponse(BaseModel):
     tags: list[str]
     created_at: str
     updated_at: str
+    occurred_at: str | None = None
+    period: str | None = None
     content_html: str
     sha: str
 
@@ -31,6 +33,8 @@ class NoteMarkdownResponse(BaseModel):
     tags: list[str]
     created_at: str
     updated_at: str
+    occurred_at: str | None = None
+    period: str | None = None
     content: str
     sha: str
 

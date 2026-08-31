@@ -53,7 +53,7 @@ from kajet_turbo.mcp.tooling import (
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.services.notes import NoteData, NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
-from kajet_turbo.workspace import normalize_folder
+from kajet_turbo.workspace import normalize_folder, temporal_kwargs
 
 
 def build_crud(
@@ -71,6 +71,8 @@ def build_crud(
         content: str,
         tags: list[str] | None = None,
         folder: str = "",
+        occurred_at: str | None = None,
+        period: str | None = None,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> SavedNoteResult:
         """Zapisuje nową notatkę w podanym folderze (domyślnie root).
@@ -86,6 +88,8 @@ def build_crud(
             content,
             tags or [],
             folder=folder,
+            occurred_at=occurred_at,
+            period=period,
         )
         await publish_workspace_changed(ws)
         return SavedNoteResult.model_validate(result)
@@ -205,6 +209,9 @@ def build_crud(
         ] = None,
         tags: list[str] | None = None,
         folder: str | None = None,
+        occurred_at: str | None = None,
+        period: str | None = None,
+        clear_date_metadata: bool = False,
         mode: Annotated[
             Literal[
                 "overwrite",
@@ -282,6 +289,10 @@ def build_crud(
             old_str=old_str,
             new_str=new_str,
             replace_all=replace_all,
+            clear_date_metadata=clear_date_metadata,
+            **temporal_kwargs(  # ty: ignore[invalid-argument-type] - dict[str, str] spread vs update()'s heterogeneous kwargs; keys are always occurred_at/period
+                occurred_at, period
+            ),
         )
         if result.get("stale_sha"):
             return StaleVersion.model_validate(result)
@@ -311,7 +322,7 @@ def build_crud(
             ws.owner_id,
             ws.name,
             ws.path,
-            [e.model_dump() for e in edits],
+            [e.model_dump(exclude_none=True) for e in edits],
         )
         if not result.get("applied"):
             return EditNotesRejected.model_validate(result)

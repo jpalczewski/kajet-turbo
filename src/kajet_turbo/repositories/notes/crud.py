@@ -1,5 +1,6 @@
 import json
 import re
+from typing import cast
 
 from sqlalchemy import delete, func, text
 from sqlmodel import Session, col, select
@@ -10,6 +11,7 @@ from kajet_turbo.perf import timed
 from kajet_turbo.repositories import DbRepository
 
 _NUM_SPLIT = re.compile(r"(\d+)")
+_UNSET = object()
 
 
 def folder_sort_key(note: Note) -> tuple:
@@ -34,6 +36,8 @@ class NoteRepository(DbRepository):
         created_at: str,
         updated_at: str,
         folder: str = "",
+        occurred_at: str | None = None,
+        period: str | None = None,
     ) -> None:
         with self.operation(
             "insert", note_id=note_id, workspace=workspace, owner_id=owner_id
@@ -50,6 +54,8 @@ class NoteRepository(DbRepository):
                     tags=json.dumps(tags),
                     created_at=created_at,
                     updated_at=updated_at,
+                    occurred_at=occurred_at,
+                    period=period,
                 ),
             )
             session.commit()
@@ -240,6 +246,8 @@ class NoteRepository(DbRepository):
         updated_at: str = "",
         folder: str | None = None,
         created_at: str | None = None,
+        occurred_at: str | None | object = _UNSET,
+        period: str | None | object = _UNSET,
         bump_index_generation: bool = False,
     ) -> None:
         with self.operation("update", note_id=note_id, owner_id=owner_id) as operation:
@@ -253,6 +261,8 @@ class NoteRepository(DbRepository):
                 updated_at=updated_at,
                 folder=folder,
                 created_at=created_at,
+                occurred_at=occurred_at,
+                period=period,
                 bump_index_generation=bump_index_generation,
             )
             session.commit()
@@ -267,6 +277,8 @@ class NoteRepository(DbRepository):
         updated_at: str = "",
         folder: str | None = None,
         created_at: str | None = None,
+        occurred_at: str | None | object = _UNSET,
+        period: str | None | object = _UNSET,
         bump_index_generation: bool = False,
     ) -> None:
         """Update one note row in a caller-owned transaction; does not commit."""
@@ -287,6 +299,10 @@ class NoteRepository(DbRepository):
             note.folder = folder
         if created_at is not None:
             note.created_at = created_at
+        if occurred_at is not _UNSET:
+            note.occurred_at = cast("str | None", occurred_at)
+        if period is not _UNSET:
+            note.period = cast("str | None", period)
         if bump_index_generation:
             note.index_generation += 1
 
@@ -359,6 +375,8 @@ class NoteRepository(DbRepository):
                     "tags": json.loads(note.tags or "[]"),
                     "created_at": note.created_at,
                     "updated_at": note.updated_at,
+                    "occurred_at": note.occurred_at,
+                    "period": note.period,
                 }
             )
             if limit is not None and len(result) >= limit:

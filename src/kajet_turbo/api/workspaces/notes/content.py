@@ -106,6 +106,8 @@ def api_get_note_html(
             "tags": note.tags,
             "created_at": note.created_at,
             "updated_at": note.updated_at,
+            "occurred_at": note.occurred_at,
+            "period": note.period,
             "content_html": _render_html(
                 note.content,
                 resolver=note_service.link_resolver(name, user["id"], note.folder),
@@ -143,6 +145,8 @@ def api_get_note_markdown(
             "tags": note.tags,
             "created_at": note.created_at,
             "updated_at": note.updated_at,
+            "occurred_at": note.occurred_at,
+            "period": note.period,
             "content": note.content,
             "sha": note.sha,
         }

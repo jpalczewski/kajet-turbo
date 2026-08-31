@@ -33,7 +33,13 @@ def test_update_fresh_sha_applies_content_overwrite(service, workspace):
         note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, content="nowa treść"
     )
 
-    assert result == {"note_id": note_id, "replaced": None, "warnings": []}
+    assert result == {
+        "note_id": note_id,
+        "replaced": None,
+        "warnings": [],
+        "occurred_at": None,
+        "period": None,
+    }
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note.content == "nowa treść"
 
@@ -50,7 +56,13 @@ def test_update_no_gate_on_empty_body_overwrite(service, workspace):
         content="pierwsza treść",
     )
 
-    assert result == {"note_id": note_id, "replaced": None, "warnings": []}
+    assert result == {
+        "note_id": note_id,
+        "replaced": None,
+        "warnings": [],
+        "occurred_at": None,
+        "period": None,
+    }
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note.content == "pierwsza treść"
 
@@ -69,7 +81,13 @@ def test_update_no_gate_on_surgical_append(service, workspace):
         target_heading="## H",
     )
 
-    assert result == {"note_id": note_id, "replaced": None, "warnings": []}
+    assert result == {
+        "note_id": note_id,
+        "replaced": None,
+        "warnings": [],
+        "occurred_at": None,
+        "period": None,
+    }
 
 
 def test_update_fresh_sha_applies_tag_drop(service, workspace):

@@ -24,6 +24,20 @@ async def test_save_and_get_note(workspaces_dir, mcp_server):
         assert "Moja notatka" in get_result.content[0].text
 
 
+async def test_save_and_get_note_with_temporal_metadata(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        saved = await call_json(
+            client,
+            "save_note",
+            {"title": "Weekly summary", "content": "Body", "period": "2026-W12"},
+        )
+        note = await call_json(client, "get_note", {"note_id": saved["note_id"]})
+        assert note["occurred_at"] is None
+        assert note["period"] == "2026-W12"
+
+
 async def test_get_notes_bulk_read(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
@@ -183,10 +197,57 @@ async def test_edit_note_append_mode(workspaces_dir, mcp_server):
             "note_id": note_id,
             "replaced": None,
             "warnings": [],
+            "occurred_at": None,
+            "period": None,
         }
         get_result = await client.call_tool("get_note", {"note_id": note_id})
         content = json.loads(get_result.content[0].text)["content"]
         assert "- Pierwsze\n- Drugie" in content
+
+
+async def test_edit_note_echoes_temporal_fields_without_leaking_content_in_slow_sync_log(
+    workspaces_dir, mcp_server, monkeypatch, capsys
+):
+    from kajet_turbo import concurrency
+    from kajet_turbo.log import setup_logging
+    from tests.helpers import entries_named, read_log_entries
+
+    setup_logging()
+    monkeypatch.setattr(concurrency, "_SLOW_SYNC_MS", 1.0)  # log every dispatch
+
+    mcp, _ = mcp_server
+    secret_content = "Body with a private detail nobody else should read"
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        saved = await call_json(
+            client,
+            "save_note",
+            {"title": "Weekly summary", "content": secret_content, "period": "2026-W12"},
+        )
+        note = await call_json(client, "get_note", {"note_id": saved["note_id"]})
+
+        result = await call_json(
+            client,
+            "edit_note",
+            {
+                "note_id": saved["note_id"],
+                "expected_sha": note["sha"],
+                "occurred_at": "2026-03-22",
+            },
+        )
+
+        # Setting occurred_at clears the mutually-exclusive period — echoed back so the
+        # caller sees the side effect instead of discovering it on a later get_note.
+        assert result["occurred_at"] == "2026-03-22"
+        assert result["period"] is None
+
+        slow = entries_named(read_log_entries(capsys), "slow_sync")
+        update_entries = [e for e in slow if e["op"] == "NoteService.update"]
+        assert update_entries  # partial(...) previously had no __qualname__, falling to repr(fn)
+        for entry in slow:
+            dumped = json.dumps(entry)
+            assert secret_content not in dumped
+            assert "Weekly summary" not in dumped
 
 
 async def test_edit_note_replace_text_ambiguous_errors(workspaces_dir, mcp_server):

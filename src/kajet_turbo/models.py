@@ -100,9 +100,16 @@ class Note(SQLModel, table=True):
     tags: str | None = Field(default=None, sa_column=Column(Text))
     created_at: str
     updated_at: str
+    occurred_at: str | None = None
+    period: str | None = None
     index_generation: int = Field(default=1)
     index_state: str = Field(default="stale")  # 'stale' | 'indexed'
     indexed_at: str | None = None
+
+    __table_args__ = (
+        Index("ix_notes_workspace_owner_occurred_at", "workspace", "owner_id", "occurred_at"),
+        Index("ix_notes_workspace_owner_period", "workspace", "owner_id", "period"),
+    )
 
 
 class NoteLink(SQLModel, table=True):

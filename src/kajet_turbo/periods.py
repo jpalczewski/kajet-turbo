@@ -134,6 +134,21 @@ class Period:
         return self._parse_key()
 
 
+def parse_period_key(key: str) -> Period:
+    """Parse an unambiguous canonical period key into its :class:`Period`."""
+    if not isinstance(key, str):
+        raise ValueError("period must be a canonical period key.")
+    if len(key) == 10:
+        return Period("day", key)
+    if len(key) == 8 and key[4:6] == "-W":
+        return Period("week", key)
+    if len(key) == 7:
+        return Period("month", key)
+    if len(key) == 4:
+        return Period("year", key)
+    raise ValueError(f"Invalid period key {key!r}.")
+
+
 def month_of_week(w: Period) -> Period:
     """Return the calendar month holding ISO week's Thursday.
 

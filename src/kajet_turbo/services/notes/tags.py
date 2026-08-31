@@ -172,6 +172,8 @@ class NoteTagService:
                 tags=new_tags,
                 updated_at=now,
                 folder=note.folder,
+                occurred_at=existing_meta.occurred_at,
+                period=existing_meta.period,
             )
             self.sync_tags(note_id, note.workspace, owner_id, new_tags, content)
             if self._cache is not None:
@@ -370,6 +372,8 @@ class NoteTagService:
                 tags=item.new_tags,
                 updated_at=now,
                 folder=item.note.folder,
+                occurred_at=item.meta.occurred_at,
+                period=item.meta.period,
                 bump_index_generation=item.body_changed,
             )
         # One transaction and one orphan sweep for the batch, not one per note.

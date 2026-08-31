@@ -12,6 +12,8 @@ class NoteItem(BaseModel):
     tags: list[str]
     created_at: str
     updated_at: str
+    occurred_at: str | None = None
+    period: str | None = None
     size_bytes: int
 
 
@@ -24,6 +26,8 @@ class CreateNoteRequest(BaseModel):
     content: str = ""
     folder: str = ""
     tags: list[str] = []
+    occurred_at: str | None = None
+    period: str | None = None
 
 
 class WikilinkWarning(BaseModel):
@@ -43,6 +47,9 @@ class UpdateNoteRequest(BaseModel):
     content: str | None = None
     folder: str | None = None
     tags: list[str] | None = None
+    occurred_at: str | None = None
+    period: str | None = None
+    clear_date_metadata: bool = False
 
 
 class UpdateNoteResponse(BaseModel):
@@ -68,6 +75,8 @@ class NoteCreate(BaseModel):
     content: str = ""
     tags: list[str] = []
     folder: str = ""
+    occurred_at: str | None = None
+    period: str | None = None
 
 
 class NoteResult(BaseModel):
