@@ -684,7 +684,7 @@ class NoteService:
         frontmatter — for exact-text lookups (refactors, "is this word still anywhere")
         that search_notes' FTS/vector/metadata ranking cannot guarantee. Scoped to
         folder's subtree when given. Does not touch the DB; the workspace's files on
-        disk are the source of truth for grep, same as scan_notes/reindex.
+        disk are the source of truth for grep, same as reindex/reconcile_paths.
         """
         if not pattern.strip():
             raise ValueError("Wzorzec wyszukiwania nie może być pusty.")
@@ -1304,6 +1304,9 @@ class NoteService:
         inserted: list[str] = []
         updated: list[str] = []
         unchanged = 0
+        # Only identity changes (folder/title) can move which source resolves to which
+        # target — tags/created_at/updated_at drift alone never changes link resolution,
+        # so it must not requeue every backlink (matches edit_note's identity_changed gate).
         changed_titles: set[str] = {n.title for n in missing_notes}
         for note_id, pf in present.items():
             existing = existing_by_id.get(note_id)
@@ -1311,17 +1314,18 @@ class NoteService:
                 inserted.append(note_id)
                 changed_titles.add(pf.title)
                 continue
+            identity_changed = existing.folder != pf.folder or existing.title != pf.title
             drifted = (
-                existing.folder != pf.folder
-                or existing.title != pf.title
+                identity_changed
                 or json.loads(existing.tags or "[]") != pf.tags
                 or existing.created_at != pf.created_at
                 or existing.updated_at != pf.updated_at
             )
             if drifted:
                 updated.append(note_id)
-                changed_titles.add(existing.title)
-                changed_titles.add(pf.title)
+                if identity_changed:
+                    changed_titles.add(existing.title)
+                    changed_titles.add(pf.title)
             else:
                 unchanged += 1
 
@@ -1332,6 +1336,10 @@ class NoteService:
             changed_titles
         )
         affected -= present_ids  # every present note gets a fresh resolution below anyway
+        # The removed notes themselves are torn down synchronously above — same reason
+        # delete()/delete_many() discard their own note_id from affected_sources before
+        # enqueuing, rather than leaving a dirty marker for a row that no longer exists.
+        affected -= missing_ids
 
         with (
             self._crud_repo.operation(

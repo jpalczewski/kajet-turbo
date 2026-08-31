@@ -92,6 +92,44 @@ def test_reconcile_updates_drifted_metadata_without_touching_other_notes(
     assert stay is not None and stay.title == "Untouched"
 
 
+def test_reconcile_tag_only_drift_does_not_requeue_backlinks(database, git_workspace_factory):
+    """Tags/timestamp drift alone can never change wikilink resolution — only a
+    folder/title identity change can. A pure tag-drift update on a note with an
+    existing backlink must not enqueue a reconcile job for its source (mirrors
+    edit_note's identity_changed gate)."""
+    from tests.services.conftest import seed_user
+
+    seed_user(database, "u1")
+    ws = git_workspace_factory("u1/ws")
+    service, _jobs, dirty, dangling, _handler = build_reconcile_wiring(database, ws.parent.parent)
+
+    target_id = service.save("u1", "ws", str(ws), "Target", "treść", ["old"])["note_id"]
+    service.save("u1", "ws", str(ws), "Source", "[[Target]]", [])
+    assert dangling.exists("u1", "ws") is False
+
+    from kajet_turbo.workspace import NoteFrontmatter, note_filepath, write_note_file
+
+    target_path = note_filepath(str(ws), "", "Target")
+    write_note_file(
+        target_path,
+        NoteFrontmatter(
+            id=target_id,
+            title="Target",
+            tags=["new"],
+            created_at="2026-01-01T00:00:00+00:00",
+            updated_at="2026-01-01T00:00:00+00:00",
+        ),
+        "treść",
+    )
+
+    report = service.reconcile_paths(
+        "ws", owner_id="u1", ws_path=str(ws), paths=[_rel(ws, target_path)]
+    )
+
+    assert report.updated == [target_id]
+    assert dirty.list_dirty("u1", "ws") == {}
+
+
 def test_reconcile_safety_valve_refuses_mass_deletion_and_leaves_db_untouched(
     service, workspace, note_file_factory
 ):
