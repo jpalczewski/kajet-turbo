@@ -70,6 +70,22 @@ class NoteIndexer:
         note produced chunks, i.e. there is something to embed."""
         with timed("chunk_ms"):
             chunks = chunk_markdown(content, title=title)
+        return self._persist_chunks(
+            note_id, workspace, owner_id, title, chunks, expected_generation=expected_generation
+        )
+
+    def _persist_chunks(
+        self,
+        note_id: str,
+        workspace: str,
+        owner_id: str,
+        title: str,
+        chunks: list,  # list[kajet_turbo.markdown.Chunk]
+        *,
+        expected_generation: int | None = None,
+    ) -> bool:
+        """Write already-chunked content (always vector-less → ``stale``). Returns True
+        when the note produced chunks, i.e. there is something to embed."""
         applied = self._repo.replace_chunks(
             note_id,
             workspace,
@@ -130,30 +146,47 @@ class NoteIndexer:
 
     def index_many(self, workspace: str, owner_id: str, notes: list[dict]) -> None:
         """Reindex a batch of notes. Chunking (pure CPU) parallelizes across threads under
-        free-threading; each chunked note enqueues its own ``embed_note`` job (per-note
-        retry, per-note dedup). The backend is resolved once for the whole batch. A single
-        note's failure is logged and skipped — it never aborts the batch. ``notes`` items
-        need ``id``, ``title``, ``content``."""
+        free-threading. The chunk-replace write runs afterwards, sequentially: SQLite has
+        one writer, so N concurrent ``replace_chunks`` calls (each its own commit) don't
+        actually run in parallel — they just queue on the write lock, and per-note tail
+        latency grows with queue depth. Writing sequentially does the same work without
+        paying for that contention. Each chunked note enqueues its own ``embed_note`` job
+        (per-note retry, per-note dedup). The backend is resolved once for the whole batch.
+        A single note's failure is logged and skipped — it never aborts the batch. ``notes``
+        items need ``id``, ``title``, ``content``."""
         from concurrent.futures import ThreadPoolExecutor
 
         embeddable = self._enqueue_embed is not None and self._resolve_cfg(owner_id) is not None
 
-        def _one(note: dict) -> None:
+        def _chunk(note: dict) -> tuple[dict, list | None]:
             try:
-                note_id = note["id"]
-                has_chunks = self._write_chunks(
+                with timed("chunk_ms"):
+                    chunks = chunk_markdown(
+                        note.get("content") or "", title=note.get("title") or ""
+                    )
+                return note, chunks
+            except Exception as e:
+                logger.opt(exception=e).warning("reindex_note_failed", note_id=note.get("id"))
+                return note, None
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            chunked = list(pool.map(_chunk, notes))
+
+        for note, chunks in chunked:
+            if chunks is None:
+                continue
+            note_id = note["id"]
+            try:
+                has_chunks = self._persist_chunks(
                     note_id,
                     workspace,
                     owner_id,
                     note.get("title") or "",
-                    note.get("content") or "",
+                    chunks,
                     expected_generation=note.get("index_generation"),
                 )
                 if has_chunks and embeddable:
                     assert self._enqueue_embed is not None  # narrowed by `embeddable`
                     self._enqueue_embed(note_id, workspace, owner_id)
             except Exception as e:
-                logger.opt(exception=e).warning("reindex_note_failed", note_id=note.get("id"))
-
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            list(pool.map(_one, notes))
+                logger.opt(exception=e).warning("reindex_note_failed", note_id=note_id)
