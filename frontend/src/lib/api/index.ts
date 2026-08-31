@@ -117,6 +117,7 @@ export const NoteError = {
   BROKEN_WIKILINK: 'BROKEN_WIKILINK',
   NOTE_INVALID_INPUT: 'NOTE_INVALID_INPUT',
   NOTE_STALE_VERSION: 'NOTE_STALE_VERSION',
+  NOTE_RECONCILE_REFUSED: 'NOTE_RECONCILE_REFUSED',
 } as const;
 
 export type FolderError = typeof FolderError[keyof typeof FolderError];
@@ -1692,6 +1693,11 @@ export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse403 = {
   status: 403
 }
 
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
 export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -1700,7 +1706,7 @@ export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse422 = {
 export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponseSuccess = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponse200) & {
   headers: Headers;
 };
-export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponseError = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponse401 | apiReindexWorkspaceApiWorkspacesNameReindexPostResponse403 | apiReindexWorkspaceApiWorkspacesNameReindexPostResponse422) & {
+export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponseError = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponse401 | apiReindexWorkspaceApiWorkspacesNameReindexPostResponse403 | apiReindexWorkspaceApiWorkspacesNameReindexPostResponse409 | apiReindexWorkspaceApiWorkspacesNameReindexPostResponse422) & {
   headers: Headers;
 };
 
