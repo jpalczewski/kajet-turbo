@@ -96,9 +96,11 @@ def test_save_rejects_duplicate_title_in_same_folder(service, workspace):
 def test_save_git_error_rolls_back_file(service, workspace):
     from kajet_turbo.repositories.git import GitError
 
+    # save() commits through staged_note_write, which always calls commit_files (even for
+    # a single file) so single- and multi-file writes share one rollback path.
     with (
         patch(
-            "kajet_turbo.repositories.git.GitRepository.commit_file", side_effect=GitError("fail")
+            "kajet_turbo.repositories.git.GitRepository.commit_files", side_effect=GitError("fail")
         ),
         pytest.raises(GitError),
     ):

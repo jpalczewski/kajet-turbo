@@ -5,6 +5,8 @@ from unittest.mock import patch
 import pytest
 
 from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.services.notes import service as service_module
+from tests.services.helpers import make_flaky_write
 
 
 def test_edit_many_applies_all_in_one_commit(service, workspace):
@@ -213,6 +215,48 @@ def test_edit_many_git_error_rolls_back_all_files(service, workspace):
     note2 = service.get_with_content(r2["note_id"], "u1", str(workspace))
     assert note1.content == "one"
     assert note2.content == "two"
+
+
+def test_edit_many_write_failing_partway_rolls_back_and_makes_no_commit(service, workspace):
+    """The literal #104 acceptance test: an OSError from write_note_file itself (not just
+    a commit_files failure after every file already landed) must still leave no file
+    written and no commit made — mirrors
+    test_rename_tag_restores_every_touched_file_when_a_write_fails."""
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    head_before = _head_sha(workspace, "First.md")
+
+    flaky_write = make_flaky_write(service_module.write_note_file)
+
+    with (
+        patch.object(service_module, "write_note_file", flaky_write),
+        pytest.raises(OSError, match="disk full"),
+    ):
+        service.edit_many(
+            "u1",
+            "ws",
+            str(workspace),
+            [
+                {
+                    "note_id": r1["note_id"],
+                    "mode": "append",
+                    "content": "more",
+                    "expected_sha": _head_sha(workspace, "First.md"),
+                },
+                {
+                    "note_id": r2["note_id"],
+                    "mode": "append",
+                    "content": "more",
+                    "expected_sha": _head_sha(workspace, "Second.md"),
+                },
+            ],
+        )
+
+    note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
+    note2 = service.get_with_content(r2["note_id"], "u1", str(workspace))
+    assert note1.content == "one"
+    assert note2.content == "two"
+    assert _head_sha(workspace, "First.md") == head_before
 
 
 def test_edit_many_stale_sha_rejects_whole_batch(service, workspace):

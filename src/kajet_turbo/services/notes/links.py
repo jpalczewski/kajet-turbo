@@ -4,7 +4,6 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from itertools import chain
-from pathlib import Path
 
 from sqlmodel import Session
 
@@ -23,7 +22,8 @@ from kajet_turbo.markdown import (
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
-from kajet_turbo.workspace import note_filepath, path_segments, read_note_file, write_note_file
+from kajet_turbo.services.notes.staged_write import StagedWrite, staged_note_write
+from kajet_turbo.workspace import locate_note, path_segments, read_note_file, write_note_file
 
 # (old, new) identity of a note that was moved and/or renamed.
 type NoteMove = tuple[IndexedNote, IndexedNote]
@@ -309,9 +309,9 @@ class NoteLinkService:
         Only same-workspace backlinks are rewritten: cross-workspace links use ``[[note:ID]]``
         syntax which is ID-stable and needs no path update.
 
-        Each affected source is committed separately, via a raw write — deliberately not the
-        full ``NoteService.update()`` pipeline. Four steps ``update()`` runs are skipped here,
-        each for its own reason:
+        Every affected source is staged, then committed together in one batch — via a raw
+        write, deliberately not the full ``NoteService.update()`` pipeline. Four steps
+        ``update()`` runs are skipped here, each for its own reason:
 
         - ``replace_links``: no-op by construction. A link's graph edge is keyed on
           ``(source_note_id, target_note_id)``; the rewritten target is verified to resolve
@@ -346,17 +346,18 @@ class NoteLinkService:
             if len(moves) == 1
             else f"note: rewrite wikilinks after moving {len(moves)} notes"
         )
-        repo = GitRepository(ws_path)
-        rewritten = 0
+        items: list[StagedWrite] = []
+        rewrites: list[tuple[str, str, str]] = []  # (note_id, new_body, updated_at)
         for src in self._crud_repo.get_many(sorted(source_ids), workspace.owner_id):
-            src_path = note_filepath(ws_path, src.folder, src.title)
-            if not Path(src_path).exists():
+            loc = locate_note(src, ws_path)
+            if not loc.file_exists:
                 continue
-            data = read_note_file(src_path)
+            data = read_note_file(loc.filepath)
+            old_content = data["content"]
             # A source that moved along with its targets (folder move) must be ranked from
             # where it *was* when its links were written, not from its new folder.
             new_body, changed = rewrite_wikilinks(
-                data["content"],
+                old_content,
                 partial(
                     rewrite,
                     before_folder=old_folders.get(src.id, src.folder),
@@ -365,29 +366,49 @@ class NoteLinkService:
             )
             if not changed:
                 continue
-            rewritten += 1
-            write_note_file(
-                src_path,
-                src.id,
-                src.title,
-                json.loads(src.tags or "[]"),
-                src.created_at,
-                src.updated_at,
-                new_body,
+            tags = json.loads(src.tags or "[]")
+            items.append(
+                StagedWrite(
+                    relative=loc.relative,
+                    apply=partial(
+                        write_note_file,
+                        loc.filepath,
+                        src.id,
+                        src.title,
+                        tags,
+                        src.created_at,
+                        src.updated_at,
+                        new_body,
+                    ),
+                    restore=partial(
+                        write_note_file,
+                        loc.filepath,
+                        src.id,
+                        src.title,
+                        tags,
+                        src.created_at,
+                        src.updated_at,
+                        old_content,
+                    ),
+                )
             )
-            relative = str(Path(src_path).relative_to(ws_path))
-            repo.commit_file(relative, message)
-            self._crud_repo.update(
-                src.id,
-                owner_id=workspace.owner_id,
-                content=new_body,
-                updated_at=src.updated_at,
-                bump_index_generation=True,
-            )
+            rewrites.append((src.id, new_body, src.updated_at))
+
+        if items:
+            with staged_note_write(GitRepository(ws_path), items, message):
+                pass
+            for note_id, new_body, updated_at in rewrites:
+                self._crud_repo.update(
+                    note_id,
+                    owner_id=workspace.owner_id,
+                    content=new_body,
+                    updated_at=updated_at,
+                    bump_index_generation=True,
+                )
         logger.info(
             "backlinks_rewritten",
             ws=workspace.ws_name,
             moved=len(moves),
             sources=len(source_ids),
-            rewritten=rewritten,
+            rewritten=len(rewrites),
         )

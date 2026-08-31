@@ -2,7 +2,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
-from pathlib import Path
 
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
@@ -12,60 +11,38 @@ from kajet_turbo.markdown import (
     remap_path,
     rewrite_inline_tags,
 )
-from kajet_turbo.models import Note
 from kajet_turbo.repositories.git import (
-    GitError,
     GitRepository,
     defer_workspace_postprocess,
     workspace_write_transaction,
 )
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.services.indexing import NoteIndexer
+from kajet_turbo.services.notes.staged_write import StagedWrite, staged_note_write
 from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
-from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
+from kajet_turbo.workspace import LocatedNote, locate_note, read_note_file, write_note_file
 
 type TaggedPairs = list[tuple[str, str]]
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class _RenamedNote:
-    """One note staged for a tag rename: what to write, and what to put back if git fails."""
+    """One note staged for a tag rename: what to write, and what body changed for chunking."""
 
-    note: Note
-    filepath: str
-    relative: str
+    loc: LocatedNote
     new_tags: list[str]
     new_body: str
     old_tags: list[str]
     old_body: str
 
     @property
+    def note(self):
+        return self.loc.note
+
+    @property
     def body_changed(self) -> bool:
         """True when the rename reached inline ``#hashtags``, so the chunks are stale."""
         return self.new_body != self.old_body
-
-    def apply(self, now: str) -> None:
-        write_note_file(
-            self.filepath,
-            self.note.id,
-            self.note.title,
-            self.new_tags,
-            self.note.created_at,
-            now,
-            self.new_body,
-        )
-
-    def restore(self) -> None:
-        """Put the note back byte-for-byte, including its original ``updated_at``."""
-        write_note_file(
-            self.filepath,
-            self.note.id,
-            self.note.title,
-            self.old_tags,
-            self.note.created_at,
-            self.note.updated_at,
-            self.old_body,
-        )
 
 
 class NoteTagService:
@@ -148,34 +125,41 @@ class NoteTagService:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
             raise ValueError(f"Notatka {note_id} nie znaleziona.")
-        filepath = note_filepath(ws_path, note.folder, note.title)
-        if not Path(filepath).exists():
+        loc = locate_note(note, ws_path)
+        if not loc.file_exists:
             raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
-        data = read_note_file(filepath)
+        data = read_note_file(loc.filepath)
         content = data["content"]
         current = NoteTagService.normalize_tags(data["tags"])
         new_tags, warnings = mutate(current, content)
         changed = new_tags != current
         if changed:
             now = datetime.now(UTC).isoformat()
-            relative = str(Path(filepath).relative_to(ws_path))
-            repo = GitRepository(ws_path)
-            try:
-                write_note_file(
-                    filepath, note_id, note.title, new_tags, note.created_at, now, content
-                )
-                repo.commit_file(relative, f"note: tag {note.title}")
-            except GitError:
-                write_note_file(
-                    filepath,
+            item = StagedWrite(
+                relative=loc.relative,
+                apply=partial(
+                    write_note_file,
+                    loc.filepath,
+                    note_id,
+                    note.title,
+                    new_tags,
+                    note.created_at,
+                    now,
+                    content,
+                ),
+                restore=partial(
+                    write_note_file,
+                    loc.filepath,
                     note_id,
                     note.title,
                     current,
                     note.created_at,
                     note.updated_at,
                     content,
-                )
-                raise
+                ),
+            )
+            with staged_note_write(GitRepository(ws_path), [item], f"note: tag {note.title}"):
+                pass
             self._crud_repo.update(
                 note_id,
                 owner_id=owner_id,
@@ -249,13 +233,13 @@ class NoteTagService:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
             raise ValueError(f"Notatka {note_id} nie znaleziona.")
-        filepath = note_filepath(ws_path, note.folder, note.title)
-        if not Path(filepath).exists():
+        loc = locate_note(note, ws_path)
+        if not loc.file_exists:
             raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
-        if expected_sha is not None:
-            relative = str(Path(filepath).relative_to(ws_path))
-            if not sha_is_fresh(current_head_sha(ws_path, relative), expected_sha):
-                return stale_payload(note_id)
+        if expected_sha is not None and not sha_is_fresh(
+            current_head_sha(ws_path, loc.relative), expected_sha
+        ):
+            return stale_payload(note_id)
         return self._apply_tag_change(
             note_id, owner_id, ws_path, lambda current, content: (normalized, warnings)
         )
@@ -315,11 +299,11 @@ class NoteTagService:
         warnings: list[str] = []
         staged: list[_RenamedNote] = []
         for note in self._crud_repo.get_many(sorted(source_ids), owner_id):
-            filepath = note_filepath(ws_path, note.folder, note.title)
-            if not Path(filepath).exists():
+            loc = locate_note(note, ws_path)
+            if not loc.file_exists:
                 warnings.append(f"{note.title}: plik notatki nie istnieje — pominięta")
                 continue
-            data = read_note_file(filepath)
+            data = read_note_file(loc.filepath)
             old_tags = NoteTagService.normalize_tags(data["tags"])
             new_tags = list(dict.fromkeys(remap(t) or t for t in old_tags))
             new_body, _ = rewrite_inline_tags(data["content"], remap)
@@ -327,9 +311,7 @@ class NoteTagService:
                 continue
             staged.append(
                 _RenamedNote(
-                    note=note,
-                    filepath=filepath,
-                    relative=str(Path(filepath).relative_to(ws_path)),
+                    loc=loc,
                     new_tags=new_tags,
                     new_body=new_body,
                     old_tags=old_tags,
@@ -340,22 +322,34 @@ class NoteTagService:
             return self._rename_result(old_n, new_n, 0, 0, bool(target_ids), warnings)
 
         now = datetime.now(UTC).isoformat()
-        # The writes are inside the guard, not just the commit: a write failing partway
-        # through would otherwise leave the workspace half-renamed and diverged from HEAD,
-        # and reads go to the files, so they would serve that state.
-        written: list[_RenamedNote] = []
-        try:
-            for item in staged:
-                # Recorded before the write: a half-written file needs restoring too.
-                written.append(item)
-                item.apply(now)
-            GitRepository(ws_path).commit_files(
-                [item.relative for item in staged], f"tag: rename {old_n} -> {new_n}"
+        items = [
+            StagedWrite(
+                relative=item.loc.relative,
+                apply=partial(
+                    write_note_file,
+                    item.loc.filepath,
+                    item.note.id,
+                    item.note.title,
+                    item.new_tags,
+                    item.note.created_at,
+                    now,
+                    item.new_body,
+                ),
+                restore=partial(
+                    write_note_file,
+                    item.loc.filepath,
+                    item.note.id,
+                    item.note.title,
+                    item.old_tags,
+                    item.note.created_at,
+                    item.note.updated_at,
+                    item.old_body,
+                ),
             )
-        except GitError, OSError:
-            for item in written:
-                item.restore()
-            raise
+            for item in staged
+        ]
+        with staged_note_write(GitRepository(ws_path), items, f"tag: rename {old_n} -> {new_n}"):
+            pass
 
         for item in staged:
             self._crud_repo.update(

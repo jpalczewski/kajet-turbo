@@ -3,6 +3,7 @@
 import pytest
 
 from kajet_turbo.markdown import BrokenWikilinkError, IndexedNote, render_markdown
+from tests.services.helpers import make_flaky_write
 
 
 def test_save_with_valid_wikilink_succeeds(service, workspace):
@@ -195,6 +196,38 @@ def test_rename_via_update_rewrites_backlink(service, workspace):
     service.update(tid, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="Renamed")
     src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
     assert "[[Renamed]]" in src.content
+
+
+def test_rewrite_backlinks_write_failing_partway_rolls_back_and_makes_no_commit(
+    service, workspace, monkeypatch
+):
+    """_rewrite_backlinks gained a rollback with #104 (it previously had none at all, and
+    committed once per source instead of once for the batch). Pin it: a write failing
+    partway through the backlink batch leaves every source's wikilink text unrewritten —
+    mirrors test_rename_tag_restores_every_touched_file_when_a_write_fails."""
+    from kajet_turbo.services.notes import links as links_module
+
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    sid_a = service.save("u1", "ws", str(workspace), "Source A", "[[Target]]", [])["note_id"]
+    sid_b = service.save("u1", "ws", str(workspace), "Source B", "[[Target]]", [])["note_id"]
+    sha = service.get_history(tid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    real_write = links_module.write_note_file
+    flaky_write = make_flaky_write(real_write)
+
+    monkeypatch.setattr(links_module, "write_note_file", flaky_write)
+    with pytest.raises(OSError, match="disk full"):
+        service.update(
+            tid, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="Renamed"
+        )
+    monkeypatch.setattr(links_module, "write_note_file", real_write)
+
+    src_a = service.get_with_content(sid_a, owner_id="u1", ws_path=str(workspace))
+    src_b = service.get_with_content(sid_b, owner_id="u1", ws_path=str(workspace))
+    assert src_a.content == "[[Target]]"
+    assert src_b.content == "[[Target]]"
+    history_a = service.get_history(sid_a, owner_id="u1", ws_path=str(workspace))
+    assert not any("rewrite wikilink" in h["message"] for h in history_a)
 
 
 def test_move_rewrite_creates_commit_in_source_history(service, workspace):

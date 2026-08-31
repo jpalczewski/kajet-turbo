@@ -11,9 +11,12 @@ def test_update_git_error_reverts_file(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Oryginał", "stara treść", [])
     note_id = result["note_id"]
     sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    # update()'s write leg commits through staged_note_write, which always calls
+    # commit_files (even for a single file) so single- and multi-file writes share one
+    # rollback path.
     with (
         patch(
-            "kajet_turbo.repositories.git.GitRepository.commit_file", side_effect=GitError("fail")
+            "kajet_turbo.repositories.git.GitRepository.commit_files", side_effect=GitError("fail")
         ),
         pytest.raises(GitError),
     ):

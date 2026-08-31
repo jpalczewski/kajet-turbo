@@ -8,6 +8,7 @@ from pathlib import Path
 
 import frontmatter
 
+from kajet_turbo.models import Note
 from kajet_turbo.repositories.git import GitRepository, delete_workspace_tree
 
 WORKSPACES_DIR = os.getenv("WORKSPACES_DIR", "/workspaces")
@@ -25,12 +26,13 @@ class ScannedNote:
     """Frontmatter data needed to rebuild the derived note index.
 
     Dates deliberately keep PyYAML's current ``str | datetime`` behavior until #105
-    centralizes coercion at the file-read boundary.
+    centralizes coercion at the file-read boundary. ``tags`` is already normalized to a
+    list by ``read_note_file``/``extract_note_fields``.
     """
 
     note_id: str | None
     title: str | None
-    tags: list[str] | str | None
+    tags: list[str]
     created_at: str | datetime | None
     updated_at: str | datetime | None
     content: str
@@ -156,6 +158,27 @@ def note_filepath(ws_path: str, folder: str, title: str) -> str:
     return str(Path(ws_path, *path_segments(folder), filename))
 
 
+@dataclass(frozen=True, slots=True)
+class LocatedNote:
+    """A note row resolved to its workspace file, shared by every write/rename path."""
+
+    note: Note
+    filepath: str
+    relative: str
+    file_exists: bool
+    head_sha: str | None = None
+
+
+def locate_note(note: Note, ws_path: str) -> LocatedNote:
+    filepath = note_filepath(ws_path, note.folder, note.title)
+    return LocatedNote(
+        note=note,
+        filepath=filepath,
+        relative=str(Path(filepath).relative_to(ws_path)),
+        file_exists=Path(filepath).exists(),
+    )
+
+
 def relative_folder(root: str | Path, directory: str | Path) -> str:
     """Workspace-relative folder path of ``directory`` (``""`` for the root itself)."""
     return "/".join(Path(directory).relative_to(root).parts)
@@ -211,17 +234,28 @@ def write_note_file(
         temp.unlink(missing_ok=True)
 
 
-def read_note_file(path: str) -> dict:
-    post = frontmatter.load(path)
-    return {
+def extract_note_fields(post: frontmatter.Post, *, path: str | None = None) -> dict:
+    """The one place every frontmatter reader extracts fields from a parsed ``Post``.
+
+    Only a YAML list is a valid ``tags`` value; anything else (a bare scalar from
+    hand-edited frontmatter) becomes ``[]`` rather than propagating untyped garbage.
+    """
+    tags = post.get("tags", [])
+    fields = {
         "id": post.get("id"),
         "title": post.get("title"),
-        "tags": post.get("tags", []),
+        "tags": list(tags) if isinstance(tags, list) else [],
         "created_at": post.get("created_at"),
         "updated_at": post.get("updated_at"),
         "content": post.content,
-        "path": path,
     }
+    if path is not None:
+        fields["path"] = path
+    return fields
+
+
+def read_note_file(path: str) -> dict:
+    return extract_note_fields(frontmatter.load(path), path=path)
 
 
 def scan_notes(workspace_path: str) -> list[ScannedNote]:

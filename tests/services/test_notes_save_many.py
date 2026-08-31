@@ -4,6 +4,9 @@ from unittest.mock import patch
 
 import pytest
 
+from kajet_turbo.services.notes import service as service_module
+from tests.services.helpers import make_flaky_write
+
 
 def _commit_count(workspace):
     from dulwich.repo import Repo as DulwichRepo
@@ -105,6 +108,30 @@ def test_save_many_git_error_rolls_back_all_files(service, workspace):
 
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
     assert md_files == []
+
+
+def test_save_many_write_failing_partway_rolls_back_and_makes_no_commit(service, workspace):
+    """The literal #104 acceptance test: an OSError from write_note_file itself (not just
+    a commit_files failure after every file already landed) must still leave no file
+    written and no commit made — mirrors
+    test_rename_tag_restores_every_touched_file_when_a_write_fails."""
+    before = _commit_count(workspace)
+    flaky_write = make_flaky_write(service_module.write_note_file)
+
+    with (
+        patch.object(service_module, "write_note_file", flaky_write),
+        pytest.raises(OSError, match="disk full"),
+    ):
+        service.save_many(
+            "u1",
+            "ws",
+            str(workspace),
+            [{"title": "Flaky One", "content": "a"}, {"title": "Flaky Two", "content": "b"}],
+        )
+
+    md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
+    assert md_files == []
+    assert _commit_count(workspace) == before
 
 
 def test_save_many_indexes_every_valid_note(service, workspace):
