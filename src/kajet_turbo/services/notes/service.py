@@ -25,7 +25,6 @@ from kajet_turbo.markdown import (
 )
 from kajet_turbo.models import Note
 from kajet_turbo.repositories.git import (
-    GitError,
     GitRepository,
     defer_workspace_postprocess,
     workspace_write_transaction,
@@ -42,6 +41,7 @@ from kajet_turbo.services.notes.folders import NoteFolderService
 from kajet_turbo.services.notes.history import NoteVersionService
 from kajet_turbo.services.notes.links import NoteLinkService, wikilink_warnings
 from kajet_turbo.services.notes.search import NoteSearchService
+from kajet_turbo.services.notes.staged_write import StagedWrite, staged_note_write
 from kajet_turbo.services.notes.staleness import (
     current_head_sha,
     sha_is_fresh,
@@ -52,6 +52,9 @@ from kajet_turbo.services.notes.tags import NoteTagService
 from kajet_turbo.services.notes.types import NoteData
 from kajet_turbo.workspace import (
     InvalidFolderError,
+    LocatedNote,
+    extract_note_fields,
+    locate_note,
     normalize_folder,
     note_filepath,
     note_folder,
@@ -62,24 +65,13 @@ from kajet_turbo.workspace import (
 
 
 @dataclass(frozen=True, slots=True)
-class _LocatedNote:
-    """A note row resolved to its workspace file, shared by batch pre-passes."""
-
-    note: Note
-    filepath: str
-    relative: str
-    file_exists: bool
-    head_sha: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class _ValidatedDestructiveItem:
     """A batch item that passed the validation shared by edits and deletes."""
 
     index: int
     raw: dict
     note_id: str
-    loc: _LocatedNote
+    loc: LocatedNote
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +80,7 @@ class _PreparedEdit:
 
     index: int
     note_id: str
-    loc: _LocatedNote
+    loc: LocatedNote
     old_content: str
     old_tags: list[str]
     new_content: str
@@ -138,25 +130,15 @@ class NoteService:
         self._cache = cache
         self._reconcile_repo = reconcile_repo
 
-    @staticmethod
-    def _to_located(note: Note, ws_path: str) -> _LocatedNote:
-        filepath = note_filepath(ws_path, note.folder, note.title)
-        return _LocatedNote(
-            note=note,
-            filepath=filepath,
-            relative=str(Path(filepath).relative_to(ws_path)),
-            file_exists=Path(filepath).exists(),
-        )
-
-    def _locate(self, note_id: str, owner_id: str, ws_path: str) -> _LocatedNote | None:
+    def _locate(self, note_id: str, owner_id: str, ws_path: str) -> LocatedNote | None:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
             return None
-        return self._to_located(note, ws_path)
+        return locate_note(note, ws_path)
 
     def _locate_batch(
         self, note_ids: list[str], owner_id: str, ws_path: str, git_repo: GitRepository
-    ) -> dict[str, _LocatedNote]:
+    ) -> dict[str, LocatedNote]:
         """Resolve every note in a batch and compute all head shas in ONE git walk,
         before per-item validation. One DB query for all rows, one git walk for all
         head shas, instead of N of each. Only paths that exist on disk enter the
@@ -172,7 +154,7 @@ class NoteService:
         """
         stripped_ids = [n for raw_id in note_ids if (n := raw_id.strip())]
         notes = self._crud_repo.get_many(stripped_ids, owner_id)
-        located = {note.id: self._to_located(note, ws_path) for note in notes}
+        located = {note.id: locate_note(note, ws_path) for note in notes}
         head_shas = git_repo.head_shas_for_paths(
             [loc.relative for loc in located.values() if loc.file_exists]
         )
@@ -185,7 +167,7 @@ class NoteService:
         self,
         raw_items: list[dict],
         note_ids: list[str],
-        located: dict[str, _LocatedNote],
+        located: dict[str, LocatedNote],
     ) -> Iterator[_ValidatedDestructiveItem | _BatchValidationError]:
         """Yield shared validation results in input order for batch writes.
 
@@ -221,7 +203,7 @@ class NoteService:
                 continue
             yield _ValidatedDestructiveItem(index, raw, note_id, loc)
 
-    def _note_data(self, loc: _LocatedNote, sha: str | None) -> NoteData:
+    def _note_data(self, loc: LocatedNote, sha: str | None) -> NoteData:
         if sha is None:
             raise ValueError(
                 f"Notatka {loc.note.id} nie ma historii commitów (niespójny stan repo)."
@@ -294,12 +276,13 @@ class NoteService:
         now = datetime.now(UTC).isoformat()
         filepath = note_filepath(ws_path, folder, title)
         relative = str(Path(filepath).relative_to(ws_path))
-        write_note_file(filepath, note_id, title, tags, now, now, content)
-        try:
-            GitRepository(ws_path).commit_file(relative, f"note: add {title}")
-        except GitError:
-            Path(filepath).unlink(missing_ok=True)
-            raise
+        item = StagedWrite(
+            relative=relative,
+            apply=partial(write_note_file, filepath, note_id, title, tags, now, now, content),
+            restore=partial(Path(filepath).unlink, missing_ok=True),
+        )
+        with staged_note_write(GitRepository(ws_path), [item], f"note: add {title}"):
+            pass
         self._crud_repo.insert(note_id, ws_name, user_id, title, tags, now, now, folder)
         self._link_service.persist(note_id, ws_name, user_id, links)
         self._tag_service.sync_tags(note_id, ws_name, user_id, tags, content)
@@ -325,7 +308,8 @@ class NoteService:
         parallelized across the indexer threadpool. Best-effort per note — invalid notes
         are reported and skipped. Each input dict: ``{title, content, tags=[], folder=""}``.
         Returns per-note ``{index, note_id}`` | ``{index, error}``, input order preserved.
-        Raises GitError if the batch commit fails (written files are rolled back first).
+        Raises GitError or OSError if a write or the batch commit fails (every file
+        actually written is rolled back first).
         """
         results: list[dict | None] = [None] * len(notes)
         now = datetime.now(UTC).isoformat()
@@ -399,19 +383,28 @@ class NoteService:
         affected_sources = workspace_links.affected_sources({str(s["title"]) for s in valid})
 
         # Phase 3: write files, then one commit (roll back files on failure).
-        for s in valid:
-            write_note_file(
-                s["filepath"], s["note_id"], s["title"], s["tags"], now, now, s["content"]
+        n = len(valid)
+        items = [
+            StagedWrite(
+                relative=s["relative"],
+                apply=partial(
+                    write_note_file,
+                    s["filepath"],
+                    s["note_id"],
+                    s["title"],
+                    s["tags"],
+                    now,
+                    now,
+                    s["content"],
+                ),
+                restore=partial(Path(s["filepath"]).unlink, missing_ok=True),
             )
-        try:
-            n = len(valid)
-            GitRepository(ws_path).commit_files(
-                [s["relative"] for s in valid], f"note: add {n} note{'' if n == 1 else 's'}"
-            )
-        except GitError:
-            for s in valid:
-                Path(s["filepath"]).unlink(missing_ok=True)
-            raise
+            for s in valid
+        ]
+        with staged_note_write(
+            GitRepository(ws_path), items, f"note: add {n} note{'' if n == 1 else 's'}"
+        ):
+            pass
 
         # Phase 4: DB insert + link graph + tags.
         for s in valid:
@@ -665,15 +658,16 @@ class NoteService:
             if scope is not None and not (folder == scope or folder.startswith(scope + "/")):
                 continue
             raw = filepath.read_text(encoding="utf-8")
-            post = frontmatter.loads(raw)
-            note_id = str(post.get("id") or "")
-            title = str(post.get("title") or "")
+            fields = extract_note_fields(frontmatter.loads(raw))
+            note_id = str(fields["id"] or "")
+            title = str(fields["title"] or "")
+            content = fields["content"]
             # line_number is relative to the note body (what get_note returns as
             # `content`), since that's the only view an agent can act on — a raw
             # file line number would point at nothing in the API response. Offset
             # by the frontmatter block's line count; a match inside the frontmatter
             # itself (e.g. a tag) has no body line, so it reports 0.
-            fm_offset = len(raw[: raw.rfind(post.content)].splitlines()) if post.content else 0
+            fm_offset = len(raw[: raw.rfind(content)].splitlines()) if content else 0
             for raw_line_number, line in enumerate(raw.splitlines(), start=1):
                 haystack = line if case_sensitive else line.casefold()
                 if needle not in haystack:
@@ -768,31 +762,41 @@ class NoteService:
             else set()
         )
 
+        # A rename is its own commit, made outside the staged write below (#118 tracks
+        # making rename+content atomic; a failure here leaves nothing to roll back since
+        # the content write hasn't happened yet). One GitRepository for both: a second
+        # open would re-read refs/pack indexes for no reason.
         repo = GitRepository(ws_path)
-        try:
-            if old_path != new_path:
-                Path(new_path).parent.mkdir(parents=True, exist_ok=True)
-                repo.rename_file(old_rel, new_rel, f"note: rename to {new_title}")
-                write_note_file(
-                    new_path, note_id, new_title, new_tags, note.created_at, now, new_content
-                )
-                repo.commit_file(new_rel, f"note: update {new_title}")
-            else:
-                write_note_file(
-                    old_path, note_id, new_title, new_tags, note.created_at, now, new_content
-                )
-                repo.commit_file(old_rel, f"note: update {new_title}")
-        except GitError:
-            write_note_file(
-                new_path if old_path != new_path else old_path,
+        if old_path != new_path:
+            Path(new_path).parent.mkdir(parents=True, exist_ok=True)
+            repo.rename_file(old_rel, new_rel, f"note: rename to {new_title}")
+        target_path = new_path if old_path != new_path else old_path
+        target_rel = new_rel if old_path != new_path else old_rel
+        item = StagedWrite(
+            relative=target_rel,
+            apply=partial(
+                write_note_file,
+                target_path,
+                note_id,
+                new_title,
+                new_tags,
+                note.created_at,
+                now,
+                new_content,
+            ),
+            restore=partial(
+                write_note_file,
+                target_path,
                 note_id,
                 note.title,
                 current_tags,
                 note.created_at,
                 note.updated_at,
                 old_content,
-            )
-            raise
+            ),
+        )
+        with staged_note_write(repo, [item], f"note: update {new_title}"):
+            pass
 
         self._crud_repo.update(
             note_id,
@@ -929,24 +933,22 @@ class NoteService:
             return {"applied": False, "errors": errors}
 
         now = datetime.now(UTC).isoformat()
-        for p in prepared:
-            write_note_file(
-                p.loc.filepath,
-                p.note_id,
-                p.loc.note.title,
-                p.new_tags,
-                p.loc.note.created_at,
-                now,
-                p.new_content,
-            )
-        try:
-            n = len(prepared)
-            git_repo.commit_files(
-                [p.loc.relative for p in prepared], f"note: edit {n} note{'' if n == 1 else 's'}"
-            )
-        except GitError:
-            for p in prepared:
-                write_note_file(
+        n = len(prepared)
+        items = [
+            StagedWrite(
+                relative=p.loc.relative,
+                apply=partial(
+                    write_note_file,
+                    p.loc.filepath,
+                    p.note_id,
+                    p.loc.note.title,
+                    p.new_tags,
+                    p.loc.note.created_at,
+                    now,
+                    p.new_content,
+                ),
+                restore=partial(
+                    write_note_file,
                     p.loc.filepath,
                     p.note_id,
                     p.loc.note.title,
@@ -954,8 +956,12 @@ class NoteService:
                     p.loc.note.created_at,
                     p.loc.note.updated_at,
                     p.old_content,
-                )
-            raise
+                ),
+            )
+            for p in prepared
+        ]
+        with staged_note_write(git_repo, items, f"note: edit {n} note{'' if n == 1 else 's'}"):
+            pass
 
         for p in prepared:
             self._crud_repo.update(

@@ -5,7 +5,7 @@ import frontmatter
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
-from kajet_turbo.workspace import note_filepath
+from kajet_turbo.workspace import extract_note_fields, note_filepath
 
 
 class NoteVersionService:
@@ -37,18 +37,20 @@ class NoteVersionService:
         filepath = note_filepath(ws_path, note.folder, note.title)
         relative = str(Path(filepath).relative_to(ws_path))
         raw = GitRepository(ws_path).file_content_at_commit(relative, sha)
-        parsed = frontmatter.loads(raw)
-        # Frontmatter metadata is untyped; only a YAML list is a valid tags value.
-        tags_meta = parsed.get("tags", [])
+        fields = extract_note_fields(frontmatter.loads(raw))
+
+        def or_default(value, default):
+            return value if value is not None else default
+
         return {
             "note_id": note_id,
             "workspace": note.workspace,
             "owner_id": note.owner_id,
-            "title": str(parsed.get("title", note.title)),
+            "title": str(or_default(fields["title"], note.title)),
             "folder": note.folder,
-            "tags": list(tags_meta) if isinstance(tags_meta, list) else [],
-            "created_at": str(parsed.get("created_at", note.created_at)),
-            "updated_at": str(parsed.get("updated_at", note.updated_at)),
-            "content": parsed.content,
+            "tags": fields["tags"],
+            "created_at": str(or_default(fields["created_at"], note.created_at)),
+            "updated_at": str(or_default(fields["updated_at"], note.updated_at)),
+            "content": fields["content"],
             "sha": sha,
         }
