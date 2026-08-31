@@ -1,4 +1,3 @@
-from functools import partial
 from typing import Annotated, Literal
 
 from fastmcp import FastMCP
@@ -54,7 +53,7 @@ from kajet_turbo.mcp.tooling import (
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.services.notes import NoteData, NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
-from kajet_turbo.workspace import normalize_folder
+from kajet_turbo.workspace import normalize_folder, temporal_kwargs
 
 
 def build_crud(
@@ -275,12 +274,7 @@ def build_crud(
         expected_sha is the sha from get_note/get_note_history — proof you saw the current
         version. A mismatch returns StaleVersion: call get_note to re-read the note, then retry
         with the fresh sha."""
-        temporal_args = {
-            key: value
-            for key, value in (("occurred_at", occurred_at), ("period", period))
-            if value is not None
-        }
-        update_note = partial(
+        result = await run_sync(
             note_service.update,
             note_id,
             owner_id=ws.owner_id,
@@ -296,9 +290,10 @@ def build_crud(
             new_str=new_str,
             replace_all=replace_all,
             clear_date_metadata=clear_date_metadata,
-            **temporal_args,
+            **temporal_kwargs(  # ty: ignore[invalid-argument-type] - dict[str, str] spread vs update()'s heterogeneous kwargs; keys are always occurred_at/period
+                occurred_at, period
+            ),
         )
-        result = await run_sync(update_note)
         if result.get("stale_sha"):
             return StaleVersion.model_validate(result)
         await publish_note_updated(ws, result["note_id"])

@@ -40,8 +40,40 @@ def test_frontmatter_accepts_all_canonical_period_kinds(workspace, period):
     assert read_note_file(str(path))[0].period == period
 
 
+def test_frontmatter_coerces_yaml_int_period(workspace):
+    # A hand-written `period: 2026` (no quotes) parses to a Python int via PyYAML's
+    # implicit typing, not str — the most natural way to hand-write a year period.
+    path = Path(workspace, "year.md")
+    path.write_text(
+        "---\n"
+        "id: year1\ntitle: Year\ntags: []\n"
+        "created_at: null\nupdated_at: null\n"
+        "period: 2026\n"
+        "---\nBody\n"
+    )
+
+    meta, _ = read_note_file(str(path))
+
+    assert meta.period == "2026"
+    assert meta.occurred_at is None
+
+
+def test_frontmatter_rejects_yaml_bool_period(workspace):
+    # bool is an int subclass in Python; `period: true` must not be silently accepted
+    # as if it were a stringified year.
+    path = Path(workspace, "bool.md")
+    path.write_text(
+        "---\n"
+        "id: bool1\ntitle: Bool\ntags: []\n"
+        "created_at: null\nupdated_at: null\n"
+        "period: true\n"
+        "---\nBody\n"
+    )
+
+    with pytest.raises(ValueError, match="canonical period key"):
+        read_note_file(str(path))
+
+
 def test_frontmatter_rejects_two_temporal_facts():
     with pytest.raises(ValueError, match="mutually exclusive"):
-        NoteFrontmatter(
-            "id", "Title", [], None, None, occurred_at="2026-03-22", period="2026-W12"
-        )
+        NoteFrontmatter("id", "Title", [], None, None, occurred_at="2026-03-22", period="2026-W12")

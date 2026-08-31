@@ -27,6 +27,11 @@ class InvalidFolderError(ValueError):
     pass
 
 
+class TemporalMetadataError(ValueError):
+    """Invalid or conflicting occurred_at/period input. Distinct from a bare ValueError
+    so callers (the API layer) can map it to 422 instead of the generic not-found 404."""
+
+
 @dataclass(frozen=True, slots=True)
 class NoteFrontmatter:
     """Parsed note frontmatter: reserved keys plus everything else in ``extras``.
@@ -297,25 +302,30 @@ def _parse_occurred_at(value: object) -> str | None:
     if value is None:
         return None
     if isinstance(value, datetime) or not isinstance(value, (str, date)):
-        raise ValueError("occurred_at must be an ISO calendar date (YYYY-MM-DD).")
+        raise TemporalMetadataError("occurred_at must be an ISO calendar date (YYYY-MM-DD).")
     try:
         parsed = date.fromisoformat(value) if isinstance(value, str) else value
     except ValueError as exc:
-        raise ValueError("occurred_at must be an ISO calendar date (YYYY-MM-DD).") from exc
+        raise TemporalMetadataError(
+            "occurred_at must be an ISO calendar date (YYYY-MM-DD)."
+        ) from exc
     if parsed.isoformat() != (value if isinstance(value, str) else parsed.isoformat()):
-        raise ValueError("occurred_at must be an ISO calendar date (YYYY-MM-DD).")
+        raise TemporalMetadataError("occurred_at must be an ISO calendar date (YYYY-MM-DD).")
     return parsed.isoformat()
 
 
 def _parse_period(value: object) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str):
-        raise ValueError("period must be a canonical period key.")
+    # PyYAML parses a bare 4-digit year like `period: 2026` as int, not str, so a
+    # hand-written year period needs the same native-type accommodation _parse_occurred_at
+    # gives `date`. bool is an int subclass, so it's excluded explicitly.
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise TemporalMetadataError("period must be a canonical period key.")
     try:
-        return parse_period_key(value).key
+        return parse_period_key(str(value)).key
     except ValueError as exc:
-        raise ValueError("period must be a canonical period key.") from exc
+        raise TemporalMetadataError("period must be a canonical period key.") from exc
 
 
 def normalize_temporal_metadata(
@@ -325,8 +335,50 @@ def normalize_temporal_metadata(
     normalized_occurred_at = _parse_occurred_at(occurred_at)
     normalized_period = _parse_period(period)
     if normalized_occurred_at is not None and normalized_period is not None:
-        raise ValueError("occurred_at and period are mutually exclusive.")
+        raise TemporalMetadataError("occurred_at and period are mutually exclusive.")
     return normalized_occurred_at, normalized_period
+
+
+def temporal_kwargs(occurred_at: str | None, period: str | None) -> dict[str, str]:
+    """Keyword args for occurred_at/period, omitting unset fields entirely.
+
+    Shared by every caller that must distinguish "leave unchanged" (omitted) from
+    "set to this value" before calling NoteService.update, which treats an omitted
+    kwarg differently from an explicit None (see NoteService._UNCHANGED).
+    """
+    return {
+        key: value
+        for key, value in (("occurred_at", occurred_at), ("period", period))
+        if value is not None
+    }
+
+
+def resolve_temporal_fields(
+    *,
+    has_occurred_at: bool,
+    has_period: bool,
+    occurred_at: object,
+    period: object,
+    clear: bool,
+    fallback: tuple[str | None, str | None],
+) -> tuple[str | None, str | None]:
+    """The shared occurred_at/period resolution rule for a note update: clear both,
+    set one or both explicitly, or fall back to the caller-supplied unchanged values.
+    Used by both NoteService.update and NoteService.edit_many, which differ only in
+    how "was this field passed" is detected and what the fallback source is."""
+    if clear and (has_occurred_at or has_period):
+        raise TemporalMetadataError(
+            "clear_date_metadata cannot be combined with occurred_at or period."
+        )
+    if clear:
+        return None, None
+    if has_occurred_at and has_period:
+        return normalize_temporal_metadata(occurred_at, period)
+    if has_occurred_at:
+        return normalize_temporal_metadata(occurred_at, None)
+    if has_period:
+        return normalize_temporal_metadata(None, period)
+    return fallback
 
 
 def read_note_file(path: str) -> tuple[NoteFrontmatter, str]:

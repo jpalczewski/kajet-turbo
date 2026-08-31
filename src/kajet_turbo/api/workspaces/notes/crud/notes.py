@@ -18,7 +18,7 @@ from kajet_turbo.markdown import BrokenWikilinkError
 from kajet_turbo.repositories.git import GitError  # exception class, not errors.GitError StrEnum
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
-from kajet_turbo.workspace import InvalidFolderError
+from kajet_turbo.workspace import InvalidFolderError, TemporalMetadataError, temporal_kwargs
 
 router = APIRouter(
     responses={
@@ -99,13 +99,17 @@ async def api_create_note(
             status_code=422,
             detail={"error": str(NoteError.BROKEN_WIKILINK), "detail": str(e)},
         ) from e
+    except TemporalMetadataError as e:
+        raise HTTPException(status_code=422, detail=NoteError.INVALID_INPUT) from e
     except ValueError:
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None
     except Exception as e:
         raise HTTPException(
             status_code=500, detail={"error": str(NoteError.INVALID_INPUT), "detail": str(e)}
         ) from e
-    return JSONResponse(result, status_code=201)
+    return JSONResponse(
+        {"note_id": result["note_id"], "warnings": result["warnings"]}, status_code=201
+    )
 
 
 @router.post(
@@ -168,9 +172,7 @@ async def api_update_note(
     folder = body.get("folder")
     expected_sha = body.get("expected_sha")
     ws_path = ws_service.workspace_path(user["id"], name)
-    temporal_args = {
-        key: body[key] for key in ("occurred_at", "period") if key in body
-    }
+    temporal_args = temporal_kwargs(body.get("occurred_at"), body.get("period"))
     try:
         result = await run_sync(
             note_service.update,
@@ -183,7 +185,7 @@ async def api_update_note(
             tags=tags,
             folder=folder,
             clear_date_metadata=bool(body.get("clear_date_metadata", False)),
-            **temporal_args,
+            **temporal_args,  # ty: ignore[invalid-argument-type] - dict[str, str] spread vs update()'s heterogeneous kwargs; keys are always occurred_at/period
         )
     except InvalidFolderError:
         raise HTTPException(status_code=422, detail=FolderError.INVALID_FOLDER) from None
@@ -194,6 +196,8 @@ async def api_update_note(
         ) from e
     except FileExistsError:
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None
+    except TemporalMetadataError as e:
+        raise HTTPException(status_code=422, detail=NoteError.INVALID_INPUT) from e
     except ValueError, FileNotFoundError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
     if result.get("stale_sha"):

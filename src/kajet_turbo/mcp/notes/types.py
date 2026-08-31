@@ -44,6 +44,8 @@ class WikilinkWarning(BaseModel):
 class SavedNoteResult(BaseModel):
     note_id: str
     warnings: list[WikilinkWarning] = Field(default_factory=list)
+    occurred_at: str | None = None
+    period: str | None = None
 
 
 class MovedNoteResult(BaseModel):
@@ -214,6 +216,8 @@ class EditNoteSuccess(BaseModel):
     note_id: str
     replaced: int | None = None
     warnings: list[WikilinkWarning] = Field(default_factory=list)
+    occurred_at: str | None = None
+    period: str | None = None
 
 
 class GrepMatch(BaseModel):

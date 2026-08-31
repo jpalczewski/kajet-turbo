@@ -62,6 +62,7 @@ from kajet_turbo.workspace import (
     note_folder,
     parse_frontmatter,
     read_note_file,
+    resolve_temporal_fields,
     write_note_file,
 )
 
@@ -388,7 +389,12 @@ class NoteService:
         )
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
-        return {"note_id": note_id, "warnings": wikilink_warnings(links)}
+        return {
+            "note_id": note_id,
+            "warnings": wikilink_warnings(links),
+            "occurred_at": occurred_at,
+            "period": period,
+        }
 
     @workspace_write_transaction
     def save_many(
@@ -835,20 +841,14 @@ class NoteService:
             raise InvalidFolderError(str(e)) from e
         current_tags = json.loads(note.tags or "[]")
         new_tags = NoteTagService.normalize_tags(tags) if tags is not None else current_tags
-        if clear_date_metadata and (occurred_at is not _UNCHANGED or period is not _UNCHANGED):
-            raise ValueError(
-                "clear_date_metadata cannot be combined with occurred_at or period."
-            )
-        if clear_date_metadata:
-            new_occurred_at, new_period = None, None
-        elif occurred_at is not _UNCHANGED and period is not _UNCHANGED:
-            new_occurred_at, new_period = normalize_temporal_metadata(occurred_at, period)
-        elif occurred_at is not _UNCHANGED:
-            new_occurred_at, new_period = normalize_temporal_metadata(occurred_at, None)
-        elif period is not _UNCHANGED:
-            new_occurred_at, new_period = normalize_temporal_metadata(None, period)
-        else:
-            new_occurred_at, new_period = note.occurred_at, note.period
+        new_occurred_at, new_period = resolve_temporal_fields(
+            has_occurred_at=occurred_at is not _UNCHANGED,
+            has_period=period is not _UNCHANGED,
+            occurred_at=occurred_at,
+            period=period,
+            clear=clear_date_metadata,
+            fallback=(note.occurred_at, note.period),
+        )
 
         old_path = note_filepath(ws_path, note.folder, note.title)
         new_path = note_filepath(ws_path, new_folder, new_title)
@@ -976,6 +976,8 @@ class NoteService:
             "note_id": note_id,
             "replaced": replaced,
             "warnings": wikilink_warnings(links),
+            "occurred_at": new_occurred_at,
+            "period": new_period,
         }
 
     @workspace_write_transaction
@@ -1059,30 +1061,15 @@ class NoteService:
             has_occurred_at = "occurred_at" in raw
             has_period = "period" in raw
             clear_date_metadata = bool(raw.get("clear_date_metadata", False))
-            if clear_date_metadata and (has_occurred_at or has_period):
-                errors.append(
-                    {
-                        "index": index,
-                        "note_id": note_id,
-                        "error": (
-                            "clear_date_metadata cannot be combined with occurred_at or period."
-                        ),
-                    }
-                )
-                continue
             try:
-                if clear_date_metadata:
-                    occurred_at, period = None, None
-                elif has_occurred_at and has_period:
-                    occurred_at, period = normalize_temporal_metadata(
-                        raw["occurred_at"], raw["period"]
-                    )
-                elif has_occurred_at:
-                    occurred_at, period = normalize_temporal_metadata(raw["occurred_at"], None)
-                elif has_period:
-                    occurred_at, period = normalize_temporal_metadata(None, raw["period"])
-                else:
-                    occurred_at, period = existing_meta.occurred_at, existing_meta.period
+                occurred_at, period = resolve_temporal_fields(
+                    has_occurred_at=has_occurred_at,
+                    has_period=has_period,
+                    occurred_at=raw.get("occurred_at"),
+                    period=raw.get("period"),
+                    clear=clear_date_metadata,
+                    fallback=(existing_meta.occurred_at, existing_meta.period),
+                )
             except ValueError as e:
                 errors.append({"index": index, "note_id": note_id, "error": str(e)})
                 continue
