@@ -83,6 +83,11 @@ class Period:
         start = self._start()
         return Period("year", f"{start.year - 1:04d}")
 
+    @property
+    def start(self) -> date:
+        """First calendar date in this period."""
+        return self._start()
+
     def contains(self, other: Period) -> bool:
         """Whether ``other`` belongs to this period in the supported hierarchy."""
         if self.kind == "day":

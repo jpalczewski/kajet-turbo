@@ -21,6 +21,10 @@ class NotesListResponse(BaseModel):
     notes: list[NoteItem]
 
 
+class EntriesInResponse(BaseModel):
+    notes: list[NoteItem]
+
+
 class CreateNoteRequest(BaseModel):
     title: str
     content: str = ""

@@ -67,3 +67,22 @@ def test_patch_settings_rejects_wrong_type(client, ws_name):
 def test_settings_requires_access(other_client, ws_name):
     # A client authenticated as a different user without access.
     assert other_client.get(f"/api/workspaces/{ws_name}/settings").status_code == 403
+
+
+def test_temporal_backfill_preview_and_apply(client, ws_name):
+    note_id = client.note_service.save(
+        "u1", ws_name, str(client.workspace), "2026-03-22", "body", []
+    )["note_id"]
+
+    preview = client.post(f"/api/workspaces/{ws_name}/settings/temporal-backfill/preview")
+
+    assert preview.status_code == 200
+    candidates = preview.json()["candidates"]
+    assert candidates[0]["note_id"] == note_id
+    assert candidates[0]["field"] == "occurred_at"
+    applied = client.post(
+        f"/api/workspaces/{ws_name}/settings/temporal-backfill/apply",
+        json={"candidates": candidates},
+    )
+    assert applied.status_code == 200
+    assert applied.json() == {"applied": 1}

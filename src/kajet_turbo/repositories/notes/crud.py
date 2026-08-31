@@ -8,6 +8,7 @@ from sqlmodel import Session, col, select
 from kajet_turbo.markdown import IndexedNote
 from kajet_turbo.models import Note, NoteTag, Tag
 from kajet_turbo.perf import timed
+from kajet_turbo.periods import parse_period_key
 from kajet_turbo.repositories import DbRepository
 
 _NUM_SPLIT = re.compile(r"(\d+)")
@@ -382,6 +383,67 @@ class NoteRepository(DbRepository):
             if limit is not None and len(result) >= limit:
                 break
         return result
+
+    def entries_in(
+        self, workspace: str, owner_id: str, start: str, end: str, folder: str | None = None
+    ) -> list[dict]:
+        """Notes whose temporal metadata overlaps ``[start, end)``.
+
+        ``occurred_at`` notes (day granularity) match via an indexed ISO-date range
+        query. ``period`` notes (week/month/year granularity) have no directly
+        comparable column — a week key like ``2026-W12`` doesn't sort against day
+        strings — so those are range-overlap tested in Python against the same
+        ``[start, end)`` window, which is itself always a canonical period's own
+        ``[start, next().start)``. ``folder`` deliberately uses path-boundary prefix
+        semantics, unlike the older exact-folder list endpoint.
+        """
+        with self.timed_session() as session:
+            q = select(Note).where(
+                Note.workspace == workspace,
+                Note.owner_id == owner_id,
+                (col(Note.occurred_at) >= start) & (col(Note.occurred_at) < end)
+                | col(Note.period).is_not(None),
+            )
+            if folder is not None:
+                q = q.where(
+                    (col(Note.folder) == folder)
+                    | col(Note.folder).startswith(folder + "/", autoescape=True)
+                )
+            rows = session.exec(q).all()
+
+        matched: list[tuple[str, Note]] = []
+        for note in rows:
+            if note.occurred_at is not None:
+                if start <= note.occurred_at < end:
+                    matched.append((note.occurred_at, note))
+                continue
+            if note.period is None:
+                continue
+            try:
+                period = parse_period_key(note.period)
+            except ValueError:
+                continue
+            period_start = period.start.isoformat()
+            period_end = period.next().start.isoformat()
+            if period_start < end and period_end > start:
+                matched.append((period_start, note))
+        matched.sort(key=lambda pair: (pair[0], pair[1].created_at))
+
+        return [
+            {
+                "note_id": note.id,
+                "workspace": note.workspace,
+                "owner_id": note.owner_id,
+                "title": note.title,
+                "folder": note.folder,
+                "tags": json.loads(note.tags or "[]"),
+                "created_at": note.created_at,
+                "updated_at": note.updated_at,
+                "occurred_at": note.occurred_at,
+                "period": note.period,
+            }
+            for _, note in matched
+        ]
 
     def list_folders(self, workspace: str, owner_id: str) -> list[str]:
         with self.timed_session() as session:
