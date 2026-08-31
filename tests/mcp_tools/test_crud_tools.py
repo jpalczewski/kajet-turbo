@@ -24,6 +24,20 @@ async def test_save_and_get_note(workspaces_dir, mcp_server):
         assert "Moja notatka" in get_result.content[0].text
 
 
+async def test_save_and_get_note_with_temporal_metadata(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        saved = await call_json(
+            client,
+            "save_note",
+            {"title": "Weekly summary", "content": "Body", "period": "2026-W12"},
+        )
+        note = await call_json(client, "get_note", {"note_id": saved["note_id"]})
+        assert note["occurred_at"] is None
+        assert note["period"] == "2026-W12"
+
+
 async def test_get_notes_bulk_read(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:

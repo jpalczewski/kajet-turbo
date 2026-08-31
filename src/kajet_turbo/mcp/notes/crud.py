@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Annotated, Literal
 
 from fastmcp import FastMCP
@@ -71,6 +72,8 @@ def build_crud(
         content: str,
         tags: list[str] | None = None,
         folder: str = "",
+        occurred_at: str | None = None,
+        period: str | None = None,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> SavedNoteResult:
         """Zapisuje nową notatkę w podanym folderze (domyślnie root).
@@ -86,6 +89,8 @@ def build_crud(
             content,
             tags or [],
             folder=folder,
+            occurred_at=occurred_at,
+            period=period,
         )
         await publish_workspace_changed(ws)
         return SavedNoteResult.model_validate(result)
@@ -205,6 +210,9 @@ def build_crud(
         ] = None,
         tags: list[str] | None = None,
         folder: str | None = None,
+        occurred_at: str | None = None,
+        period: str | None = None,
+        clear_date_metadata: bool = False,
         mode: Annotated[
             Literal[
                 "overwrite",
@@ -267,7 +275,12 @@ def build_crud(
         expected_sha is the sha from get_note/get_note_history — proof you saw the current
         version. A mismatch returns StaleVersion: call get_note to re-read the note, then retry
         with the fresh sha."""
-        result = await run_sync(
+        temporal_args = {
+            key: value
+            for key, value in (("occurred_at", occurred_at), ("period", period))
+            if value is not None
+        }
+        update_note = partial(
             note_service.update,
             note_id,
             owner_id=ws.owner_id,
@@ -282,7 +295,10 @@ def build_crud(
             old_str=old_str,
             new_str=new_str,
             replace_all=replace_all,
+            clear_date_metadata=clear_date_metadata,
+            **temporal_args,
         )
+        result = await run_sync(update_note)
         if result.get("stale_sha"):
             return StaleVersion.model_validate(result)
         await publish_note_updated(ws, result["note_id"])
@@ -311,7 +327,7 @@ def build_crud(
             ws.owner_id,
             ws.name,
             ws.path,
-            [e.model_dump() for e in edits],
+            [e.model_dump(exclude_none=True) for e in edits],
         )
         if not result.get("applied"):
             return EditNotesRejected.model_validate(result)

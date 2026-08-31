@@ -3,13 +3,14 @@ import re
 import stat
 import tempfile
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import cast
 
 import frontmatter
 
 from kajet_turbo.models import Note
+from kajet_turbo.periods import parse_period_key
 from kajet_turbo.repositories.git import GitRepository, delete_workspace_tree
 
 WORKSPACES_DIR = os.getenv("WORKSPACES_DIR", "/workspaces")
@@ -17,7 +18,9 @@ WORKSPACES_DIR = os.getenv("WORKSPACES_DIR", "/workspaces")
 _WINDOWS_FORBIDDEN = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 _WINDOWS_RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", re.IGNORECASE)
 
-RESERVED_FRONTMATTER_KEYS = frozenset({"id", "title", "tags", "created_at", "updated_at"})
+RESERVED_FRONTMATTER_KEYS = frozenset(
+    {"id", "title", "tags", "created_at", "updated_at", "occurred_at", "period"}
+)
 
 
 class InvalidFolderError(ValueError):
@@ -26,7 +29,7 @@ class InvalidFolderError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class NoteFrontmatter:
-    """Parsed note frontmatter: the five reserved keys plus everything else in ``extras``.
+    """Parsed note frontmatter: reserved keys plus everything else in ``extras``.
 
     ``extras`` cannot shadow a reserved key — validated here so a bad state is rejected
     where it is built, not where it is next written. Dates deliberately keep PyYAML's
@@ -38,12 +41,17 @@ class NoteFrontmatter:
     tags: list[str]
     created_at: str | datetime | None
     updated_at: str | datetime | None
+    occurred_at: str | None = field(default=None, kw_only=True)
+    period: str | None = field(default=None, kw_only=True)
     extras: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         shadowed = RESERVED_FRONTMATTER_KEYS & self.extras.keys()
         if shadowed:
             raise ValueError(f"extras cannot shadow reserved frontmatter keys: {sorted(shadowed)}")
+        occurred_at, period = normalize_temporal_metadata(self.occurred_at, self.period)
+        if (occurred_at, period) != (self.occurred_at, self.period):
+            raise ValueError("occurred_at and period must use canonical string values.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +66,8 @@ class ScannedNote:
     tags: list[str]
     created_at: str | datetime | None
     updated_at: str | datetime | None
+    occurred_at: str | None
+    period: str | None
     content: str
     folder: str
 
@@ -228,6 +238,8 @@ def write_note_file(path: str, meta: NoteFrontmatter, body: str) -> None:
         "tags": meta.tags,
         "created_at": meta.created_at,
         "updated_at": meta.updated_at,
+        "occurred_at": meta.occurred_at,
+        "period": meta.period,
         **meta.extras,
     }
     target = Path(path)
@@ -266,15 +278,55 @@ def parse_frontmatter(post: frontmatter.Post) -> tuple[NoteFrontmatter, str]:
     """
     metadata: dict[str, object] = dict(post.metadata)
     tags = metadata.pop("tags", [])
+    occurred_at = _parse_occurred_at(metadata.pop("occurred_at", None))
+    period = _parse_period(metadata.pop("period", None))
     meta = NoteFrontmatter(
         id=cast("str | None", metadata.pop("id", None)),
         title=cast("str | None", metadata.pop("title", None)),
         tags=cast("list[str]", list(tags)) if isinstance(tags, list) else [],
         created_at=cast("str | datetime | None", metadata.pop("created_at", None)),
         updated_at=cast("str | datetime | None", metadata.pop("updated_at", None)),
+        occurred_at=occurred_at,
+        period=period,
         extras=metadata,
     )
     return meta, post.content
+
+
+def _parse_occurred_at(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime) or not isinstance(value, (str, date)):
+        raise ValueError("occurred_at must be an ISO calendar date (YYYY-MM-DD).")
+    try:
+        parsed = date.fromisoformat(value) if isinstance(value, str) else value
+    except ValueError as exc:
+        raise ValueError("occurred_at must be an ISO calendar date (YYYY-MM-DD).") from exc
+    if parsed.isoformat() != (value if isinstance(value, str) else parsed.isoformat()):
+        raise ValueError("occurred_at must be an ISO calendar date (YYYY-MM-DD).")
+    return parsed.isoformat()
+
+
+def _parse_period(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("period must be a canonical period key.")
+    try:
+        return parse_period_key(value).key
+    except ValueError as exc:
+        raise ValueError("period must be a canonical period key.") from exc
+
+
+def normalize_temporal_metadata(
+    occurred_at: object = None, period: object = None
+) -> tuple[str | None, str | None]:
+    """Validate and canonicalize the two mutually-exclusive temporal note facts."""
+    normalized_occurred_at = _parse_occurred_at(occurred_at)
+    normalized_period = _parse_period(period)
+    if normalized_occurred_at is not None and normalized_period is not None:
+        raise ValueError("occurred_at and period are mutually exclusive.")
+    return normalized_occurred_at, normalized_period
 
 
 def read_note_file(path: str) -> tuple[NoteFrontmatter, str]:
@@ -303,6 +355,8 @@ def scan_notes(workspace_path: str) -> list[ScannedNote]:
                 tags=meta.tags,
                 created_at=meta.created_at,
                 updated_at=meta.updated_at,
+                occurred_at=meta.occurred_at,
+                period=meta.period,
                 content=content,
                 folder=note_folder(workspace_path, p),
             )

@@ -168,6 +168,17 @@ def test_create_note_returns_note_id(auth_client):
     assert len(data["note_id"]) > 0
 
 
+def test_create_note_accepts_temporal_metadata(auth_client):
+    client, note_svc, ws_path = auth_client
+    response = client.post(
+        "/api/workspaces/test-ws/notes",
+        json={"title": "Event", "occurred_at": "2026-03-22"},
+    )
+    assert response.status_code == 201
+    note = note_svc.get_with_content(response.json()["note_id"], owner_id="u1", ws_path=ws_path)
+    assert note is not None and note.occurred_at == "2026-03-22"
+
+
 def test_create_note_in_subfolder(auth_client):
     client, note_svc, ws_path = auth_client
     resp = client.post(

@@ -26,6 +26,12 @@ class NoteInput(ToolInput):
         default="",
         description="Folder path, e.g. 'Projects/Client A'; empty string = workspace root",
     )
+    occurred_at: str | None = Field(
+        default=None, description="Calendar date this note is about, formatted YYYY-MM-DD"
+    )
+    period: str | None = Field(
+        default=None, description="Canonical period key, e.g. 2026-W12 or 2026-03"
+    )
 
 
 class WikilinkWarning(BaseModel):
@@ -119,6 +125,8 @@ class NoteListItem(BaseModel):
     tags: list[str]
     created_at: str
     updated_at: str
+    occurred_at: str | None = None
+    period: str | None = None
 
 
 class FolderContext(BaseModel):
@@ -306,6 +314,11 @@ class NoteEditInput(ToolInput):
     replace_all: bool = False
     tags: list[str] | None = Field(
         default=None, description="Replaces this note's frontmatter tags; None = leave them."
+    )
+    occurred_at: str | None = Field(default=None, description="Calendar date this note is about")
+    period: str | None = Field(default=None, description="Canonical period key this note covers")
+    clear_date_metadata: bool = Field(
+        default=False, description="Clear occurred_at and period; cannot be combined with either"
     )
 
 

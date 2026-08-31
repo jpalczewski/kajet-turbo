@@ -10,5 +10,7 @@ class NoteData(BaseModel):
     tags: list[str]
     created_at: str
     updated_at: str
+    occurred_at: str | None
+    period: str | None
     content: str
     sha: str

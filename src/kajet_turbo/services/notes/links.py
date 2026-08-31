@@ -347,7 +347,7 @@ class NoteLinkService:
             else f"note: rewrite wikilinks after moving {len(moves)} notes"
         )
         items: list[StagedWrite] = []
-        rewrites: list[tuple[str, str, str]] = []  # (note_id, new_body, updated_at)
+        rewrites: list[tuple[str, str, str, str | None, str | None]] = []
         for src in self._crud_repo.get_many(sorted(source_ids), workspace.owner_id):
             loc = locate_note(src, ws_path)
             if not loc.file_exists:
@@ -375,17 +375,21 @@ class NoteLinkService:
                     restore=partial(write_note_file, loc.filepath, meta, old_content),
                 )
             )
-            rewrites.append((src.id, new_body, src.updated_at))
+            rewrites.append(
+                (src.id, new_body, src.updated_at, data_meta.occurred_at, data_meta.period)
+            )
 
         if items:
             with staged_note_write(GitRepository(ws_path), items, message):
                 pass
-            for note_id, new_body, updated_at in rewrites:
+            for note_id, new_body, updated_at, occurred_at, period in rewrites:
                 self._crud_repo.update(
                     note_id,
                     owner_id=workspace.owner_id,
                     content=new_body,
                     updated_at=updated_at,
+                    occurred_at=occurred_at,
+                    period=period,
                     bump_index_generation=True,
                 )
         logger.info(

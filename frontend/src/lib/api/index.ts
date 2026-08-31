@@ -225,6 +225,8 @@ export interface NoteHtmlResponse {
   tags: string[];
   created_at: string;
   updated_at: string;
+  occurred_at?: string | null;
+  period?: string | null;
   content_html: string;
   sha: string;
 }
@@ -238,6 +240,8 @@ export interface NoteItem {
   tags: string[];
   created_at: string;
   updated_at: string;
+  occurred_at?: string | null;
+  period?: string | null;
   size_bytes: number;
 }
 
@@ -248,6 +252,8 @@ export interface NoteMarkdownResponse {
   tags: string[];
   created_at: string;
   updated_at: string;
+  occurred_at?: string | null;
+  period?: string | null;
   content: string;
   sha: string;
 }

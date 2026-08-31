@@ -83,7 +83,16 @@ async def api_create_note(
     ws_path = ws_service.workspace_path(user["id"], name)
     try:
         result = await run_sync(
-            note_service.save, user["id"], name, ws_path, title, content, tags, folder=folder
+            note_service.save,
+            user["id"],
+            name,
+            ws_path,
+            title,
+            content,
+            tags,
+            folder=folder,
+            occurred_at=body.get("occurred_at"),
+            period=body.get("period"),
         )
     except BrokenWikilinkError as e:
         raise HTTPException(
@@ -159,6 +168,9 @@ async def api_update_note(
     folder = body.get("folder")
     expected_sha = body.get("expected_sha")
     ws_path = ws_service.workspace_path(user["id"], name)
+    temporal_args = {
+        key: body[key] for key in ("occurred_at", "period") if key in body
+    }
     try:
         result = await run_sync(
             note_service.update,
@@ -170,6 +182,8 @@ async def api_update_note(
             content=content,
             tags=tags,
             folder=folder,
+            clear_date_metadata=bool(body.get("clear_date_metadata", False)),
+            **temporal_args,
         )
     except InvalidFolderError:
         raise HTTPException(status_code=422, detail=FolderError.INVALID_FOLDER) from None

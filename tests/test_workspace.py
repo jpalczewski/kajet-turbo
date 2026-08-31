@@ -206,15 +206,30 @@ def test_write_note_file_key_order_is_deterministic(workspace):
     produce byte-identical output. Pins #105's "no churn per save" invariant."""
     path_a = note_filepath(str(workspace), "", "Note A")
     path_b = note_filepath(str(workspace), "", "Note B")
-    common = {
-        "id": "id1",
-        "title": "Note",
-        "tags": ["a", "b"],
-        "created_at": "2026-06-08T12:00:00+00:00",
-        "updated_at": "2026-06-08T12:00:00+00:00",
-    }
-    write_note_file(path_a, NoteFrontmatter(**common, extras={"z_key": 1, "a_key": 2}), "Body.")
-    write_note_file(path_b, NoteFrontmatter(**common, extras={"a_key": 2, "z_key": 1}), "Body.")
+    write_note_file(
+        path_a,
+        NoteFrontmatter(
+            "id1",
+            "Note",
+            ["a", "b"],
+            "2026-06-08T12:00:00+00:00",
+            "2026-06-08T12:00:00+00:00",
+            extras={"z_key": 1, "a_key": 2},
+        ),
+        "Body.",
+    )
+    write_note_file(
+        path_b,
+        NoteFrontmatter(
+            "id1",
+            "Note",
+            ["a", "b"],
+            "2026-06-08T12:00:00+00:00",
+            "2026-06-08T12:00:00+00:00",
+            extras={"a_key": 2, "z_key": 1},
+        ),
+        "Body.",
+    )
     text_a = Path(path_a).read_text()
     text_b = Path(path_b).read_text()
     assert text_a.replace("Note A", "Note").replace("Note B", "Note") == text_b
