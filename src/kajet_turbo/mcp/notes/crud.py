@@ -402,13 +402,13 @@ def build_crud(
         deletes: list[NoteDeleteInput],
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> DeleteNotesApplied | DeleteNotesRejected:
-        """Usuwa wiele notatek w jednym atomowym commicie. All-or-nothing: jeśli
-        KTÓRAKOLWIEK pozycja w batchu jest niepoprawna (zła notatka, duplikat note_id,
-        nieaktualny expected_sha) — cały batch jest odrzucany i NIC nie jest usuwane;
-        errors {index, note_id, error} per pozycja mówi co. Gating idzie po expected_sha
-        — sha ostatniego commita notatki z get_note_history — dowodząc, że wywołujący
-        widział bieżącą wersję przed usunięciem. Przy niezgodności zawołaj get_note_history,
-        by doczytać aktualną wersję, i spróbuj ponownie. Max 50 usunięć na wywołanie."""
+        """Delete multiple notes in one Git commit and one DB transaction. All-or-nothing
+        at validation: if ANY item in the batch is invalid (wrong note, duplicate note_id,
+        stale expected_sha) the whole batch is rejected and NOTHING is deleted; errors
+        {index, note_id, error} per item say why. Gating uses expected_sha — the note's
+        last commit sha from get_note_history — proving the caller saw the current version
+        before deleting. On a mismatch, call get_note_history to read the current version
+        and retry. Max 50 deletes per call."""
         check_batch(deletes, "deletes", "usunięć")
         result = await run_sync(
             note_service.delete_many,

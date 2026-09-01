@@ -4,6 +4,13 @@ file moves to the suite's helpers.py — it does not get copied."
 
 from pathlib import Path
 
+from kajet_turbo.repositories.git import GitRepository
+
+
+def head_sha(workspace, relative_path: str) -> str:
+    """The current HEAD commit sha touching ``relative_path``."""
+    return GitRepository(str(workspace)).file_history(relative_path, limit=1)[0]["sha"]
+
 
 def build_reconcile_wiring(database, base: Path):
     """A NoteService wired with a real LinkReconcileRepository + DanglingLinkRepository,

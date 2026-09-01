@@ -9,7 +9,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session
 
 from kajet_turbo.log import logger
-from kajet_turbo.perf import timed
+from kajet_turbo.perf import local_exclusion_scope, timed
 
 _LOG_RESERVED_FIELDS = {"msg", "repository", "operation", "outcome", "db_ms"}
 _last_db_timing: ContextVar[tuple[int, float] | None] = ContextVar(
@@ -71,10 +71,15 @@ class DbRepository:
         _last_db_timing.set(None)
         started = time.monotonic()
         try:
-            with Session(self._engine) as session, timed("db_ms"):
+            with (
+                local_exclusion_scope() as pop_excluded,
+                Session(self._engine) as session,
+                timed("db_ms"),
+            ):
                 yield session
         finally:
-            _last_db_timing.set((id(self), round((time.monotonic() - started) * 1000, 1)))
+            elapsed_ms = (time.monotonic() - started) * 1000
+            _last_db_timing.set((id(self), round(elapsed_ms - pop_excluded("db_ms"), 1)))
 
     def _last_operation_db_ms(self) -> float:
         """The ``db_ms`` a just-exited ``timed_session()`` call recorded for this repo."""

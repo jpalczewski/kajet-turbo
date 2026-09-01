@@ -4,17 +4,14 @@ import pytest
 
 from kajet_turbo.markdown import Chunk
 from kajet_turbo.repositories.git import GitRepository
-
-
-def _head_sha(workspace, relative_path):
-    return GitRepository(str(workspace)).file_history(relative_path, limit=1)[0]["sha"]
+from tests.services.helpers import head_sha
 
 
 def test_delete_many_applies_all_in_one_commit(service, workspace):
     r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
     r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
-    sha1 = _head_sha(workspace, "First.md")
-    sha2 = _head_sha(workspace, "Second.md")
+    sha1 = head_sha(workspace, "First.md")
+    sha2 = head_sha(workspace, "Second.md")
 
     result = service.delete_many(
         "u1",
@@ -37,7 +34,7 @@ def test_delete_many_applies_all_in_one_commit(service, workspace):
 def test_delete_many_stale_sha_rejects_whole_batch(service, workspace):
     r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
     r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
-    sha1 = _head_sha(workspace, "First.md")
+    sha1 = head_sha(workspace, "First.md")
 
     result = service.delete_many(
         "u1",
@@ -59,7 +56,7 @@ def test_delete_many_stale_sha_rejects_whole_batch(service, workspace):
 
 def test_delete_many_missing_note_rejects_batch(service, workspace):
     r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
-    sha1 = _head_sha(workspace, "First.md")
+    sha1 = head_sha(workspace, "First.md")
 
     result = service.delete_many(
         "u1",
@@ -77,7 +74,7 @@ def test_delete_many_missing_note_rejects_batch(service, workspace):
 
 def test_delete_many_rejects_duplicate_note_id(service, workspace):
     r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
-    sha1 = _head_sha(workspace, "First.md")
+    sha1 = head_sha(workspace, "First.md")
 
     result = service.delete_many(
         "u1",
@@ -104,7 +101,7 @@ def test_delete_many_requires_expected_sha(service, workspace):
 
 def test_delete_many_accepts_shortened_sha(service, workspace):
     r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
-    short_sha = _head_sha(workspace, "First.md")[:10]
+    short_sha = head_sha(workspace, "First.md")[:10]
 
     result = service.delete_many(
         "u1", "ws", str(workspace), [{"note_id": r1["note_id"], "expected_sha": short_sha}]
@@ -122,7 +119,7 @@ def test_delete_many_empty_batch_raises(service, workspace):
 def test_delete_many_clears_tags_links_and_index(service, workspace):
     r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
     r1 = service.save("u1", "ws", str(workspace), "First", "links [[Second]]\n", ["tag-a"])
-    sha1 = _head_sha(workspace, "First.md")
+    sha1 = head_sha(workspace, "First.md")
 
     result = service.delete_many(
         "u1", "ws", str(workspace), [{"note_id": r1["note_id"], "expected_sha": sha1}]
@@ -150,8 +147,8 @@ def test_delete_clears_chunks_without_an_indexer(service, workspace):
 def test_delete_many_rolls_back_database_teardowns(service, workspace, monkeypatch):
     r1 = service.save("u1", "ws", str(workspace), "First", "one\n", ["first"])
     r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", ["second"])
-    sha1 = _head_sha(workspace, "First.md")
-    sha2 = _head_sha(workspace, "Second.md")
+    sha1 = head_sha(workspace, "First.md")
+    sha2 = head_sha(workspace, "Second.md")
     original = service._link_repo.delete_links_to_in_session
 
     def fail_on_second(session, note_id):
@@ -162,6 +159,48 @@ def test_delete_many_rolls_back_database_teardowns(service, workspace, monkeypat
     monkeypatch.setattr(service._link_repo, "delete_links_to_in_session", fail_on_second)
 
     with pytest.raises(RuntimeError, match="injected teardown failure"):
+        service.delete_many(
+            "u1",
+            "ws",
+            str(workspace),
+            [
+                {"note_id": r1["note_id"], "expected_sha": sha1},
+                {"note_id": r2["note_id"], "expected_sha": sha2},
+            ],
+        )
+
+    assert service._crud_repo.get(r1["note_id"], owner_id="u1") is not None
+    assert service._crud_repo.get(r2["note_id"], owner_id="u1") is not None
+    assert (workspace / "First.md").exists()
+    assert (workspace / "Second.md").exists()
+    assert head_sha(workspace, "First.md") == sha1
+    assert head_sha(workspace, "Second.md") == sha2
+    assert (
+        service.get_with_content(r1["note_id"], owner_id="u1", ws_path=str(workspace)) is not None
+    )
+    assert (
+        service.get_with_content(r2["note_id"], owner_id="u1", ws_path=str(workspace)) is not None
+    )
+
+
+def test_delete_many_git_failure_rolls_back_database_teardowns(service, workspace):
+    from unittest.mock import patch
+
+    from kajet_turbo.repositories.git import GitError
+
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", ["first"])
+    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", ["second"])
+    sha1 = head_sha(workspace, "First.md")
+    sha2 = head_sha(workspace, "Second.md")
+
+    # delete_files is mocked out entirely, so it never touches the filesystem — the only
+    # thing this test can prove is that the row teardowns rolled back with it.
+    with (
+        patch(
+            "kajet_turbo.repositories.git.GitRepository.delete_files", side_effect=GitError("fail")
+        ),
+        pytest.raises(GitError),
+    ):
         service.delete_many(
             "u1",
             "ws",

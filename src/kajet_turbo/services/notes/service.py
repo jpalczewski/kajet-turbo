@@ -12,6 +12,7 @@ import frontmatter
 from nanoid import generate
 from sqlmodel import Session
 
+from kajet_turbo import perf
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
@@ -1258,7 +1259,19 @@ class NoteService:
         """Delete a note. expected_sha (MCP callers) must match the note's HEAD
         commit; ``None`` (REST API) skips the check. A missing file (orphaned DB
         row) also skips it — there is no version the caller could have read, and
-        the delete is then pure index cleanup."""
+        the delete is then pure index cleanup.
+
+        Rows are torn down first, inside the DB transaction; the Git commit that
+        removes the file runs last, inside that same transaction, and the transaction
+        commits only after both steps succeed. A teardown failure leaves the file
+        untouched. A Git failure rolls back the row teardown. This is not two-phase
+        commit: a DB commit failure after the Git commit has already landed leaves the
+        file gone with the row intact (see #155 for the general fix).
+
+        Cost: the app's one shared SQLite write lock is now held for the Git commit too,
+        not just the row teardown — see ``delete_many``'s docstring for the batch-sized
+        version of this trade-off.
+        """
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
             raise ValueError(f"Notatka {note_id} nie znaleziona.")
@@ -1274,8 +1287,6 @@ class NoteService:
         workspace_links = self._link_service.for_workspace(note.workspace, owner_id)
         affected_sources = workspace_links.affected_sources({note.title})
         affected_sources.discard(note_id)  # this source is synchronously deleted below
-        if file_exists:
-            GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
         with (
             self._crud_repo.operation(
                 "delete", note_id=note_id, workspace=note.workspace, owner_id=owner_id
@@ -1283,6 +1294,10 @@ class NoteService:
             operation.session.begin(),
         ):
             self._teardown_note(operation.session, note)
+            if file_exists:
+                # perf: keep this commit's wall time out of db_ms, see perf.excluded_from.
+                with perf.excluded_from("db_ms"):
+                    GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_deleted", note_id=note_id)
@@ -1300,11 +1315,27 @@ class NoteService:
     ) -> dict:
         """Delete multiple notes in one Git commit and one DB transaction.
 
-        All-or-nothing: an invalid item (missing note, duplicate note_id, stale expected_sha)
-        rejects the whole batch — nothing is deleted. Each input dict has ``note_id`` and
-        ``expected_sha``. The latter is the current HEAD commit sha (from get_history), proving the
-        caller has seen the version it is about to destroy; a mismatch rejects the item without
-        revealing the current sha, forcing a real re-read instead of a blind retry.
+        All-or-nothing at validation: an invalid item (missing note, duplicate note_id, stale
+        expected_sha) rejects the whole batch — nothing is deleted. Each input dict has
+        ``note_id`` and ``expected_sha``. The latter is the current HEAD commit sha (from
+        get_history), proving the caller has seen the version it is about to destroy; a
+        mismatch rejects the item without revealing the current sha, forcing a real re-read
+        instead of a blind retry.
+
+        Rows are torn down first, inside the DB transaction; the single batched Git commit
+        that removes the files runs last, inside that same transaction, and the transaction
+        commits only after both steps succeed. A teardown failure leaves the files untouched.
+        A Git failure rolls back the row teardown. This is not two-phase commit: a DB commit
+        failure after the Git commit has already landed leaves the files gone with the rows
+        intact (see #155 for the general fix).
+
+        Cost: the app's one shared SQLite write lock — normally held only for the row
+        teardown — is now held for the batched Git commit too, and that commit first waits
+        (up to ``KAJET_GIT_LOCK_TIMEOUT``, 10s default) on this workspace's own write lock if
+        another commit is in flight. A slow or contended batch here can make an unrelated
+        write elsewhere in the app hit SQLite's ``busy_timeout`` (5s) and fail with
+        "database is locked". Accepted for this batch size today; #155 tracks the general
+        shape (this trade-off applies to every write path it touches, not just deletes).
         """
         if not deletes:
             raise ValueError("Batch usuwania nie może być pusty.")
@@ -1330,10 +1361,6 @@ class NoteService:
         affected_sources.difference_update(p.note_id for p in prepared)
 
         n = len(prepared)
-        git_repo.delete_files(
-            [p.loc.relative for p in prepared], f"note: delete {n} note{'' if n == 1 else 's'}"
-        )
-
         with (
             self._crud_repo.operation(
                 "delete_many", workspace=ws_name, owner_id=user_id, count=len(prepared)
@@ -1342,6 +1369,12 @@ class NoteService:
         ):
             for p in prepared:
                 self._teardown_note(operation.session, p.loc.note)
+            # perf: keep this commit's wall time out of db_ms, see perf.excluded_from.
+            with perf.excluded_from("db_ms"):
+                git_repo.delete_files(
+                    [p.loc.relative for p in prepared],
+                    f"note: delete {n} note{'' if n == 1 else 's'}",
+                )
         for p in prepared:
             logger.info("note_deleted", note_id=p.note_id)
 

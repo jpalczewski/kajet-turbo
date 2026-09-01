@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from kajet_turbo import perf
@@ -26,6 +28,39 @@ def test_operation_records_local_and_aggregate_db_ms(database: Database, capsys)
     assert entry["outcome"] == "success"
     assert entry["item_id"] == "i1"
     assert entry["db_ms"] >= 0
+
+
+def test_operation_excludes_nested_work_from_local_and_aggregate_db_ms(database: Database, capsys):
+    setup_logging()
+    repo = _ExampleRepository(database.engine)
+
+    with (
+        perf.perf_span() as span,
+        repo.operation("write") as operation,
+        operation.session.begin(),
+        perf.excluded_from("db_ms"),
+    ):
+        time.sleep(0.1)
+
+    assert span is not None
+    assert span.fields["db_ms"] < 50
+    (entry,) = entries_named(read_log_entries(capsys), "repository_operation")
+    assert entry["db_ms"] < 50
+
+
+def test_operation_excludes_nested_work_from_local_db_ms_without_a_span(database: Database, capsys):
+    setup_logging()
+    repo = _ExampleRepository(database.engine)
+
+    with (
+        repo.operation("write") as operation,
+        operation.session.begin(),
+        perf.excluded_from("db_ms"),
+    ):
+        time.sleep(0.1)
+
+    (entry,) = entries_named(read_log_entries(capsys), "repository_operation")
+    assert entry["db_ms"] < 50
 
 
 def test_operation_can_add_result_fields_and_suppress_noop(database: Database, capsys):

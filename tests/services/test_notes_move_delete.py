@@ -1,8 +1,13 @@
 """move/list_folders/delete/list-scope/search coverage for NoteService."""
 
+import time
+from unittest.mock import patch
+
 import pytest
 
-from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo import perf
+from kajet_turbo.repositories.git import GitError, GitRepository
+from tests.services.helpers import head_sha
 
 
 def test_move_note_to_existing_folder_preserves_updated_at(service, workspace):
@@ -96,6 +101,60 @@ def test_delete_removes_file_from_note_folder(service, workspace):
     service.delete(note_id, owner_id="u1", ws_path=str(workspace))
 
     assert not (workspace / "trash" / "Delete me.md").exists()
+
+
+def test_delete_rolls_back_database_teardown_and_leaves_file_untouched(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Keep me", "content", [])["note_id"]
+    sha_before = head_sha(workspace, "Keep me.md")
+
+    def fail(session, note_id_arg):
+        raise RuntimeError("injected teardown failure")
+
+    with (
+        patch.object(service._link_repo, "delete_links_to_in_session", side_effect=fail),
+        pytest.raises(RuntimeError, match="injected teardown failure"),
+    ):
+        service.delete(note_id, owner_id="u1", ws_path=str(workspace))
+
+    assert service._crud_repo.get(note_id, owner_id="u1") is not None
+    assert (workspace / "Keep me.md").exists()
+    assert head_sha(workspace, "Keep me.md") == sha_before
+    assert service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace)) is not None
+
+
+def test_delete_perf_span_excludes_git_commit_time_from_db_ms(service, workspace, monkeypatch):
+    note_id = service.save("u1", "ws", str(workspace), "Perf", "content", [])["note_id"]
+    original = GitRepository.delete_file
+
+    def slow_delete_file(self, relative_path, message):
+        time.sleep(0.1)
+        return original(self, relative_path, message)
+
+    monkeypatch.setattr(GitRepository, "delete_file", slow_delete_file)
+
+    with perf.perf_span() as span:
+        service.delete(note_id, owner_id="u1", ws_path=str(workspace))
+
+    assert span is not None
+    assert span.fields["db_ms"] < 50
+    assert span.fields["workspace_write_ms"] >= 90
+    assert span.fields["db_ms"] + span.fields["git_ms"] <= span.fields["workspace_write_ms"]
+
+
+def test_delete_git_failure_rolls_back_database_teardown(service, workspace):
+    note_id = service.save("u1", "ws", str(workspace), "Keep me", "content", [])["note_id"]
+
+    # delete_file is mocked out entirely, so it never touches the filesystem — the only
+    # thing this test can prove is that the row teardown rolled back with it.
+    with (
+        patch(
+            "kajet_turbo.repositories.git.GitRepository.delete_file", side_effect=GitError("fail")
+        ),
+        pytest.raises(GitError),
+    ):
+        service.delete(note_id, owner_id="u1", ws_path=str(workspace))
+
+    assert service._crud_repo.get(note_id, owner_id="u1") is not None
 
 
 def test_list_scoped_by_owner(service, workspace):
