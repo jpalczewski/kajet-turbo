@@ -279,9 +279,7 @@ def get_provider() -> KajetOAuthProvider:
 
 
 def get_session_user(request: Request) -> dict | None:
-    return identity.resolve_session_user(
-        session_repo, identity.session_token_from_cookies(request.cookies)
-    )
+    return identity.resolve_session_user_from_cookies(session_repo, request.cookies)
 
 
 def get_required_user(request: Request) -> dict:
