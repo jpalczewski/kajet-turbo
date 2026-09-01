@@ -174,3 +174,53 @@ def test_delete_many_rolls_back_database_teardowns(service, workspace, monkeypat
 
     assert service._crud_repo.get(r1["note_id"], owner_id="u1") is not None
     assert service._crud_repo.get(r2["note_id"], owner_id="u1") is not None
+    assert (workspace / "First.md").exists()
+    assert (workspace / "Second.md").exists()
+    assert _head_sha(workspace, "First.md") == sha1
+    assert _head_sha(workspace, "Second.md") == sha2
+    assert (
+        service.get_with_content(r1["note_id"], owner_id="u1", ws_path=str(workspace)) is not None
+    )
+    assert (
+        service.get_with_content(r2["note_id"], owner_id="u1", ws_path=str(workspace)) is not None
+    )
+
+
+def test_delete_many_git_failure_rolls_back_database_teardowns(service, workspace):
+    from unittest.mock import patch
+
+    from kajet_turbo.repositories.git import GitError
+
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", ["first"])
+    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", ["second"])
+    sha1 = _head_sha(workspace, "First.md")
+    sha2 = _head_sha(workspace, "Second.md")
+
+    with (
+        patch(
+            "kajet_turbo.repositories.git.GitRepository.delete_files", side_effect=GitError("fail")
+        ),
+        pytest.raises(GitError),
+    ):
+        service.delete_many(
+            "u1",
+            "ws",
+            str(workspace),
+            [
+                {"note_id": r1["note_id"], "expected_sha": sha1},
+                {"note_id": r2["note_id"], "expected_sha": sha2},
+            ],
+        )
+
+    assert service._crud_repo.get(r1["note_id"], owner_id="u1") is not None
+    assert service._crud_repo.get(r2["note_id"], owner_id="u1") is not None
+    assert (workspace / "First.md").exists()
+    assert (workspace / "Second.md").exists()
+    assert _head_sha(workspace, "First.md") == sha1
+    assert _head_sha(workspace, "Second.md") == sha2
+    assert (
+        service.get_with_content(r1["note_id"], owner_id="u1", ws_path=str(workspace)) is not None
+    )
+    assert (
+        service.get_with_content(r2["note_id"], owner_id="u1", ws_path=str(workspace)) is not None
+    )

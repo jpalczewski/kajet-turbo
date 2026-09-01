@@ -96,3 +96,73 @@ def perf_span():
         yield span
     finally:
         _span.reset(token)
+
+
+class _ExclusionLedger:
+    """Thread-safe accumulator of ms excluded from a field within one local scope."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._totals: dict[str, float] = {}
+
+    def add(self, field: str, ms: float) -> None:
+        with self._lock:
+            self._totals[field] = self._totals.get(field, 0.0) + ms
+
+    def pop(self, field: str) -> float:
+        with self._lock:
+            return self._totals.pop(field, 0.0)
+
+
+_local_exclusions: ContextVar[_ExclusionLedger | None] = ContextVar(
+    "perf_local_exclusions", default=None
+)
+
+
+@contextmanager
+def local_exclusion_scope():
+    """Open a scope that ``excluded_from()`` calls report into, independent of any span.
+
+    Yields ``pop(field) -> float``: ms excluded from ``field`` by nested
+    ``excluded_from(field)`` calls made during this scope. For a caller doing its own
+    wall-clock timing (``DbRepository.timed_session``) that needs to subtract the same
+    nested work a span already excludes from its aggregate — so the *local* figure still
+    means "DB time" even when no span is active to receive the span-side subtraction.
+    """
+    ledger = _ExclusionLedger()
+    token = _local_exclusions.set(ledger)
+    try:
+        yield ledger.pop
+    finally:
+        _local_exclusions.reset(token)
+
+
+@contextmanager
+def excluded_from(field: str):
+    """Run the wrapped block without its wall time counting toward ``field``.
+
+    Only makes sense nested inside an enclosing ``timed(field)``/wall-clock window that
+    would otherwise attribute this block's own duration to ``field`` too (e.g. a git
+    commit running inside ``DbRepository.operation()``'s ``db_ms`` window) — used
+    standalone it just drives ``field`` negative. Subtracts this block's elapsed time
+    from ``field`` on the active span (if any) and from the active
+    ``local_exclusion_scope`` (if any).
+
+    Both ``timed()`` and this function independently round their own elapsed time
+    before adding, so the two roundings don't cancel exactly — expect ~0.1ms drift on
+    the net value.
+    """
+    span = _span.get()
+    ledger = _local_exclusions.get()
+    if span is None and ledger is None:
+        yield
+        return
+    start = time.monotonic()
+    try:
+        yield
+    finally:
+        elapsed = round((time.monotonic() - start) * 1000, 1)
+        if span is not None:
+            span.add(field, -elapsed)
+        if ledger is not None:
+            ledger.add(field, elapsed)
