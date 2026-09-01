@@ -970,7 +970,6 @@ class NoteService:
         # open would re-read refs/pack indexes for no reason.
         repo = GitRepository(ws_path)
         if old_path != new_path:
-            Path(new_path).parent.mkdir(parents=True, exist_ok=True)
             repo.rename_file(old_rel, new_rel, f"note: rename to {new_title}")
         apply_meta = replace(
             existing_meta,

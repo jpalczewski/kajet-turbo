@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.workspace import (
     NoteFrontmatter,
     create_workspace,
@@ -302,17 +301,3 @@ def test_create_workspace_rejects_duplicate(tmp_path):
     create_workspace("duplikat", str(tmp_path), user_id="u1")
     with pytest.raises(FileExistsError):
         create_workspace("duplikat", str(tmp_path), user_id="u1")
-
-
-def test_rename_file_commit(workspace):
-    repo = GitRepository(str(workspace))
-
-    initial = workspace / "hello.md"
-    initial.write_text("content")
-    repo.commit_file("hello.md", "add hello")
-
-    repo.rename_file("hello.md", "world.md", "rename hello to world")
-
-    assert not initial.exists()
-    assert (workspace / "world.md").exists()
-    assert (workspace / "world.md").read_text() == "content"

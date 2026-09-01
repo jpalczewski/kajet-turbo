@@ -59,7 +59,7 @@ def test_parity_for_deleted_file(git_ws, tmp_path):
     (tmp_path / "a.md").write_text("a v1")
     git_ws.commit_file("a.md", "note: add a")
     Path(tmp_path / "a.md").unlink()
-    git_ws.delete_file("a.md", "note: delete a")
+    git_ws.commit_changes(removed=["a.md"], added=[], message="note: delete a")
 
     paths = ["a.md"]
     expected = _expected(git_ws, paths)
@@ -106,7 +106,7 @@ def test_parity_for_path_deleted_and_recreated_returns_newest(git_ws, tmp_path):
     (tmp_path / "a.md").write_text("a original")
     git_ws.commit_file("a.md", "note: add a")
     Path(tmp_path / "a.md").unlink()
-    git_ws.delete_file("a.md", "note: delete a")
+    git_ws.commit_changes(removed=["a.md"], added=[], message="note: delete a")
     (tmp_path / "a.md").write_text("a recreated")
     git_ws.commit_file("a.md", "note: recreate a")
     for i in range(3):
@@ -166,7 +166,7 @@ def test_parity_when_one_change_matches_multiple_followed_paths(git_ws, tmp_path
     (tmp_path / "a.md").write_text("a as a file")
     git_ws.commit_file("a.md", "note: add a")
     Path(tmp_path / "a.md").unlink()
-    git_ws.delete_file("a.md", "note: delete a")
+    git_ws.commit_changes(removed=["a.md"], added=[], message="note: delete a")
     (tmp_path / "a.md").mkdir()
     (tmp_path / "a.md" / "b.md").write_text("b inside a directory named a.md")
     git_ws.commit_file("a.md/b.md", "note: add b under dir a.md")

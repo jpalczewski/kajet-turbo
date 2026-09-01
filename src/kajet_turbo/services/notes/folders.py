@@ -67,7 +67,6 @@ class NoteFolderService:
         )
         old_rel = str(old_path.relative_to(ws_path))
         new_rel = str(new_path.relative_to(ws_path))
-        new_path.parent.mkdir(parents=True, exist_ok=True)
         GitRepository(ws_path).rename_file(
             old_rel, new_rel, f"note: move {note.title} to {new_folder or 'root'}"
         )
