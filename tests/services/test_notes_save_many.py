@@ -59,7 +59,7 @@ def test_save_many_intra_batch_duplicate(service, workspace):
 
     assert "note_id" in results[0]
     assert "error" in results[1]
-    assert "batchu" in results[1]["error"].lower()
+    assert "duplicate in batch" in results[1]["error"].lower()
 
 
 def test_save_many_empty_list(service, workspace):
@@ -153,7 +153,7 @@ def test_save_many_filename_collision_dedup(service, workspace):
 
     assert "note_id" in results[0]
     assert "error" in results[1]
-    assert "kolizja" in results[1]["error"].lower()
+    assert "already used by" in results[1]["error"].lower()
 
     # Only one .md file with that name should exist.
     md_files = [p for p in workspace.rglob("A B.md") if ".git" not in str(p)]
@@ -169,3 +169,22 @@ def test_save_many_filename_collision_dedup(service, workspace):
     note = service._crud_repo.get(results[0]["note_id"], owner_id="u1")
     assert note is not None
     assert note.title == "A:B"
+
+
+def test_save_many_item_rejects_collision_with_pre_existing_file(service, workspace):
+    """Not just intra-batch: an item colliding with a note saved before this batch,
+    outside of it, must also be rejected — the other items in the batch still succeed."""
+    service.save("u1", "ws", str(workspace), "A B", "existing", [])
+    notes = [
+        {"title": "A:B", "content": "collides via normalization"},
+        {"title": "Fresh", "content": "unrelated"},
+    ]
+
+    results = service.save_many("u1", "ws", str(workspace), notes)
+
+    assert "error" in results[0]
+    assert "note_id" in results[1]
+    from kajet_turbo.workspace import read_note_file
+
+    _, content = read_note_file(str(workspace / "A B.md"))
+    assert content.strip() == "existing"

@@ -223,6 +223,17 @@ def test_create_note_duplicate_returns_409(auth_client):
     assert "detail" in resp.json()
 
 
+def test_create_note_normalization_collision_returns_409_not_500(auth_client):
+    """ "A:B" and "A B" both sanitize to the same "A B.md" — save() raises
+    FileExistsError (not ValueError) for this case, so the route needs its own
+    FileExistsError handler or this would fall through to a 500."""
+    client, _, _ = auth_client
+    client.post("/api/workspaces/test-ws/notes", json={"title": "A B"})
+    resp = client.post("/api/workspaces/test-ws/notes", json={"title": "A:B"})
+    assert resp.status_code == 409
+    assert "detail" in resp.json()
+
+
 def test_create_note_missing_title_returns_422(auth_client):
     client, _, _ = auth_client
     resp = client.post("/api/workspaces/test-ws/notes", json={"content": "x"})

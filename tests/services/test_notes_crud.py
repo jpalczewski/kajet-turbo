@@ -89,8 +89,49 @@ def test_save_in_root_does_not_create_notes_directory(service, workspace):
 def test_save_rejects_duplicate_title_in_same_folder(service, workspace):
     service.save("u1", "ws", str(workspace), "Duplicate", "content", [], folder="docs")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(FileExistsError):
         service.save("u1", "ws", str(workspace), "Duplicate", "other", [], folder="docs")
+
+
+def test_save_rejects_normalization_collision_with_existing_note(service, workspace):
+    """ "A:B" and "A B" both sanitize to "A B.md" — a different title, same file."""
+    from kajet_turbo.workspace import read_note_file
+
+    first = service.save("u1", "ws", str(workspace), "A B", "first body", [])
+
+    with pytest.raises(FileExistsError, match="A B"):
+        service.save("u1", "ws", str(workspace), "A:B", "second body", [])
+
+    _, content = read_note_file(str(workspace / "A B.md"))
+    assert content.strip() == "first body"
+    note = service.get_with_content(first["note_id"], owner_id="u1", ws_path=str(workspace))
+    assert note is not None
+    assert note.content.strip() == "first body"
+
+
+def test_save_rejects_collision_with_orphan_file_on_disk(service, workspace):
+    """A file with no matching DB row must still block a colliding save."""
+    (workspace / "A B.md").write_text("orphan content\n")
+
+    with pytest.raises(FileExistsError):
+        service.save("u1", "ws", str(workspace), "A B", "new body", [])
+
+    assert (workspace / "A B.md").read_text() == "orphan content\n"
+    assert service._crud_repo.check_unique("ws", "u1", "", "A B")
+
+
+def test_save_rejects_normalization_collision_with_ghost_row(service, workspace):
+    """A DB row whose file was deleted out-of-band must still block a colliding save —
+    the check is DB-row-based (note_path_conflict), not Path.exists()-based."""
+    first = service.save("u1", "ws", str(workspace), "A B", "first body", [])
+    (workspace / "A B.md").unlink()
+
+    with pytest.raises(FileExistsError, match="A B"):
+        service.save("u1", "ws", str(workspace), "A:B", "second body", [])
+
+    note = service._crud_repo.get(first["note_id"], owner_id="u1")
+    assert note is not None
+    assert note.title == "A B"
 
 
 def test_save_git_error_rolls_back_file(service, workspace):

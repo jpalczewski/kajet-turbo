@@ -62,6 +62,12 @@ class WorkspaceLinks:
     paths: tuple[IndexedNote, ...]
     index: LinkIndex
 
+    def with_extra(self, extra: Iterable[IndexedNote]) -> WorkspaceLinks:
+        """This same snapshot plus not-yet-persisted notes (e.g. a batch being saved),
+        without re-querying the DB — the caller already holds ``paths``."""
+        paths = tuple(chain(self.paths, extra))
+        return self._service._build(self.ws_name, self.owner_id, paths)
+
     def resolve(self, content: str, source_folder: str) -> LinkResolution:
         return self._service._resolve_links(self, content, source_folder)
 
@@ -110,6 +116,12 @@ class NoteLinkService:
         """Snapshot of the workspace's notes for wikilink resolution. ``extra`` adds notes
         that don't exist in the DB yet (a batch being saved) so in-batch links resolve."""
         paths = tuple(chain(self._crud_repo.list_paths(ws_name, owner_id), extra))
+        return self._build(ws_name, owner_id, paths)
+
+    def _build(self, ws_name: str, owner_id: str, paths: tuple[IndexedNote, ...]) -> WorkspaceLinks:
+        """The one place a ``WorkspaceLinks`` gets constructed — shared by ``for_workspace``
+        and ``WorkspaceLinks.with_extra`` so a future field/index change only needs editing
+        here."""
         return WorkspaceLinks(self, ws_name, owner_id, paths, LinkIndex(paths))
 
     def _resolve_links(

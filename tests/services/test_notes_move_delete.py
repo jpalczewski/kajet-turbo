@@ -64,6 +64,23 @@ def test_move_note_rejects_unindexed_destination_file(service, workspace):
     assert (workspace / "archive" / "Same.md").read_text() == "external"
 
 
+def test_move_note_rejects_normalization_collision(service, workspace):
+    """ "A:B" moved into "archive" would land on "A B.md", already used by "A B"."""
+    (workspace / "archive").mkdir()
+    note_id = service.save("u1", "ws", str(workspace), "A:B", "source", [])["note_id"]
+    service.save("u1", "ws", str(workspace), "A B", "destination", [], folder="archive")
+
+    with pytest.raises(FileExistsError, match="A B"):
+        service.move(note_id, owner_id="u1", ws_path=str(workspace), folder="archive")
+
+    from kajet_turbo.workspace import read_note_file
+
+    _, source_content = read_note_file(str(workspace / "A B.md"))
+    _, dest_content = read_note_file(str(workspace / "archive" / "A B.md"))
+    assert source_content.strip() == "source"
+    assert dest_content.strip() == "destination"
+
+
 def test_update_folder_only_keeps_path_creation_semantics(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Move me", "content", [])["note_id"]
     before = service.get(note_id, owner_id="u1")

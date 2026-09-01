@@ -43,6 +43,24 @@ def test_update_title_renames_file(service, workspace):
     assert (workspace / "New title.md").exists()
 
 
+def test_update_rejects_rename_onto_normalization_collision(service, workspace):
+    """ "X" renamed to "A:B" would land on "A B.md", already used by "A B"."""
+    x_id = service.save("u1", "ws", str(workspace), "X", "x content", [])["note_id"]
+    service.save("u1", "ws", str(workspace), "A B", "a b content", [])
+    sha = service.get_history(x_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    with pytest.raises(FileExistsError, match="A B"):
+        service.update(x_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="A:B")
+
+    x_note = service.get_with_content(x_id, owner_id="u1", ws_path=str(workspace))
+    assert x_note.title == "X"
+    assert x_note.content == "x content"
+    from kajet_turbo.workspace import read_note_file
+
+    _, other_content = read_note_file(str(workspace / "A B.md"))
+    assert other_content.strip() == "a b content"
+
+
 def test_update_append_mode_adds_to_section(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Dziennik", "## Zadania\n\n- Pierwsze", [])[
         "note_id"

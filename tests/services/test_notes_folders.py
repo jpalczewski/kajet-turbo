@@ -44,6 +44,62 @@ def test_move_folder_collision_aborts_atomically(service, workspace):
     assert "destination" in (workspace / "b" / "Same.md").read_text()
 
 
+def test_move_folder_rejects_normalization_collision_atomically(service, workspace):
+    """ "A:B" in "a" would land on "A B.md" in "b", already used by "A B". A third,
+    non-colliding note in "a" must also NOT move — proves the pre-flight conflict loop
+    catches this before any rename() happens, not mid-walk."""
+    service.save("u1", "ws", str(workspace), "A:B", "source", [], folder="a")
+    service.save("u1", "ws", str(workspace), "A B", "destination", [], folder="b")
+    service.save("u1", "ws", str(workspace), "Innocent", "bystander", [], folder="a")
+
+    result = _mv(service, workspace, "a", "b")
+
+    from kajet_turbo.workspace import read_note_file
+
+    assert "conflicts" in result
+    assert (workspace / "a" / "A B.md").exists()
+    assert (workspace / "a" / "Innocent.md").exists()
+    assert not (workspace / "b" / "Innocent.md").exists()
+    _, dest_content = read_note_file(str(workspace / "b" / "A B.md"))
+    assert dest_content.strip() == "destination"
+
+
+def test_move_folder_rejects_sibling_collision_within_same_move(service, workspace):
+    """Two notes in the same source folder whose titles normalize to the same filename
+    can't be created via save() any more (it rejects that collision too), but a pair
+    from before this fix shipped can still exist in the DB. Moving them together must
+    still conflict via the in-batch `claimed` tracking, not just against a pre-existing
+    destination note — proves note_path_conflict()'s static pre-move snapshot alone
+    isn't enough here, since both siblings share one (stale) folder value in it."""
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+    service._crud_repo.insert("n1", "ws", "u1", "A:B", [], now, now, "a", None, None)
+    service._crud_repo.insert("n2", "ws", "u1", "A B", [], now, now, "a", None, None)
+
+    result = _mv(service, workspace, "a", "b")
+
+    assert "conflicts" in result
+    assert not (workspace / "b").exists()
+
+
+def test_move_folder_rejects_collision_with_orphan_file_on_disk(service, workspace):
+    """A file with no matching DB row sitting at the destination must still block the
+    move — the pre-flight loop only checks DB rows (a disk check there would falsely
+    trip on a case-only rename's own not-yet-relocated source), so this is caught only
+    once the source is safely out of the way, right before the note would land there."""
+    note_id = service.save("u1", "ws", str(workspace), "N", "x", [], folder="a")["note_id"]
+    (workspace / "b").mkdir()
+    (workspace / "b" / "N.md").write_text("orphan content\n")
+
+    with pytest.raises(FileExistsError):
+        _mv(service, workspace, "a", "b")
+
+    assert (workspace / "b" / "N.md").read_text() == "orphan content\n"
+    assert (workspace / "a" / "N.md").exists()
+    assert service.get(note_id, owner_id="u1")["folder"] == "a"
+
+
 def test_move_folder_case_only_rename(service, workspace):
     nid = service.save("u1", "ws", str(workspace), "N", "x", [], folder="Osoby")["note_id"]
 
