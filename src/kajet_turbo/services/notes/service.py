@@ -1034,7 +1034,7 @@ class NoteService:
                 IndexedNote(note_id, note.folder, note.title),
                 IndexedNote(note_id, new_folder, new_title),
             )
-            workspace_links.rewrite_backlinks([move], ws_path)
+            workspace_links.rewrite_backlinks([move], ws_path, repo)
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
         logger.info("note_updated", note_id=note_id, folder=new_folder)

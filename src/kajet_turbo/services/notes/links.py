@@ -78,8 +78,11 @@ class WorkspaceLinks:
         return lambda target: self.index.resolve(target, source_folder)
 
     @workspace_write_transaction
-    def rewrite_backlinks(self, moves: list[NoteMove], ws_path: str) -> None:
-        self._service._rewrite_backlinks(self, moves, ws_path)
+    def rewrite_backlinks(self, moves: list[NoteMove], ws_path: str, repo: GitRepository) -> None:
+        """``repo`` must already be open on ``ws_path`` — reused, not reopened, so a
+        caller that has one open a few lines above does not pay for a second
+        dulwich ``Repo()`` (a second refs/pack-index read from disk)."""
+        self._service._rewrite_backlinks(self, moves, ws_path, repo)
 
     def target_ids_for_titles(self, titles: set[str]) -> list[str]:
         """Current target note ids whose title may be affected by an identity change."""
@@ -304,7 +307,7 @@ class NoteLinkService:
         return result
 
     def _rewrite_backlinks(
-        self, workspace: WorkspaceLinks, moves: list[NoteMove], ws_path: str
+        self, workspace: WorkspaceLinks, moves: list[NoteMove], ws_path: str, repo: GitRepository
     ) -> None:
         """Rewrite wikilinks in every note that links to a moved/renamed note so they still
         resolve. Call after the DB rows hold the new paths; ``moves`` carries each note's
@@ -392,7 +395,7 @@ class NoteLinkService:
             )
 
         if items:
-            with staged_note_write(GitRepository(ws_path), items, message):
+            with staged_note_write(repo, items, message):
                 pass
             for note_id, new_body, updated_at, occurred_at, period in rewrites:
                 self._crud_repo.update(
