@@ -9,7 +9,9 @@ batches with per-item rollback.
 """
 
 import os
+import stat
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 
 from kajet_turbo.collections import (
@@ -30,14 +32,23 @@ from kajet_turbo.repositories.notes import NoteRepository
 def _write_collections_file(ws_path: str, definitions: dict[str, CollectionDefinition]) -> None:
     """Atomically overwrite ``.kajet/collections.yaml`` with ``definitions``' canonical
     form. Same tempfile-in-target-dir + fsync + ``Path.replace`` idiom as
-    ``workspace.write_note_file`` — a reader never observes a partial write.
+    ``workspace.write_note_file`` — a reader never observes a partial write — including
+    that function's mode preservation: ``mkstemp`` always creates its temp file 0600,
+    so without an explicit ``fchmod`` back to the target's existing mode (or 0644 for a
+    brand-new file), every write here would silently narrow collections.yaml to
+    owner-only permissions.
     """
     target = Path(ws_path, ".kajet", "collections.yaml")
     target.parent.mkdir(parents=True, exist_ok=True)
     text = dump_collections(definitions)
+    try:
+        mode = stat.S_IMODE(target.stat().st_mode)
+    except FileNotFoundError:
+        mode = 0o644
     fd, temp_path = tempfile.mkstemp(dir=target.parent, prefix=".collections.", suffix=".tmp")
     temp = Path(temp_path)
     try:
+        os.fchmod(fd, mode)
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(text)
             stream.flush()
@@ -48,14 +59,7 @@ def _write_collections_file(ws_path: str, definitions: dict[str, CollectionDefin
 
 
 def _serialize(definition: CollectionDefinition) -> dict:
-    return {
-        "name": definition.name,
-        "grain": definition.grain,
-        "cardinality": definition.cardinality,
-        "folder": definition.folder,
-        "title": definition.title,
-        "description": definition.description,
-    }
+    return asdict(definition)
 
 
 class CollectionService:
@@ -102,34 +106,42 @@ class CollectionService:
         Raises ``ValueError`` if the pattern is invalid, or if it collides with
         another collection's folder pattern (same name is not a collision with
         itself — that is exactly what a redefinition is).
+
+        The read of the current ``collections.yaml``, the collision check, and (for a
+        write) the write+commit all happen inside the same ``repo.transaction()`` —
+        not just the write. Reading ``existing`` before acquiring the lock would let two
+        concurrent callers both build their ``updated`` mapping from the same stale
+        snapshot; the second writer would then silently discard the first writer's
+        change when it commits. ``dry_run`` reads under the lock too, so its report
+        reflects a real, un-raced snapshot even though it writes nothing.
         """
-        existing = load_collections(ws_path)
         candidate = validate_definition(name, grain, cardinality, folder, title, description)
-        for other_name, other in existing.items():
-            if other_name != candidate.name and collides(candidate, other):
-                raise ValueError(
-                    f"Collection '{candidate.name}' would collide with '{other_name}': "
-                    "both folder patterns can render the same path."
-                )
-        old = existing.get(candidate.name)
-        dropped: list[tuple[str, str]] = []
-        if old is not None:
-            prefix = _static_prefix(old.folder)
-            pairs = self._notes_under(ws_name, owner_id, prefix)
-            dropped = dropped_members(old, candidate, pairs)
-        verb = "add" if old is None else "update"
-        dropped_payload = [{"folder": f, "title": t} for f, t in dropped]
-        if dry_run:
-            return {
-                "name": candidate.name,
-                "verb": verb,
-                "would_write": True,
-                "affected_count": len(dropped),
-                "dropped": dropped_payload,
-            }
-        updated = {**existing, candidate.name: candidate}
         repo = GitRepository(ws_path)
         with repo.transaction():
+            existing = load_collections(ws_path)
+            for other_name, other in existing.items():
+                if other_name != candidate.name and collides(candidate, other):
+                    raise ValueError(
+                        f"Collection '{candidate.name}' would collide with '{other_name}': "
+                        "both folder patterns can render the same path."
+                    )
+            old = existing.get(candidate.name)
+            dropped: list[tuple[str, str]] = []
+            if old is not None:
+                prefix = _static_prefix(old.folder)
+                pairs = self._notes_under(ws_name, owner_id, prefix)
+                dropped = dropped_members(old, candidate, pairs)
+            verb = "add" if old is None else "update"
+            dropped_payload = [{"folder": f, "title": t} for f, t in dropped]
+            if dry_run:
+                return {
+                    "name": candidate.name,
+                    "verb": verb,
+                    "would_write": True,
+                    "affected_count": len(dropped),
+                    "dropped": dropped_payload,
+                }
+            updated = {**existing, candidate.name: candidate}
             _write_collections_file(ws_path, updated)
             repo.commit_file(".kajet/collections.yaml", f"collections: {verb} {candidate.name}")
         return {
@@ -145,13 +157,16 @@ class CollectionService:
         edits ``.kajet/collections.yaml`` — its former entries simply become loose
         notes, no note file is ever touched or moved. Do not "fix" this into a
         file-moving operation; that is the deliberate policy, not an oversight.
+
+        Reads ``collections.yaml`` under the same lock as the write, for the same reason
+        ``define_collection`` does — see its docstring.
         """
-        existing = load_collections(ws_path)
-        if name not in existing:
-            raise ValueError(f"Collection '{name}' does not exist.")
-        updated = {n: d for n, d in existing.items() if n != name}
         repo = GitRepository(ws_path)
         with repo.transaction():
+            existing = load_collections(ws_path)
+            if name not in existing:
+                raise ValueError(f"Collection '{name}' does not exist.")
+            updated = {n: d for n, d in existing.items() if n != name}
             _write_collections_file(ws_path, updated)
             repo.commit_file(".kajet/collections.yaml", f"collections: delete {name}")
         return {"name": name, "deleted": True}

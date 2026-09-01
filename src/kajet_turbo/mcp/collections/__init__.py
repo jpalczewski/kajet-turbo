@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from typing import Annotated
 
 from fastmcp import FastMCP
@@ -19,14 +20,11 @@ from kajet_turbo.services.workspaces import WorkspaceService
 
 
 def _to_result(name: str, definition: CollectionDefinition) -> CollectionResult:
-    return CollectionResult(
-        name=name,
-        grain=definition.grain,
-        cardinality=definition.cardinality,
-        folder=definition.folder,
-        title=definition.title,
-        description=definition.description,
-    )
+    # ``name`` is the collections.yaml mapping key, not necessarily identical to
+    # ``definition.name`` (e.g. a hand-edited key with stray whitespace parses to a
+    # stripped ``definition.name`` — see _parse_definition) — override explicitly
+    # rather than trusting the two to always agree.
+    return CollectionResult.model_validate({**asdict(definition), "name": name})
 
 
 def build_collections(
