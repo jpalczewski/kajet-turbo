@@ -10,7 +10,7 @@ from kajet_turbo.repositories.git import GitRepository, workspace_write_transact
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes.links import NoteLinkService
-from kajet_turbo.services.notes.paths import note_path_conflict
+from kajet_turbo.services.notes.paths import build_path_index, conflict_message, note_path_conflict
 from kajet_turbo.workspace import (
     InvalidFolderError,
     list_workspace_folders,
@@ -61,10 +61,7 @@ class NoteFolderService:
             workspace_links.paths, ws_path, new_folder, note.title, exclude_id=note_id
         )
         if conflict is not None:
-            raise FileExistsError(
-                f"'{note.title}' would be stored as '{new_path.name}', already used by "
-                f"note '{conflict.title}' in folder '{conflict.folder or 'root'}'."
-            )
+            raise FileExistsError(conflict_message(note.title, str(new_path), conflict))
         if new_path.exists():
             raise FileExistsError(f"Target file '{new_path.relative_to(ws_path)}' already exists.")
 
@@ -123,23 +120,24 @@ class NoteFolderService:
             raise FileNotFoundError(f"Folder '{src_n}' nie istnieje.")
 
         workspace_links = self._link_service.for_workspace(workspace, owner_id)
+        # Every note's *current* path, indexed once for an O(1) lookup per note below
+        # instead of an O(len(notes in workspace)) rescan — this only ever matches a
+        # note NOT in this move (a target can't collide with its own old path: dst_n !=
+        # src_n is already guaranteed above, so a moved note's old and new folders always
+        # differ). A separate `claimed` dict below catches new-target collisions BETWEEN
+        # two notes moved together in this same call, which this static, pre-move index
+        # cannot see (their entries here still carry their old folders).
+        path_index = build_path_index(workspace_links.paths, ws_path)
         remap: dict[str, str] = {}
         conflicts: list[dict] = []
-        # Relative dst path -> title, for collisions between two notes moved together in
-        # this same call (each excludes only its own id from workspace_links, so it would
-        # not otherwise catch colliding with another note also being moved).
         claimed: dict[str, str] = {}
         for note in notes:
             remainder = note.folder[len(src_n) :].lstrip("/")
             new_folder = "/".join(p for p in (dst_n, remainder) if p)
             remap[note.id] = new_folder
-            conflict = note_path_conflict(
-                workspace_links.paths, ws_path, new_folder, note.title, exclude_id=note.id
-            )
-            target_rel = str(
-                Path(note_filepath(ws_path, new_folder, note.title)).relative_to(ws_path)
-            )
-            if conflict is not None or target_rel in claimed:
+            target = note_filepath(ws_path, new_folder, note.title)
+            target_rel = str(Path(target).relative_to(ws_path))
+            if path_index.get(target) is not None or target_rel in claimed:
                 conflicts.append({"title": note.title, "folder": new_folder})
             else:
                 claimed[target_rel] = note.title
@@ -176,6 +174,18 @@ class NoteFolderService:
                     key = str(rel)
                     if key in note_targets:
                         new_rel = note_targets[key]
+                        dest = Path(ws_path, new_rel)
+                        # The pre-flight loop above only checks DB rows, not disk (a
+                        # case-only rename's own destination would falsely "exist" before
+                        # src_root is relocated to tmp_root — see the comment above). Now
+                        # that the source is safely out of the way, a file still sitting
+                        # at dest has no matching note record: reject rather than silently
+                        # overwrite it, same as every other write site in this module.
+                        if dest.exists():
+                            raise FileExistsError(
+                                f"Target file '{new_rel}' already exists on disk "
+                                "(no matching note record)."
+                            )
                     else:
                         # Aux file (e.g. .gitkeep): same sub-position under dst, unless the
                         # destination already has it (merge) — then drop it with the temp dir.
@@ -183,7 +193,7 @@ class NoteFolderService:
                         if target.exists():
                             continue
                         new_rel = str(target.relative_to(ws_path))
-                    dest = Path(ws_path, new_rel)
+                        dest = Path(ws_path, new_rel)
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     (tmp_root / rel).rename(dest)
                     done.append((tmp_root / rel, dest))

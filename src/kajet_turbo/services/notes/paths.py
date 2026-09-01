@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from pathlib import Path
 
 from kajet_turbo.markdown import IndexedNote
 from kajet_turbo.workspace import note_filepath
@@ -26,6 +27,22 @@ def note_path_conflict(
         if note_filepath(ws_path, note.folder, note.title) == target:
             return note
     return None
+
+
+def build_path_index(paths: Iterable[IndexedNote], ws_path: str) -> dict[str, IndexedNote]:
+    """Precompute every note's on-disk path once, for O(1) repeated conflict checks
+    against a fixed snapshot — e.g. once per item in a save_many/move_folder batch,
+    instead of an O(len(paths)) rescan (``note_path_conflict``) on every item."""
+    return {note_filepath(ws_path, n.folder, n.title): n for n in paths}
+
+
+def conflict_message(title: str, filepath: str, conflict: IndexedNote) -> str:
+    """Shared wording for every collision raised from ``note_path_conflict``, naming the
+    target filename and the other note that already claims it."""
+    return (
+        f"'{title}' would be stored as '{Path(filepath).name}', already used by "
+        f"note '{conflict.title}' in folder '{conflict.folder or 'root'}'."
+    )
 
 
 def find_path_collisions(

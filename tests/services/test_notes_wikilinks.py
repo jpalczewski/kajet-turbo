@@ -277,6 +277,28 @@ def test_validate_wikilinks_without_extra_still_raises(service, workspace):
         service._link_service.for_workspace("ws", "u1").validate("see [[Nope]]", "")
 
 
+def test_with_extra_resolves_extra_notes_without_requerying(service, workspace, monkeypatch):
+    base = service._link_service.for_workspace("ws", "u1")
+    real_list_paths = service._crud_repo.list_paths
+    calls = 0
+
+    def counted_list_paths(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return real_list_paths(*args, **kwargs)
+
+    monkeypatch.setattr(service._crud_repo, "list_paths", counted_list_paths)
+
+    extended = base.with_extra([IndexedNote("abc1234", "Batch", "Target")])
+    links = extended.validate("see [[Target]]", "")
+
+    assert links.resolved_ids == {"abc1234"}
+    assert links.broken == []
+    assert calls == 0
+    assert "abc1234" in {n.note_id for n in extended.paths}
+    assert "abc1234" not in {n.note_id for n in base.paths}
+
+
 # --- Obsidian-style short targets ---
 
 

@@ -5,7 +5,6 @@ from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
-from itertools import chain
 from pathlib import Path
 from typing import cast
 
@@ -43,7 +42,7 @@ from kajet_turbo.repositories.notes import (
 from kajet_turbo.services.notes.folders import NoteFolderService
 from kajet_turbo.services.notes.history import NoteVersionService
 from kajet_turbo.services.notes.links import NoteLinkService, wikilink_warnings
-from kajet_turbo.services.notes.paths import note_path_conflict
+from kajet_turbo.services.notes.paths import build_path_index, conflict_message, note_path_conflict
 from kajet_turbo.services.notes.search import NoteSearchService
 from kajet_turbo.services.notes.staged_write import StagedWrite, staged_note_write
 from kajet_turbo.services.notes.staleness import (
@@ -424,10 +423,7 @@ class NoteService:
         relative = str(Path(filepath).relative_to(ws_path))
         conflict = note_path_conflict(workspace_links.paths, ws_path, folder, title)
         if conflict is not None:
-            raise FileExistsError(
-                f"'{title}' would be stored as '{Path(filepath).name}', already used by "
-                f"note '{conflict.title}' in folder '{conflict.folder or 'root'}'."
-            )
+            raise FileExistsError(conflict_message(title, filepath, conflict))
         if Path(filepath).exists():
             raise FileExistsError(f"File '{Path(filepath).name}' already exists on disk.")
         links = workspace_links.validate(content, folder)
@@ -491,41 +487,37 @@ class NoteService:
         # Phase 1: uniqueness + id assignment. Survivors get an id and join the batch's
         # link index so in-batch wikilinks resolve in Phase 2. `base_links` is a snapshot
         # of the workspace's DB rows, taken once up front under the workspace write lock
-        # (Phase 2 extends it via with_extra instead of re-querying); batch_notes
-        # accumulates alongside it so note_path_conflict sees both existing rows and
-        # notes already accepted earlier in this same batch.
+        # (Phase 2 extends it via with_extra instead of re-querying). `path_index` maps
+        # each already-claimed path (existing rows, then batch items as they're accepted)
+        # to its note for an O(1) conflict check per item, instead of an O(len(notes))
+        # rescan via note_path_conflict on every one of the (potentially many) items.
         base_links = self._link_service.for_workspace(ws_name, user_id)
-        existing_paths = base_links.paths
+        path_index = build_path_index(base_links.paths, ws_path)
         accepted: set[tuple[str, str]] = set()
         batch_notes: list[IndexedNote] = []
         survivors: list[dict] = []
         for index, raw in enumerate(notes):
             title = str(raw.get("title", "")).strip()
             if not title:
-                results[index] = {"index": index, "error": "Tytuł jest wymagany."}
+                results[index] = {"index": index, "error": "Title is required."}
                 continue
             folder = normalize_folder(str(raw.get("folder", "")))
             key = (folder, title)
             if key in accepted:
                 results[index] = {
                     "index": index,
-                    "error": f"Duplikat w batchu: '{title}' w folderze '{folder or 'root'}'.",
+                    "error": f"Duplicate in batch: '{title}' in folder '{folder or 'root'}'.",
                 }
                 continue
-            conflict = note_path_conflict(
-                chain(existing_paths, batch_notes), ws_path, folder, title
-            )
+            filepath = note_filepath(ws_path, folder, title)
+            conflict = path_index.get(filepath)
             if conflict is not None:
                 results[index] = {
                     "index": index,
-                    "error": (
-                        f"'{title}' would be stored as the same file as note "
-                        f"'{conflict.title}' in folder '{conflict.folder or 'root'}'."
-                    ),
+                    "error": conflict_message(title, filepath, conflict),
                 }
                 continue
             note_id = generate(size=7)
-            filepath = note_filepath(ws_path, folder, title)
             relative = str(Path(filepath).relative_to(ws_path))
             if Path(filepath).exists():
                 results[index] = {
@@ -534,7 +526,9 @@ class NoteService:
                 }
                 continue
             accepted.add(key)
-            batch_notes.append(IndexedNote(note_id, folder, title))
+            new_note = IndexedNote(note_id, folder, title)
+            batch_notes.append(new_note)
+            path_index[filepath] = new_note
             survivors.append(
                 {
                     "index": index,
@@ -558,6 +552,7 @@ class NoteService:
                 survivors.pop()
                 accepted.remove(key)
                 batch_notes.pop()
+                del path_index[filepath]
 
         # Phase 2: wikilink resolution against existing notes union the batch, sharing one
         # index. Non-cascading: the index is not rebuilt as notes are dropped, so a link to
@@ -950,10 +945,7 @@ class NoteService:
                 workspace_links.paths, ws_path, new_folder, new_title, exclude_id=note_id
             )
             if conflict is not None:
-                raise FileExistsError(
-                    f"'{new_title}' would be stored as '{Path(new_path).name}', already used by "
-                    f"note '{conflict.title}' in folder '{conflict.folder or 'root'}'."
-                )
+                raise FileExistsError(conflict_message(new_title, new_path, conflict))
             if Path(new_path).exists():
                 raise FileExistsError(f"Target file '{new_rel}' already exists.")
         existing_meta, old_content = read_note_file(old_path)

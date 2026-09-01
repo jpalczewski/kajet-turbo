@@ -59,7 +59,7 @@ def test_save_many_intra_batch_duplicate(service, workspace):
 
     assert "note_id" in results[0]
     assert "error" in results[1]
-    assert "batchu" in results[1]["error"].lower()
+    assert "duplicate in batch" in results[1]["error"].lower()
 
 
 def test_save_many_empty_list(service, workspace):
@@ -153,7 +153,7 @@ def test_save_many_filename_collision_dedup(service, workspace):
 
     assert "note_id" in results[0]
     assert "error" in results[1]
-    assert "same file" in results[1]["error"].lower()
+    assert "already used by" in results[1]["error"].lower()
 
     # Only one .md file with that name should exist.
     md_files = [p for p in workspace.rglob("A B.md") if ".git" not in str(p)]

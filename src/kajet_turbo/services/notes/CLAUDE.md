@@ -13,9 +13,9 @@ does not belong in this package even if it operates on notes.
 `staged_write.py`'s `StagedWrite`/`staged_note_write` is the write-commit-rollback pipeline for
 touching a note's file on disk: stage every file, write them, commit once, and roll back
 whichever ones were already written if a later one in the batch fails. Every path that writes
-note content already goes through it — single save (`service.py:451`), batch save
-(`service.py:603`), rename/move (`service.py:1023`), `edit_many` (`service.py:1222`),
-`delete_many`/reconcile (`service.py:1501`, `1637`), single-note tagging (`tags.py:165`),
+note content already goes through it — single save (`service.py:447`), batch save
+(`service.py:598`), rename/move (`service.py:1015`), `edit_many` (`service.py:1214`),
+`delete_many`/reconcile (`service.py:1493`, `1629`), single-note tagging (`tags.py:165`),
 `rename_tag` (`tags.py:364`). Reuse it for any new note-body write path — do not hand-roll the
 stage/write/commit/rollback sequence again.
 
