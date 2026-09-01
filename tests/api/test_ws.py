@@ -6,6 +6,7 @@ from sqlmodel import Session
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from kajet_turbo.api import ws
 from kajet_turbo.api.ws import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import get_event_repo, get_session_repo
@@ -13,6 +14,16 @@ from kajet_turbo.models import User, UserSession
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.sessions import SessionRepository
 from tests.helpers import entries_named, read_log_entries
+
+
+@pytest.fixture(autouse=True)
+def _fast_intervals(monkeypatch):
+    """The real 2s poll / 30s revalidation cadence would make this file take minutes.
+    Every test gets a fast poll and near-immediate revalidation; tests that care about
+    "stays open across several cycles while valid" push the revalidation deadline out
+    instead of relying on the default."""
+    monkeypatch.setattr(ws, "_POLL_INTERVAL_S", 0.02)
+    monkeypatch.setattr(ws, "_REVALIDATE_INTERVAL_S", 0.05)
 
 
 def _make_app(database: Database, user_id: str | None) -> FastAPI:
@@ -146,3 +157,66 @@ def test_two_connections_both_receive_the_same_event(database: Database):
 
     assert first["note_id"] == "nid1"
     assert second["note_id"] == "nid1"
+
+
+def test_ws_stays_open_while_session_valid_across_revalidations(database: Database):
+    """#79: periodic re-validation must not disconnect a session that is still good."""
+    app = _make_app(database, user_id="u1")
+    outbox = EventRepository(database.engine)
+    outbox.publish(
+        "u1",
+        "note_updated",
+        {
+            "type": "note_updated",
+            "owner_id": "u1",
+            "workspace": "ws1",
+            "note_id": "before",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        },
+    )
+
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/api/ws", cookies={"kajet_session": "good-token"}) as sock,
+    ):
+        assert sock.receive_json()["note_id"] == "before"
+
+        # Several revalidation windows pass while the session in the DB is still valid.
+        time.sleep(ws._REVALIDATE_INTERVAL_S * 6)
+
+        outbox.publish(
+            "u1",
+            "note_updated",
+            {
+                "type": "note_updated",
+                "owner_id": "u1",
+                "workspace": "ws1",
+                "note_id": "after",
+                "updated_at": "2026-01-01T00:00:01+00:00",
+            },
+        )
+        assert sock.receive_json()["note_id"] == "after"
+
+
+def test_ws_closes_when_session_deleted_server_side(database: Database, capsys):
+    """#79: logout (session row gone) must close an already-open socket, not just
+    reject the next REST call."""
+    from kajet_turbo.log import setup_logging
+
+    app = _make_app(database, user_id="u1")
+    setup_logging()
+    session_repo = SessionRepository(database.engine)
+
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/api/ws", cookies={"kajet_session": "good-token"}) as sock,
+    ):
+        session_repo.delete("good-token")
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            sock.receive_text()
+
+    assert exc_info.value.code == 1008
+
+    revoked = entries_named(read_log_entries(capsys), "ws_session_revoked")
+    assert len(revoked) == 1
+    assert revoked[0]["user_id"] == "u1"

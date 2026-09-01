@@ -19,13 +19,21 @@ router = APIRouter()
 
 _WS_KINDS = ["note_updated", "workspace_changed"]
 
+# Outbox poll cadence and session re-validation cadence are separate policies that
+# happen to share one loop in _sender — kept as independent constants (not "every N
+# polls") so changing one can't silently change the other. Tests monkeypatch both to
+# speed up: see tests/api/test_ws.py.
+_POLL_INTERVAL_S = 2.0
+_REVALIDATE_INTERVAL_S = 30.0
+
 
 async def _get_ws_user(
     websocket: WebSocket,
     session_repo: SessionRepository = Depends(get_session_repo),
 ) -> dict:
-    token = identity.session_token_from_cookies(websocket.cookies)
-    user = await run_sync(identity.resolve_session_user, session_repo, token) if token else None
+    user = await run_sync(
+        identity.resolve_session_user_from_cookies, session_repo, websocket.cookies
+    )
     if not user:
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
     return user
@@ -36,6 +44,7 @@ async def ws_endpoint(
     websocket: WebSocket,
     user: dict = Depends(_get_ws_user),
     event_repo: EventRepository = Depends(get_event_repo),
+    session_repo: SessionRepository = Depends(get_session_repo),
 ) -> None:
     # Bound for the whole connection, sender task included: asyncio copies the current
     # context into a new task, so every line this connection emits — outbox reads and
@@ -59,8 +68,27 @@ async def ws_endpoint(
 
         async def _sender() -> None:
             nonlocal watermark, sent_at_watermark
+            next_revalidate = time.monotonic() + _REVALIDATE_INTERVAL_S
             while True:
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(_POLL_INTERVAL_S)
+
+                # Re-validate the session that authenticated the handshake, not just
+                # whatever's in websocket.cookies now (those are the upgrade request's
+                # cookies, fixed for the connection's life — re-reading them here just
+                # avoids threading a `token` local through the closure). #79: without
+                # this, logging out or expiry never stopped an already-open socket.
+                if time.monotonic() >= next_revalidate:
+                    next_revalidate = time.monotonic() + _REVALIDATE_INTERVAL_S
+                    current = await run_sync(
+                        identity.resolve_session_user_from_cookies,
+                        session_repo,
+                        websocket.cookies,
+                    )
+                    if current is None:
+                        logger.info("ws_session_revoked", user_id=user["id"])
+                        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                        return
+
                 try:
                     events = await run_sync(
                         event_repo.read_since,
@@ -83,16 +111,32 @@ async def ws_endpoint(
                     else:
                         sent_at_watermark.add(event.id)
 
+        async def _receiver() -> None:
+            # Just a disconnect signal for the wait() below — client->server messages
+            # aren't part of this protocol. Suppressed here (not left to propagate)
+            # because a client-initiated close is the expected, common exit path, not
+            # an error.
+            with contextlib.suppress(WebSocketDisconnect):
+                while True:
+                    await websocket.receive_text()
+
+        # Raced rather than "spawn sender, block the outer coroutine on receive_text()":
+        # _sender.close() only sends a close frame, it doesn't itself unblock a pending
+        # receive_text() (that's the ASGI receive channel, driven by the transport, not
+        # by our own send). Whichever task ends first, the other is cancelled below —
+        # the same first-completed/cancel-the-loser shape Starlette itself uses
+        # internally to race a response stream against disconnect detection.
         sender = asyncio.create_task(_sender())
+        receiver = asyncio.create_task(_receiver())
         try:
-            while True:
-                await websocket.receive_text()
-        except WebSocketDisconnect:
-            pass
+            await asyncio.wait({sender, receiver}, return_when=asyncio.FIRST_COMPLETED)
         finally:
             sender.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            receiver.cancel()
+            with contextlib.suppress(asyncio.CancelledError, WebSocketDisconnect):
                 await sender
+            with contextlib.suppress(asyncio.CancelledError, WebSocketDisconnect):
+                await receiver
             logger.info(
                 "ws_disconnected",
                 user_id=user["id"],
