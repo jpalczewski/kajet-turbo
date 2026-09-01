@@ -64,6 +64,9 @@ resolve within the active workspace.
   loading its body, then edit just that section surgically
 - export_folder — concatenate a folder's subtree into one markdown corpus, for
   reconnaissance across many related notes instead of N x get_note
+- entries_in(period=..., folder=...) — notes whose date falls in a calendar period
+  (year/month/ISO week/day), e.g. "what happened in 2026-W12"; use instead of
+  list_notes/search_notes for date-range questions
 
 ## Tags
 - Tags are hierarchical slash-paths ("work/projects"); list_notes/search_notes filters match
