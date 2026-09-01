@@ -10,7 +10,7 @@ from kajet_turbo.api import ws
 from kajet_turbo.api.ws import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import get_event_repo, get_session_repo
-from kajet_turbo.models import User, UserSession
+from kajet_turbo.models import Event, User, UserSession
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.sessions import SessionRepository
 from tests.helpers import entries_named, read_log_entries
@@ -220,3 +220,46 @@ def test_ws_closes_when_session_deleted_server_side(database: Database, capsys):
     revoked = entries_named(read_log_entries(capsys), "ws_session_revoked")
     assert len(revoked) == 1
     assert revoked[0]["user_id"] == "u1"
+
+
+def test_ws_skips_malformed_event_payload_instead_of_wedging_the_cursor(database: Database, capsys):
+    """A bad payload (schema drift, corruption) must not crash the connection nor block
+    every event after it forever - the watermark has to advance past it."""
+    from kajet_turbo.log import setup_logging
+
+    app = _make_app(database, user_id="u1")
+    setup_logging()
+    outbox = EventRepository(database.engine)
+
+    with Session(database.engine) as s:
+        s.add(
+            Event(
+                id="bad1",
+                owner_id="u1",
+                kind="note_updated",
+                payload="{not json",
+                created_at=1.0,
+            )
+        )
+        s.commit()
+    outbox.publish(
+        "u1",
+        "note_updated",
+        {
+            "type": "note_updated",
+            "owner_id": "u1",
+            "workspace": "ws1",
+            "note_id": "good",
+            "updated_at": "2026-01-01T00:00:01+00:00",
+        },
+    )
+
+    with (
+        TestClient(app) as client,
+        client.websocket_connect("/api/ws", cookies={"kajet_session": "good-token"}) as sock,
+    ):
+        assert sock.receive_json()["note_id"] == "good"
+
+    bad_payload = entries_named(read_log_entries(capsys), "ws_bad_event_payload")
+    assert len(bad_payload) == 1
+    assert bad_payload[0]["event_id"] == "bad1"

@@ -19,10 +19,11 @@ router = APIRouter()
 
 _WS_KINDS = ["note_updated", "workspace_changed"]
 
-# Outbox poll cadence and session re-validation cadence are separate policies that
-# happen to share one loop in _sender — kept as independent constants (not "every N
-# polls") so changing one can't silently change the other. Tests monkeypatch both to
-# speed up: see tests/api/test_ws.py.
+# Outbox poll cadence and session re-validation cadence are independently tunable
+# constants — but the revalidation deadline is only checked once per poll tick, so
+# detection latency is actually bounded by max(_REVALIDATE_INTERVAL_S,
+# _POLL_INTERVAL_S): raising _POLL_INTERVAL_S above _REVALIDATE_INTERVAL_S would
+# silently widen it. Tests monkeypatch both — see tests/api/test_ws.py.
 _POLL_INTERVAL_S = 2.0
 _REVALIDATE_INTERVAL_S = 30.0
 
@@ -46,8 +47,7 @@ async def ws_endpoint(
     event_repo: EventRepository = Depends(get_event_repo),
     session_repo: SessionRepository = Depends(get_session_repo),
 ) -> None:
-    # Bound for the whole connection, sender task included: asyncio copies the current
-    # context into a new task, so every line this connection emits — outbox reads and
+    # Bound for the whole connection: every line it emits — outbox reads and
     # ws_read_error included — carries the same conn_id without threading it through.
     # Same mechanism LoggingMiddleware uses to tag an HTTP request.
     conn_id = generate(size=8)
@@ -66,11 +66,17 @@ async def ws_endpoint(
         # from being delivered twice.
         sent_at_watermark: set[str] = set()
 
-        async def _sender() -> None:
-            nonlocal watermark, sent_at_watermark
-            next_revalidate = time.monotonic() + _REVALIDATE_INTERVAL_S
+        next_revalidate = time.monotonic() + _REVALIDATE_INTERVAL_S
+        try:
             while True:
-                await asyncio.sleep(_POLL_INTERVAL_S)
+                # Client->server messages aren't part of this protocol — receive_text()
+                # here is purely a disconnect signal, timeboxed so it also paces the
+                # outbox poll below. A real disconnect raises WebSocketDisconnect, caught
+                # by the except below to end the loop (and, via `finally`, always log
+                # ws_disconnected — a plain try/finally guarantees that regardless of
+                # what raises, unlike two separately-awaited background tasks would).
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(websocket.receive_text(), timeout=_POLL_INTERVAL_S)
 
                 # Re-validate the session that authenticated the handshake, not just
                 # whatever's in websocket.cookies now (those are the upgrade request's
@@ -79,15 +85,21 @@ async def ws_endpoint(
                 # this, logging out or expiry never stopped an already-open socket.
                 if time.monotonic() >= next_revalidate:
                     next_revalidate = time.monotonic() + _REVALIDATE_INTERVAL_S
-                    current = await run_sync(
-                        identity.resolve_session_user_from_cookies,
-                        session_repo,
-                        websocket.cookies,
-                    )
-                    if current is None:
-                        logger.info("ws_session_revoked", user_id=user["id"])
-                        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-                        return
+                    try:
+                        current = await run_sync(
+                            identity.resolve_session_user_from_cookies,
+                            session_repo,
+                            websocket.cookies,
+                        )
+                    except Exception as e:
+                        # Transient DB hiccup: fail open, same as ws_read_error below —
+                        # a revoked session gets caught on the next revalidation tick.
+                        logger.opt(exception=e).warning("ws_revalidate_error", user_id=user["id"])
+                    else:
+                        if current is None:
+                            logger.info("ws_session_revoked", user_id=user["id"])
+                            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                            return
 
                 try:
                     events = await run_sync(
@@ -101,42 +113,28 @@ async def ws_endpoint(
                     logger.opt(exception=e).warning("ws_read_error", user_id=user["id"])
                     continue
                 for event in events:
-                    # Advance only after the send lands: if the socket dies mid-loop the
-                    # cursor stays put and the next connection re-delivers, instead of the
-                    # event being lost the way a delete-on-read left it.
-                    await websocket.send_json(json.loads(event.payload))
+                    try:
+                        payload = json.loads(event.payload)
+                    except json.JSONDecodeError as e:
+                        # A malformed row would otherwise wedge this cursor forever: the
+                        # watermark only advances below, so every reconnect would replay
+                        # and re-crash on the same event. Log and skip past it instead.
+                        logger.opt(exception=e).warning(
+                            "ws_bad_event_payload", user_id=user["id"], event_id=event.id
+                        )
+                    else:
+                        # Advance only after the send lands: if the socket dies mid-loop
+                        # the cursor stays put and the next connection re-delivers,
+                        # instead of the event being lost the way a delete-on-read left it.
+                        await websocket.send_json(payload)
                     if event.created_at > watermark:
                         watermark = event.created_at
                         sent_at_watermark = {event.id}
                     else:
                         sent_at_watermark.add(event.id)
-
-        async def _receiver() -> None:
-            # Just a disconnect signal for the wait() below — client->server messages
-            # aren't part of this protocol. Suppressed here (not left to propagate)
-            # because a client-initiated close is the expected, common exit path, not
-            # an error.
-            with contextlib.suppress(WebSocketDisconnect):
-                while True:
-                    await websocket.receive_text()
-
-        # Raced rather than "spawn sender, block the outer coroutine on receive_text()":
-        # _sender.close() only sends a close frame, it doesn't itself unblock a pending
-        # receive_text() (that's the ASGI receive channel, driven by the transport, not
-        # by our own send). Whichever task ends first, the other is cancelled below —
-        # the same first-completed/cancel-the-loser shape Starlette itself uses
-        # internally to race a response stream against disconnect detection.
-        sender = asyncio.create_task(_sender())
-        receiver = asyncio.create_task(_receiver())
-        try:
-            await asyncio.wait({sender, receiver}, return_when=asyncio.FIRST_COMPLETED)
+        except WebSocketDisconnect:
+            pass
         finally:
-            sender.cancel()
-            receiver.cancel()
-            with contextlib.suppress(asyncio.CancelledError, WebSocketDisconnect):
-                await sender
-            with contextlib.suppress(asyncio.CancelledError, WebSocketDisconnect):
-                await receiver
             logger.info(
                 "ws_disconnected",
                 user_id=user["id"],
