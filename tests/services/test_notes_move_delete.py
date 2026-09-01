@@ -143,8 +143,9 @@ def test_delete_perf_span_excludes_git_commit_time_from_db_ms(service, workspace
 
 def test_delete_git_failure_rolls_back_database_teardown(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Keep me", "content", [])["note_id"]
-    sha_before = head_sha(workspace, "Keep me.md")
 
+    # delete_file is mocked out entirely, so it never touches the filesystem — the only
+    # thing this test can prove is that the row teardown rolled back with it.
     with (
         patch(
             "kajet_turbo.repositories.git.GitRepository.delete_file", side_effect=GitError("fail")
@@ -154,9 +155,6 @@ def test_delete_git_failure_rolls_back_database_teardown(service, workspace):
         service.delete(note_id, owner_id="u1", ws_path=str(workspace))
 
     assert service._crud_repo.get(note_id, owner_id="u1") is not None
-    assert (workspace / "Keep me.md").exists()
-    assert head_sha(workspace, "Keep me.md") == sha_before
-    assert service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace)) is not None
 
 
 def test_list_scoped_by_owner(service, workspace):

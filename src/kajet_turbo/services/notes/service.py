@@ -1268,6 +1268,10 @@ class NoteService:
         untouched. A Git failure rolls back the row teardown. This is not two-phase
         commit: a DB commit failure after the Git commit has already landed leaves the
         file gone with the row intact (see #155 for the general fix).
+
+        Cost: the app's one shared SQLite write lock is now held for the Git commit too,
+        not just the row teardown — see ``delete_many``'s docstring for the batch-sized
+        version of this trade-off.
         """
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
@@ -1292,10 +1296,7 @@ class NoteService:
         ):
             self._teardown_note(operation.session, note)
             if file_exists:
-                # Git commits last, inside the transaction: a GitError rolls the row
-                # teardown back instead of leaving a ghost (file gone, row present).
-                # excluded_from keeps this call's wall time out of db_ms (span
-                # aggregate and this operation's own log line) — see perf.py.
+                # perf: keep this commit's wall time out of db_ms, see perf.excluded_from.
                 with perf.excluded_from("db_ms"):
                     GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
         if self._cache is not None:
@@ -1328,6 +1329,14 @@ class NoteService:
         A Git failure rolls back the row teardown. This is not two-phase commit: a DB commit
         failure after the Git commit has already landed leaves the files gone with the rows
         intact (see #155 for the general fix).
+
+        Cost: the app's one shared SQLite write lock — normally held only for the row
+        teardown — is now held for the batched Git commit too, and that commit first waits
+        (up to ``KAJET_GIT_LOCK_TIMEOUT``, 10s default) on this workspace's own write lock if
+        another commit is in flight. A slow or contended batch here can make an unrelated
+        write elsewhere in the app hit SQLite's ``busy_timeout`` (5s) and fail with
+        "database is locked". Accepted for this batch size today; #155 tracks the general
+        shape (this trade-off applies to every write path it touches, not just deletes).
         """
         if not deletes:
             raise ValueError("Batch usuwania nie może być pusty.")
@@ -1361,9 +1370,7 @@ class NoteService:
         ):
             for p in prepared:
                 self._teardown_note(operation.session, p.loc.note)
-            # Git commits last, inside the transaction: a GitError rolls the row
-            # teardown back instead of leaving ghosts. excluded_from keeps this call's
-            # wall time out of db_ms (span aggregate and this operation's log line).
+            # perf: keep this commit's wall time out of db_ms, see perf.excluded_from.
             with perf.excluded_from("db_ms"):
                 git_repo.delete_files(
                     [p.loc.relative for p in prepared],

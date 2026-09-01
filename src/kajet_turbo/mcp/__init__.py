@@ -81,8 +81,10 @@ resolve within the active workspace.
 - edit_notes — edit multiple existing notes in one atomic commit, all-or-nothing: any
   invalid item rejects the whole batch before anything is written. Content + tags only,
   no renames (use edit_note for that); unlike save_notes, never leaves a partial batch
-- delete_notes — delete multiple notes in one atomic commit, all-or-nothing. A stale
-  expected_sha rejects the whole batch; call get_note_history to refresh before retrying
+- delete_notes — delete multiple notes in one Git commit and one DB transaction, all-or-
+  nothing at validation: any invalid item rejects the whole batch before anything is
+  deleted. A stale expected_sha rejects the whole batch; call get_note_history to refresh
+  before retrying
 
 ## Destructive operations
 Every destructive per-note operation (edit_note, edit_notes, set_tags, delete_note,

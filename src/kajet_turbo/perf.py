@@ -114,7 +114,11 @@ class _ExclusionLedger:
             return self._totals.pop(field, 0.0)
 
 
-_local_exclusions: ContextVar[_ExclusionLedger | None] = ContextVar(
+# A one-element box, not the ledger itself: `timed_session()` opens a scope on every
+# call (including the overwhelming majority that never touch `excluded_from`), so the
+# ledger — with its own lock and dict — is created lazily on first use rather than
+# unconditionally on every session.
+_local_exclusions: ContextVar[list[_ExclusionLedger | None] | None] = ContextVar(
     "perf_local_exclusions", default=None
 )
 
@@ -129,10 +133,15 @@ def local_exclusion_scope():
     nested work a span already excludes from its aggregate — so the *local* figure still
     means "DB time" even when no span is active to receive the span-side subtraction.
     """
-    ledger = _ExclusionLedger()
-    token = _local_exclusions.set(ledger)
+    box: list[_ExclusionLedger | None] = [None]
+
+    def pop(field: str) -> float:
+        ledger = box[0]
+        return ledger.pop(field) if ledger is not None else 0.0
+
+    token = _local_exclusions.set(box)
     try:
-        yield ledger.pop
+        yield pop
     finally:
         _local_exclusions.reset(token)
 
@@ -153,8 +162,8 @@ def excluded_from(field: str):
     the net value.
     """
     span = _span.get()
-    ledger = _local_exclusions.get()
-    if span is None and ledger is None:
+    box = _local_exclusions.get()
+    if span is None and box is None:
         yield
         return
     start = time.monotonic()
@@ -164,5 +173,7 @@ def excluded_from(field: str):
         elapsed = round((time.monotonic() - start) * 1000, 1)
         if span is not None:
             span.add(field, -elapsed)
-        if ledger is not None:
-            ledger.add(field, elapsed)
+        if box is not None:
+            if box[0] is None:
+                box[0] = _ExclusionLedger()
+            box[0].add(field, elapsed)
