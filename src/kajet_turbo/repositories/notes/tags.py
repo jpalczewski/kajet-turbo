@@ -48,15 +48,33 @@ class NoteTagRepository(DbRepository):
             parent_id = tag_id
         return tag_id
 
-    def _gc_tags(self, session: Session, workspace: str, owner_id: str) -> None:
+    @staticmethod
+    def sweep_orphan_tags_in_session(session: Session, workspace: str, owner_id: str) -> None:
         """Delete tag rows in the workspace with no note_tags and no children.
 
         Loops bottom-up: removing a leaf may orphan its parent, so repeat until
         a pass deletes nothing. Workspaces are small, so the loop is cheap.
+
+        Caller-owned session: does not commit or log. Callers that teardown several
+        notes in one transaction must call this once after the whole batch, not once
+        per note — see ``sync_note_tags_many``'s docstring for why per-note sweeping
+        multiplies cost instead of just moving it.
+
+        Both anti-join subqueries are scoped to ``workspace``/``owner_id``: ``NoteTag``
+        carries neither column itself, so ``referenced`` joins through ``Tag`` to reach
+        them; an unscoped version would anti-join against every workspace and owner.
         """
         while True:
-            referenced = select(NoteTag.tag_id)
-            parents = select(Tag.parent_id).where(col(Tag.parent_id).is_not(None))
+            referenced = (
+                select(NoteTag.tag_id)
+                .join(Tag, col(Tag.id) == col(NoteTag.tag_id))
+                .where(Tag.workspace == workspace, Tag.owner_id == owner_id)
+            )
+            parents = select(Tag.parent_id).where(
+                col(Tag.parent_id).is_not(None),
+                Tag.workspace == workspace,
+                Tag.owner_id == owner_id,
+            )
             result = session.execute(  # ty: ignore[deprecated] - DELETE statement
                 delete(Tag).where(
                     col(Tag.workspace) == workspace,
@@ -91,8 +109,9 @@ class NoteTagRepository(DbRepository):
         """Rebuild ``note_tags`` for several notes in one transaction.
 
         One DELETE, one ancestor pass sharing a ``path -> tag_id`` memo, and a single
-        ``_gc_tags`` sweep for the whole batch. Per-note syncing would instead pay two
-        global anti-join sweeps per note, which is what a workspace-wide retag multiplies.
+        ``sweep_orphan_tags_in_session`` sweep for the whole batch. Per-note syncing would
+        instead pay two anti-join sweeps per note, which is what a workspace-wide retag
+        multiplies.
         """
         if not tagged_by_note:
             return
@@ -107,7 +126,7 @@ class NoteTagRepository(DbRepository):
                     if path not in tag_ids:
                         tag_ids[path] = self._ensure_tag(session, workspace, owner_id, path, now)
                     session.add(NoteTag(note_id=note_id, tag_id=tag_ids[path], source=source))
-            self._gc_tags(session, workspace, owner_id)
+            self.sweep_orphan_tags_in_session(session, workspace, owner_id)
             session.commit()
         self.log_operation(
             "sync_many", workspace=workspace, notes=len(tagged_by_note), tags=len(tag_ids)
@@ -120,16 +139,21 @@ class NoteTagRepository(DbRepository):
         ) as operation:
             session = operation.session
             self.delete_note_tags_in_session(session, note_id, workspace, owner_id)
+            self.sweep_orphan_tags_in_session(session, workspace, owner_id)
             session.commit()
 
     def delete_note_tags_in_session(
         self, session: Session, note_id: str, workspace: str, owner_id: str
     ) -> None:
-        """Remove one note's tag rows and collect orphan tags without committing."""
+        """Remove one note's tag rows without committing or sweeping orphans.
+
+        Callers that teardown a batch of notes in one transaction must call
+        ``sweep_orphan_tags_in_session`` themselves once after the whole batch, not
+        once per note — see its docstring.
+        """
         session.execute(  # ty: ignore[deprecated] - DELETE statement
             delete(NoteTag).where(col(NoteTag.note_id) == note_id)
         )
-        self._gc_tags(session, workspace, owner_id)
 
     @staticmethod
     def delete_workspace_tags_in_session(session: Session, workspace: str, owner_id: str) -> None:

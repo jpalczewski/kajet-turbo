@@ -1308,6 +1308,9 @@ class NoteService:
             operation.session.begin(),
         ):
             self._teardown_note(operation.session, note)
+            self._tag_repo.sweep_orphan_tags_in_session(
+                operation.session, note.workspace, note.owner_id
+            )
             if file_exists:
                 # perf: keep this commit's wall time out of db_ms, see perf.excluded_from.
                 with perf.excluded_from("db_ms"):
@@ -1383,6 +1386,7 @@ class NoteService:
         ):
             for p in prepared:
                 self._teardown_note(operation.session, p.loc.note)
+            self._tag_repo.sweep_orphan_tags_in_session(operation.session, ws_name, user_id)
             # perf: keep this commit's wall time out of db_ms, see perf.excluded_from.
             with perf.excluded_from("db_ms"):
                 git_repo.delete_files(
@@ -1761,6 +1765,8 @@ class NoteService:
             session = operation.session
             for note in missing_notes:
                 self._teardown_note(session, note)
+            if missing_notes:
+                self._tag_repo.sweep_orphan_tags_in_session(session, ws_name, owner_id)
             for note_id in inserted:
                 pf = present[note_id]
                 self._crud_repo.insert_in_session(

@@ -46,6 +46,27 @@ def test_reconcile_removes_row_whose_file_is_gone(service, workspace, note_file_
     assert service._chunk_repo.get_chunks("gone1") == []
 
 
+def test_reconcile_sweeps_orphan_tags_once_for_a_batch_of_removed_files(
+    service, workspace, note_file_factory
+):
+    path_a = note_file_factory(workspace, "Gone A", note_id="gonea", tags=["shared", "only-a"])
+    path_b = note_file_factory(workspace, "Gone B", note_id="goneb", tags=["shared"])
+    path_c = note_file_factory(workspace, "Stays", note_id="stays1", tags=["shared"])
+    relatives = [_rel(workspace, p) for p in (path_a, path_b, path_c)]
+    service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=relatives)
+
+    Path(path_a).unlink()
+    Path(path_b).unlink()
+    report = service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=relatives)
+
+    assert set(report.removed) == {"gonea", "goneb"}
+    paths = {row["path"] for row in service._tag_repo.tag_tree("ws", "u1")}
+    # "only-a" had no other holder and is gone; "shared" survives via the note that stayed.
+    assert "only-a" not in paths
+    assert "shared" in paths
+    assert service._crud_repo.get("stays1", owner_id="u1") is not None
+
+
 def test_reconcile_updates_drifted_metadata_without_touching_other_notes(
     service, workspace, note_file_factory
 ):

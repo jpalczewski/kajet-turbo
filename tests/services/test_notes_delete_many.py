@@ -130,6 +130,63 @@ def test_delete_many_clears_tags_links_and_index(service, workspace):
     assert service.get_with_content(r2["note_id"], "u1", str(workspace)) is not None
 
 
+def test_delete_many_sweeps_orphan_tags_once_for_the_whole_batch(service, workspace):
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", ["shared", "only-first"])
+    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", ["shared"])
+    r3 = service.save("u1", "ws", str(workspace), "Third", "three\n", ["shared"])
+    sha1 = head_sha(workspace, "First.md")
+    sha2 = head_sha(workspace, "Second.md")
+
+    result = service.delete_many(
+        "u1",
+        "ws",
+        str(workspace),
+        [
+            {"note_id": r1["note_id"], "expected_sha": sha1},
+            {"note_id": r2["note_id"], "expected_sha": sha2},
+        ],
+    )
+
+    assert result["applied"] is True
+    paths = {row["path"] for row in service._tag_repo.tag_tree("ws", "u1")}
+    # "only-first" had no other holder and is gone; "shared" survives via r3.
+    assert "only-first" not in paths
+    assert "shared" in paths
+    assert service.get_with_content(r3["note_id"], "u1", str(workspace)) is not None
+
+
+def test_delete_many_calls_sweep_orphan_tags_once_not_per_note(service, workspace, monkeypatch):
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", ["tag-a"])
+    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", ["tag-b"])
+    r3 = service.save("u1", "ws", str(workspace), "Third", "three\n", ["tag-c"])
+    sha1 = head_sha(workspace, "First.md")
+    sha2 = head_sha(workspace, "Second.md")
+    sha3 = head_sha(workspace, "Third.md")
+    calls = 0
+    original = service._tag_repo.sweep_orphan_tags_in_session
+
+    def counting_sweep(session, workspace_name, owner_id):
+        nonlocal calls
+        calls += 1
+        return original(session, workspace_name, owner_id)
+
+    monkeypatch.setattr(service._tag_repo, "sweep_orphan_tags_in_session", counting_sweep)
+
+    result = service.delete_many(
+        "u1",
+        "ws",
+        str(workspace),
+        [
+            {"note_id": r1["note_id"], "expected_sha": sha1},
+            {"note_id": r2["note_id"], "expected_sha": sha2},
+            {"note_id": r3["note_id"], "expected_sha": sha3},
+        ],
+    )
+
+    assert result["applied"] is True
+    assert calls == 1
+
+
 def test_delete_clears_chunks_without_an_indexer(service, workspace):
     result = service.save("u1", "ws", str(workspace), "First", "body\n", [])
     note_id = result["note_id"]
