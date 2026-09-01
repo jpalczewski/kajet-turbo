@@ -16,6 +16,7 @@ from kajet_turbo.api import api_router
 from kajet_turbo.auth import hash_password
 from kajet_turbo.dependencies import (
     active_workspace_repo,
+    collection_service,
     db,
     folder_meta_repo,
     note_service,
@@ -199,6 +200,7 @@ def _new_mcp_app() -> Any:
         oauth_repo,
         active_workspace_repo,
         provider,
+        collection_service,
     )
     return mcp.http_app(path="/")
 

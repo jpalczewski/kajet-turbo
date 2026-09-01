@@ -1,10 +1,13 @@
-"""Read and validate workspace collection definitions.
+"""Read, validate, and enumerate workspace collection definitions.
 
-Collections deliberately live in the workspace Git repository, not in SQLite.  This
+Collections deliberately live in the workspace Git repository, not in SQLite. This
 module has no persistence of its own: callers load ``.kajet/collections.yaml`` on
-demand and future write tools will use :class:`GitRepository` for mutations.
+demand; write verbs (``services/collections.py``) use :class:`GitRepository` for
+mutations and call back into the pure helpers here for validation, collision
+detection, and redefinition-impact analysis.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -17,8 +20,19 @@ from kajet_turbo.periods import Period, PeriodKind, month_of_week
 from kajet_turbo.workspace import normalize_folder, title_to_windows_filename
 
 Cardinality = Literal["one", "many"]
-_FIELDS = frozenset(("grain", "cardinality", "folder", "title"))
+_REQUIRED_FIELDS = frozenset(("grain", "cardinality", "folder", "title"))
+_OPTIONAL_FIELDS = frozenset(("description",))
+_FIELDS = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
 _PLACEHOLDERS = frozenset(("date", "key", "year", "month", "ordinal"))
+
+# Tuning knobs for render_set()'s sampling: wide enough that a real workspace's
+# collisions and redefinition impact are always caught, not a proof for pathological
+# templates that only diverge decades out or a same-period entry count above
+# _MAX_ORDINAL. Kept small on purpose: day-grain + cardinality="many" enumerates
+# 365 * 2 * _SAMPLE_HORIZON_YEARS * _MAX_ORDINAL renders, so this is a real
+# runtime/coverage trade-off, not just a correctness one. See render_set()'s docstring.
+_SAMPLE_HORIZON_YEARS = 5
+_MAX_ORDINAL = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +42,7 @@ class CollectionDefinition:
     cardinality: Cardinality
     folder: str
     title: str
+    description: str | None = None
 
     def render(self, when: date, ordinal: int | None = None) -> tuple[str, str]:
         """Render the collection path and title for a date.
@@ -73,7 +88,7 @@ def _parse_definition(name: object, raw: object) -> CollectionDefinition:
         raise ValueError(f"Collection '{name}' must be a mapping.")
     values = cast("dict[str, object]", raw)
     unknown = set(values) - _FIELDS
-    missing = _FIELDS - set(values)
+    missing = _REQUIRED_FIELDS - set(values)
     if unknown or missing:
         details = []
         if missing:
@@ -85,14 +100,22 @@ def _parse_definition(name: object, raw: object) -> CollectionDefinition:
     cardinality = values["cardinality"]
     folder = values["folder"]
     title = values["title"]
+    description = values.get("description")
     if grain not in ("day", "week", "month", "year"):
         raise ValueError(f"Collection '{name}': grain must be day, week, month, or year.")
     if cardinality not in ("one", "many"):
         raise ValueError(f"Collection '{name}': cardinality must be one or many.")
     if not isinstance(folder, str) or not isinstance(title, str):
         raise ValueError(f"Collection '{name}': folder and title must be strings.")
+    if description is not None and (not isinstance(description, str) or not description.strip()):
+        raise ValueError(f"Collection '{name}': description must be a non-empty string if given.")
     definition = CollectionDefinition(
-        name.strip(), cast("PeriodKind", grain), cast("Cardinality", cardinality), folder, title
+        name.strip(),
+        cast("PeriodKind", grain),
+        cast("Cardinality", cardinality),
+        folder,
+        title,
+        description,
     )
     fields = _template_fields(folder) | _template_fields(title)
     invalid = fields - _PLACEHOLDERS
@@ -106,6 +129,29 @@ def _parse_definition(name: object, raw: object) -> CollectionDefinition:
         raise ValueError(f"Collection '{name}': cardinality 'many' requires {{ordinal}}.")
     _validate_rendered_path(definition)
     return definition
+
+
+def validate_definition(
+    name: str,
+    grain: PeriodKind,
+    cardinality: Cardinality,
+    folder: str,
+    title: str,
+    description: str | None = None,
+) -> CollectionDefinition:
+    """Build and validate a :class:`CollectionDefinition` from raw field values — the
+    entry point write verbs use, sharing every parsing/validation rule with
+    :func:`load_collections`'s YAML path via :func:`_parse_definition`.
+    """
+    raw: dict[str, object] = {
+        "grain": grain,
+        "cardinality": cardinality,
+        "folder": folder,
+        "title": title,
+    }
+    if description is not None:
+        raw["description"] = description
+    return _parse_definition(name, raw)
 
 
 def _template_fields(template: str) -> set[str]:
@@ -129,3 +175,108 @@ def _validate_rendered_path(definition: CollectionDefinition) -> None:
         raise ValueError(f"Collection '{definition.name}': folder renders to an illegal path.")
     if not title or title_to_windows_filename(title) != title:
         raise ValueError(f"Collection '{definition.name}': title renders to an illegal filename.")
+
+
+def dump_collections(definitions: dict[str, CollectionDefinition]) -> str:
+    """Canonical YAML text for ``.kajet/collections.yaml``. Mirrors :func:`load_collections`:
+    ``yaml.safe_dump``, no round-trip/comment preservation (the #105 canonical-form
+    decision), insertion order kept, ``description`` omitted rather than written as
+    ``description: null`` when absent.
+    """
+    raw: dict[str, dict[str, str]] = {}
+    for name, definition in definitions.items():
+        entry = {
+            "grain": definition.grain,
+            "cardinality": definition.cardinality,
+            "folder": definition.folder,
+            "title": definition.title,
+        }
+        if definition.description is not None:
+            entry["description"] = definition.description
+        raw[name] = entry
+    return yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
+
+
+def render_set(definition: CollectionDefinition, today: date | None = None) -> set[tuple[str, str]]:
+    """Every ``(folder, title)`` pair ``definition`` can render within a sampling
+    window around ``today`` (real "now" when not given).
+
+    This operationalizes collection membership: a note belongs to ``definition`` iff
+    its ``(folder, title)`` is in this set — the "conjunction rule" collisions and
+    redefinition impact are built on. The window is +/- ``_SAMPLE_HORIZON_YEARS``
+    years, and cardinality="many" crosses every period with ordinals
+    ``1.._MAX_ORDINAL``. This is sound for any realistic collection (workspaces are
+    small, and nobody backdates or preplans entries decades out), not an exhaustive
+    proof for a pathological template that only diverges outside the window or a
+    same-period entry count beyond ``_MAX_ORDINAL``.
+    """
+    anchor = today if today is not None else date.today()
+    start = Period.containing(date(anchor.year - _SAMPLE_HORIZON_YEARS, 1, 1), definition.grain)
+    end = Period.containing(date(anchor.year + _SAMPLE_HORIZON_YEARS, 12, 31), definition.grain)
+    ordinals: tuple[int | None, ...] = (
+        tuple(range(1, _MAX_ORDINAL + 1)) if definition.cardinality == "many" else (None,)
+    )
+    rendered: set[tuple[str, str]] = set()
+    period = start
+    while True:
+        for ordinal in ordinals:
+            rendered.add(definition.render(period.start, ordinal))
+        if period == end:
+            break
+        period = period.next()
+    return rendered
+
+
+def collides(a: CollectionDefinition, b: CollectionDefinition) -> bool:
+    """Whether two collections' folder patterns can render the same folder for some
+    period, breaking the invariant that a folder identifies at most one collection.
+    Only folders matter here — title plays no part in that invariant.
+
+    Two-tier: a fast, exact structural rule-out for genuinely different folder shapes
+    (the common case — different literal segments, or a different segment count, can
+    never produce the same string), falling back to sampling both patterns' rendered
+    folders (:func:`render_set`) only when segment shapes are compatible. The fallback
+    is sound within that sampling window, not an exhaustive proof.
+    """
+    segments_a = a.folder.split("/")
+    segments_b = b.folder.split("/")
+    if len(segments_a) != len(segments_b):
+        return False
+    for sa, sb in zip(segments_a, segments_b, strict=True):
+        if not _template_fields(sa) and not _template_fields(sb) and sa != sb:
+            return False
+    folders_a = {folder for folder, _ in render_set(a)}
+    folders_b = {folder for folder, _ in render_set(b)}
+    return not folders_a.isdisjoint(folders_b)
+
+
+def dropped_members(
+    old: CollectionDefinition,
+    new: CollectionDefinition,
+    candidates: Iterable[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    """Which of ``candidates`` (existing notes' ``(folder, title)`` pairs) belonged to
+    ``old`` and no longer belong to ``new`` — the redefinition-impact report.
+    """
+    old_set = render_set(old)
+    new_set = render_set(new)
+    return [pair for pair in candidates if pair in old_set and pair not in new_set]
+
+
+def _static_prefix(folder_template: str) -> str:
+    """The static path segments of ``folder_template`` before its first templated
+    segment — the folder prefix a redefinition-impact query can scope to.
+
+    Segment-wise, not a naive cut at the first ``{``: ``"journal-{year}/x"`` has no
+    static segment at all, not ``"journal-"`` — ``list_under_folder`` matches on whole
+    path segments, so a partial-segment prefix would never match anything. An empty
+    result means the very first segment is templated (``"{year}/journal"``); the
+    caller must treat that as "no folder scoping available", not as the literal
+    root-only prefix an empty string would mean to ``list_under_folder``.
+    """
+    segments: list[str] = []
+    for segment in folder_template.split("/"):
+        if _template_fields(segment):
+            break
+        segments.append(segment)
+    return "/".join(segments)

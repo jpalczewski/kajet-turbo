@@ -16,6 +16,7 @@ from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -76,6 +77,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         oauth_repository,
         active_workspace_repository,
         provider,
+        CollectionService(note_repository),
     )
     return McpTestContext(
         server,
