@@ -144,6 +144,108 @@ def test_commit_moves_is_thin_wrapper_over_commit_changes(git_ws, monkeypatch):
     assert calls == [(["old.md"], ["new.md"], "folder: move x -> y")]
 
 
+def test_delete_file_removes_from_disk_and_commits(git_ws, tmp_path):
+    filepath = tmp_path / "note.md"
+    filepath.write_text("# Test")
+    git_ws.commit_file("note.md", "note: add")
+
+    git_ws.delete_file("note.md", "note: delete")
+
+    assert not filepath.exists()
+    r = DulwichRepo(str(tmp_path))
+    commits = list(r.get_walker())
+    assert len(commits) == 2
+    assert b"note: delete" in commits[0].commit.message
+
+
+def test_delete_files_removes_all_in_single_commit(git_ws, tmp_path):
+    (tmp_path / "a.md").write_text("# A")
+    (tmp_path / "b.md").write_text("# B")
+    (tmp_path / "c.md").write_text("# C")
+    git_ws.commit_files(["a.md", "b.md", "c.md"], "note: add 3 notes")
+
+    git_ws.delete_files(["a.md", "b.md"], "note: delete 2 notes")
+
+    assert not (tmp_path / "a.md").exists()
+    assert not (tmp_path / "b.md").exists()
+    assert (tmp_path / "c.md").exists()
+    commits = list(DulwichRepo(str(tmp_path)).get_walker())
+    assert len(commits) == 2  # add + one batch-delete commit, not split per file
+    assert b"note: delete 2 notes" in commits[0].commit.message
+
+
+def test_delete_files_empty_is_noop(git_ws, tmp_path):
+    (tmp_path / "seed.md").write_text("# seed")
+    git_ws.commit_file("seed.md", "note: seed")
+
+    git_ws.delete_files([], "note: nothing")
+
+    assert (tmp_path / "seed.md").exists()
+    assert len(list(DulwichRepo(str(tmp_path)).get_walker())) == 1
+
+
+def test_delete_files_wraps_unlink_failure_as_git_error(git_ws, tmp_path):
+    """A directory sitting where the file should be: unlink() raises
+    IsADirectoryError, which missing_ok=True does not suppress (only
+    FileNotFoundError) — the OS-level failure must still surface as GitError,
+    not leak through raw."""
+    (tmp_path / "note.md").write_text("# Test")
+    git_ws.commit_file("note.md", "note: add")
+    (tmp_path / "note.md").unlink()
+    (tmp_path / "note.md").mkdir()
+
+    with pytest.raises(GitError):
+        git_ws.delete_files(["note.md"], "note: delete")
+
+
+def test_rename_file_moves_file_and_commits(git_ws, tmp_path):
+    old = tmp_path / "stara.md"
+    old.write_text("content")
+    git_ws.commit_file("stara.md", "note: add")
+
+    git_ws.rename_file("stara.md", "nowa.md", "note: rename")
+
+    assert not old.exists()
+    assert (tmp_path / "nowa.md").exists()
+    assert (tmp_path / "nowa.md").read_text() == "content"
+    r = DulwichRepo(str(tmp_path))
+    commits = list(r.get_walker())
+    assert len(commits) == 2
+    assert b"note: rename" in commits[0].commit.message
+
+
+def test_rename_file_creates_parent_dirs(git_ws, tmp_path):
+    (tmp_path / "note.md").write_text("content")
+    git_ws.commit_file("note.md", "note: add")
+
+    git_ws.rename_file("note.md", "Projekty/Klient A/note.md", "note: move")
+
+    assert (tmp_path / "Projekty" / "Klient A" / "note.md").exists()
+
+
+@pytest.mark.parametrize("commit_error", [GitError("git failed"), RuntimeError("disk full")])
+def test_rename_file_rolls_back_and_raises_git_error_on_commit_failure(
+    git_ws, tmp_path, monkeypatch, commit_error
+):
+    """Whatever commit_changes raises — GitError or a raw OS/RuntimeError — the
+    filesystem rename must be undone and the caller must only ever see GitError."""
+    old = tmp_path / "stara.md"
+    old.write_text("content")
+    git_ws.commit_file("stara.md", "note: add")
+
+    def boom(self, *, removed, added, message):
+        raise commit_error
+
+    monkeypatch.setattr(type(git_ws), "commit_changes", boom)
+
+    with pytest.raises(GitError):
+        git_ws.rename_file("stara.md", "nowa.md", "note: rename")
+
+    assert old.exists()
+    assert old.read_text() == "content"
+    assert not (tmp_path / "nowa.md").exists()
+
+
 def test_file_history_returns_commits_for_file(git_ws, tmp_path):
     (tmp_path / "note.md").write_text("# v1")
     git_ws.commit_file("note.md", "note: add note")

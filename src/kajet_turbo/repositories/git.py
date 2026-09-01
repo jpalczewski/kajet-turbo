@@ -319,6 +319,46 @@ class GitRepository:
         (folder move uses a temp dir), so this only reconciles git state."""
         self.commit_changes(removed=list(removed_rels), added=list(added_rels), message=message)
 
+    def delete_file(self, relative_path: str, message: str) -> None:
+        self.delete_files([relative_path], message)
+
+    def delete_files(self, relative_paths: list[str], message: str) -> None:
+        """Unlink files on disk and commit their removal in a single commit (one lock,
+        one ref update). No-op on an empty list. Any failure — including an OS-level
+        unlink error, not just a git error — surfaces as GitError.
+        """
+        if not relative_paths:
+            return
+        try:
+            for rel in relative_paths:
+                Path(self._workspace_path, rel).unlink(missing_ok=True)
+            self.commit_changes(removed=list(relative_paths), added=[], message=message)
+        except GitError:
+            raise
+        except Exception as e:
+            raise GitError(str(e)) from e
+
+    def rename_file(self, old_rel: str, new_rel: str, message: str) -> None:
+        """Rename a file on disk and commit the move as one operation.
+
+        Rolls the filesystem rename back if the commit fails, and normalizes any
+        failure — filesystem or git — to GitError, matching every other write path
+        here (callers only need to catch GitError).
+        """
+        old_full = Path(self._workspace_path, old_rel)
+        new_full = Path(self._workspace_path, new_rel)
+        try:
+            new_full.parent.mkdir(parents=True, exist_ok=True)
+            old_full.rename(new_full)
+            self.commit_changes(removed=[old_rel], added=[new_rel], message=message)
+        except Exception as e:
+            if new_full.exists() and not old_full.exists():
+                old_full.parent.mkdir(parents=True, exist_ok=True)
+                new_full.rename(old_full)
+            if isinstance(e, GitError):
+                raise
+            raise GitError(str(e)) from e
+
     def rename_master_to_main(self) -> bool:
         """Idempotently move this repo from ``master`` to ``main``: point HEAD at
         main and rename the branch ref. No-op (returns False) if HEAD is not on

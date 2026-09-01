@@ -6,7 +6,7 @@ from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import IndexedNote
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
-from kajet_turbo.repositories.git import GitError, GitRepository, workspace_write_transaction
+from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes.links import NoteLinkService
@@ -67,18 +67,9 @@ class NoteFolderService:
         )
         old_rel = str(old_path.relative_to(ws_path))
         new_rel = str(new_path.relative_to(ws_path))
-        new_path.parent.mkdir(parents=True, exist_ok=True)
-        old_path.rename(new_path)
-        try:
-            GitRepository(ws_path).commit_changes(
-                removed=[old_rel],
-                added=[new_rel],
-                message=f"note: move {note.title} to {new_folder or 'root'}",
-            )
-        except GitError:
-            if new_path.exists() and not old_path.exists():
-                new_path.rename(old_path)
-            raise
+        GitRepository(ws_path).rename_file(
+            old_rel, new_rel, f"note: move {note.title} to {new_folder or 'root'}"
+        )
         self._crud_repo.update(
             note_id,
             owner_id=owner_id,

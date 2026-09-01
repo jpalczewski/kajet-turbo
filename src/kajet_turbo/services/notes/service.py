@@ -27,7 +27,6 @@ from kajet_turbo.markdown import (
 from kajet_turbo.models import Note
 from kajet_turbo.periods import month_of_week, parse_period_key
 from kajet_turbo.repositories.git import (
-    GitError,
     GitRepository,
     defer_workspace_postprocess,
     workspace_write_transaction,
@@ -971,16 +970,7 @@ class NoteService:
         # open would re-read refs/pack indexes for no reason.
         repo = GitRepository(ws_path)
         if old_path != new_path:
-            Path(new_path).parent.mkdir(parents=True, exist_ok=True)
-            Path(old_path).rename(new_path)
-            try:
-                repo.commit_changes(
-                    removed=[old_rel], added=[new_rel], message=f"note: rename to {new_title}"
-                )
-            except GitError:
-                if Path(new_path).exists() and not Path(old_path).exists():
-                    Path(new_path).rename(old_path)
-                raise
+            repo.rename_file(old_rel, new_rel, f"note: rename to {new_title}")
         apply_meta = replace(
             existing_meta,
             id=note_id,
@@ -1285,10 +1275,7 @@ class NoteService:
         affected_sources = workspace_links.affected_sources({note.title})
         affected_sources.discard(note_id)  # this source is synchronously deleted below
         if file_exists:
-            Path(filepath).unlink(missing_ok=True)
-            GitRepository(ws_path).commit_changes(
-                removed=[relative], added=[], message=f"note: delete {note_id}"
-            )
+            GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
         with (
             self._crud_repo.operation(
                 "delete", note_id=note_id, workspace=note.workspace, owner_id=owner_id
@@ -1343,12 +1330,8 @@ class NoteService:
         affected_sources.difference_update(p.note_id for p in prepared)
 
         n = len(prepared)
-        for p in prepared:
-            Path(p.loc.filepath).unlink(missing_ok=True)
-        git_repo.commit_changes(
-            removed=[p.loc.relative for p in prepared],
-            added=[],
-            message=f"note: delete {n} note{'' if n == 1 else 's'}",
+        git_repo.delete_files(
+            [p.loc.relative for p in prepared], f"note: delete {n} note{'' if n == 1 else 's'}"
         )
 
         with (
