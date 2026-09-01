@@ -44,6 +44,26 @@ def test_move_folder_collision_aborts_atomically(service, workspace):
     assert "destination" in (workspace / "b" / "Same.md").read_text()
 
 
+def test_move_folder_rejects_normalization_collision_atomically(service, workspace):
+    """ "A:B" in "a" would land on "A B.md" in "b", already used by "A B". A third,
+    non-colliding note in "a" must also NOT move — proves the pre-flight conflict loop
+    catches this before any rename() happens, not mid-walk."""
+    service.save("u1", "ws", str(workspace), "A:B", "source", [], folder="a")
+    service.save("u1", "ws", str(workspace), "A B", "destination", [], folder="b")
+    service.save("u1", "ws", str(workspace), "Innocent", "bystander", [], folder="a")
+
+    result = _mv(service, workspace, "a", "b")
+
+    from kajet_turbo.workspace import read_note_file
+
+    assert "conflicts" in result
+    assert (workspace / "a" / "A B.md").exists()
+    assert (workspace / "a" / "Innocent.md").exists()
+    assert not (workspace / "b" / "Innocent.md").exists()
+    _, dest_content = read_note_file(str(workspace / "b" / "A B.md"))
+    assert dest_content.strip() == "destination"
+
+
 def test_move_folder_case_only_rename(service, workspace):
     nid = service.save("u1", "ws", str(workspace), "N", "x", [], folder="Osoby")["note_id"]
 

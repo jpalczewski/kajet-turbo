@@ -10,6 +10,7 @@ from kajet_turbo.repositories.git import GitRepository, workspace_write_transact
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes.links import NoteLinkService
+from kajet_turbo.services.notes.paths import note_path_conflict
 from kajet_turbo.workspace import (
     InvalidFolderError,
     list_workspace_folders,
@@ -54,14 +55,19 @@ class NoteFolderService:
         new_path = Path(note_filepath(ws_path, new_folder, note.title))
         if not old_path.exists():
             raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
-        if not self._crud_repo.check_unique(note.workspace, owner_id, new_folder, note.title):
-            raise FileExistsError(
-                f"Notatka '{note.title}' już istnieje w folderze '{new_folder or 'root'}'."
-            )
-        if new_path.exists():
-            raise FileExistsError(f"Plik docelowy '{new_path.relative_to(ws_path)}' już istnieje.")
 
         workspace_links = self._link_service.for_workspace(note.workspace, owner_id)
+        conflict = note_path_conflict(
+            workspace_links.paths, ws_path, new_folder, note.title, exclude_id=note_id
+        )
+        if conflict is not None:
+            raise FileExistsError(
+                f"'{note.title}' would be stored as '{new_path.name}', already used by "
+                f"note '{conflict.title}' in folder '{conflict.folder or 'root'}'."
+            )
+        if new_path.exists():
+            raise FileExistsError(f"Target file '{new_path.relative_to(ws_path)}' already exists.")
+
         affected_sources = workspace_links.affected_sources(
             {note.title}, include_source_ids={note_id}
         )
@@ -116,18 +122,33 @@ class NoteFolderService:
         if not notes and not src_root.exists():
             raise FileNotFoundError(f"Folder '{src_n}' nie istnieje.")
 
+        workspace_links = self._link_service.for_workspace(workspace, owner_id)
         remap: dict[str, str] = {}
         conflicts: list[dict] = []
+        # Relative dst path -> title, for collisions between two notes moved together in
+        # this same call (each excludes only its own id from workspace_links, so it would
+        # not otherwise catch colliding with another note also being moved).
+        claimed: dict[str, str] = {}
         for note in notes:
             remainder = note.folder[len(src_n) :].lstrip("/")
             new_folder = "/".join(p for p in (dst_n, remainder) if p)
             remap[note.id] = new_folder
-            if not self._crud_repo.check_unique(workspace, owner_id, new_folder, note.title):
+            conflict = note_path_conflict(
+                workspace_links.paths, ws_path, new_folder, note.title, exclude_id=note.id
+            )
+            target_rel = str(
+                Path(note_filepath(ws_path, new_folder, note.title)).relative_to(ws_path)
+            )
+            if conflict is not None or target_rel in claimed:
                 conflicts.append({"title": note.title, "folder": new_folder})
+            else:
+                claimed[target_rel] = note.title
         if conflicts:
-            return {"error": "Notatki o tych nazwach już istnieją w celu.", "conflicts": conflicts}
+            return {
+                "error": "Notes with these names already exist at the destination.",
+                "conflicts": conflicts,
+            }
 
-        workspace_links = self._link_service.for_workspace(workspace, owner_id)
         affected_sources = workspace_links.affected_sources(
             {note.title for note in notes},
             include_source_ids={note.id for note in notes},

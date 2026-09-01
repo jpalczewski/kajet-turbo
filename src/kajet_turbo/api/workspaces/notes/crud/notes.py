@@ -101,7 +101,7 @@ async def api_create_note(
         ) from e
     except TemporalMetadataError as e:
         raise HTTPException(status_code=422, detail=NoteError.INVALID_INPUT) from e
-    except ValueError:
+    except ValueError, FileExistsError:
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None
     except Exception as e:
         raise HTTPException(

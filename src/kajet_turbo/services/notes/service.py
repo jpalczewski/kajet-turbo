@@ -5,6 +5,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
+from itertools import chain
 from pathlib import Path
 from typing import cast
 
@@ -42,6 +43,7 @@ from kajet_turbo.repositories.notes import (
 from kajet_turbo.services.notes.folders import NoteFolderService
 from kajet_turbo.services.notes.history import NoteVersionService
 from kajet_turbo.services.notes.links import NoteLinkService, wikilink_warnings
+from kajet_turbo.services.notes.paths import note_path_conflict
 from kajet_turbo.services.notes.search import NoteSearchService
 from kajet_turbo.services.notes.staged_write import StagedWrite, staged_note_write
 from kajet_turbo.services.notes.staleness import (
@@ -416,16 +418,22 @@ class NoteService:
     ) -> dict:
         folder = normalize_folder(folder)
         occurred_at, period = normalize_temporal_metadata(occurred_at, period)
-        if not self._crud_repo.check_unique(ws_name, user_id, folder, title):
-            raise ValueError(f"Notatka '{title}' już istnieje w folderze '{folder or 'root'}'.")
         tags = NoteTagService.normalize_tags(tags)
         workspace_links = self._link_service.for_workspace(ws_name, user_id)
+        filepath = note_filepath(ws_path, folder, title)
+        relative = str(Path(filepath).relative_to(ws_path))
+        conflict = note_path_conflict(workspace_links.paths, ws_path, folder, title)
+        if conflict is not None:
+            raise FileExistsError(
+                f"'{title}' would be stored as '{Path(filepath).name}', already used by "
+                f"note '{conflict.title}' in folder '{conflict.folder or 'root'}'."
+            )
+        if Path(filepath).exists():
+            raise FileExistsError(f"File '{Path(filepath).name}' already exists on disk.")
         links = workspace_links.validate(content, folder)
         affected_sources = workspace_links.affected_sources({title})
         note_id = generate(size=7)
         now = datetime.now(UTC).isoformat()
-        filepath = note_filepath(ws_path, folder, title)
-        relative = str(Path(filepath).relative_to(ws_path))
         meta = NoteFrontmatter(
             id=note_id,
             title=title,
@@ -481,9 +489,14 @@ class NoteService:
         now = datetime.now(UTC).isoformat()
 
         # Phase 1: uniqueness + id assignment. Survivors get an id and join the batch's
-        # link index so in-batch wikilinks resolve in Phase 2.
+        # link index so in-batch wikilinks resolve in Phase 2. `base_links` is a snapshot
+        # of the workspace's DB rows, taken once up front under the workspace write lock
+        # (Phase 2 extends it via with_extra instead of re-querying); batch_notes
+        # accumulates alongside it so note_path_conflict sees both existing rows and
+        # notes already accepted earlier in this same batch.
+        base_links = self._link_service.for_workspace(ws_name, user_id)
+        existing_paths = base_links.paths
         accepted: set[tuple[str, str]] = set()
-        accepted_paths: set[str] = set()
         batch_notes: list[IndexedNote] = []
         survivors: list[dict] = []
         for index, raw in enumerate(notes):
@@ -499,23 +512,28 @@ class NoteService:
                     "error": f"Duplikat w batchu: '{title}' w folderze '{folder or 'root'}'.",
                 }
                 continue
-            if not self._crud_repo.check_unique(ws_name, user_id, folder, title):
+            conflict = note_path_conflict(
+                chain(existing_paths, batch_notes), ws_path, folder, title
+            )
+            if conflict is not None:
                 results[index] = {
                     "index": index,
-                    "error": f"Notatka '{title}' już istnieje w folderze '{folder or 'root'}'.",
+                    "error": (
+                        f"'{title}' would be stored as the same file as note "
+                        f"'{conflict.title}' in folder '{conflict.folder or 'root'}'."
+                    ),
                 }
                 continue
             note_id = generate(size=7)
             filepath = note_filepath(ws_path, folder, title)
             relative = str(Path(filepath).relative_to(ws_path))
-            if relative in accepted_paths:
+            if Path(filepath).exists():
                 results[index] = {
                     "index": index,
-                    "error": f"Kolizja nazwy pliku z inną notatką w batchu: '{title}'.",
+                    "error": f"File '{Path(filepath).name}' already exists on disk.",
                 }
                 continue
             accepted.add(key)
-            accepted_paths.add(relative)
             batch_notes.append(IndexedNote(note_id, folder, title))
             survivors.append(
                 {
@@ -539,14 +557,13 @@ class NoteService:
                 results[index] = {"index": index, "error": str(e)}
                 survivors.pop()
                 accepted.remove(key)
-                accepted_paths.remove(relative)
                 batch_notes.pop()
 
         # Phase 2: wikilink resolution against existing notes union the batch, sharing one
         # index. Non-cascading: the index is not rebuilt as notes are dropped, so a link to
         # a later-dropped note still resolves (worst case a harmless orphan edge).
         valid: list[dict] = []
-        workspace_links = self._link_service.for_workspace(ws_name, user_id, extra=batch_notes)
+        workspace_links = base_links.with_extra(batch_notes)
         for s in survivors:
             try:
                 s["links"] = workspace_links.validate(s["content"], s["folder"])
@@ -927,13 +944,18 @@ class NoteService:
         if not sha_is_fresh(current_head_sha(ws_path, old_rel), expected_sha):
             return stale_payload(note_id)
 
+        workspace_links = self._link_service.for_workspace(note.workspace, owner_id)
         if old_path != new_path:
-            if not self._crud_repo.check_unique(note.workspace, owner_id, new_folder, new_title):
+            conflict = note_path_conflict(
+                workspace_links.paths, ws_path, new_folder, new_title, exclude_id=note_id
+            )
+            if conflict is not None:
                 raise FileExistsError(
-                    f"Notatka '{new_title}' już istnieje w folderze '{new_folder or 'root'}'."
+                    f"'{new_title}' would be stored as '{Path(new_path).name}', already used by "
+                    f"note '{conflict.title}' in folder '{conflict.folder or 'root'}'."
                 )
             if Path(new_path).exists():
-                raise FileExistsError(f"Plik docelowy '{new_rel}' już istnieje.")
+                raise FileExistsError(f"Target file '{new_rel}' already exists.")
         existing_meta, old_content = read_note_file(old_path)
         if not clear_date_metadata and occurred_at is _UNCHANGED and period is _UNCHANGED:
             # The file is source of truth during a read-modify-write. This also repairs
@@ -954,8 +976,8 @@ class NoteService:
         new_content = edit_result.body
         replaced = edit_result.replaced
 
-        # One pre-move snapshot serves validation and any backlink rewrite below.
-        workspace_links = self._link_service.for_workspace(note.workspace, owner_id)
+        # workspace_links was hoisted above (before the collision check) — this snapshot
+        # serves validation and any backlink rewrite below too.
         links = workspace_links.validate(new_content, new_folder)
         identity_changed = note.title != new_title or note.folder != new_folder
         affected_sources = (

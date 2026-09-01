@@ -438,22 +438,23 @@ def test_reconcile_holds_workspace_lock_against_concurrent_save(
     reconcile_started = Event()
     release_reconcile = Event()
     save_acquired = Event()
-    real_insert = service._crud_repo.insert_in_session
-    real_check_unique = service._crud_repo.check_unique
+    real_insert_in_session = service._crud_repo.insert_in_session
+    real_insert = service._crud_repo.insert
 
     def paused_insert(session, note):
         reconcile_started.set()
         assert release_reconcile.wait(timeout=5)
-        return real_insert(session, note)
+        return real_insert_in_session(session, note)
 
-    def signalling_check_unique(*args, **kwargs):
-        # First thing save() calls once it holds the lock — proves the lock was
-        # actually acquired, not just that the thread started running.
+    def signalling_insert(*args, **kwargs):
+        # save()'s own DB insert — proves the lock was actually acquired (not just that
+        # the thread started running), without also firing on reconcile_paths's internal
+        # list_paths/for_workspace calls, which run under the same lock too.
         save_acquired.set()
-        return real_check_unique(*args, **kwargs)
+        return real_insert(*args, **kwargs)
 
     monkeypatch.setattr(service._crud_repo, "insert_in_session", paused_insert)
-    monkeypatch.setattr(service._crud_repo, "check_unique", signalling_check_unique)
+    monkeypatch.setattr(service._crud_repo, "insert", signalling_insert)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         reconcile_future = pool.submit(

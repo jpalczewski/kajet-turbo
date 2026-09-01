@@ -62,6 +62,12 @@ class WorkspaceLinks:
     paths: tuple[IndexedNote, ...]
     index: LinkIndex
 
+    def with_extra(self, extra: Iterable[IndexedNote]) -> WorkspaceLinks:
+        """This same snapshot plus not-yet-persisted notes (e.g. a batch being saved),
+        without re-querying the DB — the caller already holds ``paths``."""
+        paths = tuple(chain(self.paths, extra))
+        return WorkspaceLinks(self._service, self.ws_name, self.owner_id, paths, LinkIndex(paths))
+
     def resolve(self, content: str, source_folder: str) -> LinkResolution:
         return self._service._resolve_links(self, content, source_folder)
 
