@@ -270,50 +270,26 @@ class GitRepository:
         with _workspace_lock(self._workspace_path):
             yield self
 
-    def commit_file(self, relative_path: str, message: str) -> None:
-        with _git_write(self._workspace_path):
-            try:
-                if not Path(self._workspace_path, relative_path).exists():
-                    raise GitError(f"File not found: {relative_path}")
-                porcelain.add(self._workspace_path, paths=[relative_path])
-                porcelain.commit(
-                    self._workspace_path,
-                    message=message.encode(),
-                    author=COMMITTER,
-                    committer=COMMITTER,
-                )
-                _record_post_commit(self._workspace_path)
-            except Exception as e:
-                raise GitError(str(e)) from e
+    def commit_changes(self, *, removed: list[str], added: list[str], message: str) -> None:
+        """One commit recording ``removed`` dropped from the index and ``added`` staged.
 
-    def delete_file(self, relative_path: str, message: str) -> None:
-        with _git_write(self._workspace_path):
-            try:
-                Path(self._workspace_path, relative_path).unlink(missing_ok=True)
-                porcelain.rm(self._workspace_path, paths=[relative_path])
-                porcelain.commit(
-                    self._workspace_path,
-                    message=message.encode(),
-                    author=COMMITTER,
-                    committer=COMMITTER,
-                )
-                _record_post_commit(self._workspace_path)
-            except GitError:
-                raise
-            except Exception as e:
-                raise GitError(str(e)) from e
-
-    def delete_files(self, relative_paths: list[str], message: str) -> None:
-        """Unstage and commit removal of multiple files in a single commit (one lock,
-        one ref update). No-op on an empty list.
+        Removals are INDEX-ONLY (``cached=True``): the caller owns the working tree and
+        has already unlinked / moved / renamed the files on disk — a working-tree rm
+        would, on a case-insensitive FS, delete a just-created destination that shares an
+        inode with a removed source. No-op when both lists are empty. ``added`` paths
+        must already exist on disk, or this raises GitError.
         """
-        if not relative_paths:
+        if not removed and not added:
             return
         with _git_write(self._workspace_path):
             try:
-                for rel in relative_paths:
-                    Path(self._workspace_path, rel).unlink(missing_ok=True)
-                porcelain.rm(self._workspace_path, paths=list(relative_paths))
+                for rel in added:
+                    if not Path(self._workspace_path, rel).exists():
+                        raise GitError(f"File not found: {rel}")
+                if removed:
+                    porcelain.rm(self._workspace_path, paths=list(removed), cached=True)
+                if added:
+                    porcelain.add(self._workspace_path, paths=list(added))
                 porcelain.commit(
                     self._workspace_path,
                     message=message.encode(),
@@ -326,58 +302,8 @@ class GitRepository:
             except Exception as e:
                 raise GitError(str(e)) from e
 
-    def rename_file(self, old_rel: str, new_rel: str, message: str) -> None:
-        with _git_write(self._workspace_path):
-            old_full = Path(self._workspace_path, old_rel)
-            new_full = Path(self._workspace_path, new_rel)
-            try:
-                if not old_full.exists():
-                    raise GitError(f"File not found: {old_rel}")
-                if new_full.exists():
-                    raise GitError(f"File already exists: {new_rel}")
-                new_full.parent.mkdir(parents=True, exist_ok=True)
-                old_full.rename(new_full)
-                porcelain.rm(self._workspace_path, paths=[old_rel])
-                porcelain.add(self._workspace_path, paths=[new_rel])
-                porcelain.commit(
-                    self._workspace_path,
-                    message=message.encode(),
-                    author=COMMITTER,
-                    committer=COMMITTER,
-                )
-                _record_post_commit(self._workspace_path)
-            except GitError:
-                raise
-            except Exception as e:
-                if new_full.exists() and not old_full.exists():
-                    old_full.parent.mkdir(parents=True, exist_ok=True)
-                    new_full.rename(old_full)
-                raise GitError(str(e)) from e
-
-    def commit_moves(self, removed_rels: list[str], added_rels: list[str], message: str) -> None:
-        """Record a set of moved files in a single commit: drop ``removed_rels`` from the
-        index and add ``added_rels``. The caller has already done the filesystem moves
-        (folder move uses a temp dir), so this only reconciles git state."""
-        if not removed_rels and not added_rels:
-            return
-        with _git_write(self._workspace_path):
-            try:
-                if removed_rels:
-                    # cached=True: drop from the index only. The caller already moved the
-                    # files on disk; a working-tree rm would, on a case-insensitive FS,
-                    # delete the just-created destination (old/new paths share an inode).
-                    porcelain.rm(self._workspace_path, paths=list(removed_rels), cached=True)
-                if added_rels:
-                    porcelain.add(self._workspace_path, paths=list(added_rels))
-                porcelain.commit(
-                    self._workspace_path,
-                    message=message.encode(),
-                    author=COMMITTER,
-                    committer=COMMITTER,
-                )
-                _record_post_commit(self._workspace_path)
-            except Exception as e:
-                raise GitError(str(e)) from e
+    def commit_file(self, relative_path: str, message: str) -> None:
+        self.commit_files([relative_path], message)
 
     def commit_files(self, relative_paths: list[str], message: str) -> None:
         """Stage and commit multiple files in a single commit (one lock, one ref update).
@@ -385,25 +311,13 @@ class GitRepository:
         Used by batch note creation; the caller has already written the files to disk.
         No-op on an empty list. Raises GitError if any path is missing on disk.
         """
-        if not relative_paths:
-            return
-        with _git_write(self._workspace_path):
-            try:
-                for rel in relative_paths:
-                    if not Path(self._workspace_path, rel).exists():
-                        raise GitError(f"File not found: {rel}")
-                porcelain.add(self._workspace_path, paths=list(relative_paths))
-                porcelain.commit(
-                    self._workspace_path,
-                    message=message.encode(),
-                    author=COMMITTER,
-                    committer=COMMITTER,
-                )
-                _record_post_commit(self._workspace_path)
-            except GitError:
-                raise
-            except Exception as e:
-                raise GitError(str(e)) from e
+        self.commit_changes(removed=[], added=list(relative_paths), message=message)
+
+    def commit_moves(self, removed_rels: list[str], added_rels: list[str], message: str) -> None:
+        """Record a set of moved files in a single commit: drop ``removed_rels`` from the
+        index and add ``added_rels``. The caller has already done the filesystem moves
+        (folder move uses a temp dir), so this only reconciles git state."""
+        self.commit_changes(removed=list(removed_rels), added=list(added_rels), message=message)
 
     def rename_master_to_main(self) -> bool:
         """Idempotently move this repo from ``master`` to ``main``: point HEAD at

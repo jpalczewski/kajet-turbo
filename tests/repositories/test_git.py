@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from dulwich.objects import Commit, Tree
 from dulwich.repo import Repo as DulwichRepo
 
 from kajet_turbo.repositories.git import GitError, GitRepository
@@ -40,27 +41,45 @@ def test_commit_file_raises_git_error_on_missing_file(git_ws):
         git_ws.commit_file("nie-ma-takiego.md", "note: fail")
 
 
-def test_delete_file_removes_from_disk_and_commits(git_ws, tmp_path):
+def test_commit_changes_noop_on_empty(git_ws, tmp_path):
+    (tmp_path / "seed.md").write_text("# seed")
+    git_ws.commit_file("seed.md", "note: seed")
+
+    git_ws.commit_changes(removed=[], added=[], message="note: nothing")
+
+    assert (tmp_path / "seed.md").exists()
+    assert len(list(DulwichRepo(str(tmp_path)).get_walker())) == 1
+
+
+def test_commit_changes_removal_is_index_only(git_ws, tmp_path):
+    """Removal never touches the working tree — the caller owns it."""
     filepath = tmp_path / "note.md"
     filepath.write_text("# Test")
     git_ws.commit_file("note.md", "note: add")
 
-    git_ws.delete_file("note.md", "note: delete")
+    git_ws.commit_changes(removed=["note.md"], added=[], message="note: delete")
 
-    assert not filepath.exists()
+    assert filepath.exists()  # still on disk — commit_changes never unlinks
     r = DulwichRepo(str(tmp_path))
     commits = list(r.get_walker())
     assert len(commits) == 2
     assert b"note: delete" in commits[0].commit.message
+    head_commit = r[r.head()]
+    assert isinstance(head_commit, Commit)
+    tree = r[head_commit.tree]
+    assert isinstance(tree, Tree)
+    assert b"note.md" not in tree  # gone from HEAD's tree
 
 
-def test_delete_files_removes_all_in_single_commit(git_ws, tmp_path):
+def test_commit_changes_removes_all_in_single_commit(git_ws, tmp_path):
     (tmp_path / "a.md").write_text("# A")
     (tmp_path / "b.md").write_text("# B")
     (tmp_path / "c.md").write_text("# C")
     git_ws.commit_files(["a.md", "b.md", "c.md"], "note: add 3 notes")
 
-    git_ws.delete_files(["a.md", "b.md"], "note: delete 2 notes")
+    for name in ("a.md", "b.md"):
+        (tmp_path / name).unlink()
+    git_ws.commit_changes(removed=["a.md", "b.md"], added=[], message="note: delete 2 notes")
 
     assert not (tmp_path / "a.md").exists()
     assert not (tmp_path / "b.md").exists()
@@ -70,22 +89,18 @@ def test_delete_files_removes_all_in_single_commit(git_ws, tmp_path):
     assert b"note: delete 2 notes" in commits[0].commit.message
 
 
-def test_delete_files_empty_is_noop(git_ws, tmp_path):
-    (tmp_path / "seed.md").write_text("# seed")
-    git_ws.commit_file("seed.md", "note: seed")
-
-    git_ws.delete_files([], "note: nothing")
-
-    assert (tmp_path / "seed.md").exists()
-    assert len(list(DulwichRepo(str(tmp_path)).get_walker())) == 1
+def test_commit_changes_raises_on_missing_added_path(git_ws):
+    with pytest.raises(GitError):
+        git_ws.commit_changes(removed=[], added=["nie-ma-takiego.md"], message="note: fail")
 
 
-def test_rename_file_moves_file_and_commits(git_ws, tmp_path):
+def test_commit_changes_rename_moves_file_and_commits(git_ws, tmp_path):
     old = tmp_path / "stara.md"
     old.write_text("content")
     git_ws.commit_file("stara.md", "note: add")
 
-    git_ws.rename_file("stara.md", "nowa.md", "note: rename")
+    old.rename(tmp_path / "nowa.md")
+    git_ws.commit_changes(removed=["stara.md"], added=["nowa.md"], message="note: rename")
 
     assert not old.exists()
     assert (tmp_path / "nowa.md").exists()
@@ -96,13 +111,37 @@ def test_rename_file_moves_file_and_commits(git_ws, tmp_path):
     assert b"note: rename" in commits[0].commit.message
 
 
-def test_rename_file_creates_parent_dirs(git_ws, tmp_path):
-    (tmp_path / "note.md").write_text("content")
-    git_ws.commit_file("note.md", "note: add")
+def test_commit_file_is_thin_wrapper_over_commit_changes(git_ws, tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        type(git_ws),
+        "commit_changes",
+        lambda self, *, removed, added, message: calls.append((removed, added, message)),
+    )
+    git_ws.commit_file("note.md", "note: add note")
+    assert calls == [([], ["note.md"], "note: add note")]
 
-    git_ws.rename_file("note.md", "Projekty/Klient A/note.md", "note: move")
 
-    assert (tmp_path / "Projekty" / "Klient A" / "note.md").exists()
+def test_commit_files_is_thin_wrapper_over_commit_changes(git_ws, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        type(git_ws),
+        "commit_changes",
+        lambda self, *, removed, added, message: calls.append((removed, added, message)),
+    )
+    git_ws.commit_files(["a.md", "b.md"], "note: add 2 notes")
+    assert calls == [([], ["a.md", "b.md"], "note: add 2 notes")]
+
+
+def test_commit_moves_is_thin_wrapper_over_commit_changes(git_ws, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        type(git_ws),
+        "commit_changes",
+        lambda self, *, removed, added, message: calls.append((removed, added, message)),
+    )
+    git_ws.commit_moves(["old.md"], ["new.md"], "folder: move x -> y")
+    assert calls == [(["old.md"], ["new.md"], "folder: move x -> y")]
 
 
 def test_file_history_returns_commits_for_file(git_ws, tmp_path):
