@@ -472,6 +472,35 @@ def build_crud(
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
     @logged_tool
+    async def entries_in(
+        period: Annotated[
+            str,
+            Field(
+                description="Canonical period key: YYYY (year), YYYY-MM (month), YYYY-Www "
+                "(ISO week, e.g. 2026-W12), or YYYY-MM-DD (day). Matches notes whose "
+                "occurred_at falls inside this period, OR whose own period overlaps it — so "
+                "a day query can also return the week/month/year note covering that day, not "
+                "just day-grain notes. Invalid formats raise an error naming the bad value."
+            ),
+        ],
+        folder: Annotated[
+            str | None,
+            Field(
+                description="Restrict to notes in this folder and its descendants, e.g. "
+                "'journal' matches 'journal' and 'journal/2026/03' but not 'journals-old'. "
+                "Empty string restricts to root-level notes only (no descendants). Omit to "
+                "search the whole workspace."
+            ),
+        ] = None,
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> list[NoteListItem]:
+        """List notes whose date falls within a calendar period, optionally narrowed to a
+        folder. period and folder use the same semantics as the REST GET /entries endpoint."""
+        notes = await run_sync(note_service.entries_in, ws.name, ws.owner_id, period, folder)
+        return [NoteListItem.model_validate(n) for n in notes]
+
+    @srv.tool(**read_tool(tags={"notes", "crud"}))
+    @logged_tool
     async def export_folder(
         folder: str,
         max_chars: int = 80_000,

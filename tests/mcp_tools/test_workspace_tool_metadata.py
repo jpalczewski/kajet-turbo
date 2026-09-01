@@ -6,6 +6,7 @@ READ_TOOLS = {
     "get_note",
     "list_notes",
     "search_notes",
+    "entries_in",
     "list_folders",
     "list_tags",
     "get_note_history",

@@ -1,6 +1,8 @@
 """list_notes/search/grep/export/reindex tool coverage."""
 
+import pytest
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 
 from kajet_turbo.repositories.git import GitRepository
 from tests.mcp_tools.helpers import call_json
@@ -185,3 +187,44 @@ async def test_reindex_workspace(workspaces_dir, mcp_server):
         assert reindex_result["count"] == 1
         search_result = await client.call_tool("search_notes", {"query": "Reindexed"})
         assert "Reindexed note" in search_result.content[0].text
+
+
+async def test_entries_in_filters_by_period_and_folder(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        wanted = await call_json(
+            client,
+            "save_note",
+            {
+                "title": "Wanted",
+                "content": "",
+                "folder": "journal/2026",
+                "occurred_at": "2026-03-22",
+            },
+        )
+        await call_json(
+            client,
+            "save_note",
+            {
+                "title": "Sibling",
+                "content": "",
+                "folder": "journals-old",
+                "occurred_at": "2026-03-22",
+            },
+        )
+        await call_json(
+            client, "save_note", {"title": "Summary", "content": "", "period": "2026-W12"}
+        )
+
+        result = await call_json(client, "entries_in", {"period": "2026-W12", "folder": "journal"})
+
+        assert [note["note_id"] for note in result] == [wanted["note_id"]]
+
+
+async def test_entries_in_rejects_invalid_period(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        with pytest.raises(ToolError, match="nope"):
+            await client.call_tool("entries_in", {"period": "nope"})
