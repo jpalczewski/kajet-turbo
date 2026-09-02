@@ -38,6 +38,7 @@ from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.embed_enqueue import make_enqueue_embed
 from kajet_turbo.services.embed_handler import EmbedNoteHandler
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
@@ -154,6 +155,8 @@ _note_folder_service = NoteFolderService(
     folder_meta_repo,
     link_reconcile_repo,
 )
+
+collection_service = CollectionService(note_repo)
 
 note_service = NoteService(
     note_repo,

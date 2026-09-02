@@ -70,9 +70,8 @@ class NoteFolderService:
         )
         old_rel = str(old_path.relative_to(ws_path))
         new_rel = str(new_path.relative_to(ws_path))
-        GitRepository(ws_path).rename_file(
-            old_rel, new_rel, f"note: move {note.title} to {new_folder or 'root'}"
-        )
+        repo = GitRepository(ws_path)
+        repo.rename_file(old_rel, new_rel, f"note: move {note.title} to {new_folder or 'root'}")
         self._crud_repo.update(
             note_id,
             owner_id=owner_id,
@@ -83,7 +82,7 @@ class NoteFolderService:
             IndexedNote(note_id, note.folder, note.title),
             IndexedNote(note_id, new_folder, note.title),
         )
-        workspace_links.rewrite_backlinks([move], ws_path)
+        workspace_links.rewrite_backlinks([move], ws_path, repo)
         prune_empty_parents(ws_path, note.folder)
         if self._cache is not None:
             self._cache.bump(note.workspace, owner_id)
@@ -205,9 +204,8 @@ class NoteFolderService:
                 raise
             shutil.rmtree(tmp_root, ignore_errors=True)
 
-        GitRepository(ws_path).commit_moves(
-            removed_rels, added_rels, f"folder: move {src_n} -> {dst_n or 'root'}"
-        )
+        repo = GitRepository(ws_path)
+        repo.commit_moves(removed_rels, added_rels, f"folder: move {src_n} -> {dst_n or 'root'}")
         # Update every folder column first, THEN rewrite backlinks: a link from one
         # moved note to another (same folder being moved) is only found if the source
         # note's DB folder already points at its new — and now real — file location.
@@ -222,7 +220,7 @@ class NoteFolderService:
             )
             for note in notes
         ]
-        workspace_links.rewrite_backlinks(moves, ws_path)
+        workspace_links.rewrite_backlinks(moves, ws_path, repo)
         remove_empty_tree(ws_path, src_n)
         if self._folder_meta_repo is not None:
             self._folder_meta_repo.rename_paths(owner_id, workspace, src_n, dst_n)

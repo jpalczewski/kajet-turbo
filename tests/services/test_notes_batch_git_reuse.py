@@ -143,3 +143,52 @@ def test_delete_many_resolves_shas_in_one_walker_pass(service, workspace, walker
 
     assert result["applied"] is True
     assert walker_pass_count["count"] == 1
+
+
+def test_update_rename_with_backlink_opens_repo_once_for_the_rename_leg(
+    service, workspace, repo_open_count
+):
+    """#123: rewrite_backlinks used to open its own second GitRepository even though
+    update()'s rename leg already has one open. The staleness check just above the
+    rename leg (``current_head_sha``) is a separate, pre-existing open outside #123's
+    scope, so the fixed count is 2 (staleness + the rename/rewrite pair sharing one
+    repo), not 1 — the regression this guards is the rename/rewrite pair going from
+    two opens to one, taking the call's total from 3 to 2."""
+    target = service.save("u1", "ws", str(workspace), "Target", "body\n", [])
+    source = service.save("u1", "ws", str(workspace), "Source", "links [[Target]]\n", [])
+    sha = GitRepository(str(workspace)).file_history("Target.md", limit=1)[0]["sha"]
+    repo_open_count["count"] = 0
+
+    result = service.update(
+        target["note_id"], "u1", str(workspace), expected_sha=sha, title="Renamed"
+    )
+
+    assert result["note_id"] == target["note_id"]
+    assert repo_open_count["count"] == 2
+    assert (
+        "[[Renamed]]" in service.get_with_content(source["note_id"], "u1", str(workspace)).content
+    )
+
+
+def test_move_opens_repo_once(service, workspace, repo_open_count):
+    target = service.save("u1", "ws", str(workspace), "Target", "body\n", [])
+    service.save("u1", "ws", str(workspace), "Source", "links [[Target]]\n", [])
+    repo_open_count["count"] = 0
+
+    result = service.move(target["note_id"], "u1", str(workspace), "moved")
+
+    assert result["folder"] == "moved"
+    assert repo_open_count["count"] == 1
+
+
+def test_move_folder_opens_repo_once(service, workspace, repo_open_count):
+    service.save("u1", "ws", str(workspace), "A", "body\n", [], folder="src")
+    service.save("u1", "ws", str(workspace), "B", "links [[A]]\n", [], folder="src")
+    repo_open_count["count"] = 0
+
+    result = service.move_folder(
+        "src", "dst", owner_id="u1", ws_path=str(workspace), workspace="ws"
+    )
+
+    assert result["moved"] == 2
+    assert repo_open_count["count"] == 1
