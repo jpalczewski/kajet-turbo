@@ -125,6 +125,11 @@ vulnerabilities:
     purls: ["pkg:golang/google.golang.org/grpc@v1.81.0"]
     expired_at: 2026-09-30
     statement: Awaiting a Caddy release built with patched Go dependencies.
+  - id: CVE-2026-84304
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/google.golang.org/grpc@v1.81.0"]
+    expired_at: 2026-09-30
+    statement: Awaiting a Caddy release built with patched Go dependencies.
   - id: CVE-2026-27145
     paths: [usr/bin/caddy]
     purls: ["pkg:golang/stdlib@v1.26.3"]
