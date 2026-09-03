@@ -16,19 +16,20 @@ apply every item, commit once, and restore every snapshot if a later item in the
 Restore is derived from the snapshot, not supplied by the caller — a rollback is byte-exact by
 construction, unlike a hand-rebuilt frontmatter object. `add`+`remove` on one item also makes a
 rename one commit instead of two (see `update()`'s rename leg). Every path that writes note
-content already goes through it — either directly, or via `commit_rows_then_tree` below (single
-save, batch save, rename/update, `edit_many`, `apply_temporal_backfill`), or directly for
-`reconcile_paths`'s adoption path, single-note tagging, `rename_tag`, and `_rewrite_backlinks`.
-Reuse it for any new note-body write path — do not hand-roll the stage/write/commit/rollback
-sequence again.
+content already goes through it — either directly, or via `commit_rows_then_tree`/
+`commit_rows_then` below (single save, batch save, rename/update, `edit_many`,
+`apply_temporal_backfill`, single-note tagging, `rename_tag`, `_rewrite_backlinks`, `move`,
+`move_folder`), or directly only for `reconcile_paths`'s adoption path. Reuse it for any new
+note-body write path — do not hand-roll the stage/write/commit/rollback sequence again.
 
 Pure identity changes that never touch note content — `move()`, `move_folder()` — use the same
 `StagedChange`/`staged_workspace_change` primitive (`move()`) or `GitRepository.commit_changes`
 directly (`move_folder()`, whose temp-dir choreography already has its own correct rollback for
-the filesystem-move phase — a `commit_changes` failure *after* that phase is a separate,
-pre-existing gap tracked by #155, not something this pairing claims to cover), not because they
-write a note body but because the primitive is the one place that knows how to commit
-`add`/`remove` pairs atomically.
+the filesystem-move phase), not because they write a note body but because the primitive is the
+one place that knows how to commit `add`/`remove` pairs atomically. Both are now wrapped by
+`commit_rows_then_tree`/`commit_rows_then` respectively, so the DB folder-column update commits
+in the same transaction as every other write path here, last — see #155 below for what that
+still doesn't cover for `move_folder`.
 
 ## The row transaction wraps the git commit, and commits last (#155)
 
@@ -50,10 +51,39 @@ callers, not two parallel implementations. `delete`/`delete_many` predate this h
 `GitRepository.delete_file(s)` directly instead of `staged_workspace_change`, but follow the
 same rows-first-commit-last ordering.
 
-`rename_tag`, `_apply_tag_change`, `_rewrite_backlinks`, and `move`/`move_folder` do **not**
-go through `commit_rows_then_tree` yet — their DB write still runs after the git commit. That
-gap is tracked, not accidental; do not assume every write path here already has the #155
-invariant just because most of them now do.
+Every note-row write path in this package now goes through `commit_rows_then_tree` or its
+lower-level sibling `commit_rows_then`: `_apply_tag_change`, `rename_tag`, `_rewrite_backlinks`,
+and `move` call `commit_rows_then_tree`. `_rewrite_backlinks`'s row update carries forward only
+`updated_at` (an unchanged passthrough) and bumps `index_generation`; `occurred_at`/`period` are
+deliberately never resynced from the file there (#125) — the method's own docstring claim that
+it never touches dates is now enforced by the code, not just asserted by it. `move_folder`'s
+tree mutation — a temp-dir rename choreography that physically moves every file before git is
+involved at all — isn't expressible as `StagedChange` items, so it calls `commit_rows_then`
+directly with its own `commit_tree` closure wrapping `GitRepository.commit_changes`. That
+choreography's own rollback only covers a failure *during* the move itself: once it completes,
+a `write_rows`/`commit_tree` failure inside `commit_rows_then` rolls the DB rows back together,
+but the files are already at their new location on disk with no git commit recording it.
+
+This is a real behavior change, not just a narrower version of the old gap: before this fix,
+`move_folder` ran its git commit *first*, unconditionally, so a plain DB-write failure always
+left git and disk agreeing with each other and only the rows lagging — exactly the direction
+`reconcile_paths` heals (it re-derives a row's `folder` from wherever its file is actually
+found on disk). Now a DB-write failure alone can leave git stale relative to disk too, and
+`reconcile_paths` never touches git — it only rewrites rows. Once it heals the row to match
+the file's new location, git history for that note's *new* path is empty (nothing was ever
+committed there), which is what `get_note_history`/`get_version`/`restore_note_version` query
+by path. A `git push` of HEAD at that point still contains the old path's blob and lacks the
+new one, so the remote diverges from local disk for that note until something else touches it.
+`move_folder`'s conversion to `commit_rows_then` traded "DB can lag, self-healing" for "git can
+lag, no repair path" on this one failure mode — a real, not just narrower, gap.
+
+Separately: `rename_tag` and `_rewrite_backlinks` can now touch every note in a workspace (a
+tag applied everywhere, a heavily-linked hub note being renamed) in one `commit_rows_then_tree`
+call, same as `move_folder` can touch every note under a large folder. All three now hold the
+single shared SQLite write lock for the DB rows *and* the multi-file git commit that follows,
+in one transaction — a cost the five original `commit_rows_then_tree` callers (`save`,
+`save_many`, `update`, `edit_many`, `apply_temporal_backfill`) already accepted, but only ever
+at a caller-bounded batch size. These three have no such bound.
 
 ## Link resolution has two consistency tiers
 
@@ -68,9 +98,10 @@ for this: right after a rename elsewhere, a stale edge can briefly still be ther
 
 ## `_rewrite_backlinks` deliberately bypasses `NoteService.update()`
 
-`NoteLinkService._rewrite_backlinks` (`links.py:309-416`) rewrites wikilink text in every note
-that links to something just moved/renamed, then commits and updates the DB row directly —
-skipping four steps `update()` normally runs. The docstring at that call site enumerates and
+`NoteLinkService._rewrite_backlinks` (`links.py:356-460`) rewrites wikilink text in every note
+that links to something just moved/renamed, then writes the DB row and commits directly (rows
+first, one transaction, same #155 ordering as everything else here) — skipping four steps
+`update()` normally runs. The docstring at that call site enumerates and
 justifies each skipped step; it is not accidental duplication, it is a deliberate divergence
 for batch-commit atomicity. The one thing to keep in sync from here: if `update()`'s pipeline
 gains or reorders steps, that enumeration is the one place that has to be revisited by hand —

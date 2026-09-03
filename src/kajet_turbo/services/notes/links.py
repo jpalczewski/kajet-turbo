@@ -22,7 +22,7 @@ from kajet_turbo.markdown import (
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
-from kajet_turbo.services.notes.staged_change import StagedChange, staged_workspace_change
+from kajet_turbo.services.notes.staged_change import StagedChange, commit_rows_then_tree
 from kajet_turbo.workspace import locate_note, path_segments, read_note_file, write_note_file
 
 # (old, new) identity of a note that was moved and/or renamed.
@@ -386,6 +386,11 @@ class NoteLinkService:
           the OLD link text until that note's next real edit or a workspace-wide reindex.
           Accepted as a cosmetic, self-healing gap — not worth threading an indexer through
           this call for a stale snippet/chunk-offset window that closes on the next edit.
+
+        The DB row update carries forward only ``updated_at`` (an unchanged passthrough, not
+        bumped to now) and bumps ``index_generation``; ``occurred_at``/``period`` are
+        deliberately never resynced from the file here (#125) — this rewrite only changes
+        wikilink text, never dates.
         """
         moved = {old.note_id: new for old, new in moves}
         source_ids = self._link_repo.backlinks_many(list(moved), same_workspace=workspace.ws_name)
@@ -409,7 +414,7 @@ class NoteLinkService:
             else f"note: rewrite wikilinks after moving {len(moves)} notes"
         )
         items: list[StagedChange] = []
-        rewrites: list[tuple[str, str, str | None, str | None]] = []
+        rewrites: list[tuple[str, str]] = []
         for src in self._crud_repo.get_many(sorted(source_ids), workspace.owner_id):
             loc = locate_note(src, ws_path)
             if not loc.file_exists:
@@ -428,7 +433,8 @@ class NoteLinkService:
             if not changed:
                 continue
             # Identity stays DB-sourced defensively; tags/dates/extras come from the file
-            # just read, not the DB row — this rewrite never changes them (#105).
+            # just read, not the DB row — this rewrite never changes them (#105). The DB row
+            # write below enforces the same claim: only updated_at/index_generation move (#125).
             meta = replace(data_meta, id=src.id, title=src.title)
             items.append(
                 StagedChange(
@@ -437,20 +443,31 @@ class NoteLinkService:
                     apply=partial(write_note_file, loc.filepath, meta, new_body),
                 )
             )
-            rewrites.append((src.id, src.updated_at, data_meta.occurred_at, data_meta.period))
+            rewrites.append((src.id, src.updated_at))
 
         if items:
-            with staged_workspace_change(repo, items, message):
-                pass
-            for note_id, updated_at, occurred_at, period in rewrites:
-                self._crud_repo.update(
-                    note_id,
-                    owner_id=workspace.owner_id,
-                    updated_at=updated_at,
-                    occurred_at=occurred_at,
-                    period=period,
-                    bump_index_generation=True,
-                )
+
+            def write_rows(session: Session) -> None:
+                for note_id, updated_at in rewrites:
+                    self._crud_repo.update_in_session(
+                        session,
+                        note_id,
+                        owner_id=workspace.owner_id,
+                        updated_at=updated_at,
+                        bump_index_generation=True,
+                    )
+
+            commit_rows_then_tree(
+                self._crud_repo,
+                repo,
+                items,
+                message,
+                operation="rewrite_backlinks",
+                write_rows=write_rows,
+                workspace=workspace.ws_name,
+                owner_id=workspace.owner_id,
+                count=len(rewrites),
+            )
         logger.info(
             "backlinks_rewritten",
             ws=workspace.ws_name,

@@ -87,19 +87,29 @@ def make_flaky_write(real_write, *, fail_on_call: int = 2, message: str = "disk 
     return flaky_write
 
 
-def make_flaky_db_write(real_fn, *, fail_on_call: int = 1, message: str = "db exploded"):
-    """An ``insert_in_session``/``update_in_session`` stand-in that raises ``RuntimeError``
-    on the Nth call, delegating to ``real_fn`` otherwise.
+def make_flaky_db_write(
+    real_fn,
+    *,
+    fail_on_call: int = 1,
+    message: str = "db exploded",
+    exc: type[Exception] = RuntimeError,
+):
+    """A stand-in for any callable (``insert_in_session``/``update_in_session``, or
+    ``GitRepository.commit_changes`` for the symmetric git-side case) that raises ``exc`` on
+    the Nth call, delegating to ``real_fn`` otherwise.
 
-    Used to pin #155's ordering: a DB-side failure must abort before the git commit runs,
-    leaving neither the tree nor the rows touched — see ``commit_rows_then_tree``.
+    Used to pin #155's ordering: a failure on either side of ``commit_rows_then``/
+    ``commit_rows_then_tree`` must abort before the other side runs, leaving neither the tree
+    nor the rows touched. Works unchanged for a bound method captured off the class before
+    patching (e.g. ``real_fn = GitRepository.commit_changes``) — ``self`` arrives as
+    ``args[0]`` when the wrapper replaces the class attribute, and is forwarded through.
     """
     calls = {"n": 0}
 
     def flaky(*args, **kwargs):
         calls["n"] += 1
         if calls["n"] == fail_on_call:
-            raise RuntimeError(message)
+            raise exc(message)
         return real_fn(*args, **kwargs)
 
     return flaky

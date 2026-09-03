@@ -2,6 +2,8 @@ import shutil
 from pathlib import Path
 from secrets import token_hex
 
+from sqlmodel import Session
+
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import IndexedNote
@@ -11,7 +13,11 @@ from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes.links import NoteLinkService
 from kajet_turbo.services.notes.paths import build_path_index, conflict_message, note_path_conflict
-from kajet_turbo.services.notes.staged_change import StagedChange, staged_workspace_change
+from kajet_turbo.services.notes.staged_change import (
+    StagedChange,
+    commit_rows_then,
+    commit_rows_then_tree,
+)
 from kajet_turbo.workspace import (
     InvalidFolderError,
     list_workspace_folders,
@@ -84,14 +90,26 @@ class NoteFolderService:
                 raise GitError(str(e)) from e
 
         item = StagedChange(add=new_rel, remove=old_rel, apply=apply_move)
-        with staged_workspace_change(
-            repo, [item], f"note: move {note.title} to {new_folder or 'root'}"
-        ):
-            pass
-        self._crud_repo.update(
-            note_id,
+        message = f"note: move {note.title} to {new_folder or 'root'}"
+
+        def write_rows(session: Session) -> None:
+            self._crud_repo.update_in_session(
+                session,
+                note_id,
+                owner_id=owner_id,
+                updated_at=note.updated_at,
+                folder=new_folder,
+            )
+
+        commit_rows_then_tree(
+            self._crud_repo,
+            repo,
+            [item],
+            message,
+            operation="move",
+            write_rows=write_rows,
+            note_id=note_id,
             owner_id=owner_id,
-            updated_at=note.updated_at,
             folder=new_folder,
         )
         move = (
@@ -221,18 +239,47 @@ class NoteFolderService:
             shutil.rmtree(tmp_root, ignore_errors=True)
 
         repo = GitRepository(ws_path)
-        repo.commit_changes(
-            removed=removed_rels,
-            added=added_rels,
-            message=f"folder: move {src_n} -> {dst_n or 'root'}",
-        )
+        message = f"folder: move {src_n} -> {dst_n or 'root'}"
+
         # Update every folder column first, THEN rewrite backlinks: a link from one
         # moved note to another (same folder being moved) is only found if the source
         # note's DB folder already points at its new — and now real — file location.
-        for note in notes:
-            self._crud_repo.update(
-                note.id, owner_id=owner_id, updated_at=note.updated_at, folder=remap[note.id]
-            )
+        def write_rows(session: Session) -> None:
+            for note in notes:
+                self._crud_repo.update_in_session(
+                    session,
+                    note.id,
+                    owner_id=owner_id,
+                    updated_at=note.updated_at,
+                    folder=remap[note.id],
+                )
+
+        def commit_tree() -> None:
+            repo.commit_changes(removed=removed_rels, added=added_rels, message=message)
+
+        # move_folder's temp-dir choreography above already physically moved every file,
+        # unconditionally, before this call ever runs — and has its own correct rollback for
+        # that phase, but only for a failure *during* the choreography itself. Once it's done,
+        # this call only orders the DB rows and the git commit that records the move (#155):
+        # if write_rows or commit_tree raises, the rows roll back together, but the files stay
+        # at their new location on disk with no git commit recording it. Before this change, a
+        # write_rows-shaped (DB) failure could not happen here at all — commit_changes ran
+        # first, unconditionally, so a DB failure always left git and disk agreeing and only
+        # the rows behind, the direction reconcile_paths heals. Now a plain DB-write failure
+        # can also leave git stale relative to disk, and reconcile_paths never touches git —
+        # only a git-side failure used to have this shape. See services/notes/CLAUDE.md's
+        # #155 section for the full consequence (stale git history, a diverging push).
+        commit_rows_then(
+            self._crud_repo,
+            write_rows=write_rows,
+            commit_tree=commit_tree,
+            operation="move_folder",
+            workspace=workspace,
+            owner_id=owner_id,
+            src=src_n,
+            dst=dst_n,
+            count=len(notes),
+        )
         moves = [
             (
                 IndexedNote(note.id, note.folder, note.title),

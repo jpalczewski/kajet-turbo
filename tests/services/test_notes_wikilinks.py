@@ -1,9 +1,11 @@
 """Wikilink validation, conditional validation, and dangling-link write coverage."""
 
+from unittest.mock import patch
+
 import pytest
 
 from kajet_turbo.markdown import BrokenWikilinkError, IndexedNote, render_markdown
-from tests.services.helpers import make_flaky_write, make_service_with_dangling
+from tests.services.helpers import make_flaky_db_write, make_flaky_write, make_service_with_dangling
 
 
 def test_save_with_valid_wikilink_succeeds(service, workspace):
@@ -260,6 +262,99 @@ def test_move_rewrite_creates_commit_in_source_history(service, workspace):
     service.move(tid, owner_id="u1", ws_path=str(workspace), folder="New")
     history = service.get_history(sid, owner_id="u1", ws_path=str(workspace))
     assert any("rewrite wikilink" in h["message"] for h in history)
+
+
+def test_rewrite_backlinks_db_failure_leaves_backlink_untouched(service, workspace):
+    """#155: _rewrite_backlinks now writes its row inside one transaction that commits
+    last, same as every other write path. A DB-side failure on the backlink-rewrite step
+    must not touch the linking note's file or row — and must not undo the rename that
+    triggered it, a separate, already-committed transaction (update()'s own
+    commit_rows_then_tree call)."""
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
+    sha = service.get_history(tid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    src_sha_before = service.get_history(sid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    # call 1: update()'s own row write (the rename) — must succeed and land.
+    # call 2: _rewrite_backlinks' row write — fails.
+    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session, fail_on_call=2)
+
+    with (
+        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        pytest.raises(RuntimeError, match="db exploded"),
+    ):
+        service.update(
+            tid, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="Renamed"
+        )
+
+    note = service.get_with_content(tid, owner_id="u1", ws_path=str(workspace))
+    assert note.title == "Renamed"
+
+    src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
+    assert src.content == "[[Target]]"
+    assert service.get_history(sid, owner_id="u1", ws_path=str(workspace))[0]["sha"] == (
+        src_sha_before
+    )
+
+
+def test_rewrite_backlinks_git_failure_leaves_row_and_move_intact(service, workspace, monkeypatch):
+    """Same shape as the DB-failure case above, but the git commit fails instead: #155's
+    row-then-tree ordering applies to git-side failures too, not just DB-side ones."""
+    from kajet_turbo.repositories.git import GitError, GitRepository
+
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    sid = service.save("u1", "ws", str(workspace), "Source", "[[Target]]", [])["note_id"]
+    sha = service.get_history(tid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    src_sha_before = service.get_history(sid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    # call 1: the rename itself; call 2: the backlink rewrite.
+    flaky_commit_changes = make_flaky_db_write(
+        GitRepository.commit_changes, fail_on_call=2, message="fail", exc=GitError
+    )
+    monkeypatch.setattr(GitRepository, "commit_changes", flaky_commit_changes)
+    with pytest.raises(GitError, match="fail"):
+        service.update(
+            tid, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="Renamed"
+        )
+
+    note = service.get_with_content(tid, owner_id="u1", ws_path=str(workspace))
+    assert note.title == "Renamed"
+
+    src = service.get_with_content(sid, owner_id="u1", ws_path=str(workspace))
+    assert src.content == "[[Target]]"
+    assert service.get_history(sid, owner_id="u1", ws_path=str(workspace))[0]["sha"] == (
+        src_sha_before
+    )
+
+
+def test_rewrite_backlinks_does_not_resync_occurred_at_period(service, workspace):
+    """#125 (narrow): a backlink rewrite only ever changes wikilink text. It must not
+    resync occurred_at/period from the file even when the file has drifted from the DB
+    row since the last write through the service — that resync is reconcile's job."""
+    from dataclasses import replace
+
+    from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
+
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    sid = service.save(
+        "u1", "ws", str(workspace), "Source", "[[Target]]", [], occurred_at="2026-01-01"
+    )["note_id"]
+
+    src_path = note_filepath(str(workspace), "", "Source")
+    src_meta, src_content = read_note_file(src_path)
+    write_note_file(src_path, replace(src_meta, occurred_at="2099-12-31"), src_content)
+
+    row_before = service._crud_repo.get(sid, owner_id="u1")
+    generation_before = row_before.index_generation
+    updated_at_before = row_before.updated_at
+
+    sha = service.get_history(tid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(tid, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="Renamed")
+
+    row_after = service._crud_repo.get(sid, owner_id="u1")
+    assert row_after.occurred_at == "2026-01-01"
+    assert row_after.updated_at == updated_at_before
+    assert row_after.index_generation == generation_before + 1
 
 
 def test_validate_wikilinks_accepts_extra_index_notes(service, workspace):

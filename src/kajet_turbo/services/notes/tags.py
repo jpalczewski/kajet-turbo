@@ -3,6 +3,8 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 
+from sqlmodel import Session
+
 from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
@@ -18,7 +20,7 @@ from kajet_turbo.repositories.git import (
 )
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.services.indexing import NoteIndexer
-from kajet_turbo.services.notes.staged_change import StagedChange, staged_workspace_change
+from kajet_turbo.services.notes.staged_change import StagedChange, commit_rows_then_tree
 from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
 from kajet_turbo.workspace import (
     LocatedNote,
@@ -153,17 +155,29 @@ class NoteTagService:
                 remove=None,
                 apply=partial(write_note_file, loc.filepath, apply_meta, content),
             )
-            with staged_workspace_change(GitRepository(ws_path), [item], f"note: tag {note.title}"):
-                pass
-            self._crud_repo.update(
-                note_id,
+
+            def write_rows(session: Session) -> None:
+                self._crud_repo.update_in_session(
+                    session,
+                    note_id,
+                    owner_id=owner_id,
+                    title=note.title,
+                    tags=new_tags,
+                    updated_at=now,
+                    folder=note.folder,
+                    occurred_at=existing_meta.occurred_at,
+                    period=existing_meta.period,
+                )
+
+            commit_rows_then_tree(
+                self._crud_repo,
+                GitRepository(ws_path),
+                [item],
+                f"note: tag {note.title}",
+                operation="update_tags",
+                write_rows=write_rows,
+                note_id=note_id,
                 owner_id=owner_id,
-                title=note.title,
-                tags=new_tags,
-                updated_at=now,
-                folder=note.folder,
-                occurred_at=existing_meta.occurred_at,
-                period=existing_meta.period,
             )
             self.sync_tags(note_id, note.workspace, owner_id, new_tags, content)
             if self._cache is not None:
@@ -339,21 +353,34 @@ class NoteTagService:
             for item in staged
         ]
         message = f"tag: rename {old_n} -> {new_n}"
-        with staged_workspace_change(GitRepository(ws_path), items, message):
-            pass
 
-        for item in staged:
-            self._crud_repo.update(
-                item.note.id,
-                owner_id=owner_id,
-                title=item.note.title,
-                tags=item.new_tags,
-                updated_at=now,
-                folder=item.note.folder,
-                occurred_at=item.meta.occurred_at,
-                period=item.meta.period,
-                bump_index_generation=item.body_changed,
-            )
+        def write_rows(session: Session) -> None:
+            for item in staged:
+                self._crud_repo.update_in_session(
+                    session,
+                    item.note.id,
+                    owner_id=owner_id,
+                    title=item.note.title,
+                    tags=item.new_tags,
+                    updated_at=now,
+                    folder=item.note.folder,
+                    occurred_at=item.meta.occurred_at,
+                    period=item.meta.period,
+                    bump_index_generation=item.body_changed,
+                )
+
+        commit_rows_then_tree(
+            self._crud_repo,
+            GitRepository(ws_path),
+            items,
+            message,
+            operation="rename_tag",
+            write_rows=write_rows,
+            owner_id=owner_id,
+            old=old_n,
+            new=new_n,
+            count=len(staged),
+        )
         # One transaction and one orphan sweep for the batch, not one per note.
         self._tag_repo.sync_note_tags_many(
             ws_name,

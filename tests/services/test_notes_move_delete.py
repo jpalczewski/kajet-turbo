@@ -8,7 +8,7 @@ import pytest
 
 from kajet_turbo import perf
 from kajet_turbo.repositories.git import GitError, GitRepository
-from tests.services.helpers import head_sha
+from tests.services.helpers import head_sha, make_flaky_db_write
 
 
 def test_move_note_to_existing_folder_preserves_updated_at(service, workspace):
@@ -64,6 +64,26 @@ def test_move_note_os_error_on_rename_surfaces_as_git_error(service, workspace, 
         service.move(note_id, owner_id="u1", ws_path=str(workspace), folder="archive")
 
     assert (workspace / "Move me.md").exists()
+    after = service.get(note_id, owner_id="u1")
+    assert after["folder"] == ""
+
+
+def test_move_note_db_failure_leaves_file_and_row_untouched(service, workspace):
+    """#155: move() now writes its row before the git commit, inside one transaction
+    that commits last — a DB-side failure must abort before either changes."""
+    note_id = service.save("u1", "ws", str(workspace), "Move me", "content", [])["note_id"]
+    sha_before = head_sha(workspace, "Move me.md")
+    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session)
+
+    with (
+        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        pytest.raises(RuntimeError, match="db exploded"),
+    ):
+        service.move(note_id, owner_id="u1", ws_path=str(workspace), folder="archive")
+
+    assert (workspace / "Move me.md").exists()
+    assert not (workspace / "archive" / "Move me.md").exists()
+    assert head_sha(workspace, "Move me.md") == sha_before
     after = service.get(note_id, owner_id="u1")
     assert after["folder"] == ""
 
