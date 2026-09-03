@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from kajet_turbo import perf
+from tests.services.helpers import make_flaky_db_write
 
 
 def test_save_perf_span_records_phases(service, workspace):
@@ -149,6 +150,24 @@ def test_save_git_error_rolls_back_file(service, workspace):
         service.save("u1", "ws", str(workspace), "Git fail note", "treść", [])
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
     assert md_files == []
+    # #155: the row insert runs before the git commit inside the same transaction, so a
+    # git-side failure must roll the already-flushed row back too, not just the file.
+    assert service._crud_repo.list_notes("ws", "u1", limit=None) == []
+
+
+def test_save_db_failure_leaves_no_file_and_no_row(service, workspace, monkeypatch):
+    """#155: the row write runs before the tree write, so a DB-side failure must abort
+    before anything ever touches disk or git."""
+
+    flaky_insert = make_flaky_db_write(service._crud_repo.insert_in_session)
+    monkeypatch.setattr(service._crud_repo, "insert_in_session", flaky_insert)
+
+    with pytest.raises(RuntimeError, match="db exploded"):
+        service.save("u1", "ws", str(workspace), "DB fail note", "treść", [])
+
+    md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
+    assert md_files == []
+    assert service._crud_repo.list_notes("ws", "u1", limit=None) == []
 
 
 def test_get_with_content_returns_note_data(service, workspace):

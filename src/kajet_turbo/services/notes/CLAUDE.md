@@ -15,22 +15,45 @@ pipeline for touching a note's file on disk: snapshot every `add`/`remove` path'
 apply every item, commit once, and restore every snapshot if a later item in the batch fails.
 Restore is derived from the snapshot, not supplied by the caller — a rollback is byte-exact by
 construction, unlike a hand-rebuilt frontmatter object. `add`+`remove` on one item also makes a
-rename one commit instead of two (see `update()`'s rename leg, `service.py:882`). Every path
-that writes note content already goes through it — single save (`service.py:400`), batch save
-(`service.py:462`), rename/update (`service.py:882`), `edit_many` (`service.py:1051`),
-`apply_temporal_backfill` (`service.py:1443`), `reconcile_paths`'s adoption path
-(`service.py:1549`), single-note tagging (`tags.py:118`), `rename_tag` (`tags.py:245`), and
-`_rewrite_backlinks` (`links.py:309`). Reuse it for any new note-body write path — do not
-hand-roll the stage/write/commit/rollback sequence again.
+rename one commit instead of two (see `update()`'s rename leg). Every path that writes note
+content already goes through it — either directly, or via `commit_rows_then_tree` below (single
+save, batch save, rename/update, `edit_many`, `apply_temporal_backfill`), or directly for
+`reconcile_paths`'s adoption path, single-note tagging, `rename_tag`, and `_rewrite_backlinks`.
+Reuse it for any new note-body write path — do not hand-roll the stage/write/commit/rollback
+sequence again.
 
-Pure identity changes that never touch note content — `move()`, `move_folder()`
-(`folders.py:43`, `folders.py:105`) — use the same `StagedChange`/`staged_workspace_change`
-primitive (`move()`) or `GitRepository.commit_changes` directly (`move_folder()`, whose
-temp-dir choreography already has its own correct rollback for the filesystem-move phase —
-a `commit_changes` failure *after* that phase is a separate, pre-existing gap tracked by
-#155, not something this pairing claims to cover), not because they write a note body but
-because the primitive is the one place that knows how to commit `add`/`remove` pairs
-atomically.
+Pure identity changes that never touch note content — `move()`, `move_folder()` — use the same
+`StagedChange`/`staged_workspace_change` primitive (`move()`) or `GitRepository.commit_changes`
+directly (`move_folder()`, whose temp-dir choreography already has its own correct rollback for
+the filesystem-move phase — a `commit_changes` failure *after* that phase is a separate,
+pre-existing gap tracked by #155, not something this pairing claims to cover), not because they
+write a note body but because the primitive is the one place that knows how to commit
+`add`/`remove` pairs atomically.
+
+## The row transaction wraps the git commit, and commits last (#155)
+
+The file tree is the source of truth; `notes` rows are a derived index. On every write, the
+**note-row transaction wraps the git commit and commits last**: a `GitError`/`OSError` rolls
+the rows back and `staged_workspace_change` restores the tree, so nothing moved. The only
+residual window is "git committed, SQLite COMMIT failed", which leaves the tree *ahead of* the
+index — the direction `reconcile_paths` heals. A write path must never be able to leave the
+index ahead of the tree.
+
+`staged_change.py`'s `commit_rows_then_tree` is this shape as one helper: it opens a
+`crud_repo.operation(...)` transaction, runs the caller's `write_rows(session)` (a call into
+`insert_in_session`/`update_in_session` — SQL is cheap to fail before anything touches disk),
+`flush()`s so a constraint violation surfaces before the tree write rather than at COMMIT, then
+commits the git tree via `staged_workspace_change` inside the same transaction. `save`,
+`save_many`, `update`, `edit_many`, and `apply_temporal_backfill` all call it — this is the
+shared batch skeleton #144 asked for; `edit_many` and `apply_temporal_backfill` are two of its
+callers, not two parallel implementations. `delete`/`delete_many` predate this helper and use
+`GitRepository.delete_file(s)` directly instead of `staged_workspace_change`, but follow the
+same rows-first-commit-last ordering.
+
+`rename_tag`, `_apply_tag_change`, `_rewrite_backlinks`, and `move`/`move_folder` do **not**
+go through `commit_rows_then_tree` yet — their DB write still runs after the git commit. That
+gap is tracked, not accidental; do not assume every write path here already has the #155
+invariant just because most of them now do.
 
 ## Link resolution has two consistency tiers
 

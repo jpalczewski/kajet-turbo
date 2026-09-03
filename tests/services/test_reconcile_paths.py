@@ -460,22 +460,21 @@ def test_reconcile_holds_workspace_lock_against_concurrent_save(
     release_reconcile = Event()
     save_acquired = Event()
     real_insert_in_session = service._crud_repo.insert_in_session
-    real_insert = service._crud_repo.insert
 
-    def paused_insert(session, note):
-        reconcile_started.set()
-        assert release_reconcile.wait(timeout=5)
+    def dispatched_insert(session, note):
+        # save() and reconcile_paths's adoption path both go through insert_in_session
+        # (via commit_rows_then_tree, see #155/#144) — dispatch on which note is being
+        # inserted rather than which method was called. save()'s own insert must not
+        # block, or its arrival could never be distinguished from "still waiting for
+        # the lock" in the assertion below.
+        if note.title == "Concurrent":
+            save_acquired.set()
+        else:
+            reconcile_started.set()
+            assert release_reconcile.wait(timeout=5)
         return real_insert_in_session(session, note)
 
-    def signalling_insert(*args, **kwargs):
-        # save()'s own DB insert — proves the lock was actually acquired (not just that
-        # the thread started running), without also firing on reconcile_paths's internal
-        # list_paths/for_workspace calls, which run under the same lock too.
-        save_acquired.set()
-        return real_insert(*args, **kwargs)
-
-    monkeypatch.setattr(service._crud_repo, "insert_in_session", paused_insert)
-    monkeypatch.setattr(service._crud_repo, "insert", signalling_insert)
+    monkeypatch.setattr(service._crud_repo, "insert_in_session", dispatched_insert)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         reconcile_future = pool.submit(

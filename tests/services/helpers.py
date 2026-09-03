@@ -85,3 +85,21 @@ def make_flaky_write(real_write, *, fail_on_call: int = 2, message: str = "disk 
         return real_write(*args, **kwargs)
 
     return flaky_write
+
+
+def make_flaky_db_write(real_fn, *, fail_on_call: int = 1, message: str = "db exploded"):
+    """An ``insert_in_session``/``update_in_session`` stand-in that raises ``RuntimeError``
+    on the Nth call, delegating to ``real_fn`` otherwise.
+
+    Used to pin #155's ordering: a DB-side failure must abort before the git commit runs,
+    leaving neither the tree nor the rows touched — see ``commit_rows_then_tree``.
+    """
+    calls = {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == fail_on_call:
+            raise RuntimeError(message)
+        return real_fn(*args, **kwargs)
+
+    return flaky

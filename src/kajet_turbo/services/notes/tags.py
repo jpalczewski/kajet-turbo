@@ -159,7 +159,6 @@ class NoteTagService:
                 note_id,
                 owner_id=owner_id,
                 title=note.title,
-                content=content,
                 tags=new_tags,
                 updated_at=now,
                 folder=note.folder,
