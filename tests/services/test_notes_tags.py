@@ -1,10 +1,12 @@
 """Tag indexing plus add/remove/set-tags/rename_tag coverage for NoteService."""
 
 from dataclasses import replace
+from unittest.mock import patch
 
 import pytest
 
 from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
+from tests.services.helpers import make_flaky_db_write
 
 
 def test_save_indexes_frontmatter_and_inline_tags(service, workspace):
@@ -181,6 +183,24 @@ def test_set_tags_no_gate_when_superset(service, workspace):
     assert set(result["frontmatter_tags"]) == {"python", "work"}
 
 
+def test_apply_tag_change_db_failure_leaves_file_and_row_untouched(service, workspace):
+    """#155: _apply_tag_change now writes its row before the git commit, inside one
+    transaction that commits last — a DB-side failure must abort before either changes."""
+    note_id = service.save("u1", "ws", str(workspace), "Notka", "treść", ["python"])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session)
+
+    with (
+        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        pytest.raises(RuntimeError, match="db exploded"),
+    ):
+        service.add_tags(note_id, "u1", str(workspace), ["work"])
+
+    assert service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"] == sha
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note.tags == ["python"]
+
+
 def _rename(service, workspace, old, new, **kw):
     return service.rename_tag(old, new, owner_id="u1", ws_name="ws", ws_path=str(workspace), **kw)
 
@@ -319,8 +339,6 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(service, work
         _rename(service, workspace, "work", "job")
 
     monkeypatch.setattr(tags_module, "write_note_file", real_write)
-    # The files are the source of truth here — NoteData.tags reads the DB row, which the
-    # aborted rename never reached.
     for title in ("A", "B"):
         on_disk, _ = read_note_file(note_filepath(str(workspace), "", title))
         assert on_disk.tags == ["work"]
@@ -329,6 +347,37 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(service, work
     assert service.get_history(a["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"] == (
         head_before
     )
+    # #155: since this fix, the DB row is written and flushed *before* the failing file
+    # write runs (write_rows precedes staged_workspace_change's apply phase inside
+    # commit_rows_then_tree) — it reaches the DB and then rolls back with the transaction,
+    # rather than never reaching it at all as it did under the old git-first ordering.
+    assert service.get(a["note_id"], owner_id="u1")["tags"] == ["work"]
+
+
+def test_rename_tag_db_failure_leaves_tree_and_all_rows_untouched(service, workspace):
+    """#155: rename_tag's row writes are now batched into one transaction that commits
+    last — a DB-side failure on note k must roll back every note's row, not just k's, and
+    must never reach the git commit at all."""
+    a = service.save("u1", "ws", str(workspace), "A", "body", ["work"])
+    b = service.save("u1", "ws", str(workspace), "B", "body", ["work"])
+    head_before = service.get_history(a["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session, fail_on_call=2)
+
+    with (
+        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        pytest.raises(RuntimeError, match="db exploded"),
+    ):
+        _rename(service, workspace, "work", "job")
+
+    assert service.get_history(a["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"] == (
+        head_before
+    )
+    assert service.get(a["note_id"], owner_id="u1")["tags"] == ["work"]
+    assert service.get(b["note_id"], owner_id="u1")["tags"] == ["work"]
+    for title in ("A", "B"):
+        on_disk, _ = read_note_file(note_filepath(str(workspace), "", title))
+        assert on_disk.tags == ["work"]
 
 
 def test_rename_tag_serializes_with_a_concurrent_tag_edit(service, workspace, monkeypatch):

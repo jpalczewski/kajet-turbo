@@ -1,6 +1,10 @@
 """Folder move / merge / prune coverage for NoteService."""
 
+from unittest.mock import patch
+
 import pytest
+
+from tests.services.helpers import head_sha, make_flaky_db_write
 
 
 def _mv(service, workspace, src, dst):
@@ -181,3 +185,66 @@ def test_prune_empty_folders_removes_orphans_keeps_gitkeep(service, workspace):
     assert not (workspace / "orphan").exists()
     assert (workspace / "kept").exists()
     assert "orphan" in result["pruned"]
+
+
+def test_move_folder_db_failure_rolls_back_rows_but_leaves_files_moved(service, workspace):
+    """#155: move_folder's row writes are now batched into one transaction that commits
+    last, via the lower-level commit_rows_then (its tree mutation — a temp-dir rename
+    choreography — isn't expressible as StagedChange items). A DB-side failure on note k
+    must roll back every note's row in the batch, not just k's — but the temp-dir
+    choreography has already unconditionally relocated every file to its destination
+    before commit_rows_then even runs, so (like a git-side failure — see the next test)
+    the files stay at the new location; only the rows and the git commit are ordered by
+    this fix, not the temp-dir phase's own irreversibility once it completes.
+
+    This is a new failure shape, not a narrower version of an old one: before this fix, a
+    plain DB-write failure here couldn't leave git stale, because commit_changes ran first,
+    unconditionally — git and disk always agreed, only the rows could lag, which
+    reconcile_paths heals by re-deriving folder from disk. Now a DB failure alone can leave
+    git behind disk too, and reconcile_paths never touches git."""
+    a = service.save("u1", "ws", str(workspace), "A", "x", [], folder="people")["note_id"]
+    b = service.save("u1", "ws", str(workspace), "B", "y", [], folder="people")["note_id"]
+    sha_a_before = head_sha(workspace, "people/A.md")
+    sha_b_before = head_sha(workspace, "people/B.md")
+
+    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session, fail_on_call=2)
+
+    with (
+        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        pytest.raises(RuntimeError, match="db exploded"),
+    ):
+        _mv(service, workspace, "people", "team")
+
+    assert not (workspace / "people").exists()
+    assert (workspace / "team" / "A.md").exists()
+    assert (workspace / "team" / "B.md").exists()
+    # No git commit ever ran (write_rows raised before commit_tree()), so history for the
+    # old path is exactly what it was before the attempted move.
+    assert head_sha(workspace, "people/A.md") == sha_a_before
+    assert head_sha(workspace, "people/B.md") == sha_b_before
+    assert service.get(a, owner_id="u1")["folder"] == "people"
+    assert service.get(b, owner_id="u1")["folder"] == "people"
+
+
+def test_move_folder_git_failure_leaves_files_moved_but_db_and_git_consistent(service, workspace):
+    """The temp-dir choreography physically moves files before git is ever involved, with
+    its own correct rollback for that phase — this fix only orders the DB rows and the git
+    commit that records the move, not the temp-dir phase itself. So a commit_changes
+    failure here rolls the DB rows back to the old folder, but the files are already
+    physically at the new location on disk with no git commit recording it. Unlike a
+    DB-side failure (see the previous test), this shape of gap did already exist before
+    this fix — commit_changes could always fail on its own — so this test pins that the
+    gap's shape hasn't grown, not that it's new (named in services/notes/CLAUDE.md)."""
+    from kajet_turbo.repositories.git import GitError, GitRepository
+
+    a = service.save("u1", "ws", str(workspace), "A", "x", [], folder="people")["note_id"]
+
+    with (
+        patch.object(GitRepository, "commit_changes", side_effect=GitError("fail")),
+        pytest.raises(GitError, match="fail"),
+    ):
+        _mv(service, workspace, "people", "team")
+
+    assert not (workspace / "people").exists()
+    assert (workspace / "team" / "A.md").exists()
+    assert service.get(a, owner_id="u1")["folder"] == "people"

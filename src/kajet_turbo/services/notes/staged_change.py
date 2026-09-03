@@ -73,6 +73,46 @@ def staged_workspace_change(
         raise
 
 
+def commit_rows_then(
+    crud_repo: NoteRepository,
+    *,
+    write_rows: Callable[[Session], None],
+    commit_tree: Callable[[], None],
+    operation: str,
+    **operation_fields: object,
+) -> None:
+    """Write DB rows, then run an arbitrary tree-commit callback, both inside one
+    transaction that commits last.
+
+    The invariant (#155): the file tree is the source of truth and ``notes`` rows are a
+    derived index, so a write must never be able to leave the index ahead of the tree. Rows
+    go in first, ``commit_tree`` last, inside the same transaction, so an exception either one
+    raises rolls the rows back too. The only residual window is "tree committed, SQLite COMMIT
+    failed", which leaves the tree ahead of the index; ``reconcile_paths`` heals that direction.
+
+    "Rows first because SQL is cheap to fail before anything has touched disk" is the
+    rationale for every caller whose tree mutation runs *inside* ``commit_tree`` — that's
+    ``commit_rows_then_tree`` below, the ``StagedChange``-shaped specialization used by every
+    write whose tree mutation is expressible as add/remove items. It does NOT hold for
+    ``NoteFolderService.move_folder`` (``folders.py``), the other caller: its tree mutation is
+    a temp-dir rename choreography that physically moves files *before* this function ever
+    runs, not inside ``commit_tree`` — so by the time ``write_rows`` executes, disk has already
+    been mutated regardless of what happens next. For that caller this function only orders
+    the DB rows against the git commit that records an already-completed move; it does not
+    give the "nothing touched disk until the DB write succeeds" guarantee this docstring
+    describes for `commit_rows_then_tree`-shaped callers. See the call-site comment in
+    ``folders.py`` for what `move_folder` still doesn't cover.
+    """
+    with crud_repo.operation(operation, **operation_fields) as op, op.session.begin():
+        write_rows(op.session)
+        # write_rows only calls session.add() (insert_in_session/update_in_session), so a
+        # constraint violation would otherwise surface at COMMIT time — i.e. after the tree
+        # commit below already landed, defeating the ordering this helper exists for.
+        op.session.flush()
+        with perf.excluded_from("db_ms"):
+            commit_tree()
+
+
 def commit_rows_then_tree(
     crud_repo: NoteRepository,
     git_repo: GitRepository,
@@ -83,21 +123,17 @@ def commit_rows_then_tree(
     write_rows: Callable[[Session], None],
     **operation_fields: object,
 ) -> None:
-    """Write DB rows, then commit the tree, both inside one transaction that commits last.
+    """``commit_rows_then`` specialized to a ``StagedChange`` batch committed via
+    ``staged_workspace_change`` — see ``commit_rows_then`` for the invariant this enforces."""
 
-    The invariant (#155): the file tree is the source of truth and ``notes`` rows are a
-    derived index, so a write must never be able to leave the index ahead of the tree. Rows
-    go in first because SQL is cheap to fail before anything has touched disk; the git commit
-    goes last, inside the same transaction, so a ``GitError``/``OSError`` rolls the rows back
-    and ``staged_workspace_change`` restores the tree — nothing moved. The only residual
-    window is "git committed, SQLite COMMIT failed", which leaves the tree ahead of the
-    index; ``reconcile_paths`` heals that direction.
-    """
-    with crud_repo.operation(operation, **operation_fields) as op, op.session.begin():
-        write_rows(op.session)
-        # write_rows only calls session.add() (insert_in_session/update_in_session), so a
-        # constraint violation would otherwise surface at COMMIT time — i.e. after the git
-        # commit below already landed, defeating the ordering this helper exists for.
-        op.session.flush()
-        with perf.excluded_from("db_ms"), staged_workspace_change(git_repo, items, message):
+    def commit_tree() -> None:
+        with staged_workspace_change(git_repo, items, message):
             pass
+
+    commit_rows_then(
+        crud_repo,
+        write_rows=write_rows,
+        commit_tree=commit_tree,
+        operation=operation,
+        **operation_fields,
+    )
