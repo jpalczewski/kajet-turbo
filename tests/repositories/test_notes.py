@@ -263,6 +263,25 @@ def test_insert_writes_no_fts_rows(database):
     assert n == 0  # FTS is now written only via replace_chunks (chunk-level)
 
 
+# --- get_many chunking tests ---
+
+
+def test_get_many_spans_multiple_chunks(notes, monkeypatch):
+    """get_many's IN (...) chunking must not drop or duplicate rows at a chunk boundary."""
+    from kajet_turbo.repositories.notes import crud as crud_module
+
+    monkeypatch.setattr(crud_module, "_IN_CLAUSE_CHUNK_SIZE", 2)
+    ids = ["a", "b", "c", "d", "e"]
+    for nid in ids:
+        notes.insert(nid, "ws", "u1", nid.upper(), [], _now(), _now())
+    result_ids = sorted(n.id for n in notes.get_many(ids, "u1"))
+    assert result_ids == ids
+
+
+def test_get_many_empty_input(notes):
+    assert notes.get_many([], "u1") == []
+
+
 # --- add_link tests ---
 
 
