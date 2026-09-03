@@ -2,6 +2,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from kajet_turbo.shared.notes import (
+    FolderContext,
+    NoteLinkItemWithMeta,
+    NoteLinksBase,
+    NoteListItem,
+    WikilinkWarning,
+)
+
 
 class ToolInput(BaseModel):
     """Base for batch tool input items: an unknown key is an error, not a silent drop.
@@ -34,23 +42,11 @@ class NoteInput(ToolInput):
     )
 
 
-class WikilinkWarning(BaseModel):
-    kind: Literal["ambiguous_wikilink", "case_corrected_wikilink"]
-    target: str
-    resolved_to: str
-    alternatives: list[str] = Field(default_factory=list)
-
-
 class SavedNoteResult(BaseModel):
     note_id: str
     warnings: list[WikilinkWarning] = Field(default_factory=list)
     occurred_at: str | None = None
     period: str | None = None
-
-
-class MovedNoteResult(BaseModel):
-    note_id: str
-    folder: str
 
 
 class ConflictItem(BaseModel):
@@ -71,11 +67,6 @@ class FolderConflictResult(BaseModel):
 
 class DeletedNoteResult(BaseModel):
     note_id: str
-
-
-class ReindexResult(BaseModel):
-    message: str
-    count: int
 
 
 class PrunedFoldersResult(BaseModel):
@@ -110,35 +101,6 @@ class TagItem(BaseModel):
     path: str
     name: str
     count: int
-
-
-class HistoryEntry(BaseModel):
-    sha: str
-    message: str
-    timestamp: int
-
-
-class NoteListItem(BaseModel):
-    note_id: str
-    workspace: str
-    owner_id: str
-    title: str
-    folder: str = Field(description="Folder path; empty string means workspace root")
-    tags: list[str]
-    created_at: str
-    updated_at: str
-    occurred_at: str | None = None
-    period: str | None = None
-
-
-class FolderContext(BaseModel):
-    """Metadata for the folder being listed, surfaced passively to LLMs."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    path: str = Field(description="Folder path; empty string means workspace root")
-    description: str = Field(description="What this folder is for")
-    instructions: str = Field(description="LLM instructions for working with notes in this folder")
 
 
 class NoteListResponse(BaseModel):
@@ -176,22 +138,23 @@ class SearchChunkResult(BaseModel):
     )
 
 
-class NoteLinkItem(BaseModel):
+class NoteLinkItem(NoteLinkItemWithMeta):
+    # Redeclared with MCP-specific instructional wording — the shared base's descriptions
+    # are kept REST-neutral since api/schemas/ imports it directly (see shared/notes.py).
     note_id: str = Field(
         description="Use in [[note:NOTE_ID]] to create a permanent cross-workspace link"
     )
-    title: str
-    folder: str
     workspace: str | None = Field(
         default=None,
         description="Non-null and != active workspace means cross-workspace link; reference "
         "with [[note:note_id]]",
     )
-    tags: list[str] | None = None
-    updated_at: str | None = None
 
 
-class NoteLinksResult(BaseModel):
+class NoteLinksResult(NoteLinksBase):
+    # Redeclared, not inherited as-is: NoteLinksBase's fields are typed against the
+    # shared (4-field) NoteLinkItem — pydantic bakes that type in at class-definition
+    # time, so it wouldn't pick up this module's richer NoteLinkItem by itself.
     outlinks: list[NoteLinkItem]
     backlinks: list[NoteLinkItem]
 

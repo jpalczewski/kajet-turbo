@@ -1,12 +1,10 @@
 from pydantic import BaseModel, Field
 
-from kajet_turbo.api.schemas.notes.crud import WikilinkWarning
+from kajet_turbo.shared.notes import HistoryEntry, WikilinkWarning
 
 
-class NoteHistoryEntry(BaseModel):
-    sha: str
-    message: str
-    timestamp: int
+class NoteHistoryEntry(HistoryEntry):
+    pass
 
 
 class NoteHistoryResponse(BaseModel):

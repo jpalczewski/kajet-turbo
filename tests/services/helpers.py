@@ -43,6 +43,32 @@ def build_reconcile_wiring(database, base: Path):
     return service, jobs, dirty, dangling, handler
 
 
+def make_service_with_dangling(database, link_validation_enabled=None):
+    """Build a NoteService wired with a real DanglingLinkRepository on the same engine."""
+    from kajet_turbo.embedding.cache import EmbeddingCacheRepository
+    from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
+    from kajet_turbo.repositories.notes import NoteChunkRepository
+    from kajet_turbo.services.indexing import NoteIndexer
+    from tests.services.conftest import build_note_service
+
+    chunk_repo = NoteChunkRepository(database.engine)
+    indexer = NoteIndexer(
+        chunk_repo,
+        EmbeddingCacheRepository(database.engine),
+        resolve_backend=lambda owner_id: None,
+    )
+    dangling = DanglingLinkRepository(database.engine)
+    return (
+        build_note_service(
+            database,
+            indexer=indexer,
+            link_validation_enabled=link_validation_enabled,
+            dangling_repo=dangling,
+        ),
+        dangling,
+    )
+
+
 def make_flaky_write(real_write, *, fail_on_call: int = 2, message: str = "disk full"):
     """A ``write_note_file`` stand-in that raises ``OSError`` on the Nth call, delegating to
     ``real_write`` otherwise.

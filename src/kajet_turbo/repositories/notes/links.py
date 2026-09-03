@@ -135,3 +135,14 @@ class NoteLinkRepository(DbRepository):
                 select(NoteLink.target_note_id).where(NoteLink.source_note_id == source_note_id)
             ).all()
         return list(rows)
+
+    def list_for_workspace(self, workspace: str, owner_id: str) -> list[tuple[str, str]]:
+        """Every (source_note_id, target_note_id) edge in the workspace, for a bulk graph view."""
+        with self.timed_session() as session:
+            rows = session.exec(
+                select(NoteLink.source_note_id, NoteLink.target_note_id).where(
+                    col(NoteLink.workspace) == workspace,
+                    col(NoteLink.owner_id) == owner_id,
+                )
+            ).all()
+        return [(s, t) for s, t in rows]

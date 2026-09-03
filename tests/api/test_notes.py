@@ -595,6 +595,27 @@ def test_links_returns_403_when_no_access(no_access_client):
     assert resp.status_code == 403
 
 
+def test_graph_returns_nodes_and_edges(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.save("u1", "test-ws", ws_path, "Target", "t", [])
+    note_svc.save("u1", "test-ws", ws_path, "Source", "[[Target]]", [])
+    note_svc.save("u1", "test-ws", ws_path, "Lonely", "no links", [])
+    tid = note_svc._crud_repo.get_by_path("test-ws", "u1", "", "Target").id
+    sid = note_svc._crud_repo.get_by_path("test-ws", "u1", "", "Source").id
+
+    resp = client.get("/api/workspaces/test-ws/notes/graph")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert {n["title"] for n in body["nodes"]} == {"Target", "Source", "Lonely"}
+    assert body["edges"] == [{"source": sid, "target": tid}]
+    assert body["dangling_links"] is None
+
+
+def test_graph_returns_403_when_no_access(no_access_client):
+    resp = no_access_client.get("/api/workspaces/test-ws/notes/graph")
+    assert resp.status_code == 403
+
+
 def test_batch_create_returns_results(auth_client):
     client, _, _ = auth_client
     resp = client.post(

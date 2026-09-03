@@ -263,6 +263,25 @@ def test_insert_writes_no_fts_rows(database):
     assert n == 0  # FTS is now written only via replace_chunks (chunk-level)
 
 
+# --- get_many chunking tests ---
+
+
+def test_get_many_spans_multiple_chunks(notes, monkeypatch):
+    """get_many's IN (...) chunking must not drop or duplicate rows at a chunk boundary."""
+    from kajet_turbo.repositories.notes import crud as crud_module
+
+    monkeypatch.setattr(crud_module, "_IN_CLAUSE_CHUNK_SIZE", 2)
+    ids = ["a", "b", "c", "d", "e"]
+    for nid in ids:
+        notes.insert(nid, "ws", "u1", nid.upper(), [], _now(), _now())
+    result_ids = sorted(n.id for n in notes.get_many(ids, "u1"))
+    assert result_ids == ids
+
+
+def test_get_many_empty_input(notes):
+    assert notes.get_many([], "u1") == []
+
+
 # --- add_link tests ---
 
 
@@ -287,6 +306,27 @@ def test_add_link_preserves_existing_edges(notes, link_repo):
     link_repo.replace_links("a", "ws", "u1", {"b"})  # a -> b
     link_repo.add_link("a", "c", "ws", "u1")  # add a -> c without dropping a -> b
     assert set(link_repo.outlinks("a")) == {"b", "c"}
+
+
+# --- list_for_workspace tests ---
+
+
+def test_list_for_workspace_scoped_to_workspace_and_owner(notes, link_repo):
+    for nid, title, ws, owner in [
+        ("a", "A", "ws1", "u1"),
+        ("b", "B", "ws1", "u1"),
+        ("c", "C", "ws2", "u1"),
+        ("d", "D", "ws1", "u2"),
+    ]:
+        notes.insert(nid, ws, owner, title, [], _now(), _now())
+    link_repo.add_link("a", "b", "ws1", "u1")  # in scope
+    link_repo.add_link("c", "c", "ws2", "u1")  # different workspace, same owner
+    link_repo.add_link("d", "d", "ws1", "u2")  # same workspace, different owner
+    assert link_repo.list_for_workspace("ws1", "u1") == [("a", "b")]
+
+
+def test_list_for_workspace_empty(link_repo):
+    assert link_repo.list_for_workspace("ws1", "u1") == []
 
 
 # --- list_notes(sort=) tests ---

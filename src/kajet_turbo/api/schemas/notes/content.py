@@ -1,16 +1,24 @@
 from pydantic import BaseModel
 
+from kajet_turbo.shared.notes import GraphBase, NoteLinkItem, NoteLinksBase
 
-class NoteLinkItem(BaseModel):
-    note_id: str
-    title: str
-    folder: str
-    workspace: str | None = None
+__all__ = [
+    "ChunkPreviewItem",
+    "ChunkPreviewResponse",
+    "GraphResponse",
+    "LinksResponse",
+    "NoteHtmlResponse",
+    "NoteLinkItem",
+    "NoteMarkdownResponse",
+]
 
 
-class LinksResponse(BaseModel):
-    backlinks: list[NoteLinkItem]
-    outlinks: list[NoteLinkItem]
+class LinksResponse(NoteLinksBase):
+    pass
+
+
+class GraphResponse(GraphBase):
+    pass
 
 
 class NoteHtmlResponse(BaseModel):

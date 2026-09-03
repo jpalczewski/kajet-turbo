@@ -135,3 +135,30 @@ async def test_get_note_links_exclude_cross_workspace(workspaces_dir, mcp_server
         )
 
     assert result["backlinks"] == []
+
+
+async def test_get_workspace_graph(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        target_id = json.loads(
+            (await client.call_tool("save_note", {"title": "Target", "content": "content"}))
+            .content[0]
+            .text
+        )["note_id"]
+        source_id = json.loads(
+            (await client.call_tool("save_note", {"title": "Source", "content": "see [[Target]]"}))
+            .content[0]
+            .text
+        )["note_id"]
+        json.loads(
+            (await client.call_tool("save_note", {"title": "Lonely", "content": "no links"}))
+            .content[0]
+            .text
+        )
+
+        result = json.loads((await client.call_tool("get_workspace_graph", {})).content[0].text)
+
+    assert {n["title"] for n in result["nodes"]} == {"Target", "Source", "Lonely"}
+    assert result["edges"] == [{"source": source_id, "target": target_id}]
+    assert result["dangling_links"] is None

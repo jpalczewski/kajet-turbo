@@ -1,5 +1,6 @@
 import json
 import re
+from itertools import batched
 from typing import cast
 
 from sqlalchemy import delete, func, text
@@ -13,6 +14,11 @@ from kajet_turbo.repositories import DbRepository
 
 _NUM_SPLIT = re.compile(r"(\d+)")
 _UNSET = object()
+
+# Conservative chunk size for an `id IN (...)` clause: SQLite's compiled bound-parameter
+# limit was 999 before 3.32.0 and is 32766 by default since — this stays well under both
+# without needing to detect the running version.
+_IN_CLAUSE_CHUNK_SIZE = 900
 
 
 def folder_sort_key(note: Note) -> tuple:
@@ -85,13 +91,22 @@ class NoteRepository(DbRepository):
             return session.exec(q).first()
 
     def get_many(self, note_ids: list[str], owner_id: str) -> list[Note]:
-        """Batch of ``get`` for many ids in one query. Missing ids are simply
-        absent from the result — callers already handle that shape from ``get``."""
+        """Batch of ``get`` for many ids in one or more queries. Missing ids are simply
+        absent from the result — callers already handle that shape from ``get``.
+
+        Chunks the ``IN (...)`` clause at ``_IN_CLAUSE_CHUNK_SIZE`` ids per query — a
+        caller like ``NoteLinkService.graph()`` can pass every note id in a workspace,
+        which would otherwise risk SQLite's compiled bound-parameter limit on a large,
+        long-lived workspace.
+        """
         if not note_ids:
             return []
         with self.timed_session() as session:
-            q = select(Note).where(col(Note.id).in_(note_ids), Note.owner_id == owner_id)
-            return list(session.exec(q).all())
+            result: list[Note] = []
+            for chunk in batched(note_ids, _IN_CLAUSE_CHUNK_SIZE, strict=False):
+                q = select(Note).where(col(Note.id).in_(chunk), Note.owner_id == owner_id)
+                result.extend(session.exec(q).all())
+            return result
 
     def get_by_path(self, workspace: str, owner_id: str, folder: str, title: str) -> Note | None:
         """Resolve a note by its workspace-relative (folder, title) natural key."""
