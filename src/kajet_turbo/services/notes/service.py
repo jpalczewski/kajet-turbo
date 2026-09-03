@@ -28,6 +28,7 @@ from kajet_turbo.markdown import (
 from kajet_turbo.models import Note
 from kajet_turbo.periods import month_of_week, parse_period_key
 from kajet_turbo.repositories.git import (
+    GitError,
     GitRepository,
     defer_workspace_postprocess,
     workspace_write_transaction,
@@ -45,7 +46,7 @@ from kajet_turbo.services.notes.history import NoteVersionService
 from kajet_turbo.services.notes.links import NoteLinkService, wikilink_warnings
 from kajet_turbo.services.notes.paths import build_path_index, conflict_message, note_path_conflict
 from kajet_turbo.services.notes.search import NoteSearchService
-from kajet_turbo.services.notes.staged_write import StagedWrite, staged_note_write
+from kajet_turbo.services.notes.staged_change import StagedChange, staged_workspace_change
 from kajet_turbo.services.notes.staleness import (
     current_head_sha,
     sha_is_fresh,
@@ -89,8 +90,6 @@ class _PreparedEdit:
     note_id: str
     loc: LocatedNote
     meta: NoteFrontmatter
-    old_content: str
-    old_tags: list[str]
     new_content: str
     new_tags: list[str]
     occurred_at: str | None
@@ -152,11 +151,6 @@ class _AdoptionCandidate:
     filepath: Path
     meta: NoteFrontmatter
     content: str
-
-
-def _restore_bytes(path: Path, data: bytes) -> None:
-    """``Path.write_bytes`` returns the byte count; ``StagedWrite.restore`` wants ``None``."""
-    path.write_bytes(data)
 
 
 @dataclass(frozen=True, slots=True)
@@ -440,12 +434,10 @@ class NoteService:
             occurred_at=occurred_at,
             period=period,
         )
-        item = StagedWrite(
-            relative=relative,
-            apply=partial(write_note_file, filepath, meta, content),
-            restore=partial(Path(filepath).unlink, missing_ok=True),
+        item = StagedChange(
+            add=relative, remove=None, apply=partial(write_note_file, filepath, meta, content)
         )
-        with staged_note_write(GitRepository(ws_path), [item], f"note: add {title}"):
+        with staged_workspace_change(GitRepository(ws_path), [item], f"note: add {title}"):
             pass
         self._crud_repo.insert(
             note_id, ws_name, user_id, title, tags, now, now, folder, occurred_at, period
@@ -576,8 +568,9 @@ class NoteService:
         # Phase 3: write files, then one commit (roll back files on failure).
         n = len(valid)
         items = [
-            StagedWrite(
-                relative=s["relative"],
+            StagedChange(
+                add=s["relative"],
+                remove=None,
                 apply=partial(
                     write_note_file,
                     s["filepath"],
@@ -592,11 +585,10 @@ class NoteService:
                     ),
                     s["content"],
                 ),
-                restore=partial(Path(s["filepath"]).unlink, missing_ok=True),
             )
             for s in valid
         ]
-        with staged_note_write(
+        with staged_workspace_change(
             GitRepository(ws_path), items, f"note: add {n} note{'' if n == 1 else 's'}"
         ):
             pass
@@ -979,13 +971,6 @@ class NoteService:
             else set()
         )
 
-        # A rename is its own commit, made outside the staged write below (#118 tracks
-        # making rename+content atomic; a failure here leaves nothing to roll back since
-        # the content write hasn't happened yet). One GitRepository for both: a second
-        # open would re-read refs/pack indexes for no reason.
-        repo = GitRepository(ws_path)
-        if old_path != new_path:
-            repo.rename_file(old_rel, new_rel, f"note: rename to {new_title}")
         apply_meta = replace(
             existing_meta,
             id=note_id,
@@ -997,22 +982,26 @@ class NoteService:
             occurred_at=new_occurred_at,
             period=new_period,
         )
-        restore_meta = replace(
-            existing_meta,
-            id=note_id,
-            title=note.title,
-            tags=current_tags,
-            created_at=note.created_at,
-            updated_at=note.updated_at,
-            occurred_at=note.occurred_at,
-            period=note.period,
+        # Rename and content are one commit (#118): a failure rolls back to the old path
+        # with byte-identical old content, never leaving the DB row pointing at a path
+        # that doesn't exist. One GitRepository either way — a second open would re-read
+        # refs/pack indexes for no reason.
+        repo = GitRepository(ws_path)
+
+        def apply_update() -> None:
+            write_note_file(new_path, apply_meta, new_content)
+            if old_path != new_path:
+                # Normalize an OS-level unlink failure to GitError, matching every
+                # other write path here — callers only need to catch GitError.
+                try:
+                    Path(old_path).unlink()
+                except OSError as e:
+                    raise GitError(str(e)) from e
+
+        item = StagedChange(
+            add=new_rel, remove=old_rel if old_path != new_path else None, apply=apply_update
         )
-        item = StagedWrite(
-            relative=new_rel,
-            apply=partial(write_note_file, new_path, apply_meta, new_content),
-            restore=partial(write_note_file, new_path, restore_meta, old_content),
-        )
-        with staged_note_write(repo, [item], f"note: update {new_title}"):
+        with staged_workspace_change(repo, [item], f"note: update {new_title}"):
             pass
 
         self._crud_repo.update(
@@ -1134,9 +1123,10 @@ class NoteService:
                 errors.append({"index": index, "note_id": note_id, "error": str(e)})
                 continue
             raw_tags = raw.get("tags")
-            current_tags = NoteTagService.normalize_tags(existing_meta.tags)
             new_tags = (
-                NoteTagService.normalize_tags(raw_tags) if raw_tags is not None else current_tags
+                NoteTagService.normalize_tags(raw_tags)
+                if raw_tags is not None
+                else NoteTagService.normalize_tags(existing_meta.tags)
             )
             has_occurred_at = "occurred_at" in raw
             has_period = "period" in raw
@@ -1159,8 +1149,6 @@ class NoteService:
                     note_id=note_id,
                     loc=loc,
                     meta=existing_meta,
-                    old_content=old_content,
-                    old_tags=current_tags,
                     new_content=new_content,
                     new_tags=new_tags,
                     occurred_at=occurred_at,
@@ -1176,8 +1164,9 @@ class NoteService:
         now = datetime.now(UTC).isoformat()
         n = len(prepared)
         items = [
-            StagedWrite(
-                relative=p.loc.relative,
+            StagedChange(
+                add=p.loc.relative,
+                remove=None,
                 apply=partial(
                     write_note_file,
                     p.loc.filepath,
@@ -1193,25 +1182,11 @@ class NoteService:
                     ),
                     p.new_content,
                 ),
-                restore=partial(
-                    write_note_file,
-                    p.loc.filepath,
-                    replace(
-                        p.meta,
-                        id=p.note_id,
-                        title=p.loc.note.title,
-                        tags=p.old_tags,
-                        created_at=p.loc.note.created_at,
-                        updated_at=p.loc.note.updated_at,
-                        occurred_at=p.loc.note.occurred_at,
-                        period=p.loc.note.period,
-                    ),
-                    p.old_content,
-                ),
             )
             for p in prepared
         ]
-        with staged_note_write(git_repo, items, f"note: edit {n} note{'' if n == 1 else 's'}"):
+        message = f"note: edit {n} note{'' if n == 1 else 's'}"
+        with staged_workspace_change(git_repo, items, message):
             pass
 
         for p in prepared:
@@ -1513,20 +1488,20 @@ class NoteService:
             period = item["value"] if item["field"] == "period" else None
             prepared.append((loc, meta, content, occurred_at, period))
         items = [
-            StagedWrite(
-                relative=loc.relative,
+            StagedChange(
+                add=loc.relative,
+                remove=None,
                 apply=partial(
                     write_note_file,
                     loc.filepath,
                     replace(meta, occurred_at=occurred_at, period=period),
                     content,
                 ),
-                restore=partial(write_note_file, loc.filepath, meta, content),
             )
             for loc, meta, content, occurred_at, period in prepared
         ]
         message = f"note: backfill temporal metadata ({len(items)} notes)"
-        with staged_note_write(git_repo, items, message):
+        with staged_workspace_change(git_repo, items, message):
             pass
         with (
             self._crud_repo.operation(
@@ -1645,24 +1620,23 @@ class NoteService:
 
         adopted_ids: list[str] = []
         if adoption_candidates:
-            items: list[StagedWrite] = []
+            items: list[StagedChange] = []
             pending: list[tuple[str, _AdoptionCandidate]] = []
             for candidate in adoption_candidates:
                 new_id = generate(size=7)
                 new_meta = replace(candidate.meta, id=new_id)
-                original_bytes = candidate.filepath.read_bytes()
                 items.append(
-                    StagedWrite(
-                        relative=candidate.relative,
+                    StagedChange(
+                        add=candidate.relative,
+                        remove=None,
                         apply=partial(
                             write_note_file, str(candidate.filepath), new_meta, candidate.content
                         ),
-                        restore=partial(_restore_bytes, candidate.filepath, original_bytes),
                     )
                 )
                 pending.append((new_id, candidate))
             n = len(items)
-            with staged_note_write(
+            with staged_workspace_change(
                 GitRepository(ws_path), items, f"note: adopt {n} file{'' if n == 1 else 's'}"
             ):
                 pass

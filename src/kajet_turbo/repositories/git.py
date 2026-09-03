@@ -255,6 +255,10 @@ class GitRepository:
         except (NotGitRepository, Exception) as e:
             raise GitError(str(e)) from e
 
+    @property
+    def workspace_path(self) -> str:
+        return self._workspace_path
+
     @classmethod
     def init(cls, path: str) -> GitRepository:
         porcelain.init(path)
@@ -313,12 +317,6 @@ class GitRepository:
         """
         self.commit_changes(removed=[], added=list(relative_paths), message=message)
 
-    def commit_moves(self, removed_rels: list[str], added_rels: list[str], message: str) -> None:
-        """Record a set of moved files in a single commit: drop ``removed_rels`` from the
-        index and add ``added_rels``. The caller has already done the filesystem moves
-        (folder move uses a temp dir), so this only reconciles git state."""
-        self.commit_changes(removed=list(removed_rels), added=list(added_rels), message=message)
-
     def delete_file(self, relative_path: str, message: str) -> None:
         self.delete_files([relative_path], message)
 
@@ -336,27 +334,6 @@ class GitRepository:
         except GitError:
             raise
         except Exception as e:
-            raise GitError(str(e)) from e
-
-    def rename_file(self, old_rel: str, new_rel: str, message: str) -> None:
-        """Rename a file on disk and commit the move as one operation.
-
-        Rolls the filesystem rename back if the commit fails, and normalizes any
-        failure — filesystem or git — to GitError, matching every other write path
-        here (callers only need to catch GitError).
-        """
-        old_full = Path(self._workspace_path, old_rel)
-        new_full = Path(self._workspace_path, new_rel)
-        try:
-            new_full.parent.mkdir(parents=True, exist_ok=True)
-            old_full.rename(new_full)
-            self.commit_changes(removed=[old_rel], added=[new_rel], message=message)
-        except Exception as e:
-            if new_full.exists() and not old_full.exists():
-                old_full.parent.mkdir(parents=True, exist_ok=True)
-                new_full.rename(old_full)
-            if isinstance(e, GitError):
-                raise
             raise GitError(str(e)) from e
 
     def rename_master_to_main(self) -> bool:

@@ -4,8 +4,8 @@ Collections are a single Git-tracked file, ``.kajet/collections.yaml`` — no DB
 (see ``collections.py``). Writes go through ``GitRepository.transaction()`` (the
 in-process lock plus cross-process flock) around a read-modify-write-commit sequence,
 the same primitive ``api/workspaces/notes/crud/folders.py`` uses for its one-file
-``.gitkeep`` marker — not ``staged_note_write``, which is built for multi-file note-body
-batches with per-item rollback.
+``.gitkeep`` marker — not ``staged_workspace_change``, which is built for multi-file
+note-body batches with per-item rollback.
 """
 
 import os

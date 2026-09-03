@@ -22,7 +22,7 @@ from kajet_turbo.markdown import (
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
-from kajet_turbo.services.notes.staged_write import StagedWrite, staged_note_write
+from kajet_turbo.services.notes.staged_change import StagedChange, staged_workspace_change
 from kajet_turbo.workspace import locate_note, path_segments, read_note_file, write_note_file
 
 # (old, new) identity of a note that was moved and/or renamed.
@@ -361,7 +361,7 @@ class NoteLinkService:
             if len(moves) == 1
             else f"note: rewrite wikilinks after moving {len(moves)} notes"
         )
-        items: list[StagedWrite] = []
+        items: list[StagedChange] = []
         rewrites: list[tuple[str, str, str, str | None, str | None]] = []
         for src in self._crud_repo.get_many(sorted(source_ids), workspace.owner_id):
             loc = locate_note(src, ws_path)
@@ -384,10 +384,10 @@ class NoteLinkService:
             # just read, not the DB row — this rewrite never changes them (#105).
             meta = replace(data_meta, id=src.id, title=src.title)
             items.append(
-                StagedWrite(
-                    relative=loc.relative,
+                StagedChange(
+                    add=loc.relative,
+                    remove=None,
                     apply=partial(write_note_file, loc.filepath, meta, new_body),
-                    restore=partial(write_note_file, loc.filepath, meta, old_content),
                 )
             )
             rewrites.append(
@@ -395,7 +395,7 @@ class NoteLinkService:
             )
 
         if items:
-            with staged_note_write(repo, items, message):
+            with staged_workspace_change(repo, items, message):
                 pass
             for note_id, new_body, updated_at, occurred_at, period in rewrites:
                 self._crud_repo.update(

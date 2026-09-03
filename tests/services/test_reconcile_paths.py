@@ -431,10 +431,10 @@ def test_reconcile_adoption_failure_restores_file_and_skips_db_insert(
     relative = _rel(workspace, path)
     original_bytes = Path(path).read_bytes()
 
-    def boom(self, relative_paths, message):
+    def boom(self, *, removed, added, message):
         raise GitError("simulated commit failure")
 
-    monkeypatch.setattr(GitRepository, "commit_files", boom)
+    monkeypatch.setattr(GitRepository, "commit_changes", boom)
 
     with pytest.raises(GitError, match="simulated commit failure"):
         service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=[relative])

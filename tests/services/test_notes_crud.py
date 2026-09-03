@@ -137,11 +137,12 @@ def test_save_rejects_normalization_collision_with_ghost_row(service, workspace)
 def test_save_git_error_rolls_back_file(service, workspace):
     from kajet_turbo.repositories.git import GitError
 
-    # save() commits through staged_note_write, which always calls commit_files (even for
-    # a single file) so single- and multi-file writes share one rollback path.
+    # save() commits through staged_workspace_change, which always calls commit_changes
+    # (even for a single file) so single- and multi-file writes share one rollback path.
     with (
         patch(
-            "kajet_turbo.repositories.git.GitRepository.commit_files", side_effect=GitError("fail")
+            "kajet_turbo.repositories.git.GitRepository.commit_changes",
+            side_effect=GitError("fail"),
         ),
         pytest.raises(GitError),
     ):

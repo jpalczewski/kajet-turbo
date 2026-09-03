@@ -6,11 +6,12 @@ from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import IndexedNote
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
-from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
+from kajet_turbo.repositories.git import GitError, GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes.links import NoteLinkService
 from kajet_turbo.services.notes.paths import build_path_index, conflict_message, note_path_conflict
+from kajet_turbo.services.notes.staged_change import StagedChange, staged_workspace_change
 from kajet_turbo.workspace import (
     InvalidFolderError,
     list_workspace_folders,
@@ -71,7 +72,22 @@ class NoteFolderService:
         old_rel = str(old_path.relative_to(ws_path))
         new_rel = str(new_path.relative_to(ws_path))
         repo = GitRepository(ws_path)
-        repo.rename_file(old_rel, new_rel, f"note: move {note.title} to {new_folder or 'root'}")
+
+        def apply_move() -> None:
+            # Normalize an OS-level rename failure (permissions, cross-device link) to
+            # GitError, matching every other write path here — callers only need to
+            # catch GitError.
+            try:
+                new_path.parent.mkdir(parents=True, exist_ok=True)
+                old_path.rename(new_path)
+            except OSError as e:
+                raise GitError(str(e)) from e
+
+        item = StagedChange(add=new_rel, remove=old_rel, apply=apply_move)
+        with staged_workspace_change(
+            repo, [item], f"note: move {note.title} to {new_folder or 'root'}"
+        ):
+            pass
         self._crud_repo.update(
             note_id,
             owner_id=owner_id,
@@ -205,7 +221,11 @@ class NoteFolderService:
             shutil.rmtree(tmp_root, ignore_errors=True)
 
         repo = GitRepository(ws_path)
-        repo.commit_moves(removed_rels, added_rels, f"folder: move {src_n} -> {dst_n or 'root'}")
+        repo.commit_changes(
+            removed=removed_rels,
+            added=added_rels,
+            message=f"folder: move {src_n} -> {dst_n or 'root'}",
+        )
         # Update every folder column first, THEN rewrite backlinks: a link from one
         # moved note to another (same folder being moved) is only found if the source
         # note's DB folder already points at its new — and now real — file location.

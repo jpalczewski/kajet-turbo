@@ -99,7 +99,7 @@ def test_save_many_git_error_rolls_back_all_files(service, workspace):
     notes = [{"title": "RB One", "content": "a"}, {"title": "RB Two", "content": "b"}]
     with (
         patch(
-            "kajet_turbo.repositories.git.GitRepository.commit_files",
+            "kajet_turbo.repositories.git.GitRepository.commit_changes",
             side_effect=GitError("fail"),
         ),
         pytest.raises(GitError),
@@ -112,7 +112,7 @@ def test_save_many_git_error_rolls_back_all_files(service, workspace):
 
 def test_save_many_write_failing_partway_rolls_back_and_makes_no_commit(service, workspace):
     """The literal #104 acceptance test: an OSError from write_note_file itself (not just
-    a commit_files failure after every file already landed) must still leave no file
+    a commit_changes failure after every file already landed) must still leave no file
     written and no commit made — mirrors
     test_rename_tag_restores_every_touched_file_when_a_write_fails."""
     before = _commit_count(workspace)

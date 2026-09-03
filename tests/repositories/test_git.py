@@ -133,17 +133,6 @@ def test_commit_files_is_thin_wrapper_over_commit_changes(git_ws, monkeypatch):
     assert calls == [([], ["a.md", "b.md"], "note: add 2 notes")]
 
 
-def test_commit_moves_is_thin_wrapper_over_commit_changes(git_ws, monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        type(git_ws),
-        "commit_changes",
-        lambda self, *, removed, added, message: calls.append((removed, added, message)),
-    )
-    git_ws.commit_moves(["old.md"], ["new.md"], "folder: move x -> y")
-    assert calls == [(["old.md"], ["new.md"], "folder: move x -> y")]
-
-
 def test_delete_file_removes_from_disk_and_commits(git_ws, tmp_path):
     filepath = tmp_path / "note.md"
     filepath.write_text("# Test")
@@ -196,54 +185,6 @@ def test_delete_files_wraps_unlink_failure_as_git_error(git_ws, tmp_path):
 
     with pytest.raises(GitError):
         git_ws.delete_files(["note.md"], "note: delete")
-
-
-def test_rename_file_moves_file_and_commits(git_ws, tmp_path):
-    old = tmp_path / "stara.md"
-    old.write_text("content")
-    git_ws.commit_file("stara.md", "note: add")
-
-    git_ws.rename_file("stara.md", "nowa.md", "note: rename")
-
-    assert not old.exists()
-    assert (tmp_path / "nowa.md").exists()
-    assert (tmp_path / "nowa.md").read_text() == "content"
-    r = DulwichRepo(str(tmp_path))
-    commits = list(r.get_walker())
-    assert len(commits) == 2
-    assert b"note: rename" in commits[0].commit.message
-
-
-def test_rename_file_creates_parent_dirs(git_ws, tmp_path):
-    (tmp_path / "note.md").write_text("content")
-    git_ws.commit_file("note.md", "note: add")
-
-    git_ws.rename_file("note.md", "Projekty/Klient A/note.md", "note: move")
-
-    assert (tmp_path / "Projekty" / "Klient A" / "note.md").exists()
-
-
-@pytest.mark.parametrize("commit_error", [GitError("git failed"), RuntimeError("disk full")])
-def test_rename_file_rolls_back_and_raises_git_error_on_commit_failure(
-    git_ws, tmp_path, monkeypatch, commit_error
-):
-    """Whatever commit_changes raises — GitError or a raw OS/RuntimeError — the
-    filesystem rename must be undone and the caller must only ever see GitError."""
-    old = tmp_path / "stara.md"
-    old.write_text("content")
-    git_ws.commit_file("stara.md", "note: add")
-
-    def boom(self, *, removed, added, message):
-        raise commit_error
-
-    monkeypatch.setattr(type(git_ws), "commit_changes", boom)
-
-    with pytest.raises(GitError):
-        git_ws.rename_file("stara.md", "nowa.md", "note: rename")
-
-    assert old.exists()
-    assert old.read_text() == "content"
-    assert not (tmp_path / "nowa.md").exists()
 
 
 def test_file_history_returns_commits_for_file(git_ws, tmp_path):

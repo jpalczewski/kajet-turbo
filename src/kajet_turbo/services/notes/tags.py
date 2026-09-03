@@ -18,7 +18,7 @@ from kajet_turbo.repositories.git import (
 )
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.services.indexing import NoteIndexer
-from kajet_turbo.services.notes.staged_write import StagedWrite, staged_note_write
+from kajet_turbo.services.notes.staged_change import StagedChange, staged_workspace_change
 from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
 from kajet_turbo.workspace import (
     LocatedNote,
@@ -39,7 +39,6 @@ class _RenamedNote:
     meta: NoteFrontmatter
     new_tags: list[str]
     new_body: str
-    old_tags: list[str]
     old_body: str
 
     @property
@@ -149,20 +148,12 @@ class NoteTagService:
                 created_at=note.created_at,
                 updated_at=now,
             )
-            restore_meta = replace(
-                existing_meta,
-                id=note_id,
-                title=note.title,
-                tags=current,
-                created_at=note.created_at,
-                updated_at=note.updated_at,
-            )
-            item = StagedWrite(
-                relative=loc.relative,
+            item = StagedChange(
+                add=loc.relative,
+                remove=None,
                 apply=partial(write_note_file, loc.filepath, apply_meta, content),
-                restore=partial(write_note_file, loc.filepath, restore_meta, content),
             )
-            with staged_note_write(GitRepository(ws_path), [item], f"note: tag {note.title}"):
+            with staged_workspace_change(GitRepository(ws_path), [item], f"note: tag {note.title}"):
                 pass
             self._crud_repo.update(
                 note_id,
@@ -321,7 +312,6 @@ class NoteTagService:
                     meta=existing_meta,
                     new_tags=new_tags,
                     new_body=new_body,
-                    old_tags=old_tags,
                     old_body=content,
                 )
             )
@@ -330,8 +320,9 @@ class NoteTagService:
 
         now = datetime.now(UTC).isoformat()
         items = [
-            StagedWrite(
-                relative=item.loc.relative,
+            StagedChange(
+                add=item.loc.relative,
+                remove=None,
                 apply=partial(
                     write_note_file,
                     item.loc.filepath,
@@ -345,23 +336,11 @@ class NoteTagService:
                     ),
                     item.new_body,
                 ),
-                restore=partial(
-                    write_note_file,
-                    item.loc.filepath,
-                    replace(
-                        item.meta,
-                        id=item.note.id,
-                        title=item.note.title,
-                        tags=item.old_tags,
-                        created_at=item.note.created_at,
-                        updated_at=item.note.updated_at,
-                    ),
-                    item.old_body,
-                ),
             )
             for item in staged
         ]
-        with staged_note_write(GitRepository(ws_path), items, f"tag: rename {old_n} -> {new_n}"):
+        message = f"tag: rename {old_n} -> {new_n}"
+        with staged_workspace_change(GitRepository(ws_path), items, message):
             pass
 
         for item in staged:
