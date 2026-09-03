@@ -1,18 +1,16 @@
 import enum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from kajet_turbo import workspace_settings
+from kajet_turbo.shared.workspaces import WorkspaceInfoBase
 
 SettingKey = enum.Enum("SettingKey", {k: k for k in workspace_settings.REGISTRY})
 
 
-class WorkspaceInfo(BaseModel):
-    name: str
-    description: str = ""
-    folder: str = ""
-    tags: list[str] = Field(default_factory=list)
+class WorkspaceInfo(WorkspaceInfoBase):
+    pass
 
 
 class WorkspacesResult(BaseModel):

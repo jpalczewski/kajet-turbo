@@ -1,13 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from kajet_turbo.shared.workspaces import WorkspaceInfoBase
 
 
-class WorkspaceInfo(BaseModel):
-    name: str
-    file_count: int
-    last_commit_at: int | None
-    description: str = ""
-    folder: str = ""
-    tags: list[str] = []
+class WorkspaceInfo(WorkspaceInfoBase):
+    file_count: int = Field(description="Number of notes in this workspace")
+    last_commit_at: int | None = Field(description="Unix epoch of the last commit, if any")
 
 
 class WorkspacesListResponse(BaseModel):

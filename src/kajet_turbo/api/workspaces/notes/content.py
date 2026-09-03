@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import (
     ChunkPreviewResponse,
+    GraphResponse,
     LinksResponse,
     NoteHtmlResponse,
     NoteMarkdownResponse,
@@ -192,3 +193,18 @@ def api_note_links(
     if result is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
     return JSONResponse(result)
+
+
+@router.get(
+    "/api/workspaces/{name}/notes/graph",
+    response_model=GraphResponse,
+)
+def api_note_graph(
+    name: str,
+    user: dict = Depends(get_required_user),
+    ws_service: WorkspaceService = Depends(get_workspace_service),
+    note_service: NoteService = Depends(get_note_service),
+) -> JSONResponse:
+    if not ws_service.has_access(user["id"], name):
+        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
+    return JSONResponse(note_service.graph(name, owner_id=user["id"]))

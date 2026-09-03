@@ -1918,6 +1918,9 @@ class NoteService:
     ) -> dict | None:
         return self._link_service.links(note_id, owner_id, include_meta, include_cross_workspace)
 
+    def graph(self, ws_name: str, owner_id: str) -> dict:
+        return self._link_service.graph(ws_name, owner_id)
+
     def link_resolver(self, ws_name: str, owner_id: str, source_folder: str = "") -> LinkResolver:
         resolver: LinkResolver | None = None
 

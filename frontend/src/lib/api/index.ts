@@ -38,6 +38,9 @@ export const AuthError = {
   ACCESS_DENIED: 'ACCESS_DENIED',
 } as const;
 
+/**
+ * Which kind of non-exact resolution happened
+ */
 export type WikilinkWarningKind = typeof WikilinkWarningKind[keyof typeof WikilinkWarningKind];
 
 
@@ -46,10 +49,17 @@ export const WikilinkWarningKind = {
   case_corrected_wikilink: 'case_corrected_wikilink',
 } as const;
 
+/**
+ * A wikilink that resolved ambiguously or via case-insensitive fallback.
+ */
 export interface WikilinkWarning {
+  /** Which kind of non-exact resolution happened */
   kind: WikilinkWarningKind;
+  /** The raw wikilink target text as written */
   target: string;
+  /** folder/title path of the note it resolved to */
   resolved_to: string;
+  /** Other candidate notes, when the match was ambiguous */
   alternatives?: string[];
 }
 
@@ -100,6 +110,18 @@ export interface CreateWorkspaceResponse {
   name: string;
 }
 
+/**
+ * An unresolved wikilink target, tracked only when link validation is off.
+ */
+export interface DanglingLinkItem {
+  /** The note containing the broken link */
+  source_note_id: string;
+  /** Folder the link target was written against */
+  target_folder: string;
+  /** Title the link couldn't resolve to a note */
+  target_title: string;
+}
+
 export interface DeleteNoteResponse {
   ok: boolean;
 }
@@ -123,16 +145,27 @@ export interface EmbeddingProfilesResponse {
 }
 
 export interface NoteItem {
+  /** Note id */
   note_id: string;
+  /** Owning workspace name */
   workspace: string;
+  /** Owning user id */
   owner_id: string;
+  /** Note title */
   title: string;
+  /** Folder path; empty string means workspace root */
   folder: string;
+  /** Tag paths attached to this note */
   tags: string[];
+  /** Creation timestamp, ISO 8601 */
   created_at: string;
+  /** Last-modified timestamp, ISO 8601 */
   updated_at: string;
+  /** Calendar date this note is about */
   occurred_at?: string | null;
+  /** Canonical period key, e.g. 2026-W12 */
   period?: string | null;
+  /** Markdown content size in bytes */
   size_bytes: number;
 }
 
@@ -198,6 +231,38 @@ export interface FolderMetaResponse {
   instructions: string;
 }
 
+/**
+ * A resolved wikilink edge in the workspace link graph.
+ */
+export interface GraphEdge {
+  /** Source note id */
+  source: string;
+  /** Target note id */
+  target: string;
+}
+
+/**
+ * A note as a node in the workspace link graph, with list metadata attached.
+ */
+export interface GraphNode {
+  /** Use in [[note:NOTE_ID]] to create a permanent cross-workspace link */
+  note_id: string;
+  /** Note title */
+  title: string;
+  /** Folder path; empty string means workspace root */
+  folder: string;
+  /** Non-null and != active workspace means cross-workspace link; reference with [[note:note_id]] */
+  workspace?: string | null;
+  tags?: string[] | null;
+  updated_at?: string | null;
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  dangling_links?: DanglingLinkItem[] | null;
+}
+
 export type ValidationErrorCtx = { [key: string]: unknown };
 
 export interface ValidationError {
@@ -229,16 +294,25 @@ export interface JobsResponse {
   jobs: JobItem[];
 }
 
+/**
+ * A note referenced by a link, identified and located for the caller.
+ */
 export interface NoteLinkItem {
+  /** Use in [[note:NOTE_ID]] to create a permanent cross-workspace link */
   note_id: string;
+  /** Note title */
   title: string;
+  /** Folder path; empty string means workspace root */
   folder: string;
+  /** Non-null and != active workspace means cross-workspace link; reference with [[note:note_id]] */
   workspace?: string | null;
 }
 
 export interface LinksResponse {
-  backlinks: NoteLinkItem[];
+  /** Notes this note links to */
   outlinks: NoteLinkItem[];
+  /** Notes that link to this note */
+  backlinks: NoteLinkItem[];
 }
 
 export interface LoginResponse {
@@ -247,13 +321,18 @@ export interface LoginResponse {
 }
 
 export interface MoveNoteResponse {
+  /** The moved note's id */
   note_id: string;
+  /** The note's new folder path */
   folder: string;
 }
 
 export interface NoteHistoryEntry {
+  /** Commit sha, full or short */
   sha: string;
+  /** Commit message */
   message: string;
+  /** Commit time, unix epoch seconds */
   timestamp: number;
 }
 
@@ -300,7 +379,9 @@ export interface PendingInfoResponse {
 }
 
 export interface ReindexResponse {
+  /** Human-readable summary */
   message: string;
+  /** Number of notes marked for reindexing */
   count: number;
 }
 
@@ -409,12 +490,18 @@ export interface WorkspaceContentsResponse {
 }
 
 export interface WorkspaceInfo {
+  /** Workspace name */
   name: string;
-  file_count: number;
-  last_commit_at: number | null;
+  /** What this workspace is for */
   description?: string;
+  /** Folder path for grouping this workspace in the picker */
   folder?: string;
+  /** Tags on this workspace */
   tags?: string[];
+  /** Number of notes in this workspace */
+  file_count: number;
+  /** Unix epoch of the last commit, if any */
+  last_commit_at: number | null;
 }
 
 export interface WorkspaceRemoteView {
@@ -2198,6 +2285,59 @@ export const apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGet = async (name: str
     noteId: string, options?: RequestInit): Promise<apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse> => {
 
   return customFetch<apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse>(getApiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetUrl(name,noteId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiNoteGraphApiWorkspacesNameNotesGraphGetResponse200 = {
+  data: GraphResponse
+  status: 200
+}
+
+export type apiNoteGraphApiWorkspacesNameNotesGraphGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiNoteGraphApiWorkspacesNameNotesGraphGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiNoteGraphApiWorkspacesNameNotesGraphGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiNoteGraphApiWorkspacesNameNotesGraphGetResponseSuccess = (apiNoteGraphApiWorkspacesNameNotesGraphGetResponse200) & {
+  headers: Headers;
+};
+export type apiNoteGraphApiWorkspacesNameNotesGraphGetResponseError = (apiNoteGraphApiWorkspacesNameNotesGraphGetResponse401 | apiNoteGraphApiWorkspacesNameNotesGraphGetResponse403 | apiNoteGraphApiWorkspacesNameNotesGraphGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiNoteGraphApiWorkspacesNameNotesGraphGetResponse = (apiNoteGraphApiWorkspacesNameNotesGraphGetResponseSuccess | apiNoteGraphApiWorkspacesNameNotesGraphGetResponseError)
+
+export const getApiNoteGraphApiWorkspacesNameNotesGraphGetUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/graph`
+}
+
+/**
+ * @summary Api Note Graph
+ */
+export const apiNoteGraphApiWorkspacesNameNotesGraphGet = async (name: string, options?: RequestInit): Promise<apiNoteGraphApiWorkspacesNameNotesGraphGetResponse> => {
+
+  return customFetch<apiNoteGraphApiWorkspacesNameNotesGraphGetResponse>(getApiNoteGraphApiWorkspacesNameNotesGraphGetUrl(name),
   {
     ...options,
     method: 'GET'

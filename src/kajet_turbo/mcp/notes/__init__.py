@@ -6,6 +6,7 @@ from kajet_turbo.services.workspaces import WorkspaceService
 
 from .crud import build_crud
 from .folders import build_folders
+from .graph import build_graph
 from .history import build_history
 from .tags import build_tags
 
@@ -25,4 +26,5 @@ def build_notes(
     )
     srv.mount(build_tags(note_service, workspace_service, state_store=state_store))
     srv.mount(build_history(note_service, workspace_service, state_store=state_store))
+    srv.mount(build_graph(note_service, workspace_service, state_store=state_store))
     return srv

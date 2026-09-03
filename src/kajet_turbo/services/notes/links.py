@@ -271,6 +271,49 @@ class NoteLinkService:
             "outlinks": self.outlinks(note_id, owner_id, include_meta),
         }
 
+    def graph(self, ws_name: str, owner_id: str) -> dict:
+        """Whole-workspace note-link graph: every note as a node (isolated notes included),
+        every note_links edge, and dangling (broken-wikilink) edges when link validation
+        is off for this workspace."""
+        edges = self._link_repo.list_for_workspace(owner_id, ws_name)
+        node_ids = {n.note_id for n in self._crud_repo.list_paths(ws_name, owner_id)}
+        node_ids.update(s for s, _ in edges)
+        node_ids.update(t for _, t in edges)  # cross-workspace targets aren't in list_paths
+        return self._build_graph(sorted(node_ids), edges, owner_id, ws_name)
+
+    def _build_graph(
+        self,
+        node_ids: list[str],
+        edges: list[tuple[str, str]],
+        owner_id: str,
+        ws_name: str,
+    ) -> dict:
+        """Shared {nodes, edges, dangling_links} assembly — a future neighborhood query
+        (#134) reuses this with a different (node_ids, edges) pair rather than
+        reimplementing the conversion."""
+        nodes = self._resolve_link_notes(node_ids, owner_id, include_meta=True)
+        resolved_ids = {n["note_id"] for n in nodes}
+        # Edges pointing at a note that didn't resolve are dropped, not surfaced — the
+        # reconcile-links background job briefly leaves stale edges after a rename
+        # elsewhere (see services/notes/CLAUDE.md), which is expected here, not a bug.
+        deduped_edges = {(s, t) for s, t in edges if s in resolved_ids and t in resolved_ids}
+        result: dict = {
+            "nodes": nodes,
+            "edges": [{"source": s, "target": t} for s, t in sorted(deduped_edges)],
+        }
+        if self._dangling_repo is not None and not self._links_validated(ws_name, owner_id):
+            result["dangling_links"] = [
+                {
+                    "source_note_id": row["source_note_id"],
+                    "target_folder": row["target_folder"],
+                    "target_title": row["target_title"],
+                }
+                for row in self._dangling_repo.list_for_workspace(owner_id, ws_name)
+            ]
+        else:
+            result["dangling_links"] = None
+        return result
+
     def xws_link_resolver(self, owner_id: str):
         def resolve(note_id: str) -> tuple[str, str] | None:
             note = self._crud_repo.get(note_id, owner_id=owner_id)

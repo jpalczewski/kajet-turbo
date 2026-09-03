@@ -2,19 +2,17 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from kajet_turbo.shared.notes import (
+    FolderContext,
+    MovedNoteResult,
+    NoteListItem,
+    ReindexResult,
+    WikilinkWarning,
+)
 
-class NoteItem(BaseModel):
-    note_id: str
-    workspace: str
-    owner_id: str
-    title: str
-    folder: str
-    tags: list[str]
-    created_at: str
-    updated_at: str
-    occurred_at: str | None = None
-    period: str | None = None
-    size_bytes: int
+
+class NoteItem(NoteListItem):
+    size_bytes: int = Field(description="Markdown content size in bytes")
 
 
 class NotesListResponse(BaseModel):
@@ -32,13 +30,6 @@ class CreateNoteRequest(BaseModel):
     tags: list[str] = []
     occurred_at: str | None = None
     period: str | None = None
-
-
-class WikilinkWarning(BaseModel):
-    kind: Literal["ambiguous_wikilink", "case_corrected_wikilink"]
-    target: str
-    resolved_to: str
-    alternatives: list[str] = Field(default_factory=list)
 
 
 class CreateNoteResponse(BaseModel):
@@ -65,9 +56,8 @@ class MoveNoteRequest(BaseModel):
     folder: str
 
 
-class MoveNoteResponse(BaseModel):
-    note_id: str
-    folder: str
+class MoveNoteResponse(MovedNoteResult):
+    pass
 
 
 class DeleteNoteResponse(BaseModel):
@@ -109,9 +99,8 @@ class WorkspaceContentsResponse(BaseModel):
     notes: list[NoteItem]
 
 
-class ReindexResponse(BaseModel):
-    message: str
-    count: int
+class ReindexResponse(ReindexResult):
+    pass
 
 
 class TagNode(BaseModel):
@@ -133,10 +122,8 @@ class CreateFolderResponse(BaseModel):
     path: str
 
 
-class FolderMetaResponse(BaseModel):
-    path: str = Field(description="Folder path; empty string means workspace root")
-    description: str = Field(description="What this folder is for")
-    instructions: str = Field(description="LLM instructions for working with notes in this folder")
+class FolderMetaResponse(FolderContext):
+    pass
 
 
 class UpdateFolderMetaRequest(BaseModel):

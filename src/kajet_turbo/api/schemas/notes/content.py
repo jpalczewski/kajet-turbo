@@ -1,16 +1,35 @@
 from pydantic import BaseModel
 
+from kajet_turbo.shared.notes import (
+    DanglingLinkItem,
+    GraphEdge,
+    GraphNode,
+    NoteLinkItem,
+    NoteLinksBase,
+)
 
-class NoteLinkItem(BaseModel):
-    note_id: str
-    title: str
-    folder: str
-    workspace: str | None = None
+__all__ = [
+    "ChunkPreviewItem",
+    "ChunkPreviewResponse",
+    "DanglingLinkItem",
+    "GraphEdge",
+    "GraphNode",
+    "GraphResponse",
+    "LinksResponse",
+    "NoteHtmlResponse",
+    "NoteLinkItem",
+    "NoteMarkdownResponse",
+]
 
 
-class LinksResponse(BaseModel):
-    backlinks: list[NoteLinkItem]
-    outlinks: list[NoteLinkItem]
+class LinksResponse(NoteLinksBase):
+    pass
+
+
+class GraphResponse(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+    dangling_links: list[DanglingLinkItem] | None = None
 
 
 class NoteHtmlResponse(BaseModel):
