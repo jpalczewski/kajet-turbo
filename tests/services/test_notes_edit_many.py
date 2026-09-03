@@ -178,7 +178,7 @@ def test_edit_many_empty_batch_raises(service, workspace):
 
 
 def test_edit_many_git_error_rolls_back_all_files(service, workspace):
-    # Mirrors test_save_many_git_error_rolls_back_all_files: commit_files failing after
+    # Mirrors test_save_many_git_error_rolls_back_all_files: commit_changes failing after
     # files are written must restore every file, not just some.
     from kajet_turbo.repositories.git import GitError
 
@@ -186,7 +186,7 @@ def test_edit_many_git_error_rolls_back_all_files(service, workspace):
     r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
     with (
         patch(
-            "kajet_turbo.repositories.git.GitRepository.commit_files",
+            "kajet_turbo.repositories.git.GitRepository.commit_changes",
             side_effect=GitError("fail"),
         ),
         pytest.raises(GitError),
@@ -219,7 +219,7 @@ def test_edit_many_git_error_rolls_back_all_files(service, workspace):
 
 def test_edit_many_write_failing_partway_rolls_back_and_makes_no_commit(service, workspace):
     """The literal #104 acceptance test: an OSError from write_note_file itself (not just
-    a commit_files failure after every file already landed) must still leave no file
+    a commit_changes failure after every file already landed) must still leave no file
     written and no commit made — mirrors
     test_rename_tag_restores_every_touched_file_when_a_write_fails."""
     r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])

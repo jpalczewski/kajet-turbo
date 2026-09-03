@@ -11,12 +11,13 @@ def test_update_git_error_reverts_file(service, workspace):
     result = service.save("u1", "ws", str(workspace), "Oryginał", "stara treść", [])
     note_id = result["note_id"]
     sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
-    # update()'s write leg commits through staged_note_write, which always calls
-    # commit_files (even for a single file) so single- and multi-file writes share one
+    # update()'s write leg commits through staged_workspace_change, which always calls
+    # commit_changes (even for a single file) so single- and multi-file writes share one
     # rollback path.
     with (
         patch(
-            "kajet_turbo.repositories.git.GitRepository.commit_files", side_effect=GitError("fail")
+            "kajet_turbo.repositories.git.GitRepository.commit_changes",
+            side_effect=GitError("fail"),
         ),
         pytest.raises(GitError),
     ):
@@ -28,6 +29,42 @@ def test_update_git_error_reverts_file(service, workspace):
             content="nowa treść",
         )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note.content == "stara treść"
+
+
+def test_update_rename_git_error_reverts_to_old_path(service, workspace):
+    """#118: rename+content used to be two commits. If the second (content) commit
+    failed, the file ended up at the new path with old content, but the DB row still
+    pointed at the old path — the note became unreachable via note_filepath. The two
+    are now one commit, so a failure anywhere rolls back to the old path entirely."""
+    from kajet_turbo.repositories.git import GitError
+
+    result = service.save("u1", "ws", str(workspace), "Oryginał", "stara treść", [])
+    note_id = result["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    original_bytes = (workspace / "Oryginał.md").read_bytes()
+
+    with (
+        patch(
+            "kajet_turbo.repositories.git.GitRepository.commit_changes",
+            side_effect=GitError("fail"),
+        ),
+        pytest.raises(GitError),
+    ):
+        service.update(
+            note_id,
+            owner_id="u1",
+            ws_path=str(workspace),
+            expected_sha=sha,
+            title="Nowy tytuł",
+            content="nowa treść",
+        )
+
+    assert (workspace / "Oryginał.md").exists()
+    assert (workspace / "Oryginał.md").read_bytes() == original_bytes
+    assert not (workspace / "Nowy tytuł.md").exists()
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note.title == "Oryginał"
     assert note.content == "stara treść"
 
 

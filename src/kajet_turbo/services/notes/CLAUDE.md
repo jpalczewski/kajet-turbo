@@ -8,16 +8,27 @@ package and the flat `services/` directory: background job handlers (`embed_hand
 touch, registered once in `register_job_handlers()` (`server.py:48`). A new background handler
 does not belong in this package even if it operates on notes.
 
-## Note-body writes go through `staged_note_write`
+## Note-body writes go through `staged_workspace_change`
 
-`staged_write.py`'s `StagedWrite`/`staged_note_write` is the write-commit-rollback pipeline for
-touching a note's file on disk: stage every file, write them, commit once, and roll back
-whichever ones were already written if a later one in the batch fails. Every path that writes
-note content already goes through it — single save (`service.py:447`), batch save
-(`service.py:598`), rename/move (`service.py:1015`), `edit_many` (`service.py:1214`),
-`delete_many`/reconcile (`service.py:1493`, `1629`), single-note tagging (`tags.py:165`),
-`rename_tag` (`tags.py:364`). Reuse it for any new note-body write path — do not hand-roll the
-stage/write/commit/rollback sequence again.
+`staged_change.py`'s `StagedChange`/`staged_workspace_change` is the write-commit-rollback
+pipeline for touching a note's file on disk: snapshot every `add`/`remove` path's bytes,
+apply every item, commit once, and restore every snapshot if a later item in the batch fails.
+Restore is derived from the snapshot, not supplied by the caller — a rollback is byte-exact by
+construction, unlike a hand-rebuilt frontmatter object. `add`+`remove` on one item also makes a
+rename one commit instead of two (see `update()`'s rename leg, `service.py:882`). Every path
+that writes note content already goes through it — single save (`service.py:400`), batch save
+(`service.py:462`), rename/update (`service.py:882`), `edit_many` (`service.py:1051`),
+`apply_temporal_backfill` (`service.py:1443`), `reconcile_paths`'s adoption path
+(`service.py:1549`), single-note tagging (`tags.py:118`), `rename_tag` (`tags.py:245`), and
+`_rewrite_backlinks` (`links.py:309`). Reuse it for any new note-body write path — do not
+hand-roll the stage/write/commit/rollback sequence again.
+
+Pure identity changes that never touch note content — `move()`, `move_folder()`
+(`folders.py:43`, `folders.py:105`) — use the same `StagedChange`/`staged_workspace_change`
+primitive (`move()`) or `GitRepository.commit_changes` directly (`move_folder()`, whose
+temp-dir choreography already has its own correct rollback), not because they write a note
+body but because the primitive is the one place that knows how to commit `add`/`remove` pairs
+atomically.
 
 ## Link resolution has two consistency tiers
 
@@ -32,7 +43,7 @@ for this: right after a rename elsewhere, a stale edge can briefly still be ther
 
 ## `_rewrite_backlinks` deliberately bypasses `NoteService.update()`
 
-`NoteLinkService._rewrite_backlinks` (`links.py:294-402`) rewrites wikilink text in every note
+`NoteLinkService._rewrite_backlinks` (`links.py:309-416`) rewrites wikilink text in every note
 that links to something just moved/renamed, then commits and updates the DB row directly —
 skipping four steps `update()` normally runs. The docstring at that call site enumerates and
 justifies each skipped step; it is not accidental duplication, it is a deliberate divergence
