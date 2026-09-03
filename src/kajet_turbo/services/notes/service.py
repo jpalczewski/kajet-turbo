@@ -28,6 +28,7 @@ from kajet_turbo.markdown import (
 from kajet_turbo.models import Note
 from kajet_turbo.periods import month_of_week, parse_period_key
 from kajet_turbo.repositories.git import (
+    GitError,
     GitRepository,
     defer_workspace_postprocess,
     workspace_write_transaction,
@@ -986,19 +987,20 @@ class NoteService:
         # that doesn't exist. One GitRepository either way — a second open would re-read
         # refs/pack indexes for no reason.
         repo = GitRepository(ws_path)
-        if old_path != new_path:
 
-            def apply_rename() -> None:
-                write_note_file(new_path, apply_meta, new_content)
-                Path(old_path).unlink()
+        def apply_update() -> None:
+            write_note_file(new_path, apply_meta, new_content)
+            if old_path != new_path:
+                # Normalize an OS-level unlink failure to GitError, matching every
+                # other write path here — callers only need to catch GitError.
+                try:
+                    Path(old_path).unlink()
+                except OSError as e:
+                    raise GitError(str(e)) from e
 
-            item = StagedChange(add=new_rel, remove=old_rel, apply=apply_rename)
-        else:
-            item = StagedChange(
-                add=new_rel,
-                remove=None,
-                apply=partial(write_note_file, new_path, apply_meta, new_content),
-            )
+        item = StagedChange(
+            add=new_rel, remove=old_rel if old_path != new_path else None, apply=apply_update
+        )
         with staged_workspace_change(repo, [item], f"note: update {new_title}"):
             pass
 

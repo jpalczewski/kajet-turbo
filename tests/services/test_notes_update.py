@@ -39,33 +39,33 @@ def test_update_rename_git_error_reverts_to_old_path(service, workspace):
     are now one commit, so a failure anywhere rolls back to the old path entirely."""
     from kajet_turbo.repositories.git import GitError
 
-    result = service.save("u1", "ws", str(workspace), "Oryginał", "stara treść", [])
+    result = service.save("u1", "ws", str(workspace), "Original", "old content", [])
     note_id = result["note_id"]
     sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
-    original_bytes = (workspace / "Oryginał.md").read_bytes()
+    original_bytes = (workspace / "Original.md").read_bytes()
 
     with (
         patch(
             "kajet_turbo.repositories.git.GitRepository.commit_changes",
             side_effect=GitError("fail"),
         ),
-        pytest.raises(GitError),
+        pytest.raises(GitError, match="fail"),
     ):
         service.update(
             note_id,
             owner_id="u1",
             ws_path=str(workspace),
             expected_sha=sha,
-            title="Nowy tytuł",
-            content="nowa treść",
+            title="New title",
+            content="new content",
         )
 
-    assert (workspace / "Oryginał.md").exists()
-    assert (workspace / "Oryginał.md").read_bytes() == original_bytes
-    assert not (workspace / "Nowy tytuł.md").exists()
+    assert (workspace / "Original.md").exists()
+    assert (workspace / "Original.md").read_bytes() == original_bytes
+    assert not (workspace / "New title.md").exists()
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
-    assert note.title == "Oryginał"
-    assert note.content == "stara treść"
+    assert note.title == "Original"
+    assert note.content == "old content"
 
 
 def test_update_title_renames_file(service, workspace):

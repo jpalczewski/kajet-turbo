@@ -6,7 +6,7 @@ from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import IndexedNote
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
-from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
+from kajet_turbo.repositories.git import GitError, GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes.links import NoteLinkService
@@ -74,8 +74,14 @@ class NoteFolderService:
         repo = GitRepository(ws_path)
 
         def apply_move() -> None:
-            new_path.parent.mkdir(parents=True, exist_ok=True)
-            old_path.rename(new_path)
+            # Normalize an OS-level rename failure (permissions, cross-device link) to
+            # GitError, matching every other write path here — callers only need to
+            # catch GitError.
+            try:
+                new_path.parent.mkdir(parents=True, exist_ok=True)
+                old_path.rename(new_path)
+            except OSError as e:
+                raise GitError(str(e)) from e
 
         item = StagedChange(add=new_rel, remove=old_rel, apply=apply_move)
         with staged_workspace_change(

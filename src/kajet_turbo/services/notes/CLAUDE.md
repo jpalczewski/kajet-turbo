@@ -26,8 +26,10 @@ hand-roll the stage/write/commit/rollback sequence again.
 Pure identity changes that never touch note content — `move()`, `move_folder()`
 (`folders.py:43`, `folders.py:105`) — use the same `StagedChange`/`staged_workspace_change`
 primitive (`move()`) or `GitRepository.commit_changes` directly (`move_folder()`, whose
-temp-dir choreography already has its own correct rollback), not because they write a note
-body but because the primitive is the one place that knows how to commit `add`/`remove` pairs
+temp-dir choreography already has its own correct rollback for the filesystem-move phase —
+a `commit_changes` failure *after* that phase is a separate, pre-existing gap tracked by
+#155, not something this pairing claims to cover), not because they write a note body but
+because the primitive is the one place that knows how to commit `add`/`remove` pairs
 atomically.
 
 ## Link resolution has two consistency tiers

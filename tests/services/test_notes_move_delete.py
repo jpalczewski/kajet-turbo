@@ -1,6 +1,7 @@
 """move/list_folders/delete/list-scope/search coverage for NoteService."""
 
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -42,6 +43,29 @@ def test_move_note_creates_missing_folder_path(service, workspace):
     service.move(note_id, owner_id="u1", ws_path=str(workspace), folder="new/nested")
 
     assert (workspace / "new" / "nested" / "Move me.md").exists()
+
+
+def test_move_note_os_error_on_rename_surfaces_as_git_error(service, workspace, monkeypatch):
+    """The filesystem rename inside move()'s StagedChange used to be GitRepository's
+    dedicated rename_file(), which normalized any OS-level failure (permissions,
+    cross-device link) to GitError. That normalization must survive the move to a
+    generic apply() closure — callers still only need to catch GitError."""
+    note_id = service.save("u1", "ws", str(workspace), "Move me", "content", [])["note_id"]
+    real_rename = Path.rename
+
+    def flaky_rename(self, target):
+        if self.name == "Move me.md":
+            raise OSError("permission denied")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", flaky_rename)
+
+    with pytest.raises(GitError, match="permission denied"):
+        service.move(note_id, owner_id="u1", ws_path=str(workspace), folder="archive")
+
+    assert (workspace / "Move me.md").exists()
+    after = service.get(note_id, owner_id="u1")
+    assert after["folder"] == ""
 
 
 def test_move_note_rejects_destination_collision(service, workspace):

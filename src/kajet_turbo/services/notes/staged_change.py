@@ -57,7 +57,9 @@ def staged_workspace_change(
             message=message,
         )
     except GitError, OSError:
-        for rel, data in reversed(snapshots):
+        # Every snapshot reflects pre-batch state (taken before any apply() ran), so
+        # restore order doesn't matter — this isn't an undo stack.
+        for rel, data in snapshots:
             full = Path(workspace_path, rel)
             if data is None:
                 full.unlink(missing_ok=True)

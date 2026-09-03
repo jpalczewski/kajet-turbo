@@ -13,8 +13,7 @@ from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.services.notes.staged_change import StagedChange, staged_workspace_change
 
 
-def test_mid_batch_oserror_restores_earlier_items_byte_for_byte(git_workspace_factory):
-    workspace = git_workspace_factory()
+def test_mid_batch_oserror_restores_earlier_items_byte_for_byte(workspace):
     (workspace / "a.md").write_text("original a")
     (workspace / "b.md").write_text("original b")
     repo = GitRepository(str(workspace))
@@ -32,15 +31,17 @@ def test_mid_batch_oserror_restores_earlier_items_byte_for_byte(git_workspace_fa
         StagedChange(add="b.md", remove=None, apply=boom),
     ]
 
-    with pytest.raises(OSError), staged_workspace_change(repo, items, "note: batch edit"):
+    with (
+        pytest.raises(OSError, match="disk full"),
+        staged_workspace_change(repo, items, "note: batch edit"),
+    ):
         pass
 
     assert (workspace / "a.md").read_bytes() == original_a
     assert (workspace / "b.md").read_bytes() == original_b
 
 
-def test_rename_shaped_item_rolls_back_to_old_path_on_failure(git_workspace_factory, monkeypatch):
-    workspace = git_workspace_factory()
+def test_rename_shaped_item_rolls_back_to_old_path_on_failure(workspace, monkeypatch):
     old_path = workspace / "old.md"
     new_path = workspace / "new.md"
     old_path.write_text("content")
@@ -57,7 +58,10 @@ def test_rename_shaped_item_rolls_back_to_old_path_on_failure(git_workspace_fact
     monkeypatch.setattr(type(repo), "commit_changes", boom)
     item = StagedChange(add="new.md", remove="old.md", apply=apply)
 
-    with pytest.raises(GitError), staged_workspace_change(repo, [item], "note: rename"):
+    with (
+        pytest.raises(GitError, match="commit failed"),
+        staged_workspace_change(repo, [item], "note: rename"),
+    ):
         pass
 
     assert old_path.exists()
@@ -65,8 +69,7 @@ def test_rename_shaped_item_rolls_back_to_old_path_on_failure(git_workspace_fact
     assert not new_path.exists()
 
 
-def test_delete_shaped_item_rolls_back_on_failure(git_workspace_factory, monkeypatch):
-    workspace = git_workspace_factory()
+def test_delete_shaped_item_rolls_back_on_failure(workspace, monkeypatch):
     path = workspace / "note.md"
     path.write_text("content")
     repo = GitRepository(str(workspace))
@@ -78,7 +81,10 @@ def test_delete_shaped_item_rolls_back_on_failure(git_workspace_factory, monkeyp
     monkeypatch.setattr(type(repo), "commit_changes", boom)
     item = StagedChange(add=None, remove="note.md", apply=path.unlink)
 
-    with pytest.raises(GitError), staged_workspace_change(repo, [item], "note: delete"):
+    with (
+        pytest.raises(GitError, match="commit failed"),
+        staged_workspace_change(repo, [item], "note: delete"),
+    ):
         pass
 
     assert path.exists()
