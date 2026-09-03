@@ -57,6 +57,14 @@ vulnerabilities:
     purls: ["pkg:deb/debian/perl-base", "pkg:deb/debian/libperl5.40", "pkg:deb/debian/perl", "pkg:deb/debian/perl-modules-5.40"]
     expired_at: 2026-09-30
     statement: Debian 13 has deferred the perl-base fix.
+  - id: CVE-2026-16742
+    purls: ["pkg:deb/debian/libsystemd0", "pkg:deb/debian/libudev1"]
+    expired_at: 2026-09-30
+    statement: >-
+      Debian 13 has not published a fixed systemd package. The flaw is in
+      systemd-homed's home-record signature verification (local privilege
+      escalation) — this container runs one Python process as its entrypoint,
+      with no systemd-homed, no local user accounts, and no login surface.
 
   # Runtime-only packages pulled in by git and openssh-client have the same
   # Debian no-fix status. They are required for workspace bundles and SSH push.
