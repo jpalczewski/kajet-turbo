@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from kajet_turbo.services.notes import service as service_module
-from tests.services.helpers import make_flaky_write
+from tests.services.helpers import make_flaky_db_write, make_flaky_write
 
 
 def _commit_count(workspace):
@@ -108,6 +108,9 @@ def test_save_many_git_error_rolls_back_all_files(service, workspace):
 
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
     assert md_files == []
+    # #155: rows are inserted before the git commit inside the same transaction, so a
+    # git-side failure must roll the already-flushed rows back too, not just the files.
+    assert service._crud_repo.list_notes("ws", "u1", limit=None) == []
 
 
 def test_save_many_write_failing_partway_rolls_back_and_makes_no_commit(service, workspace):
@@ -132,6 +135,30 @@ def test_save_many_write_failing_partway_rolls_back_and_makes_no_commit(service,
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
     assert md_files == []
     assert _commit_count(workspace) == before
+    assert service._crud_repo.list_notes("ws", "u1", limit=None) == []
+
+
+def test_save_many_db_failure_leaves_no_files_and_no_commit(service, workspace):
+    """#155: rows are written before the tree, so a DB-side failure must abort before
+    anything touches disk or git — not just roll back after the fact."""
+    before = _commit_count(workspace)
+    flaky_insert = make_flaky_db_write(service._crud_repo.insert_in_session, fail_on_call=2)
+
+    with (
+        patch.object(service._crud_repo, "insert_in_session", flaky_insert),
+        pytest.raises(RuntimeError, match="db exploded"),
+    ):
+        service.save_many(
+            "u1",
+            "ws",
+            str(workspace),
+            [{"title": "DB One", "content": "a"}, {"title": "DB Two", "content": "b"}],
+        )
+
+    md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
+    assert md_files == []
+    assert _commit_count(workspace) == before
+    assert service._crud_repo.list_notes("ws", "u1", limit=None) == []
 
 
 def test_save_many_indexes_every_valid_note(service, workspace):

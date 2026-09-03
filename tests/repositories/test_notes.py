@@ -91,7 +91,7 @@ def test_get_note_returns_none_for_missing(notes):
 
 def test_update_note(notes):
     notes.insert("abc1234", "ws1", "u1", "Stary tytuł", [], _now(), _now())
-    notes.update("abc1234", title="Nowy tytuł", content="nowa treść", updated_at=_now())
+    notes.update("abc1234", title="Nowy tytuł", updated_at=_now())
     note = notes.get("abc1234")
     assert note.title == "Nowy tytuł"
 

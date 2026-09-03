@@ -257,7 +257,6 @@ class NoteRepository(DbRepository):
         note_id: str,
         owner_id: str | None = None,
         title: str | None = None,
-        content: str | None = None,
         tags: list[str] | None = None,
         updated_at: str = "",
         folder: str | None = None,

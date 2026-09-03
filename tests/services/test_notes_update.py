@@ -1,8 +1,33 @@
 """update() mode/replace_all coverage for NoteService."""
 
+import time
 from unittest.mock import patch
 
 import pytest
+
+from kajet_turbo import perf
+from tests.services.helpers import head_sha, make_flaky_db_write
+
+
+def test_update_perf_span_excludes_git_commit_from_db_ms(service, workspace):
+    """#155's observability decision: commit_rows_then_tree runs the git commit under
+    perf.excluded_from("db_ms"), so db_ms and git_ms never double-count the same window
+    and their sum never exceeds the call's actual wall time."""
+    result = service.save("u1", "ws", str(workspace), "Perf update", "body", [])
+    note_id = result["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    started = time.monotonic()
+    with perf.perf_span() as span:
+        service.update(
+            note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, content="new body"
+        )
+    duration_ms = (time.monotonic() - started) * 1000
+
+    assert span is not None
+    assert span.fields["git_ms"] > 0
+    assert "db_ms" in span.fields
+    assert span.fields["db_ms"] + span.fields["git_ms"] <= duration_ms
 
 
 def test_update_git_error_reverts_file(service, workspace):
@@ -66,6 +91,33 @@ def test_update_rename_git_error_reverts_to_old_path(service, workspace):
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note.title == "Original"
     assert note.content == "old content"
+
+
+def test_update_db_failure_leaves_file_and_row_untouched(service, workspace):
+    """#155: the row write runs before the git commit, so a DB-side failure must abort
+    before the tree or HEAD ever change."""
+
+    result = service.save("u1", "ws", str(workspace), "Stable", "old content", [])
+    note_id = result["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session)
+
+    with (
+        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        pytest.raises(RuntimeError, match="db exploded"),
+    ):
+        service.update(
+            note_id,
+            owner_id="u1",
+            ws_path=str(workspace),
+            expected_sha=sha,
+            content="new content",
+        )
+
+    assert head_sha(workspace, "Stable.md") == sha
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note.content == "old content"
+    assert note.title == "Stable"
 
 
 def test_update_title_renames_file(service, workspace):

@@ -6,7 +6,7 @@ import pytest
 
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.services.notes import service as service_module
-from tests.services.helpers import make_flaky_write
+from tests.services.helpers import make_flaky_db_write, make_flaky_write
 
 
 def test_edit_many_applies_all_in_one_commit(service, workspace):
@@ -215,6 +215,12 @@ def test_edit_many_git_error_rolls_back_all_files(service, workspace):
     note2 = service.get_with_content(r2["note_id"], "u1", str(workspace))
     assert note1.content == "one"
     assert note2.content == "two"
+    # #155: rows are updated before the git commit inside one transaction for the batch,
+    # so a git-side failure must roll the already-flushed bump back too, not just the file.
+    row1 = service._crud_repo.get(r1["note_id"], owner_id="u1")
+    row2 = service._crud_repo.get(r2["note_id"], owner_id="u1")
+    assert row1.index_generation == 1
+    assert row2.index_generation == 1
 
 
 def test_edit_many_write_failing_partway_rolls_back_and_makes_no_commit(service, workspace):
@@ -231,6 +237,47 @@ def test_edit_many_write_failing_partway_rolls_back_and_makes_no_commit(service,
     with (
         patch.object(service_module, "write_note_file", flaky_write),
         pytest.raises(OSError, match="disk full"),
+    ):
+        service.edit_many(
+            "u1",
+            "ws",
+            str(workspace),
+            [
+                {
+                    "note_id": r1["note_id"],
+                    "mode": "append",
+                    "content": "more",
+                    "expected_sha": _head_sha(workspace, "First.md"),
+                },
+                {
+                    "note_id": r2["note_id"],
+                    "mode": "append",
+                    "content": "more",
+                    "expected_sha": _head_sha(workspace, "Second.md"),
+                },
+            ],
+        )
+
+    note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
+    note2 = service.get_with_content(r2["note_id"], "u1", str(workspace))
+    assert note1.content == "one"
+    assert note2.content == "two"
+    assert _head_sha(workspace, "First.md") == head_before
+
+
+def test_edit_many_db_failure_leaves_files_and_head_untouched(service, workspace):
+    """#155: rows are written before the tree, in one transaction for the whole batch, so
+    a DB-side failure on any item must abort before the tree or HEAD change for any of
+    them — not just the item that failed."""
+    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    head_before = _head_sha(workspace, "First.md")
+
+    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session, fail_on_call=2)
+
+    with (
+        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        pytest.raises(RuntimeError, match="db exploded"),
     ):
         service.edit_many(
             "u1",

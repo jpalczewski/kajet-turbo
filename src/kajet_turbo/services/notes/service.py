@@ -46,7 +46,11 @@ from kajet_turbo.services.notes.history import NoteVersionService
 from kajet_turbo.services.notes.links import NoteLinkService, wikilink_warnings
 from kajet_turbo.services.notes.paths import build_path_index, conflict_message, note_path_conflict
 from kajet_turbo.services.notes.search import NoteSearchService
-from kajet_turbo.services.notes.staged_change import StagedChange, staged_workspace_change
+from kajet_turbo.services.notes.staged_change import (
+    StagedChange,
+    commit_rows_then_tree,
+    staged_workspace_change,
+)
 from kajet_turbo.services.notes.staleness import (
     current_head_sha,
     sha_is_fresh,
@@ -99,6 +103,17 @@ class _PreparedEdit:
 
 
 @dataclass(frozen=True, slots=True)
+class _PreparedBackfill:
+    """One note validated for ``apply_temporal_backfill``, ready for the atomic write."""
+
+    loc: LocatedNote
+    meta: NoteFrontmatter
+    content: str
+    occurred_at: str | None
+    period: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class _BatchValidationError:
     """A public-shaped validation error, kept typed while flowing through a batch."""
 
@@ -140,6 +155,35 @@ def _present_file(
         content=content,
         folder=folder,
         relative=relative,
+    )
+
+
+def _new_note_row(
+    *,
+    note_id: str,
+    workspace: str,
+    owner_id: str,
+    title: str,
+    folder: str,
+    tags: list[str],
+    created_at: str,
+    updated_at: str,
+    occurred_at: str | None,
+    period: str | None,
+) -> Note:
+    """Build a ``Note`` row for ``insert_in_session`` — the shape shared by ``save()``,
+    ``save_many()``, and ``reconcile_paths()``'s adoption path."""
+    return Note(
+        id=note_id,
+        workspace=workspace,
+        owner_id=owner_id,
+        title=title,
+        folder=folder,
+        tags=json.dumps(tags),
+        created_at=created_at,
+        updated_at=updated_at,
+        occurred_at=occurred_at,
+        period=period,
     )
 
 
@@ -437,10 +481,34 @@ class NoteService:
         item = StagedChange(
             add=relative, remove=None, apply=partial(write_note_file, filepath, meta, content)
         )
-        with staged_workspace_change(GitRepository(ws_path), [item], f"note: add {title}"):
-            pass
-        self._crud_repo.insert(
-            note_id, ws_name, user_id, title, tags, now, now, folder, occurred_at, period
+
+        def write_row(session: Session) -> None:
+            self._crud_repo.insert_in_session(
+                session,
+                _new_note_row(
+                    note_id=note_id,
+                    workspace=ws_name,
+                    owner_id=user_id,
+                    title=title,
+                    folder=folder,
+                    tags=tags,
+                    created_at=now,
+                    updated_at=now,
+                    occurred_at=occurred_at,
+                    period=period,
+                ),
+            )
+
+        commit_rows_then_tree(
+            self._crud_repo,
+            GitRepository(ws_path),
+            [item],
+            f"note: add {title}",
+            operation="insert",
+            write_rows=write_row,
+            note_id=note_id,
+            workspace=ws_name,
+            owner_id=user_id,
         )
         self._link_service.persist(note_id, ws_name, user_id, links)
         self._tag_service.sync_tags(note_id, ws_name, user_id, tags, content)
@@ -467,9 +535,10 @@ class NoteService:
         ws_path: str,
         notes: list[dict],
     ) -> list[dict]:
-        """Create many notes in one batch: one git commit, one cache bump, embeddings
-        parallelized across the indexer threadpool. Best-effort per note — invalid notes
-        are reported and skipped. Each input dict: ``{title, content, tags=[], folder=""}``.
+        """Create many notes in one batch: one DB transaction, one git commit, one cache
+        bump, embeddings parallelized across the indexer threadpool. Best-effort per
+        note — invalid notes are reported and skipped. Each input dict:
+        ``{title, content, tags=[], folder=""}``.
         Returns per-note ``{index, note_id}`` | ``{index, error}``, input order preserved.
         Raises GitError or OSError if a write or the batch commit fails (every file
         actually written is rolled back first).
@@ -565,7 +634,8 @@ class NoteService:
 
         affected_sources = workspace_links.affected_sources({str(s["title"]) for s in valid})
 
-        # Phase 3: write files, then one commit (roll back files on failure).
+        # Phase 3: rows first, tree last, one transaction (#155) — commit_rows_then_tree
+        # rolls back the batch on either a DB or a git failure.
         n = len(valid)
         items = [
             StagedChange(
@@ -588,25 +658,38 @@ class NoteService:
             )
             for s in valid
         ]
-        with staged_workspace_change(
-            GitRepository(ws_path), items, f"note: add {n} note{'' if n == 1 else 's'}"
-        ):
-            pass
 
-        # Phase 4: DB insert + link graph + tags.
-        for s in valid:
-            self._crud_repo.insert(
-                s["note_id"],
-                ws_name,
-                user_id,
-                s["title"],
-                s["tags"],
-                now,
-                now,
-                s["folder"],
-                s["occurred_at"],
-                s["period"],
-            )
+        def write_rows(session: Session) -> None:
+            for s in valid:
+                self._crud_repo.insert_in_session(
+                    session,
+                    _new_note_row(
+                        note_id=s["note_id"],
+                        workspace=ws_name,
+                        owner_id=user_id,
+                        title=s["title"],
+                        folder=s["folder"],
+                        tags=s["tags"],
+                        created_at=now,
+                        updated_at=now,
+                        occurred_at=s["occurred_at"],
+                        period=s["period"],
+                    ),
+                )
+
+        commit_rows_then_tree(
+            self._crud_repo,
+            GitRepository(ws_path),
+            items,
+            f"note: add {n} note{'' if n == 1 else 's'}",
+            operation="insert_many",
+            write_rows=write_rows,
+            workspace=ws_name,
+            owner_id=user_id,
+            count=n,
+        )
+
+        # Phase 4: link graph + tags.
         self._link_service.persist_many(
             ws_name,
             user_id,
@@ -1001,20 +1084,30 @@ class NoteService:
         item = StagedChange(
             add=new_rel, remove=old_rel if old_path != new_path else None, apply=apply_update
         )
-        with staged_workspace_change(repo, [item], f"note: update {new_title}"):
-            pass
 
-        self._crud_repo.update(
-            note_id,
+        def write_row(session: Session) -> None:
+            self._crud_repo.update_in_session(
+                session,
+                note_id,
+                owner_id=owner_id,
+                title=new_title,
+                tags=new_tags,
+                updated_at=now,
+                folder=new_folder,
+                occurred_at=new_occurred_at,
+                period=new_period,
+                bump_index_generation=True,
+            )
+
+        commit_rows_then_tree(
+            self._crud_repo,
+            repo,
+            [item],
+            f"note: update {new_title}",
+            operation="update",
+            write_rows=write_row,
+            note_id=note_id,
             owner_id=owner_id,
-            title=new_title,
-            content=new_content,
-            tags=new_tags,
-            updated_at=now,
-            folder=new_folder,
-            occurred_at=new_occurred_at,
-            period=new_period,
-            bump_index_generation=True,
         )
         self._link_service.persist(note_id, note.workspace, owner_id, links)
         self._tag_service.sync_tags(note_id, note.workspace, owner_id, new_tags, new_content)
@@ -1186,22 +1279,33 @@ class NoteService:
             for p in prepared
         ]
         message = f"note: edit {n} note{'' if n == 1 else 's'}"
-        with staged_workspace_change(git_repo, items, message):
-            pass
 
-        for p in prepared:
-            self._crud_repo.update(
-                p.note_id,
-                owner_id=user_id,
-                title=p.loc.note.title,
-                content=p.new_content,
-                tags=p.new_tags,
-                updated_at=now,
-                folder=p.loc.note.folder,
-                occurred_at=p.occurred_at,
-                period=p.period,
-                bump_index_generation=True,
-            )
+        def write_rows(session: Session) -> None:
+            for p in prepared:
+                self._crud_repo.update_in_session(
+                    session,
+                    p.note_id,
+                    owner_id=user_id,
+                    title=p.loc.note.title,
+                    tags=p.new_tags,
+                    updated_at=now,
+                    folder=p.loc.note.folder,
+                    occurred_at=p.occurred_at,
+                    period=p.period,
+                    bump_index_generation=True,
+                )
+
+        commit_rows_then_tree(
+            self._crud_repo,
+            git_repo,
+            items,
+            message,
+            operation="update_many",
+            write_rows=write_rows,
+            workspace=ws_name,
+            owner_id=user_id,
+            count=n,
+        )
         self._link_service.persist_many(
             ws_name,
             user_id,
@@ -1458,7 +1562,7 @@ class NoteService:
         # docstring and edit_many/delete_many for the established one-repo-per-batch shape).
         git_repo = GitRepository(ws_path)
         located = self._locate_batch(cast(list[str], requested_ids), owner_id, ws_path, git_repo)
-        prepared: list[tuple[LocatedNote, NoteFrontmatter, str, str | None, str | None]] = []
+        prepared: list[_PreparedBackfill] = []
         for item in candidates:
             loc = located.get(item["note_id"])
             if loc is None or not loc.file_exists:
@@ -1486,42 +1590,51 @@ class NoteService:
             meta, content = read_note_file(loc.filepath)
             occurred_at = item["value"] if item["field"] == "occurred_at" else None
             period = item["value"] if item["field"] == "period" else None
-            prepared.append((loc, meta, content, occurred_at, period))
+            prepared.append(
+                _PreparedBackfill(
+                    loc=loc, meta=meta, content=content, occurred_at=occurred_at, period=period
+                )
+            )
         items = [
             StagedChange(
-                add=loc.relative,
+                add=p.loc.relative,
                 remove=None,
                 apply=partial(
                     write_note_file,
-                    loc.filepath,
-                    replace(meta, occurred_at=occurred_at, period=period),
-                    content,
+                    p.loc.filepath,
+                    replace(p.meta, occurred_at=p.occurred_at, period=p.period),
+                    p.content,
                 ),
             )
-            for loc, meta, content, occurred_at, period in prepared
+            for p in prepared
         ]
         message = f"note: backfill temporal metadata ({len(items)} notes)"
-        with staged_workspace_change(git_repo, items, message):
-            pass
-        with (
-            self._crud_repo.operation(
-                "backfill_temporal_metadata",
-                workspace=ws_name,
-                owner_id=owner_id,
-                count=len(prepared),
-            ) as operation,
-            operation.session.begin(),
-        ):
-            for loc, _meta, _content, occurred_at, period in prepared:
+
+        def write_rows(session: Session) -> None:
+            for p in prepared:
+                # updated_at and index_generation are deliberately left alone: this
+                # rewrites frontmatter dates only, not the note's indexed text.
                 self._crud_repo.update_in_session(
-                    operation.session,
-                    loc.note.id,
+                    session,
+                    p.loc.note.id,
                     owner_id=owner_id,
-                    updated_at=loc.note.updated_at,
-                    occurred_at=occurred_at,
-                    period=period,
+                    updated_at=p.loc.note.updated_at,
+                    occurred_at=p.occurred_at,
+                    period=p.period,
                     bump_index_generation=False,
                 )
+
+        commit_rows_then_tree(
+            self._crud_repo,
+            git_repo,
+            items,
+            message,
+            operation="backfill_temporal_metadata",
+            write_rows=write_rows,
+            workspace=ws_name,
+            owner_id=owner_id,
+            count=len(prepared),
+        )
         if self._cache is not None:
             self._cache.bump(ws_name, owner_id)
         logger.info("temporal_backfill_applied", ws=ws_name, count=len(prepared))
@@ -1745,13 +1858,13 @@ class NoteService:
                 pf = present[note_id]
                 self._crud_repo.insert_in_session(
                     session,
-                    Note(
-                        id=note_id,
+                    _new_note_row(
+                        note_id=note_id,
                         workspace=ws_name,
                         owner_id=owner_id,
                         title=pf.title,
                         folder=pf.folder,
-                        tags=json.dumps(pf.tags),
+                        tags=pf.tags,
                         created_at=pf.created_at,
                         updated_at=pf.updated_at,
                         occurred_at=pf.occurred_at,
