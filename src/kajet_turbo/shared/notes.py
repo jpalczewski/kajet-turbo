@@ -23,17 +23,21 @@ class WikilinkWarning(BaseModel):
 
 
 class NoteLinkItem(BaseModel):
-    """A note referenced by a link, identified and located for the caller."""
+    """A note referenced by a link, identified and located for the caller.
 
-    note_id: str = Field(
-        description="Use in [[note:NOTE_ID]] to create a permanent cross-workspace link"
-    )
+    Field descriptions here are kept REST-neutral (no wikilink-authoring instructions) —
+    this class is imported as-is by api/schemas/, not just subclassed. MCP-specific
+    instructional wording (e.g. how to write a [[note:ID]] link) belongs on a subclass
+    in mcp/notes/types.py, not here.
+    """
+
+    note_id: str = Field(description="Note id")
     title: str = Field(description="Note title")
     folder: str = Field(description="Folder path; empty string means workspace root")
     workspace: str | None = Field(
         default=None,
-        description="Non-null and != active workspace means cross-workspace link; reference "
-        "with [[note:note_id]]",
+        description="Non-null and different from the caller's active workspace means this "
+        "is a cross-workspace reference",
     )
 
 
@@ -85,20 +89,34 @@ class NoteListItem(BaseModel):
 
 
 class NoteLinksBase(BaseModel):
-    """A note's outgoing and incoming wikilinks."""
+    """A note's outgoing and incoming wikilinks.
+
+    Gotcha for any subclass that needs a richer item type than the plain `NoteLinkItem`
+    above (e.g. one with `tags`/`updated_at` attached): pydantic bakes a field's type in
+    at class-definition time, so `class X(NoteLinksBase): pass` does NOT pick up a
+    subclass's own richer `NoteLinkItem` just because it's in scope — `outlinks`/
+    `backlinks` stay typed against this module's plain `NoteLinkItem`. A subclass using a
+    different item type must redeclare both fields with that type explicitly.
+    """
 
     outlinks: list[NoteLinkItem] = Field(description="Notes this note links to")
     backlinks: list[NoteLinkItem] = Field(description="Notes that link to this note")
 
 
-# --- Whole-workspace graph (#133) ---
-
-
-class GraphNode(NoteLinkItem):
-    """A note as a node in the workspace link graph, with list metadata attached."""
+class NoteLinkItemWithMeta(NoteLinkItem):
+    """`NoteLinkItem` plus list metadata (`tags`/`updated_at`) — shared by every surface
+    that shows note-link items alongside a note listing (get_note_links with
+    include_meta=True, the workspace graph)."""
 
     tags: list[str] | None = None
     updated_at: str | None = None
+
+
+# --- Whole-workspace graph (#133) ---
+
+
+class GraphNode(NoteLinkItemWithMeta):
+    """A note as a node in the workspace link graph, with list metadata attached."""
 
 
 class GraphEdge(BaseModel):
@@ -114,3 +132,12 @@ class DanglingLinkItem(BaseModel):
     source_note_id: str = Field(description="The note containing the broken link")
     target_folder: str = Field(description="Folder the link target was written against")
     target_title: str = Field(description="Title the link couldn't resolve to a note")
+
+
+class GraphBase(BaseModel):
+    """Whole-workspace note-link graph: every note as a node, every resolved wikilink as
+    an edge, and broken/dangling links when the workspace has link validation disabled."""
+
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+    dangling_links: list[DanglingLinkItem] | None = None

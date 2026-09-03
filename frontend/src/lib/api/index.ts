@@ -245,13 +245,13 @@ export interface GraphEdge {
  * A note as a node in the workspace link graph, with list metadata attached.
  */
 export interface GraphNode {
-  /** Use in [[note:NOTE_ID]] to create a permanent cross-workspace link */
+  /** Note id */
   note_id: string;
   /** Note title */
   title: string;
   /** Folder path; empty string means workspace root */
   folder: string;
-  /** Non-null and != active workspace means cross-workspace link; reference with [[note:note_id]] */
+  /** Non-null and different from the caller's active workspace means this is a cross-workspace reference */
   workspace?: string | null;
   tags?: string[] | null;
   updated_at?: string | null;
@@ -296,15 +296,20 @@ export interface JobsResponse {
 
 /**
  * A note referenced by a link, identified and located for the caller.
+ *
+ * Field descriptions here are kept REST-neutral (no wikilink-authoring instructions) —
+ * this class is imported as-is by api/schemas/, not just subclassed. MCP-specific
+ * instructional wording (e.g. how to write a [[note:ID]] link) belongs on a subclass
+ * in mcp/notes/types.py, not here.
  */
 export interface NoteLinkItem {
-  /** Use in [[note:NOTE_ID]] to create a permanent cross-workspace link */
+  /** Note id */
   note_id: string;
   /** Note title */
   title: string;
   /** Folder path; empty string means workspace root */
   folder: string;
-  /** Non-null and != active workspace means cross-workspace link; reference with [[note:note_id]] */
+  /** Non-null and different from the caller's active workspace means this is a cross-workspace reference */
   workspace?: string | null;
 }
 

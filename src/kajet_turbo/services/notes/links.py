@@ -275,10 +275,12 @@ class NoteLinkService:
         """Whole-workspace note-link graph: every note as a node (isolated notes included),
         every note_links edge, and dangling (broken-wikilink) edges when link validation
         is off for this workspace."""
-        edges = self._link_repo.list_for_workspace(owner_id, ws_name)
+        edges = self._link_repo.list_for_workspace(ws_name, owner_id)
+        # Every edge's source is already in list_paths (NoteLink.workspace is always the
+        # source's own workspace — see list_for_workspace's filter and the NoteLink model
+        # docstring), but a cross-workspace [[note:ID]] target may not be, so add targets.
         node_ids = {n.note_id for n in self._crud_repo.list_paths(ws_name, owner_id)}
-        node_ids.update(s for s, _ in edges)
-        node_ids.update(t for _, t in edges)  # cross-workspace targets aren't in list_paths
+        node_ids.update(t for _, t in edges)
         return self._build_graph(sorted(node_ids), edges, owner_id, ws_name)
 
     def _build_graph(
@@ -293,13 +295,15 @@ class NoteLinkService:
         reimplementing the conversion."""
         nodes = self._resolve_link_notes(node_ids, owner_id, include_meta=True)
         resolved_ids = {n["note_id"] for n in nodes}
-        # Edges pointing at a note that didn't resolve are dropped, not surfaced — the
-        # reconcile-links background job briefly leaves stale edges after a rename
-        # elsewhere (see services/notes/CLAUDE.md), which is expected here, not a bug.
-        deduped_edges = {(s, t) for s, t in edges if s in resolved_ids and t in resolved_ids}
+        # Edges pointing at a note that didn't resolve are dropped, not surfaced. This is
+        # reachable in practice: clear_workspace_data (service.py) only deletes a deleted
+        # workspace's own OUTGOING note_links rows, not INBOUND cross-workspace edges from
+        # notes elsewhere that still [[note:ID]]-reference a note that just got wiped —
+        # those become permanently dangling. Filtering here, not raising, is deliberate.
+        filtered_edges = [(s, t) for s, t in edges if s in resolved_ids and t in resolved_ids]
         result: dict = {
             "nodes": nodes,
-            "edges": [{"source": s, "target": t} for s, t in sorted(deduped_edges)],
+            "edges": [{"source": s, "target": t} for s, t in sorted(filtered_edges)],
         }
         if self._dangling_repo is not None and not self._links_validated(ws_name, owner_id):
             result["dangling_links"] = [

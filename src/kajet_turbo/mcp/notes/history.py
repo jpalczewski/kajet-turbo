@@ -7,7 +7,6 @@ from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
 from kajet_turbo.mcp.notes.types import (
-    HistoryEntry,
     NoteLinkItem,
     NoteLinksResult,
     SavedNoteResult,
@@ -16,6 +15,7 @@ from kajet_turbo.mcp.notes.types import (
 from kajet_turbo.mcp.tooling import read_tool, require_found, write_tool
 from kajet_turbo.services.notes import NoteData, NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.shared.notes import HistoryEntry
 
 
 def build_history(

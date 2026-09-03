@@ -1,6 +1,6 @@
 """NoteLinkService.graph(): whole-workspace node/edge/dangling-link assembly."""
 
-from tests.services.test_notes_wikilinks import _make_service_with_dangling
+from tests.services.helpers import make_service_with_dangling
 
 
 def test_graph_includes_isolated_notes_as_nodes(service, workspace):
@@ -27,7 +27,7 @@ def test_graph_dangling_links_none_when_not_tracked(service, workspace):
 
 
 def test_graph_dangling_links_empty_list_when_tracked_and_clean(database, workspace):
-    svc, _dangling = _make_service_with_dangling(
+    svc, _dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
     svc.save("u1", "ws", str(workspace), "Note", "body", [])
@@ -36,7 +36,7 @@ def test_graph_dangling_links_empty_list_when_tracked_and_clean(database, worksp
 
 
 def test_graph_includes_dangling_links_when_validation_off(database, workspace):
-    svc, _dangling = _make_service_with_dangling(
+    svc, _dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
     source_id = svc.save("u1", "ws", str(workspace), "Source", "[[Ghost]]", [])["note_id"]
@@ -58,8 +58,9 @@ def test_graph_cross_workspace_edge_target_included_with_real_workspace(service,
 
 
 def test_graph_drops_edge_with_unresolved_endpoint(service, workspace):
-    """A note_links row pointing at a note that no longer exists (the reconcile-links
-    background job's stale-edge window, see services/notes/CLAUDE.md) is dropped from
+    """A note_links row pointing at a note that no longer exists (e.g. a cross-workspace
+    target wiped by clear_workspace_data, which only clears a deleted workspace's own
+    outgoing edges — see the comment in NoteLinkService._build_graph) is dropped from
     edges, not surfaced as a broken node reference."""
     source_id = service.save("u1", "ws", str(workspace), "Source", "no links", [])["note_id"]
     service._link_service._link_repo.add_link(source_id, "does-not-exist", "ws", "u1")

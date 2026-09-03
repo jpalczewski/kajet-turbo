@@ -136,7 +136,7 @@ class NoteLinkRepository(DbRepository):
             ).all()
         return list(rows)
 
-    def list_for_workspace(self, owner_id: str, workspace: str) -> list[tuple[str, str]]:
+    def list_for_workspace(self, workspace: str, owner_id: str) -> list[tuple[str, str]]:
         """Every (source_note_id, target_note_id) edge in the workspace, for a bulk graph view."""
         with self.timed_session() as session:
             rows = session.exec(

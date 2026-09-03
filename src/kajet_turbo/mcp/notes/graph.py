@@ -1,5 +1,4 @@
 from fastmcp import FastMCP
-from pydantic import BaseModel
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
@@ -7,13 +6,11 @@ from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
 from kajet_turbo.mcp.tooling import read_tool
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
-from kajet_turbo.shared.notes import DanglingLinkItem, GraphEdge, GraphNode
+from kajet_turbo.shared.notes import GraphBase
 
 
-class GraphResult(BaseModel):
-    nodes: list[GraphNode]
-    edges: list[GraphEdge]
-    dangling_links: list[DanglingLinkItem] | None = None
+class GraphResult(GraphBase):
+    pass
 
 
 def build_graph(

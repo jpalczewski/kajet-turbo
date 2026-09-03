@@ -29,7 +29,6 @@ from kajet_turbo.mcp.notes.types import (
     FolderExportResult,
     GrepMatch,
     GrepResult,
-    MovedNoteResult,
     NoteDeleteInput,
     NoteEditInput,
     NoteInput,
@@ -37,7 +36,6 @@ from kajet_turbo.mcp.notes.types import (
     NoteListResponse,
     NoteOutlineResult,
     NoteReadError,
-    ReindexResult,
     SavedNoteResult,
     SearchChunkResult,
     StaleVersion,
@@ -53,6 +51,7 @@ from kajet_turbo.mcp.tooling import (
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.services.notes import NoteData, NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.shared.notes import MovedNoteResult, ReindexResult
 from kajet_turbo.workspace import normalize_folder, temporal_kwargs
 
 

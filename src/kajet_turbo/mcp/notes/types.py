@@ -4,18 +4,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from kajet_turbo.shared.notes import (
     FolderContext,
-    HistoryEntry,
-    MovedNoteResult,
+    NoteLinkItemWithMeta,
     NoteLinksBase,
     NoteListItem,
-    ReindexResult,
     WikilinkWarning,
 )
-from kajet_turbo.shared.notes import NoteLinkItem as _NoteLinkItemBase
-
-# Re-exported as-is (no MCP-side extra fields) so `from .types import X` keeps working
-# for callers elsewhere in mcp/notes/ — not otherwise referenced within this module.
-__all__ = ["HistoryEntry", "MovedNoteResult", "ReindexResult"]
 
 
 class ToolInput(BaseModel):
@@ -145,9 +138,17 @@ class SearchChunkResult(BaseModel):
     )
 
 
-class NoteLinkItem(_NoteLinkItemBase):
-    tags: list[str] | None = None
-    updated_at: str | None = None
+class NoteLinkItem(NoteLinkItemWithMeta):
+    # Redeclared with MCP-specific instructional wording — the shared base's descriptions
+    # are kept REST-neutral since api/schemas/ imports it directly (see shared/notes.py).
+    note_id: str = Field(
+        description="Use in [[note:NOTE_ID]] to create a permanent cross-workspace link"
+    )
+    workspace: str | None = Field(
+        default=None,
+        description="Non-null and != active workspace means cross-workspace link; reference "
+        "with [[note:note_id]]",
+    )
 
 
 class NoteLinksResult(NoteLinksBase):

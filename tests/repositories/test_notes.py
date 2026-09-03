@@ -303,11 +303,11 @@ def test_list_for_workspace_scoped_to_workspace_and_owner(notes, link_repo):
     link_repo.add_link("a", "b", "ws1", "u1")  # in scope
     link_repo.add_link("c", "c", "ws2", "u1")  # different workspace, same owner
     link_repo.add_link("d", "d", "ws1", "u2")  # same workspace, different owner
-    assert link_repo.list_for_workspace("u1", "ws1") == [("a", "b")]
+    assert link_repo.list_for_workspace("ws1", "u1") == [("a", "b")]
 
 
 def test_list_for_workspace_empty(link_repo):
-    assert link_repo.list_for_workspace("u1", "ws1") == []
+    assert link_repo.list_for_workspace("ws1", "u1") == []
 
 
 # --- list_notes(sort=) tests ---

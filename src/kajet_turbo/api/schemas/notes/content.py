@@ -1,19 +1,10 @@
 from pydantic import BaseModel
 
-from kajet_turbo.shared.notes import (
-    DanglingLinkItem,
-    GraphEdge,
-    GraphNode,
-    NoteLinkItem,
-    NoteLinksBase,
-)
+from kajet_turbo.shared.notes import GraphBase, NoteLinkItem, NoteLinksBase
 
 __all__ = [
     "ChunkPreviewItem",
     "ChunkPreviewResponse",
-    "DanglingLinkItem",
-    "GraphEdge",
-    "GraphNode",
     "GraphResponse",
     "LinksResponse",
     "NoteHtmlResponse",
@@ -26,10 +17,8 @@ class LinksResponse(NoteLinksBase):
     pass
 
 
-class GraphResponse(BaseModel):
-    nodes: list[GraphNode]
-    edges: list[GraphEdge]
-    dangling_links: list[DanglingLinkItem] | None = None
+class GraphResponse(GraphBase):
+    pass
 
 
 class NoteHtmlResponse(BaseModel):
