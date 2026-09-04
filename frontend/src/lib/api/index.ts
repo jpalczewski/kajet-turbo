@@ -449,6 +449,28 @@ export interface TemporalBackfillPreviewResponse {
   skipped: TemporalBackfillSkipped[];
 }
 
+/**
+ * Which field had the bad value
+ */
+export type TemporalWarningField = typeof TemporalWarningField[keyof typeof TemporalWarningField];
+
+
+export const TemporalWarningField = {
+  occurred_at: 'occurred_at',
+  period: 'period',
+} as const;
+
+/**
+ * occurred_at/period had an unparseable value on disk (a hand edit, most often) that
+ * a read-modify-write had to drop instead of persisting — the previous (DB) value was
+ * kept rather than being silently overwritten with the corrupted one.
+ */
+export interface TemporalWarning {
+  kind?: 'temporal_value_ignored';
+  /** Which field had the bad value */
+  field: TemporalWarningField;
+}
+
 export interface UpdateFolderMetaRequest {
   /** What this folder is for; empty string clears the field */
   description: string;
@@ -459,6 +481,7 @@ export interface UpdateFolderMetaRequest {
 export interface UpdateNoteResponse {
   note_id: string;
   warnings?: WikilinkWarning[];
+  temporal_warnings?: TemporalWarning[];
 }
 
 export interface UpdateWorkspaceResponse {

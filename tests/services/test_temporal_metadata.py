@@ -66,8 +66,8 @@ def test_parse_frontmatter_tolerates_conflicting_but_individually_valid_values()
 def test_update_keeps_db_occurred_at_when_file_value_is_corrupted(service, workspace):
     """An edit unrelated to dates (here: the title) must not silently discard a note's
     occurred_at just because a hand-edit made the on-disk copy unparseable — it should
-    fall back to the DB's last-known-good value instead of persisting the drop (#132
-    follow-up to the parse_frontmatter leniency fix)."""
+    fall back to the DB's last-known-good value instead of persisting the drop, and
+    surface the drop to the caller (#132 follow-up to the parse_frontmatter leniency fix)."""
     note_id = service.save(
         "u1", "ws", str(workspace), "Corrupt Update", "Body", [], occurred_at="2026-03-22"
     )["note_id"]
@@ -75,14 +75,43 @@ def test_update_keeps_db_occurred_at_when_file_value_is_corrupted(service, works
     corrupt_temporal_field(path, "occurred_at", "banana")
 
     sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
-    service.update(
+    result = service.update(
         note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="Renamed"
     )
 
+    assert result["temporal_warnings"] == [
+        {"kind": "temporal_value_ignored", "field": "occurred_at"}
+    ]
     row = service._crud_repo.get(note_id, owner_id="u1")
     assert row is not None and row.occurred_at == "2026-03-22"
     meta, _ = read_note_file(note_filepath(str(workspace), "", "Renamed"))
     assert meta.occurred_at == "2026-03-22"
+
+
+def test_edit_many_keeps_db_occurred_at_when_file_value_is_corrupted(service, workspace):
+    """edit_many's per-item fallback must fall back to the DB's last-known-good value for
+    a field read_note_file had to drop, same as update() (#132 follow-up), and surface
+    the drop per item rather than only in a server-side log."""
+    note_id = service.save(
+        "u1", "ws", str(workspace), "Corrupt Batch", "Body", [], occurred_at="2026-03-22"
+    )["note_id"]
+    path = note_filepath(str(workspace), "", "Corrupt Batch")
+    corrupt_temporal_field(path, "occurred_at", "banana")
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    result = service.edit_many(
+        "u1",
+        "ws",
+        str(workspace),
+        [{"note_id": note_id, "mode": "append", "content": "more", "expected_sha": sha}],
+    )
+
+    assert result["applied"] is True
+    assert result["results"][0]["temporal_warnings"] == [
+        {"kind": "temporal_value_ignored", "field": "occurred_at"}
+    ]
+    row = service._crud_repo.get(note_id, owner_id="u1")
+    assert row is not None and row.occurred_at == "2026-03-22"
 
 
 def test_reconcile_paths_keeps_db_occurred_at_when_file_value_is_corrupted(service, workspace):

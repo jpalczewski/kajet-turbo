@@ -305,7 +305,7 @@ def test_update_note_response_matches_declared_schema(auth_client):
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"content": "new content", "expected_sha": sha},
     )
-    assert resp.json() == {"note_id": note_id, "warnings": []}
+    assert resp.json() == {"note_id": note_id, "warnings": [], "temporal_warnings": []}
 
 
 def test_update_note_rejects_malformed_period_with_422_not_404(auth_client):

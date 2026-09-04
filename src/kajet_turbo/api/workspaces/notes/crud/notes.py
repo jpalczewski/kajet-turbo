@@ -206,7 +206,13 @@ async def api_update_note(
             detail={"error": str(NoteError.STALE_VERSION)},
         )
     # Keep the MCP-only replacement count private while exposing public link warnings.
-    return JSONResponse({"note_id": result["note_id"], "warnings": result["warnings"]})
+    return JSONResponse(
+        {
+            "note_id": result["note_id"],
+            "warnings": result["warnings"],
+            "temporal_warnings": result["temporal_warnings"],
+        }
+    )
 
 
 @router.post(

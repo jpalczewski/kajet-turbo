@@ -22,6 +22,15 @@ class WikilinkWarning(BaseModel):
     )
 
 
+class TemporalWarning(BaseModel):
+    """occurred_at/period had an unparseable value on disk (a hand edit, most often) that
+    a read-modify-write had to drop instead of persisting — the previous (DB) value was
+    kept rather than being silently overwritten with the corrupted one."""
+
+    kind: Literal["temporal_value_ignored"] = "temporal_value_ignored"
+    field: Literal["occurred_at", "period"] = Field(description="Which field had the bad value")
+
+
 class NoteLinkItem(BaseModel):
     """A note referenced by a link, identified and located for the caller.
 

@@ -7,6 +7,7 @@ from kajet_turbo.shared.notes import (
     NoteLinkItemWithMeta,
     NoteLinksBase,
     NoteListItem,
+    TemporalWarning,
     WikilinkWarning,
 )
 
@@ -179,6 +180,11 @@ class EditNoteSuccess(BaseModel):
     note_id: str
     replaced: int | None = None
     warnings: list[WikilinkWarning] = Field(default_factory=list)
+    temporal_warnings: list[TemporalWarning] = Field(
+        default_factory=list,
+        description="occurred_at/period fields that had an unparseable value on disk "
+        "(a hand edit, most often) and were kept at their previous value instead.",
+    )
     occurred_at: str | None = None
     period: str | None = None
 
@@ -294,6 +300,7 @@ class EditNotesSuccessItem(BaseModel):
     note_id: str
     replaced: int | None = None
     warnings: list[WikilinkWarning] = Field(default_factory=list)
+    temporal_warnings: list[TemporalWarning] = Field(default_factory=list)
 
 
 class EditNotesApplied(BaseModel):
