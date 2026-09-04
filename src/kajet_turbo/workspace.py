@@ -2,6 +2,7 @@ import os
 import re
 import stat
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import cast
 
 import frontmatter
 
+from kajet_turbo.log import logger
 from kajet_turbo.models import Note
 from kajet_turbo.periods import parse_period_key
 from kajet_turbo.repositories.git import GitRepository, delete_workspace_tree
@@ -274,17 +276,38 @@ def write_note_file(path: str, meta: NoteFrontmatter, body: str) -> None:
         temp.unlink(missing_ok=True)
 
 
+def _parse_temporal_soft(
+    parser: Callable[[object], str | None], value: object, *, note_id: str | None
+) -> str | None:
+    """Run a strict ``_parse_occurred_at``/``_parse_period`` parser, but on a
+    ``TemporalMetadataError`` (a hand-edited or otherwise corrupted value) log a warning
+    and return ``None`` instead of propagating — see ``parse_frontmatter``."""
+    try:
+        return parser(value)
+    except TemporalMetadataError as exc:
+        logger.warning("frontmatter_temporal_value_ignored", note_id=note_id, error=str(exc))
+        return None
+
+
 def parse_frontmatter(post: frontmatter.Post) -> tuple[NoteFrontmatter, str]:
     """The one place every frontmatter reader turns a parsed ``Post`` into ``(meta, content)``.
 
     Only a YAML list is a valid ``tags`` value; anything else (a bare scalar from
     hand-edited frontmatter) becomes ``[]`` rather than propagating untyped garbage.
     Every other top-level key becomes ``meta.extras``, verbatim.
+
+    ``occurred_at``/``period`` are parsed leniently: a value a hand edit (or other
+    external write) left unparseable is dropped to ``None`` with a warning instead of
+    raising, so a note with corrupted temporal metadata stays readable. Writing new
+    values still validates strictly, via ``normalize_temporal_metadata``.
     """
     metadata: dict[str, object] = dict(post.metadata)
+    note_id = cast("str | None", metadata.get("id"))
     tags = metadata.pop("tags", [])
-    occurred_at = _parse_occurred_at(metadata.pop("occurred_at", None))
-    period = _parse_period(metadata.pop("period", None))
+    occurred_at = _parse_temporal_soft(
+        _parse_occurred_at, metadata.pop("occurred_at", None), note_id=note_id
+    )
+    period = _parse_temporal_soft(_parse_period, metadata.pop("period", None), note_id=note_id)
     meta = NoteFrontmatter(
         id=cast("str | None", metadata.pop("id", None)),
         title=cast("str | None", metadata.pop("title", None)),

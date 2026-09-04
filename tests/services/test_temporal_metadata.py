@@ -1,13 +1,51 @@
 from dataclasses import replace
 
+import frontmatter
 import pytest
 
 from kajet_turbo.workspace import (
     TemporalMetadataError,
     note_filepath,
+    parse_frontmatter,
     read_note_file,
     write_note_file,
 )
+
+
+def test_parse_frontmatter_tolerates_malformed_occurred_at():
+    """A hand-edited/corrupted occurred_at must not block reading the rest of the note
+    (#132) — it degrades to None instead of raising TemporalMetadataError."""
+    post = frontmatter.Post("Body", occurred_at="not-a-date")
+
+    meta, content = parse_frontmatter(post)
+
+    assert meta.occurred_at is None
+    assert content == "Body"
+
+
+def test_parse_frontmatter_tolerates_malformed_period():
+    post = frontmatter.Post("Body", period="not-a-period")
+
+    meta, content = parse_frontmatter(post)
+
+    assert meta.period is None
+    assert content == "Body"
+
+
+def test_parse_frontmatter_still_rejects_malformed_values_on_explicit_write(service, workspace):
+    """The lenient read path must not weaken explicit-write validation: passing a bad
+    value through the service API still raises loudly."""
+    note_id = service.save("u1", "ws", str(workspace), "Strict Write", "Body", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    with pytest.raises(TemporalMetadataError):
+        service.update(
+            note_id,
+            owner_id="u1",
+            ws_path=str(workspace),
+            expected_sha=sha,
+            occurred_at="not-a-date",
+        )
 
 
 def test_save_update_clear_and_reconcile_temporal_metadata(service, workspace):

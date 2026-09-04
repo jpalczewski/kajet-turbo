@@ -58,9 +58,10 @@ def test_frontmatter_coerces_yaml_int_period(workspace):
     assert meta.occurred_at is None
 
 
-def test_frontmatter_rejects_yaml_bool_period(workspace):
+def test_frontmatter_drops_yaml_bool_period_instead_of_coercing(workspace):
     # bool is an int subclass in Python; `period: true` must not be silently accepted
-    # as if it were a stringified year.
+    # as if it were a stringified year. It also must not block reading the rest of the
+    # note (#132): a hand-edited/corrupted value degrades to None instead of raising.
     path = Path(workspace, "bool.md")
     path.write_text(
         "---\n"
@@ -70,8 +71,9 @@ def test_frontmatter_rejects_yaml_bool_period(workspace):
         "---\nBody\n"
     )
 
-    with pytest.raises(ValueError, match="canonical period key"):
-        read_note_file(str(path))
+    meta, _ = read_note_file(str(path))
+
+    assert meta.period is None
 
 
 def test_frontmatter_rejects_two_temporal_facts():
