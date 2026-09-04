@@ -11,6 +11,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
 from string import Formatter
 from typing import Literal, cast
@@ -105,21 +106,23 @@ class CollectionDefinition:
         wrong for "is this actually a member" — a workspace can (and does) hold entries
         far older than the sampling window.
 
-        Recovers the candidate date from the match itself — via ``{date}`` or ``{key}``,
-        whichever the template carries — then confirms membership by re-rendering that
-        date and comparing strings exactly, not just "the shape matches" (this also
-        catches a folder/title pair whose date parts are individually well-formed but
-        mutually inconsistent, e.g. a hand-edited file). Falls back to the bounded
-        ``render_set`` check only for the rare template that uses neither ``{date}`` nor
-        ``{key}`` (only ``{year}``/``{month}``), which can't be uniquely inverted to a date.
+        Recovers the candidate date from the match itself — via ``{date}``, ``{key}``,
+        or (for day/month/year grain) bare ``{year}``/``{month}`` — then confirms
+        membership by re-rendering that date and comparing strings exactly, not just
+        "the shape matches" (this also catches a folder/title pair whose date parts are
+        individually well-formed but mutually inconsistent, e.g. a hand-edited file).
+        Falls back to the bounded ``render_set`` check only when no date can be
+        recovered at all (a template using none of those placeholders) — see
+        ``_recover_when`` for why week grain can't take the ``{year}``/``{month}`` path.
         """
-        pattern, groups = self._match_pattern()
+        pattern, groups = _match_pattern_for(self)
         m = pattern.match(f"{folder}/{title}")
         if m is None:
             return False
-        captured: dict[str, str] = {}
-        for field, value in zip(groups, m.groups(), strict=True):
-            captured.setdefault(field, value)
+        # A field used twice (rare) keeps its last captured value; any inconsistency
+        # between occurrences is still caught below by the render-and-compare check,
+        # which fails for either occurrence's value if they disagree.
+        captured = dict(zip(groups, m.groups(), strict=True))
         try:
             when = self._recover_when(captured)
         except ValueError:
@@ -131,36 +134,60 @@ class CollectionDefinition:
         ordinal = int(captured["ordinal"]) if "ordinal" in captured else None
         return self.render(when, ordinal) == (folder, title)
 
-    def _match_pattern(self) -> tuple[re.Pattern[str], list[str]]:
-        """Regex for ``matches()``: every placeholder becomes its own capture group,
-        typed by its exact format (``{key}`` uses this definition's grain, since that
-        fixes its shape unambiguously). Returns the pattern plus the field name each
-        group (in order) belongs to — a field used twice yields two groups, not one
-        shared name, for the same reason ``sibling_pattern`` does.
-        """
-        field_pattern = {**_FIELD_PATTERNS, "key": _KEY_PATTERNS[self.grain]}
-        groups: list[str] = []
-
-        def pattern_for(template: str) -> str:
-            parts: list[str] = []
-            for literal, field, _spec, _conv in Formatter().parse(template):
-                parts.append(re.escape(literal))
-                if field is not None:
-                    parts.append(f"({field_pattern[field]})")
-                    groups.append(field)
-            return "".join(parts)
-
-        pattern = re.compile(f"{pattern_for(self.folder)}/{pattern_for(self.title)}$")
-        return pattern, groups
-
     def _recover_when(self, captured: dict[str, str]) -> date | None:
-        """The date a matched ``{date}``/``{key}`` capture implies, or ``None`` when the
-        template carries neither and a date can't be uniquely recovered."""
+        """The date a matched capture implies, or ``None`` when it can't be uniquely
+        recovered (the caller then falls back to the bounded ``render_set`` check).
+
+        ``{date}``/``{key}`` are unambiguous by construction. Bare ``{year}``(+``{month}``)
+        is also safe to invert for day/month/year grain: a template with no ``{month}``
+        placeholder never compares the reconstructed day-of-month against anything (an
+        unused format field), so guessing day=1 doesn't affect the round-trip check in
+        ``matches()``, and neither does guessing month=1 when ``{month}`` is absent too.
+        Week grain is excluded: its ``{month}`` is the *ISO-Thursday* month
+        (``month_of_week``), not the calendar month of an arbitrary day in that week, so
+        a naive ``date(year, month, 1)`` can land in a different ISO week than the one
+        that was actually rendered — re-deriving the wrong month/year and failing the
+        round-trip check for a genuine member. Week-grain templates without ``{key}``/
+        ``{date}`` fall back to ``render_set`` instead of risking that false negative.
+        """
         if "date" in captured:
             return date.fromisoformat(captured["date"])
         if "key" in captured:
             return Period(self.grain, captured["key"]).start
+        if self.grain != "week" and "year" in captured:
+            year = int(captured["year"])
+            month = int(captured["month"]) if "month" in captured else 1
+            return date(year, month, 1)
         return None
+
+
+@lru_cache(maxsize=256)
+def _match_pattern_for(definition: CollectionDefinition) -> tuple[re.Pattern[str], tuple[str, ...]]:
+    """Regex for ``CollectionDefinition.matches()``: every placeholder becomes its own
+    capture group, typed by its exact format (``{key}`` uses the definition's grain,
+    since that fixes its shape unambiguously). Returns the pattern plus the field name
+    each group (in order) belongs to — a field used twice yields two groups, not one
+    shared name, for the same reason ``sibling_pattern`` does.
+
+    Cached (``CollectionDefinition`` is a frozen, hashable dataclass) because
+    ``matches()`` runs once per candidate note in ``list_entries``'s membership scan —
+    recompiling the identical pattern per note would be pure waste for the same
+    definition.
+    """
+    field_pattern = {**_FIELD_PATTERNS, "key": _KEY_PATTERNS[definition.grain]}
+    groups: list[str] = []
+
+    def pattern_for(template: str) -> str:
+        parts: list[str] = []
+        for literal, field, _spec, _conv in Formatter().parse(template):
+            parts.append(re.escape(literal))
+            if field is not None:
+                parts.append(f"({field_pattern[field]})")
+                groups.append(field)
+        return "".join(parts)
+
+    pattern = re.compile(f"{pattern_for(definition.folder)}/{pattern_for(definition.title)}$")
+    return pattern, tuple(groups)
 
 
 _FIELD_PATTERNS = {

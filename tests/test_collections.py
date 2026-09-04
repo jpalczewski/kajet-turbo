@@ -283,6 +283,43 @@ def test_matches_is_not_bounded_by_render_sets_sampling_window():
     assert definition.matches(*definition.render(far_future)) is True
 
 
+def test_matches_bare_year_month_template_is_also_not_bounded():
+    # Same guarantee as test_matches_is_not_bounded_by_render_sets_sampling_window,
+    # but for a template with no {date}/{key} at all — {year}/{month} alone must still
+    # recover the date exactly for day/month/year grain, not fall back to sampling.
+    definition = _journal(folder="archive/{year}", title="{month}-{ordinal}")
+    far_past_folder, far_past_title = definition.render(date(1994, 5, 2), ordinal=1)
+    assert definition.matches(far_past_folder, far_past_title) is True
+
+
+def test_matches_month_grain_bare_year_month():
+    definition = CollectionDefinition("monthly", "month", "one", "archive/{year}", "{month}")
+    far_past_folder, far_past_title = definition.render(date(1994, 5, 1))
+    assert far_past_folder == "archive/1994"
+    assert far_past_title == "05"
+    assert definition.matches(far_past_folder, far_past_title) is True
+
+
+def test_matches_year_grain_bare_year():
+    definition = CollectionDefinition("yearly", "year", "one", "archive", "{year}")
+    far_past_folder, far_past_title = definition.render(date(1994, 5, 1))
+    assert definition.matches(far_past_folder, far_past_title) is True
+
+
+def test_matches_week_grain_bare_year_month_falls_back_to_render_set():
+    # Week grain's {month} comes from the ISO-Thursday convention (month_of_week), not
+    # the calendar month of an arbitrary day in the week, so _recover_when excludes
+    # week grain from the {year}/{month} guess (it could land in a different ISO week
+    # than the one actually rendered). This must fall back to render_set instead —
+    # not crash, not silently mismatch. Mon 2025-12-29 is ISO week 2026-W01, so its
+    # folder is "weekly/2026/01", exercising exactly that month-shift.
+    definition = _weekly(folder="weekly/{year}/{month}", title="{ordinal}")
+    folder, title = definition.render(date(2025, 12, 29), ordinal=1)
+    assert folder == "weekly/2026/01"
+    assert definition.matches(folder, title) is True
+    assert definition.matches("weekly/2026/01", "999") is False
+
+
 def test_matches_week_grain_via_key():
     definition = _weekly(folder="weekly/{year}", title="{key}")
     folder, title = definition.render(date(2026, 6, 1))

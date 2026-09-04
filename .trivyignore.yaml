@@ -104,6 +104,19 @@ vulnerabilities:
     purls: ["pkg:deb/debian/openssh-client"]
     expired_at: 2026-09-30
     statement: Debian 13 has not published a fixed OpenSSH client package.
+  - id: CVE-2026-76642
+    purls:
+      - "pkg:deb/debian/util-linux"
+      - "pkg:deb/debian/bsdutils"
+      - "pkg:deb/debian/mount"
+      - "pkg:deb/debian/login"
+      - "pkg:deb/debian/libblkid1"
+      - "pkg:deb/debian/libmount1"
+      - "pkg:deb/debian/libsmartcols1"
+      - "pkg:deb/debian/libuuid1"
+      - "pkg:deb/debian/liblastlog2-2"
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed util-linux package.
 
   # Caddy 2.11.4 is the latest upstream release, but its binary was compiled
   # before these Go fixes. Scope each exception to that exact binary/package

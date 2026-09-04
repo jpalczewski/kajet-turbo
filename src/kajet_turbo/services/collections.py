@@ -10,7 +10,6 @@ instead of the collections file, so it delegates to ``NoteService.save`` (which 
 ``staged_workspace_change``) under the same reentrant workspace lock.
 """
 
-import json
 import os
 import stat
 import tempfile
@@ -29,10 +28,9 @@ from kajet_turbo.collections import (
     validate_definition,
 )
 from kajet_turbo.log import logger
-from kajet_turbo.models import Note
 from kajet_turbo.periods import Period, PeriodKind
 from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteRepository, note_to_list_item
 from kajet_turbo.services.notes.service import NoteService
 
 
@@ -67,25 +65,6 @@ def _write_collections_file(ws_path: str, definitions: dict[str, CollectionDefin
 
 def _serialize(definition: CollectionDefinition) -> dict:
     return asdict(definition)
-
-
-def _to_list_item(note: Note) -> dict:
-    """A full ``Note`` row shaped like ``NoteRepository.list_notes``/``entries_in``'s
-    dicts — the contract ``mcp.shared.notes.NoteListItem`` validates against. Needed
-    because ``list_under_folder`` returns ORM rows, not that dict shape directly.
-    """
-    return {
-        "note_id": note.id,
-        "workspace": note.workspace,
-        "owner_id": note.owner_id,
-        "title": note.title,
-        "folder": note.folder,
-        "tags": json.loads(note.tags or "[]"),
-        "created_at": note.created_at,
-        "updated_at": note.updated_at,
-        "occurred_at": note.occurred_at,
-        "period": note.period,
-    }
 
 
 def _temporal_for(grain: PeriodKind, when: date) -> tuple[date | None, str | None]:
@@ -140,7 +119,7 @@ class CollectionService:
         prefix = _static_prefix(definition.folder)
         if prefix:
             candidates = self._note_repo.list_under_folder(ws_name, owner_id, prefix)
-            notes = [_to_list_item(n) for n in candidates]
+            notes = [note_to_list_item(n) for n in candidates]
         else:
             notes = self._note_repo.list_notes(ws_name, owner_id, folder=None, limit=None)
         matched = [n for n in notes if definition.matches(n["folder"], n["title"])]
