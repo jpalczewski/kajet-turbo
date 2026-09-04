@@ -72,17 +72,6 @@ class NoteRepository(DbRepository):
         """Add one new note row in a caller-owned transaction; does not commit."""
         session.add(note)
 
-    def check_unique(self, workspace: str, owner_id: str, folder: str, title: str) -> bool:
-        """Returns True if no note with this (workspace, owner_id, folder, title) exists."""
-        with self.timed_session() as session:
-            q = select(Note).where(
-                Note.workspace == workspace,
-                Note.owner_id == owner_id,
-                Note.folder == folder,
-                Note.title == title,
-            )
-            return session.exec(q).first() is None
-
     def get(self, note_id: str, owner_id: str | None = None) -> Note | None:
         with self.timed_session() as session:
             q = select(Note).where(Note.id == note_id)

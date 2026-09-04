@@ -11,7 +11,12 @@ from kajet_turbo.repositories.git import GitError, GitRepository, workspace_writ
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes.links import NoteLinkService
-from kajet_turbo.services.notes.paths import build_path_index, conflict_message, note_path_conflict
+from kajet_turbo.services.notes.paths import (
+    build_path_index,
+    conflict_message,
+    note_path_conflict,
+    path_conflict_key,
+)
 from kajet_turbo.services.notes.staged_change import (
     StagedChange,
     commit_rows_then,
@@ -147,14 +152,18 @@ class NoteFolderService:
             raise FileNotFoundError(f"Folder '{src_n}' nie istnieje.")
 
         workspace_links = self._link_service.for_workspace(workspace, owner_id)
-        # Every note's *current* path, indexed once for an O(1) lookup per note below
-        # instead of an O(len(notes in workspace)) rescan — this only ever matches a
-        # note NOT in this move (a target can't collide with its own old path: dst_n !=
-        # src_n is already guaranteed above, so a moved note's old and new folders always
-        # differ). A separate `claimed` dict below catches new-target collisions BETWEEN
+        # Every OTHER note's current path, indexed once for an O(1) lookup per note below
+        # instead of an O(len(notes in workspace)) rescan. Notes actually being moved are
+        # excluded up front: with a case-insensitive comparison key, a case-only folder
+        # rename (move_folder("projekty", "Projekty")) would otherwise have every moved
+        # note's new folded path equal its own old folded path, and find itself as a false
+        # "conflict". A separate `claimed` dict below catches new-target collisions BETWEEN
         # two notes moved together in this same call, which this static, pre-move index
         # cannot see (their entries here still carry their old folders).
-        path_index = build_path_index(workspace_links.paths, ws_path)
+        moved_ids = {note.id for note in notes}
+        path_index = build_path_index(
+            (p for p in workspace_links.paths if p.note_id not in moved_ids), ws_path
+        )
         remap: dict[str, str] = {}
         conflicts: list[dict] = []
         claimed: dict[str, str] = {}
@@ -164,10 +173,11 @@ class NoteFolderService:
             remap[note.id] = new_folder
             target = note_filepath(ws_path, new_folder, note.title)
             target_rel = str(Path(target).relative_to(ws_path))
-            if path_index.get(target) is not None or target_rel in claimed:
+            target_key = path_conflict_key(target)
+            if path_index.get(target_key) is not None or target_key in claimed:
                 conflicts.append({"title": note.title, "folder": new_folder})
             else:
-                claimed[target_rel] = note.title
+                claimed[target_key] = target_rel
         if conflicts:
             return {
                 "error": "Notes with these names already exist at the destination.",

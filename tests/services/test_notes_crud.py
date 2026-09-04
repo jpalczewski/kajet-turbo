@@ -118,7 +118,7 @@ def test_save_rejects_collision_with_orphan_file_on_disk(service, workspace):
         service.save("u1", "ws", str(workspace), "A B", "new body", [])
 
     assert (workspace / "A B.md").read_text() == "orphan content\n"
-    assert service._crud_repo.check_unique("ws", "u1", "", "A B")
+    assert service._crud_repo.get_by_path("ws", "u1", "", "A B") is None
 
 
 def test_save_rejects_normalization_collision_with_ghost_row(service, workspace):
