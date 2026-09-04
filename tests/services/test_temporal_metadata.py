@@ -3,8 +3,6 @@ from dataclasses import replace
 import frontmatter
 import pytest
 
-from kajet_turbo.markdown import EditSpec
-from kajet_turbo.services.notes import EditBatchItem
 from kajet_turbo.workspace import (
     TemporalMetadataError,
     note_filepath,
@@ -12,7 +10,7 @@ from kajet_turbo.workspace import (
     read_note_file,
     write_note_file,
 )
-from tests.services.helpers import corrupt_temporal_field
+from tests.services.helpers import corrupt_temporal_field, edit_item
 
 
 def test_parse_frontmatter_tolerates_malformed_occurred_at():
@@ -105,7 +103,7 @@ def test_edit_many_keeps_db_occurred_at_when_file_value_is_corrupted(service, wo
         "u1",
         "ws",
         str(workspace),
-        [{"note_id": note_id, "mode": "append", "content": "more", "expected_sha": sha}],
+        [edit_item(note_id, sha, content="more")],
     )
 
     assert result["applied"] is True
@@ -211,10 +209,10 @@ def test_edit_many_rejects_clear_combined_with_temporal_and_leaves_note_unchange
         "ws",
         str(workspace),
         [
-            EditBatchItem(
-                note_id=note_id,
-                expected_sha=sha,
-                edit=EditSpec(mode="overwrite"),
+            edit_item(
+                note_id,
+                sha,
+                mode="overwrite",
                 clear_date_metadata=True,
                 period="2026-W12",
             )
@@ -252,14 +250,7 @@ def test_edit_many_rejects_malformed_period(service, workspace):
         "u1",
         "ws",
         str(workspace),
-        [
-            EditBatchItem(
-                note_id=note_id,
-                expected_sha=sha,
-                edit=EditSpec(mode="overwrite"),
-                period="not-a-period",
-            )
-        ],
+        [edit_item(note_id, sha, mode="overwrite", period="not-a-period")],
     )
 
     assert result["applied"] is False

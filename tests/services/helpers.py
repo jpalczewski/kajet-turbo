@@ -6,6 +6,7 @@ import json
 import re
 from pathlib import Path
 
+from kajet_turbo.markdown import EditMode
 from kajet_turbo.repositories.git import GitRepository
 
 
@@ -23,6 +24,44 @@ def corrupt_temporal_field(path: str, field: str, bad_value: str) -> None:
     corrupted, n = re.subn(rf"(?m)^{field}:.*$", f"{field}: {bad_value}", text, count=1)
     assert n == 1, f"{field!r} line not found in {path!r} to corrupt"
     Path(path).write_text(corrupted)
+
+
+def edit_item(
+    note_id: str,
+    expected_sha: str = "",
+    *,
+    mode: EditMode = "append",
+    content: str | None = None,
+    old_str: str | None = None,
+    new_str: str | None = None,
+    target_heading: str | None = None,
+    replace_all: bool = False,
+    tags: list[str] | None = None,
+    occurred_at: str | None = None,
+    period: str | None = None,
+    clear_date_metadata: bool = False,
+):
+    """One ``edit_many()`` batch item, built from flat kwargs instead of hand-nesting
+    ``EditBatchItem(edit=EditSpec(...))`` at every call site."""
+    from kajet_turbo.markdown import EditSpec
+    from kajet_turbo.services.notes import EditBatchItem
+
+    return EditBatchItem(
+        note_id=note_id,
+        expected_sha=expected_sha,
+        edit=EditSpec(
+            mode=mode,
+            content=content,
+            old_str=old_str,
+            new_str=new_str,
+            target_heading=target_heading,
+            replace_all=replace_all,
+        ),
+        tags=tags,
+        occurred_at=occurred_at,
+        period=period,
+        clear_date_metadata=clear_date_metadata,
+    )
 
 
 def build_reindex_handler(database, workspaces_dir: str, jobs=None):

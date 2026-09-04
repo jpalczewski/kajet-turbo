@@ -5,9 +5,8 @@ from kajet_turbo.markdown import EditSpec
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
-from kajet_turbo.services.notes import EditBatchItem
 from tests.services.conftest import seed_user
-from tests.services.helpers import build_reconcile_wiring
+from tests.services.helpers import build_reconcile_wiring, edit_item
 
 
 def test_target_creation_marks_only_dangling_source_and_reconciles(database, git_workspace_factory):
@@ -76,12 +75,12 @@ def test_concurrent_source_mutation_cannot_leave_stale_graph(
                     "ws",
                     str(ws),
                     [
-                        EditBatchItem(
-                            note_id=source_id,
-                            expected_sha=sha,
-                            edit=EditSpec(
-                                mode="replace_text", old_str="[[First]]", new_str="[[Second]]"
-                            ),
+                        edit_item(
+                            source_id,
+                            sha,
+                            mode="replace_text",
+                            old_str="[[First]]",
+                            new_str="[[Second]]",
                         )
                     ],
                 )

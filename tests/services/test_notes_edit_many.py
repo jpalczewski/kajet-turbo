@@ -4,12 +4,10 @@ from unittest.mock import patch
 
 import pytest
 
-from kajet_turbo.markdown import EditSpec
 from kajet_turbo.repositories.git import GitRepository
-from kajet_turbo.services.notes import EditBatchItem
 from kajet_turbo.services.notes import service as service_module
 from tests.services.conftest import seed_user
-from tests.services.helpers import make_flaky_db_write, make_flaky_write
+from tests.services.helpers import edit_item, make_flaky_db_write, make_flaky_write
 
 
 @pytest.fixture(autouse=True)
@@ -26,16 +24,8 @@ def test_edit_many_applies_all_in_one_commit(service, workspace):
         "ws",
         str(workspace),
         [
-            EditBatchItem(
-                note_id=r1["note_id"],
-                expected_sha=_head_sha(workspace, "First.md"),
-                edit=EditSpec(mode="append", content="more"),
-            ),
-            EditBatchItem(
-                note_id=r2["note_id"],
-                expected_sha=_head_sha(workspace, "Second.md"),
-                edit=EditSpec(mode="append", content="more"),
-            ),
+            edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="more"),
+            edit_item(r2["note_id"], _head_sha(workspace, "Second.md"), content="more"),
         ],
     )
     assert result["applied"] is True
@@ -57,15 +47,13 @@ def test_edit_many_all_or_nothing_on_bad_anchor(service, workspace):
         "ws",
         str(workspace),
         [
-            EditBatchItem(
-                note_id=r1["note_id"],
-                expected_sha=_head_sha(workspace, "First.md"),
-                edit=EditSpec(mode="append", content="more"),
-            ),
-            EditBatchItem(
-                note_id=r2["note_id"],
-                expected_sha=_head_sha(workspace, "Second.md"),
-                edit=EditSpec(mode="replace_text", old_str="does-not-exist", new_str="x"),
+            edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="more"),
+            edit_item(
+                r2["note_id"],
+                _head_sha(workspace, "Second.md"),
+                mode="replace_text",
+                old_str="does-not-exist",
+                new_str="x",
             ),
         ],
     )
@@ -82,14 +70,8 @@ def test_edit_many_rejects_duplicate_note_id(service, workspace):
         "ws",
         str(workspace),
         [
-            EditBatchItem(
-                note_id=r1["note_id"],
-                expected_sha=_head_sha(workspace, "First.md"),
-                edit=EditSpec(mode="append", content="a"),
-            ),
-            EditBatchItem(
-                note_id=r1["note_id"], expected_sha="", edit=EditSpec(mode="append", content="b")
-            ),
+            edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="a"),
+            edit_item(r1["note_id"], content="b"),
         ],
     )
     assert result["applied"] is False
@@ -103,14 +85,8 @@ def test_edit_many_missing_note_rejects_batch(service, workspace):
         "ws",
         str(workspace),
         [
-            EditBatchItem(
-                note_id=r1["note_id"],
-                expected_sha=_head_sha(workspace, "First.md"),
-                edit=EditSpec(mode="append", content="x"),
-            ),
-            EditBatchItem(
-                note_id="does-not-exist", expected_sha="", edit=EditSpec(mode="append", content="y")
-            ),
+            edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="x"),
+            edit_item("does-not-exist", content="y"),
         ],
     )
     assert result["applied"] is False
@@ -123,10 +99,11 @@ def test_edit_many_applies_destructive_overwrite_with_fresh_sha(service, workspa
         "ws",
         str(workspace),
         [
-            EditBatchItem(
-                note_id=r1["note_id"],
-                expected_sha=_head_sha(workspace, "First.md"),
-                edit=EditSpec(mode="overwrite", content="replaced"),
+            edit_item(
+                r1["note_id"],
+                _head_sha(workspace, "First.md"),
+                mode="overwrite",
+                content="replaced",
             )
         ],
     )
@@ -142,10 +119,13 @@ def test_edit_many_replace_all_reports_count_per_item(service, workspace):
         "ws",
         str(workspace),
         [
-            EditBatchItem(
-                note_id=r1["note_id"],
-                expected_sha=_head_sha(workspace, "First.md"),
-                edit=EditSpec(mode="replace_text", old_str="foo", new_str="bar", replace_all=True),
+            edit_item(
+                r1["note_id"],
+                _head_sha(workspace, "First.md"),
+                mode="replace_text",
+                old_str="foo",
+                new_str="bar",
+                replace_all=True,
             )
         ],
     )
@@ -159,14 +139,7 @@ def test_edit_many_updates_tags(service, workspace):
         "u1",
         "ws",
         str(workspace),
-        [
-            EditBatchItem(
-                note_id=r1["note_id"],
-                expected_sha=_head_sha(workspace, "First.md"),
-                edit=EditSpec(mode="append", content="x"),
-                tags=["new"],
-            )
-        ],
+        [edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="x", tags=["new"])],
     )
     assert result["applied"] is True
     note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
@@ -197,16 +170,8 @@ def test_edit_many_git_error_rolls_back_all_files(service, workspace):
             "ws",
             str(workspace),
             [
-                EditBatchItem(
-                    note_id=r1["note_id"],
-                    expected_sha=_head_sha(workspace, "First.md"),
-                    edit=EditSpec(mode="append", content="more"),
-                ),
-                EditBatchItem(
-                    note_id=r2["note_id"],
-                    expected_sha=_head_sha(workspace, "Second.md"),
-                    edit=EditSpec(mode="append", content="more"),
-                ),
+                edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="more"),
+                edit_item(r2["note_id"], _head_sha(workspace, "Second.md"), content="more"),
             ],
         )
 
@@ -242,16 +207,8 @@ def test_edit_many_write_failing_partway_rolls_back_and_makes_no_commit(service,
             "ws",
             str(workspace),
             [
-                EditBatchItem(
-                    note_id=r1["note_id"],
-                    expected_sha=_head_sha(workspace, "First.md"),
-                    edit=EditSpec(mode="append", content="more"),
-                ),
-                EditBatchItem(
-                    note_id=r2["note_id"],
-                    expected_sha=_head_sha(workspace, "Second.md"),
-                    edit=EditSpec(mode="append", content="more"),
-                ),
+                edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="more"),
+                edit_item(r2["note_id"], _head_sha(workspace, "Second.md"), content="more"),
             ],
         )
 
@@ -281,16 +238,8 @@ def test_edit_many_db_failure_leaves_files_and_head_untouched(service, workspace
             "ws",
             str(workspace),
             [
-                EditBatchItem(
-                    note_id=r1["note_id"],
-                    expected_sha=_head_sha(workspace, "First.md"),
-                    edit=EditSpec(mode="append", content="more"),
-                ),
-                EditBatchItem(
-                    note_id=r2["note_id"],
-                    expected_sha=_head_sha(workspace, "Second.md"),
-                    edit=EditSpec(mode="append", content="more"),
-                ),
+                edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="more"),
+                edit_item(r2["note_id"], _head_sha(workspace, "Second.md"), content="more"),
             ],
         )
 
@@ -309,13 +258,7 @@ def test_edit_many_stale_sha_rejects_whole_batch(service, workspace):
         "u1",
         "ws",
         str(workspace),
-        [
-            EditBatchItem(
-                note_id=r1["note_id"],
-                expected_sha=stale_sha,
-                edit=EditSpec(mode="append", content="bump"),
-            )
-        ],
+        [edit_item(r1["note_id"], stale_sha, content="bump")],
     )
 
     result = service.edit_many(
@@ -323,16 +266,8 @@ def test_edit_many_stale_sha_rejects_whole_batch(service, workspace):
         "ws",
         str(workspace),
         [
-            EditBatchItem(
-                note_id=r1["note_id"],
-                expected_sha=stale_sha,
-                edit=EditSpec(mode="append", content="more"),
-            ),
-            EditBatchItem(
-                note_id=r2["note_id"],
-                expected_sha=_head_sha(workspace, "Second.md"),
-                edit=EditSpec(mode="append", content="more"),
-            ),
+            edit_item(r1["note_id"], stale_sha, content="more"),
+            edit_item(r2["note_id"], _head_sha(workspace, "Second.md"), content="more"),
         ],
     )
 
@@ -350,11 +285,7 @@ def test_edit_many_requires_expected_sha(service, workspace):
         "u1",
         "ws",
         str(workspace),
-        [
-            EditBatchItem(
-                note_id=r1["note_id"], expected_sha="", edit=EditSpec(mode="append", content="more")
-            )
-        ],
+        [edit_item(r1["note_id"], content="more")],
     )
     assert result["applied"] is False
     assert "wymagany" in result["errors"][0]["error"]
