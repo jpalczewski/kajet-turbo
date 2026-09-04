@@ -283,6 +283,15 @@ def test_hybrid_search_allowed_note_ids_filters_all_candidate_lists(database):
         ("", ""),
         ("   ", ""),
         (",,, --- ???", ""),
+        # Polish function words measured at 8-90% chunk match rate under trigram tokenize
+        # (see #72) are dropped when a content word survives alongside them.
+        ("czy jest jakiś sposób żeby to zrobić szybciej", '"jakiś" OR "sposób" OR "zrobić" OR "szybciej"'),
+        # Stopword matching is case-insensitive, but the emitted literal keeps original case.
+        ("Czy TO działa", '"działa"'),
+        # All-stopword query: nothing survives filtering, so fall back to the raw token set
+        # rather than emit an empty (syntactically invalid) MATCH.
+        ("co to jest", '"jest"'),
+        ("czy jak", '"czy" OR "jak"'),
     ],
 )
 def test_to_fts_query_builds_valid_expressions(query, expected):
