@@ -4,9 +4,13 @@ A synchronous poll loop claims runnable jobs and runs their handlers on a thread
 pool — no asyncio. On free-threaded Python the pool threads run truly in parallel,
 which suits the heterogeneous I/O-bound jobs (git push, embedding HTTP). The DB is
 the queue; this process only reads it to claim and writes lifecycle transitions
-via JobRepository. The single wait point (``stop_event.wait(poll_interval)``) is
-where a cross-process nudge would later replace polling, with no change to claim
-semantics."""
+via JobRepository. There are two wait points: an idle backoff
+(``stop_event.wait(poll_interval)``), taken when a claim attempt finds nothing
+runnable, and a saturated wait (``futures.wait(..., return_when=FIRST_COMPLETED)``),
+taken when the pool is full and more work may still be queued. The idle backoff is
+where a cross-process nudge would later replace polling; the saturated wait is
+already event-driven — it wakes as soon as a slot frees rather than on a fixed
+tick, so sustained throughput is bounded by claim/handler cost, not poll_interval."""
 
 import json
 import os
@@ -15,7 +19,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from typing import TypeVar
 
 from sqlalchemy import Engine
@@ -133,12 +137,22 @@ def run_worker(
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         while not stop_event.is_set():
             inflight = {f for f in inflight if not f.done()}
+            nothing_runnable = False
             while len(inflight) < concurrency:
                 job = repo.claim(worker_id, stale_after=stale_after)
                 if job is None:
+                    nothing_runnable = True
                     break
                 inflight.add(pool.submit(run_job, repo, job, registry))
-            stop_event.wait(poll_interval)
+            if nothing_runnable:
+                stop_event.wait(poll_interval)
+            else:
+                # Pool is saturated and more work may still be queued. Wake as soon
+                # as a slot frees instead of waiting a fixed tick, so throughput
+                # scales with claim/handler cost rather than poll_interval; a run
+                # that never completes within the window still re-checks
+                # stop_event every poll_interval, same shutdown latency as before.
+                wait(inflight, timeout=poll_interval, return_when=FIRST_COMPLETED)
         # Leaving the `with` block waits for in-flight jobs to finish (graceful
         # drain). reset_running_to_pending then re-queues anything a hard kill could
         # have left running; after a clean drain it finds nothing.
