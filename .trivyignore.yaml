@@ -105,7 +105,7 @@ vulnerabilities:
     expired_at: 2026-09-30
     statement: Debian 13 has not published a fixed OpenSSH client package.
   - id: CVE-2026-76642
-    purls:
+    purls: &util-linux-purls
       - "pkg:deb/debian/util-linux"
       - "pkg:deb/debian/bsdutils"
       - "pkg:deb/debian/mount"
@@ -115,6 +115,10 @@ vulnerabilities:
       - "pkg:deb/debian/libsmartcols1"
       - "pkg:deb/debian/libuuid1"
       - "pkg:deb/debian/liblastlog2-2"
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed util-linux package.
+  - id: CVE-2026-78408
+    purls: *util-linux-purls
     expired_at: 2026-09-30
     statement: Debian 13 has not published a fixed util-linux package.
 
