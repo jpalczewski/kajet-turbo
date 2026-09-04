@@ -1,9 +1,11 @@
 import pytest
 from dulwich.repo import Repo
 
+from kajet_turbo.markdown import EditSpec
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
+from kajet_turbo.services.notes import EditBatchItem
 from tests.services.conftest import seed_user
 from tests.services.helpers import build_reconcile_wiring
 
@@ -67,20 +69,20 @@ def test_concurrent_source_mutation_cannot_leave_stale_graph(
             raced = True
             sha = service.get_history(source_id, "u1", str(ws))[0]["sha"]
             if mutation == "update":
-                service.update(source_id, "u1", str(ws), sha, content="[[Second]]")
+                service.update(source_id, "u1", str(ws), sha, edit=EditSpec(content="[[Second]]"))
             elif mutation == "edit_many":
                 result = service.edit_many(
                     "u1",
                     "ws",
                     str(ws),
                     [
-                        {
-                            "note_id": source_id,
-                            "expected_sha": sha,
-                            "mode": "replace_text",
-                            "old_str": "[[First]]",
-                            "new_str": "[[Second]]",
-                        }
+                        EditBatchItem(
+                            note_id=source_id,
+                            expected_sha=sha,
+                            edit=EditSpec(
+                                mode="replace_text", old_str="[[First]]", new_str="[[Second]]"
+                            ),
+                        )
                     ],
                 )
                 assert result["applied"] is True

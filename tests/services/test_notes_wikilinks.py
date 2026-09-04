@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from kajet_turbo.markdown import BrokenWikilinkError, IndexedNote, render_markdown
+from kajet_turbo.markdown import BrokenWikilinkError, EditSpec, IndexedNote, render_markdown
 from tests.services.conftest import seed_user
 from tests.services.helpers import (
     corrupt_temporal_field,
@@ -86,7 +86,11 @@ def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, worksp
     sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
     with pytest.raises(BrokenWikilinkError):
         service.update(
-            note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, content="[[Ghost]]"
+            note_id,
+            owner_id="u1",
+            ws_path=str(workspace),
+            expected_sha=sha,
+            edit=EditSpec(content="[[Ghost]]"),
         )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note.content == "original"
@@ -102,8 +106,7 @@ def test_update_append_mode_validates_after_apply_edit(service, workspace):
             owner_id="u1",
             ws_path=str(workspace),
             expected_sha=sha,
-            content="[[Ghost]]",
-            mode="append",
+            edit=EditSpec(content="[[Ghost]]", mode="append"),
         )
 
 
@@ -117,7 +120,7 @@ def test_update_to_valid_wikilink_succeeds(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        content="link [[Target]]",
+        edit=EditSpec(content="link [[Target]]"),
     )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert "[[Target]]" in note.content
@@ -140,7 +143,7 @@ def test_update_replaces_links(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        content="now [[B]]",
+        edit=EditSpec(content="now [[B]]"),
     )
     assert service._link_service._link_repo.backlinks(a) == []
     assert service._link_service._link_repo.backlinks(b) == [sid]
@@ -746,7 +749,7 @@ def test_resave_replaces_dangling_rows(database, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        content="[[Other]]",
+        edit=EditSpec(content="[[Other]]"),
     )
     rows = dangling.list_for_workspace("u1", "ws")
     assert {(r2["target_folder"], r2["target_title"]) for r2 in rows} == {("", "Other")}

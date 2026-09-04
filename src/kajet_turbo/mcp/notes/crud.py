@@ -7,7 +7,7 @@ from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
-from kajet_turbo.markdown import join_target
+from kajet_turbo.markdown import EditMode, EditSpec, join_target
 from kajet_turbo.mcp.context import (
     ACTIVE_WORKSPACE,
     MCP_CONTEXT,
@@ -50,7 +50,7 @@ from kajet_turbo.mcp.tooling import (
 )
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.services.collections import CollectionService
-from kajet_turbo.services.notes import NoteData, NoteService
+from kajet_turbo.services.notes import EditBatchItem, NoteData, NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.shared.notes import MovedNoteResult, ReindexResult
 from kajet_turbo.workspace import normalize_folder, temporal_kwargs
@@ -215,15 +215,7 @@ def build_crud(
         period: str | None = None,
         clear_date_metadata: bool = False,
         mode: Annotated[
-            Literal[
-                "overwrite",
-                "append",
-                "prepend",
-                "replace_section",
-                "replace_text",
-                "insert_after",
-                "delete_text",
-            ],
+            EditMode,
             Field(
                 description="How to edit the body. Whole-body modes take content: 'overwrite' "
                 "(replace the whole body, default), 'append'/'prepend' (add at the end/start of "
@@ -283,14 +275,16 @@ def build_crud(
             ws_path=ws.path,
             expected_sha=expected_sha,
             title=title,
-            content=content,
             tags=tags,
             folder=folder,
-            mode=mode,
-            target_heading=target_heading,
-            old_str=old_str,
-            new_str=new_str,
-            replace_all=replace_all,
+            edit=EditSpec(
+                mode=mode,
+                content=content,
+                target_heading=target_heading,
+                old_str=old_str,
+                new_str=new_str,
+                replace_all=replace_all,
+            ),
             clear_date_metadata=clear_date_metadata,
             **temporal_kwargs(  # ty: ignore[invalid-argument-type] - dict[str, str] spread vs update()'s heterogeneous kwargs; keys are always occurred_at/period
                 occurred_at, period
@@ -326,7 +320,18 @@ def build_crud(
             ws.owner_id,
             ws.name,
             ws.path,
-            [e.model_dump(exclude_none=True) for e in edits],
+            [
+                EditBatchItem(
+                    note_id=e.note_id,
+                    expected_sha=e.expected_sha,
+                    edit=e.to_edit_spec(),
+                    tags=e.tags,
+                    occurred_at=e.occurred_at,
+                    period=e.period,
+                    clear_date_metadata=e.clear_date_metadata,
+                )
+                for e in edits
+            ],
         )
         if not result.get("applied"):
             return EditNotesRejected.model_validate(result)

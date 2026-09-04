@@ -1,5 +1,7 @@
 import pytest
 
+from kajet_turbo.markdown import EditSpec
+from kajet_turbo.services.notes import EditBatchItem
 from tests.services.conftest import seed_user
 
 
@@ -73,7 +75,7 @@ def test_update_and_batch_writes_report_warning(
         "u1",
         str(workspace),
         sha,
-        content=content,
+        edit=EditSpec(content=content),
     )
     created = service.save_many(
         "u1",
@@ -91,12 +93,11 @@ def test_update_and_batch_writes_report_warning(
         "ws",
         str(workspace),
         [
-            {
-                "note_id": source["note_id"],
-                "expected_sha": latest_sha,
-                "mode": "overwrite",
-                "content": f"again {content}",
-            }
+            EditBatchItem(
+                note_id=source["note_id"],
+                expected_sha=latest_sha,
+                edit=EditSpec(mode="overwrite", content=f"again {content}"),
+            )
         ],
     )
     assert edited["results"][0]["warnings"] == [expected]

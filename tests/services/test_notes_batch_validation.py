@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 
+from kajet_turbo.markdown import EditSpec
 from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.services.notes import EditBatchItem
 
 
 def _head_sha(workspace, relative_path: str) -> str:
@@ -13,7 +15,14 @@ def _head_sha(workspace, relative_path: str) -> str:
 
 def _run(operation: str, service, workspace, items: list[dict]) -> dict:
     if operation == "edit":
-        edits = [{"mode": "append", "content": "x", **item} for item in items]
+        edits = [
+            EditBatchItem(
+                note_id=item.get("note_id", ""),
+                expected_sha=item.get("expected_sha", ""),
+                edit=EditSpec(mode="append", content="x"),
+            )
+            for item in items
+        ]
         return service.edit_many("u1", "ws", str(workspace), edits)
     return service.delete_many("u1", "ws", str(workspace), items)
 
@@ -106,14 +115,12 @@ def test_edit_many_preserves_mixed_validation_error_order(service, workspace):
         "ws",
         str(workspace),
         [
-            {
-                "note_id": first["note_id"],
-                "mode": "replace_text",
-                "old_str": "missing",
-                "new_str": "x",
-                "expected_sha": _head_sha(workspace, "First.md"),
-            },
-            {"note_id": second["note_id"]},
+            EditBatchItem(
+                note_id=first["note_id"],
+                expected_sha=_head_sha(workspace, "First.md"),
+                edit=EditSpec(mode="replace_text", old_str="missing", new_str="x"),
+            ),
+            EditBatchItem(note_id=second["note_id"], expected_sha="", edit=EditSpec()),
         ],
     )
 

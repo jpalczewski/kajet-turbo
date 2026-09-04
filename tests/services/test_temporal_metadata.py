@@ -3,6 +3,8 @@ from dataclasses import replace
 import frontmatter
 import pytest
 
+from kajet_turbo.markdown import EditSpec
+from kajet_turbo.services.notes import EditBatchItem
 from kajet_turbo.workspace import (
     TemporalMetadataError,
     note_filepath,
@@ -209,13 +211,13 @@ def test_edit_many_rejects_clear_combined_with_temporal_and_leaves_note_unchange
         "ws",
         str(workspace),
         [
-            {
-                "note_id": note_id,
-                "mode": "overwrite",
-                "expected_sha": sha,
-                "clear_date_metadata": True,
-                "period": "2026-W12",
-            }
+            EditBatchItem(
+                note_id=note_id,
+                expected_sha=sha,
+                edit=EditSpec(mode="overwrite"),
+                clear_date_metadata=True,
+                period="2026-W12",
+            )
         ],
     )
 
@@ -251,12 +253,12 @@ def test_edit_many_rejects_malformed_period(service, workspace):
         "ws",
         str(workspace),
         [
-            {
-                "note_id": note_id,
-                "mode": "overwrite",
-                "expected_sha": sha,
-                "period": "not-a-period",
-            }
+            EditBatchItem(
+                note_id=note_id,
+                expected_sha=sha,
+                edit=EditSpec(mode="overwrite"),
+                period="not-a-period",
+            )
         ],
     )
 

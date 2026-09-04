@@ -2,6 +2,7 @@
 
 import pytest
 
+from kajet_turbo.markdown import EditSpec
 from tests.services.conftest import seed_user
 from tests.services.helpers import build_reindex_handler, drain_reindex_jobs
 
@@ -95,7 +96,7 @@ def test_get_history_returns_commits(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        content="v2",
+        edit=EditSpec(content="v2"),
     )
 
     history = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))
@@ -114,7 +115,11 @@ def test_get_version_returns_historical_content(service, workspace):
     note_id = result["note_id"]
     sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
     service.update(
-        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha_v1, content="treść nowa"
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha_v1,
+        edit=EditSpec(content="treść nowa"),
     )
 
     version = service.get_version(note_id, sha_v1, owner_id="u1", ws_path=str(workspace))
@@ -152,7 +157,11 @@ def test_restore_version_reverts_content(service, workspace):
     note_id = result["note_id"]
     sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
     service.update(
-        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha_v1, content="treść nowa"
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha_v1,
+        edit=EditSpec(content="treść nowa"),
     )
 
     service.restore_version(note_id, sha_v1, owner_id="u1", ws_path=str(workspace))
@@ -186,7 +195,7 @@ def test_restore_version_reverts_tags_and_extras(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha_v1,
-        content="treść v2",
+        edit=EditSpec(content="treść v2"),
         tags=["nowy"],
     )
 
@@ -210,7 +219,11 @@ def test_restore_version_still_works_after_expected_sha_added(service, workspace
     note_id = service.save("u1", "ws", str(workspace), "Historia", "oryginalna", [])["note_id"]
     sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
     service.update(
-        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha_v1, content="nowa"
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha_v1,
+        edit=EditSpec(content="nowa"),
     )
 
     service.restore_version(note_id, sha_v1, owner_id="u1", ws_path=str(workspace))
@@ -226,7 +239,11 @@ def test_nested_restore_releases_workspace_before_reindexing(service, workspace,
     note_id = service.save("u1", "ws", str(workspace), "Historia", "oryginalna", [])["note_id"]
     sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
     service.update(
-        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha_v1, content="nowa"
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha_v1,
+        edit=EditSpec(content="nowa"),
     )
     current_sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
     index_started = Event()

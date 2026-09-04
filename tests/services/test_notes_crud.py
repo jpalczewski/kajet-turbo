@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from kajet_turbo import perf
+from kajet_turbo.markdown import EditSpec
 from tests.services.helpers import make_flaky_db_write
 
 
@@ -45,7 +46,7 @@ def test_older_index_callback_cannot_overwrite_newer_edit(service, workspace, mo
             owner_id="u1",
             ws_path=str(workspace),
             expected_sha=initial_sha,
-            content="older edit",
+            edit=EditSpec(content="older edit"),
         )
         assert older_chunking.wait(timeout=5)
         newer_sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
@@ -56,7 +57,7 @@ def test_older_index_callback_cannot_overwrite_newer_edit(service, workspace, mo
                 owner_id="u1",
                 ws_path=str(workspace),
                 expected_sha=newer_sha,
-                content="newer edit",
+                edit=EditSpec(content="newer edit"),
             )
             newer.result(timeout=5)
         finally:

@@ -16,6 +16,7 @@ from kajet_turbo import perf
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
     BrokenWikilinkError,
+    EditSpec,
     IndexedNote,
     LinkResolution,
     LinkResolver,
@@ -62,7 +63,7 @@ from kajet_turbo.services.notes.staleness import (
     stale_payload,
 )
 from kajet_turbo.services.notes.tags import NoteTagService
-from kajet_turbo.services.notes.types import NoteData
+from kajet_turbo.services.notes.types import EditBatchItem, NoteData
 from kajet_turbo.workspace import (
     InvalidFolderError,
     LocatedNote,
@@ -83,10 +84,12 @@ from kajet_turbo.workspace import (
 
 @dataclass(frozen=True, slots=True)
 class _ValidatedDestructiveItem:
-    """A batch item that passed the validation shared by edits and deletes."""
+    """A batch item that passed the validation shared by edits and deletes.
+
+    Carries only what the shared check produces — the caller recovers its own richer
+    per-item data (edit payload, tags, ...) via ``index`` into its original input list."""
 
     index: int
-    raw: dict
     note_id: str
     loc: LocatedNote
 
@@ -239,6 +242,9 @@ class ReconcileReport:
 _RECONCILE_MAX_DELETE_RATIO = 0.2
 _RECONCILE_MIN_DELETE_FLOOR = 5
 _UNCHANGED = object()
+# Metadata-only edit: mode="overwrite" + content=None leaves the body untouched (see
+# apply_edit). Module-level so update()'s default isn't a call in the signature (B008).
+_NO_EDIT = EditSpec()
 _TEMPORAL_TOKEN = re.compile(
     r"(?<![0-9A-Za-z-])(?:\d{4}-\d{2}-\d{2}|\d{4}-W\d{2}|\d{4}-\d{2}|\d{4})(?![0-9A-Za-z-])"
 )
@@ -367,8 +373,8 @@ class NoteService:
 
     def _validate_destructive_items(
         self,
-        raw_items: list[dict],
         note_ids: list[str],
+        expected_shas: list[str],
         located: dict[str, LocatedNote],
     ) -> Iterator[_ValidatedDestructiveItem | _BatchValidationError]:
         """Yield shared validation results in input order for batch writes.
@@ -377,7 +383,7 @@ class NoteService:
         immediately, preserving the existing order of mixed validation errors.
         """
         seen_ids: set[str] = set()
-        for index, (raw, note_id) in enumerate(zip(raw_items, note_ids, strict=True)):
+        for index, (note_id, expected_sha) in enumerate(zip(note_ids, expected_shas, strict=True)):
             if not note_id:
                 yield _BatchValidationError(index, note_id, "note_id jest wymagany.")
                 continue
@@ -396,14 +402,14 @@ class NoteService:
                     index, note_id, f"Plik notatki {note_id} nie znaleziony."
                 )
                 continue
-            expected_sha = str(raw.get("expected_sha", "")).strip()
-            if not expected_sha:
+            stripped_sha = expected_sha.strip()
+            if not stripped_sha:
                 yield _BatchValidationError(index, note_id, "expected_sha jest wymagany.")
                 continue
-            if not sha_is_fresh(loc.head_sha, expected_sha):
+            if not sha_is_fresh(loc.head_sha, stripped_sha):
                 yield _BatchValidationError(index, note_id, stale_error(note_id))
                 continue
-            yield _ValidatedDestructiveItem(index, raw, note_id, loc)
+            yield _ValidatedDestructiveItem(index, note_id, loc)
 
     def _note_data(self, loc: LocatedNote, sha: str | None) -> NoteData:
         if sha is None:
@@ -975,14 +981,9 @@ class NoteService:
         ws_path: str,
         expected_sha: str,
         title: str | None = None,
-        content: str | None = None,
         tags: list[str] | None = None,
         folder: str | None = None,
-        mode: str = "overwrite",
-        target_heading: str | None = None,
-        old_str: str | None = None,
-        new_str: str | None = None,
-        replace_all: bool = False,
+        edit: EditSpec = _NO_EDIT,
         *,
         extras: dict[str, object] | None = None,
         occurred_at: object = _UNCHANGED,
@@ -1043,15 +1044,7 @@ class NoteService:
         new_extras = extras if extras is not None else existing_meta.extras
         # apply_edit owns every mode/parameter rule, including "overwrite without content
         # leaves the body alone" — the metadata-only edit path.
-        edit_result = apply_edit(
-            old_content,
-            mode,
-            content=content,
-            old_str=old_str,
-            new_str=new_str,
-            target_heading=target_heading,
-            replace_all=replace_all,
-        )
+        edit_result = apply_edit(old_content, edit)
         new_content = edit_result.body
         replaced = edit_result.replaced
 
@@ -1158,15 +1151,13 @@ class NoteService:
         user_id: str,
         ws_name: str,
         ws_path: str,
-        edits: list[dict],
+        edits: list[EditBatchItem],
     ) -> dict:
         """Apply multiple surgical edits in ONE atomic commit. All-or-nothing at
         validation: any invalid edit (missing note, duplicate note_id, broken wikilink,
         bad anchor/heading) rejects the whole batch — nothing is written. Content + tags
         only; no title/folder changes (a rename needs backlink rewrites across other
-        notes, incompatible with one commit_files call — use update() for that). Each
-        input dict: {note_id, mode="append", content=None, target_heading=None,
-        old_str=None, new_str=None, replace_all=False, tags=None}.
+        notes, incompatible with one commit_files call — use update() for that).
         """
         if not edits:
             raise ValueError("Batch edycji nie może być pusty.")
@@ -1174,28 +1165,30 @@ class NoteService:
         # One open repo for the whole batch: staleness checks during validation and
         # the single atomic commit afterwards, instead of re-opening per item.
         git_repo = GitRepository(ws_path)
-        note_ids = [str(raw.get("note_id", "")).strip() for raw in edits]
+        note_ids = [e.note_id.strip() for e in edits]
+        expected_shas = [e.expected_sha for e in edits]
         located = self._locate_batch(note_ids, user_id, ws_path, git_repo)
         workspace_links = self._link_service.for_workspace(ws_name, user_id)
         errors: list[dict] = []
         prepared: list[_PreparedEdit] = []
-        for item in self._validate_destructive_items(edits, note_ids, located):
+        for item in self._validate_destructive_items(note_ids, expected_shas, located):
             if isinstance(item, _BatchValidationError):
                 errors.append(item.as_dict())
                 continue
-            index, raw, note_id, loc = item.index, item.raw, item.note_id, item.loc
+            index, note_id, loc = item.index, item.note_id, item.loc
+            edit_item = edits[index]
             existing_meta, old_content = read_note_file(loc.filepath)
             # 'overwrite' without content is edit_note's metadata-only path, but this batch
             # cannot rename or move — so with no tags either, the item has nothing left to
             # change and would commit an untouched file while reporting success. Every other
             # mode already errors on a missing payload inside apply_edit.
             if (
-                raw.get("mode", "append") == "overwrite"
-                and raw.get("content") is None
-                and raw.get("tags") is None
-                and "occurred_at" not in raw
-                and "period" not in raw
-                and not raw.get("clear_date_metadata", False)
+                edit_item.edit.mode == "overwrite"
+                and edit_item.edit.content is None
+                and edit_item.tags is None
+                and edit_item.occurred_at is None
+                and edit_item.period is None
+                and not edit_item.clear_date_metadata
             ):
                 errors.append(
                     {
@@ -1207,15 +1200,7 @@ class NoteService:
                 )
                 continue
             try:
-                edit_result = apply_edit(
-                    old_content,
-                    raw.get("mode", "append"),
-                    content=raw.get("content"),
-                    old_str=raw.get("old_str"),
-                    new_str=raw.get("new_str"),
-                    target_heading=raw.get("target_heading"),
-                    replace_all=bool(raw.get("replace_all", False)),
-                )
+                edit_result = apply_edit(old_content, edit_item.edit)
             except ValueError as e:
                 errors.append({"index": index, "note_id": note_id, "error": str(e)})
                 continue
@@ -1225,21 +1210,18 @@ class NoteService:
             except BrokenWikilinkError as e:
                 errors.append({"index": index, "note_id": note_id, "error": str(e)})
                 continue
-            raw_tags = raw.get("tags")
             new_tags = (
-                NoteTagService.normalize_tags(raw_tags)
-                if raw_tags is not None
+                NoteTagService.normalize_tags(edit_item.tags)
+                if edit_item.tags is not None
                 else NoteTagService.normalize_tags(existing_meta.tags)
             )
-            has_occurred_at = "occurred_at" in raw
-            has_period = "period" in raw
-            clear_date_metadata = bool(raw.get("clear_date_metadata", False))
+            clear_date_metadata = edit_item.clear_date_metadata
             try:
                 occurred_at, period = resolve_temporal_fields(
-                    has_occurred_at=has_occurred_at,
-                    has_period=has_period,
-                    occurred_at=raw.get("occurred_at"),
-                    period=raw.get("period"),
+                    has_occurred_at=edit_item.occurred_at is not None,
+                    has_period=edit_item.period is not None,
+                    occurred_at=edit_item.occurred_at,
+                    period=edit_item.period,
                     clear=clear_date_metadata,
                     # A field read_note_file had to drop as unparseable falls back to the
                     # DB's last-known-good value instead of the file's (now None) one, so
@@ -1448,10 +1430,11 @@ class NoteService:
         # the single atomic commit afterwards, instead of re-opening per item.
         git_repo = GitRepository(ws_path)
         note_ids = [str(raw.get("note_id", "")).strip() for raw in deletes]
+        expected_shas = [str(raw.get("expected_sha", "")) for raw in deletes]
         located = self._locate_batch(note_ids, user_id, ws_path, git_repo)
         errors: list[dict] = []
         prepared: list[_ValidatedDestructiveItem] = []
-        for item in self._validate_destructive_items(deletes, note_ids, located):
+        for item in self._validate_destructive_items(note_ids, expected_shas, located):
             if isinstance(item, _BatchValidationError):
                 errors.append(item.as_dict())
             else:
@@ -1993,7 +1976,7 @@ class NoteService:
             owner_id=owner_id,
             ws_path=ws_path,
             expected_sha=current_sha,
-            content=version["content"],
+            edit=EditSpec(content=version["content"]),
             tags=version["tags"],
             extras=version["extras"],
             occurred_at=version["occurred_at"],

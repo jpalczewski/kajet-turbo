@@ -17,7 +17,9 @@ import pytest
 from dulwich.repo import BaseRepo
 
 import kajet_turbo.repositories.git as git_module
+from kajet_turbo.markdown import EditSpec
 from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.services.notes import EditBatchItem
 from tests.services.conftest import seed_user
 
 
@@ -85,7 +87,11 @@ def test_edit_many_opens_repo_once(service, workspace, repo_open_count):
         "ws",
         str(workspace),
         [
-            {"note_id": n["note_id"], "expected_sha": n["sha"], "mode": "append", "content": "x"}
+            EditBatchItem(
+                note_id=n["note_id"],
+                expected_sha=n["sha"],
+                edit=EditSpec(mode="append", content="x"),
+            )
             for n in notes
         ],
     )
@@ -128,7 +134,11 @@ def test_edit_many_resolves_shas_in_one_walker_pass(service, workspace, walker_p
         "ws",
         str(workspace),
         [
-            {"note_id": n["note_id"], "expected_sha": n["sha"], "mode": "append", "content": "x"}
+            EditBatchItem(
+                note_id=n["note_id"],
+                expected_sha=n["sha"],
+                edit=EditSpec(mode="append", content="x"),
+            )
             for n in notes
         ],
     )
