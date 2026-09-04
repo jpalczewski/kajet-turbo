@@ -30,6 +30,61 @@ _FTS_TOKEN = re.compile(r"\w+", re.UNICODE)
 # expression rather than emitted and silently poisoning the query.
 _FTS_MIN_TOKEN = 3
 
+# Polish closed-class function words (pronouns, conjunctions, prepositions, particles,
+# common copula/modal forms) — length alone doesn't separate them from content words
+# ("jest" is 4 letters and still near-universal). Measured against a production snapshot
+# via CREATE VIRTUAL TABLE ... USING fts5vocab('notes_fts', 'row'): each of these matches
+# 8-90% of all chunks under trigram tokenize, because a 3-char token is exactly one
+# trigram and matches as a substring anywhere, not as a word. OR-ing several of them into
+# one query forces bm25 to rank most of the table for near-zero information — content
+# words measured the same way sat at 0.2-6%. Dropping them cut real fts_ms 1.8x-8x on
+# stopword-heavy queries in that benchmark with the same top-50 result set (see #72).
+_FTS_STOPWORDS = frozenset(
+    [
+        "ale",
+        "bez",
+        "być",
+        "był",
+        "było",
+        "coś",
+        "czy",
+        "dla",
+        "gdy",
+        "gdzie",
+        "ich",
+        "ile",
+        "jak",
+        "jako",
+        "jego",
+        "jest",
+        "już",
+        "kto",
+        "które",
+        "mnie",
+        "może",
+        "nad",
+        "nic",
+        "nie",
+        "niż",
+        "ona",
+        "one",
+        "oni",
+        "pod",
+        "przez",
+        "przy",
+        "się",
+        "tak",
+        "tam",
+        "tego",
+        "ten",
+        "tylko",
+        "tym",
+        "więc",
+        "zamiast",
+        "żeby",
+    ]
+)
+
 
 def _to_fts_query(query: str) -> str:
     r"""Turn free text into a valid FTS5 MATCH expression for the lexical search leg.
@@ -54,11 +109,16 @@ def _to_fts_query(query: str) -> str:
     ranks documents matching more terms higher, and clamps IDF at zero so common words
     cannot invert a ranking — and to the RRF fusion this feeds.
 
+    Stopwords are dropped next, but only if at least one non-stopword token remains — a
+    query that is entirely function words ("co to jest") still needs something to search
+    on, so it falls back to the unfiltered set rather than becoming an empty MATCH.
+
     Returns ``""`` when nothing usable survives; callers must skip the query, since an
     empty MATCH expression is a syntax error in its own right.
     """
     tokens = [t for t in _FTS_TOKEN.findall(query) if len(t) >= _FTS_MIN_TOKEN]
-    return " OR ".join(f'"{token}"' for token in tokens)
+    filtered = [t for t in tokens if t.lower() not in _FTS_STOPWORDS]
+    return " OR ".join(f'"{token}"' for token in filtered or tokens)
 
 
 class NoteChunkRepository(DbRepository):
