@@ -100,32 +100,58 @@ class NoteTagRepository(DbRepository):
         """
         self.sync_note_tags_many(workspace, owner_id, {note_id: tagged})
 
+    def sync_note_tags_many_in_session(
+        self,
+        session: Session,
+        workspace: str,
+        owner_id: str,
+        tagged_by_note: dict[str, list[tuple[str, str]]],
+        now: str,
+    ) -> dict[str, str]:
+        """Rebuild ``note_tags`` for several notes without committing or sweeping orphans.
+
+        One DELETE plus one ancestor pass sharing a ``path -> tag_id`` memo. Caller-owned
+        session and caller-owned orphan sweep — a caller syncing several batches in the
+        same logical operation (e.g. one per chunk of a large rename) must call
+        ``sweep_orphan_tags_in_session`` itself once after every batch is synced, not once
+        per batch: each sweep scans every ``Tag`` row in the workspace regardless of how
+        much changed, so sweeping after each of N batches pays that scan N times for a
+        result only the last one actually needed. Returns the ``path -> tag_id`` memo built
+        for this batch, for callers that log a tag count.
+        """
+        if not tagged_by_note:
+            return {}
+        session.execute(  # ty: ignore[deprecated] - DELETE statement
+            delete(NoteTag).where(col(NoteTag.note_id).in_(list(tagged_by_note)))
+        )
+        tag_ids: dict[str, str] = {}
+        for note_id, tagged in tagged_by_note.items():
+            for path, source in tagged:
+                if path not in tag_ids:
+                    tag_ids[path] = self._ensure_tag(session, workspace, owner_id, path, now)
+                session.add(NoteTag(note_id=note_id, tag_id=tag_ids[path], source=source))
+        return tag_ids
+
     def sync_note_tags_many(
         self,
         workspace: str,
         owner_id: str,
         tagged_by_note: dict[str, list[tuple[str, str]]],
     ) -> None:
-        """Rebuild ``note_tags`` for several notes in one transaction.
+        """Rebuild ``note_tags`` for several notes in one transaction, then sweep orphans.
 
-        One DELETE, one ancestor pass sharing a ``path -> tag_id`` memo, and a single
-        ``sweep_orphan_tags_in_session`` sweep for the whole batch. Per-note syncing would
-        instead pay two anti-join sweeps per note, which is what a workspace-wide retag
-        multiplies.
+        Own-session wrapper around ``sync_note_tags_many_in_session`` for a caller with
+        exactly one batch to sync — see that method's docstring for why a caller with
+        several batches in one logical operation should call it directly instead and sweep
+        once at the end.
         """
         if not tagged_by_note:
             return
         now = datetime.now(UTC).isoformat()
         with self.timed_session() as session:
-            session.execute(  # ty: ignore[deprecated] - DELETE statement
-                delete(NoteTag).where(col(NoteTag.note_id).in_(list(tagged_by_note)))
+            tag_ids = self.sync_note_tags_many_in_session(
+                session, workspace, owner_id, tagged_by_note, now
             )
-            tag_ids: dict[str, str] = {}
-            for note_id, tagged in tagged_by_note.items():
-                for path, source in tagged:
-                    if path not in tag_ids:
-                        tag_ids[path] = self._ensure_tag(session, workspace, owner_id, path, now)
-                    session.add(NoteTag(note_id=note_id, tag_id=tag_ids[path], source=source))
             self.sweep_orphan_tags_in_session(session, workspace, owner_id)
             session.commit()
         self.log_operation(

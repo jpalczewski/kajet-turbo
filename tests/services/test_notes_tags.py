@@ -402,6 +402,37 @@ def test_rename_tag_db_failure_leaves_tree_and_all_rows_untouched(service, works
         assert on_disk.tags == ["work"]
 
 
+def test_rename_tag_join_table_sync_failure_rolls_back_the_whole_chunk(service, workspace):
+    """#171: sync_note_tags_many_in_session runs inside write_rows now — the same
+    transaction as the row update, committed before the same chunk's file write and git
+    commit (commit_rows_then_tree runs write_rows, then StagedChange.apply(), then
+    commit_changes, in that order) — instead of as a separate call after
+    commit_rows_then_tree already returned. A failure there must roll back the row update
+    and skip the file write and git commit entirely, not leave the file/row saying the new
+    tag while note_tags (what note_ids_for_tags reads) still says the old one — the shape
+    that made a note permanently unrepairable by a retry, since the retry's dedup check
+    skips a note whose file already matches the target."""
+    note_id = service.save("u1", "ws", str(workspace), "A", "body", ["work"])["note_id"]
+    sha_before = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    with (
+        patch.object(
+            service._tag_repo,
+            "sync_note_tags_many_in_session",
+            side_effect=RuntimeError("tag sync exploded"),
+        ),
+        pytest.raises(RuntimeError, match="tag sync exploded"),
+    ):
+        _rename(service, workspace, "work", "job")
+
+    assert service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"] == (
+        sha_before
+    )
+    assert service.get(note_id, owner_id="u1")["tags"] == ["work"]
+    on_disk, _ = read_note_file(note_filepath(str(workspace), "", "A"))
+    assert on_disk.tags == ["work"]
+
+
 def test_rename_tag_serializes_with_a_concurrent_tag_edit(service, workspace, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
@@ -432,6 +463,88 @@ def test_rename_tag_serializes_with_a_concurrent_tag_edit(service, workspace, mo
     assert note is not None
     assert note.tags == ["job", "extra"]
     assert "#job" in note.content
+
+
+def test_rename_tag_chunks_large_batches_logging_note_ids_per_chunk(
+    service, workspace, monkeypatch, capsys
+):
+    """#171/#173: above MAX_BATCH_COMMIT_SIZE, rename_tag splits into several
+    commit_rows_then_tree calls (several transactions/git commits, not one), each logging
+    its own repository_operation line with a note_ids field bounded to the chunk size —
+    restoring the per-note traceability a single count=N line lost."""
+    from kajet_turbo.log import setup_logging
+    from kajet_turbo.services.notes import tags as tags_module
+    from tests.helpers import entries_named, read_log_entries
+
+    monkeypatch.setattr(tags_module, "MAX_BATCH_COMMIT_SIZE", 2)
+    setup_logging()
+    note_ids = {
+        service.save("u1", "ws", str(workspace), title, "body", ["work"])["note_id"]
+        for title in ("A", "B", "C", "D", "E")
+    }
+
+    result = _rename(service, workspace, "work", "job")
+
+    assert result["renamed"] == 5
+    entries = entries_named(read_log_entries(capsys), "repository_operation")
+    rename_ops = [e for e in entries if e.get("operation") == "notes.rename_tag"]
+    assert len(rename_ops) == 3  # ceil(5/2)
+    logged_ids: set[str] = set()
+    for op in rename_ops:
+        chunk_ids = op["note_ids"]
+        assert len(chunk_ids) <= 2
+        logged_ids.update(chunk_ids)
+    assert logged_ids == note_ids
+    assert _tag_paths(service) == {"job"}
+    for note_id in note_ids:
+        assert service.get(note_id, owner_id="u1")["tags"] == ["job"]
+    # Chunking trades single-commit atomicity for bounded lock-hold time (#171): distinct
+    # chunks land as distinct git commits, unlike the single-chunk case where every note's
+    # most recent commit is the same sha.
+    shas = {
+        service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+        for note_id in note_ids
+    }
+    assert len(shas) > 1
+
+
+def test_rename_tag_resumes_after_a_mid_batch_chunk_failure(service, workspace, monkeypatch):
+    """#171: a failure partway through a chunked rename only rolls back its own chunk —
+    already-committed chunks stay renamed, and note_ids_for_tags (reading live join-table
+    state) excludes them from a retry, so calling rename_tag again picks up exactly the
+    unprocessed remainder instead of requiring the whole batch to be redone."""
+    from kajet_turbo.services.notes import tags as tags_module
+
+    monkeypatch.setattr(tags_module, "MAX_BATCH_COMMIT_SIZE", 2)
+    titles = ("A", "B", "C", "D")
+    note_ids = {
+        title: service.save("u1", "ws", str(workspace), title, "body", ["work"])["note_id"]
+        for title in titles
+    }
+    # Two chunks of 2; fail partway through the second chunk's write (3rd note overall).
+    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session, fail_on_call=3)
+
+    with (
+        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        pytest.raises(RuntimeError, match="db exploded"),
+    ):
+        _rename(service, workspace, "work", "job")
+
+    tags_by_title = {t: service.get(nid, owner_id="u1")["tags"] for t, nid in note_ids.items()}
+    renamed_titles = {t for t, tags in tags_by_title.items() if tags == ["job"]}
+    remaining_titles = {t for t, tags in tags_by_title.items() if tags == ["work"]}
+    assert renamed_titles | remaining_titles == set(titles)
+    assert renamed_titles  # the first chunk landed before the failure
+    assert remaining_titles  # the failing chunk (and anything after) did not
+
+    # The first chunk's notes already carry the target tag, so a retry must merge —
+    # exactly the same conflict a caller would hit renaming onto any pre-existing tag.
+    result = _rename(service, workspace, "work", "job", merge=True)
+
+    assert result["renamed"] == len(remaining_titles)
+    assert _tag_paths(service) == {"job"}
+    for note_id in note_ids.values():
+        assert service.get(note_id, owner_id="u1")["tags"] == ["job"]
 
 
 def test_rename_tag_releases_workspace_before_reindexing(service, workspace, monkeypatch):

@@ -322,3 +322,40 @@ def test_move_folder_refuses_above_max_notes_ceiling(service, workspace, monkeyp
     assert not (workspace / "team").exists()
     for note_id in (a, b, c):
         assert service.get(note_id, owner_id="u1")["folder"] == "people"
+
+
+def test_move_folder_marks_affected_sources_dirty_even_when_backlink_rewrite_fails(
+    database, workspace, monkeypatch
+):
+    """#171: _rewrite_backlinks now chunks internally, so a failure partway through can
+    leave some (or, as pinned here, none) of the linking sources rewritten. mark_and_enqueue
+    must still run — it's the lazy ReconcileLinksHandler's safety net for exactly this case
+    — rather than being skipped because the exception propagated before move_folder reached
+    it."""
+    from kajet_turbo.repositories.git import GitError, GitRepository
+    from kajet_turbo.services.notes import links as links_module
+    from tests.services.helpers import build_reconcile_wiring
+
+    service, _jobs, dirty, _dangling, _handler = build_reconcile_wiring(database, workspace)
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="src")["note_id"]
+    source_ids = {
+        service.save("u1", "ws", str(workspace), f"Source {i}", "[[src/Target]]", [])["note_id"]
+        for i in range(3)
+    }
+
+    monkeypatch.setattr(links_module, "MAX_BATCH_COMMIT_SIZE", 1)
+    # call 1: move_folder's own git commit for the move itself — must land. call 2: the
+    # first (of three) rewrite_backlinks chunks — fails, so zero sources get fixed.
+    flaky_commit = make_flaky_db_write(
+        GitRepository.commit_changes, fail_on_call=2, message="fail", exc=GitError
+    )
+    with (
+        patch.object(GitRepository, "commit_changes", flaky_commit),
+        pytest.raises(GitError, match="fail"),
+    ):
+        _mv(service, workspace, "src", "dst")
+
+    assert service.get(tid, owner_id="u1")["folder"] == "dst"  # the move itself landed
+    # affected_sources also includes the moved note itself; what matters here is that the
+    # *external* linking sources — the ones rewrite_backlinks failed to fix — are in it too.
+    assert source_ids <= set(dirty.list_dirty("u1", "ws"))

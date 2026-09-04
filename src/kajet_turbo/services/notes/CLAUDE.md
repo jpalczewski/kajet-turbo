@@ -81,11 +81,37 @@ behind a `write_rows` closure passed into a shared helper), so a folder move tou
 `count=0` line (#172).
 
 Separately: `rename_tag` and `_rewrite_backlinks` can still touch every note in a workspace (a
-tag applied everywhere, a heavily-linked hub note being renamed) in one `commit_rows_then_tree`
-call, holding the single shared SQLite write lock for the DB rows *and* the multi-file git
-commit that follows, in one transaction — a cost the five original `commit_rows_then_tree`
-callers (`save`, `save_many`, `update`, `edit_many`, `apply_temporal_backfill`) already accepted,
-but only ever at a caller-bounded batch size. These two have no such bound (#171).
+tag applied everywhere, a heavily-linked hub note being renamed) — unlike the five original
+`commit_rows_then_tree` callers (`save`, `save_many`, `update`, `edit_many`,
+`apply_temporal_backfill`), whose batch size is always caller-bounded. Both now chunk their
+writes to `MAX_BATCH_COMMIT_SIZE` (500) items per `commit_rows_then_tree` call/transaction/git
+commit (`staged_change.py`) instead of one unbounded call for the whole batch (#171), trading
+single-commit atomicity for bounded *SQLite* write-lock hold time (each chunk's transaction
+starts and commits independently) and bounded `repository_operation` log-line size (a
+`note_ids` field per chunk restores the per-note traceability #173 lost). This does NOT bound
+the coarser `@workspace_write_transaction` lock both methods run under end to end — that lock
+(an in-process RLock plus a cross-process flock, `git.py`) is already held for the whole call
+regardless of chunking, same as before this fix; chunking only shrinks how long any single
+chunk holds SQLite's own write lock, which is what #171 was about (a global lock shared by
+every workspace, unlike the per-workspace `@workspace_write_transaction` lock).
+
+`rename_tag` gets resumability from this too — a re-run after a mid-batch failure picks up
+exactly the unprocessed remainder, since `note_ids_for_tags` reads live join-table state, and
+the join-table sync for a chunk runs inside that chunk's own transaction (not as a separate
+call after it) so a chunk's rows, tags, and tree commit succeed or fail together. The
+already-renamed notes carry the target tag, so the retry needs `merge=True`, same as renaming
+onto any other pre-existing tag. The per-workspace orphan-tag sweep and the search-reindex
+dispatch both run once after the whole chunk loop, not once per chunk — each would otherwise
+redo a full-workspace scan (sweep) or fire a redundant deferred callback (reindex) per chunk
+for no correctness benefit.
+
+`move_folder`'s own DB write, by contrast, stays a single unchunked transaction (see above) —
+it doesn't need this trade-off since no git commit runs inside it — and rejects outright above
+`_MOVE_FOLDER_MAX_NOTES` (5000) before its disk move begins: unlike a tag rename or backlink
+rewrite, an oversized folder move is expensive and irreversible before either commit path runs,
+and the tool exposes a real workaround (move a subfolder at a time). Renaming a popular *flat*
+tag has no equivalent workaround; renaming a tag that already has a narrower subtree
+(`note_ids_for_tags` matches by prefix) can be split into per-subtree renames instead.
 
 ## Link resolution has two consistency tiers
 

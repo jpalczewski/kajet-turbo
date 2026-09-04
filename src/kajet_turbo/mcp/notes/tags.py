@@ -101,13 +101,15 @@ def build_tags(
         ] = False,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> TagRenameResult | TagConflictResult:
-        """Renames a tag across the whole workspace in one commit, instead of N x set_tags
-        calls. Takes the whole subtree: 'work' -> 'job' also rewrites 'work/projects'
-        (matched on segment boundaries, so 'workflow' is left alone). Also rewrites inline
-        #hashtags in note bodies — otherwise the old tag would come back on the next sync.
+        """Renames a tag across the whole workspace, instead of N x set_tags calls. Takes
+        the whole subtree: 'work' -> 'job' also rewrites 'work/projects' (matched on
+        segment boundaries, so 'workflow' is left alone). Also rewrites inline #hashtags in
+        note bodies — otherwise the old tag would come back on the next sync.
         When `new` already exists, this is a merge — requires merge=true, otherwise returns
         TagConflictResult with the note count on each side.
-        No expected_sha (this is workspace-wide) — roll back via git history.
+        No expected_sha (this is workspace-wide) — roll back via git history. A rename over
+        ~500 notes lands as several commits, not one: if it fails partway through, the
+        already-renamed notes already carry the target tag, so retrying needs merge=true too.
         Search indexing (chunks/FTS/embeddings) is deferred to background jobs for every
         note whose body was rewritten."""
         result = await run_sync(
