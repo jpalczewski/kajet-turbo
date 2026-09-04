@@ -405,26 +405,15 @@ def normalize_temporal_metadata(
     return normalized_occurred_at, normalized_period
 
 
-def temporal_drop_warnings(temporal_dropped: frozenset[str]) -> list[str]:
-    """Plain-text warnings for fields ``parse_frontmatter`` had to drop as unparseable
-    (see ``NoteFrontmatter.temporal_dropped``) — ``list[str]``, matching the untyped
-    ``warnings`` shape callers like ``NoteTagService`` already return (MCP-only, so English
-    per ``mcp/CLAUDE.md``), so this is visible in the response instead of only a
-    server-side log line (#132 follow-up). Not used for ``NoteService.update``/
-    ``edit_many``: their ``warnings`` field is the strictly-typed ``list[WikilinkWarning]``
-    (a closed ``kind`` literal) — see ``temporal_drop_warning_payloads`` for those.
+def temporal_drop_warnings(temporal_dropped: frozenset[str]) -> list[dict]:
+    """Structured ``{kind, field}`` warnings for fields ``parse_frontmatter`` had to drop
+    as unparseable (see ``NoteFrontmatter.temporal_dropped``), shaped to validate as
+    ``shared.notes.TemporalWarning`` — so this is visible in a response instead of only a
+    server-side log line (#132 follow-up). The single source of truth for which fields
+    were dropped; a caller whose own warnings field is untyped ``list[str]`` (e.g.
+    ``NoteTagService``, MCP-only) formats its own English text from ``w["field"]`` rather
+    than this module growing a second near-duplicate shape.
     """
-    return [
-        f"{field}: file value was unparseable — ignored, kept the previous value."
-        for field in sorted(temporal_dropped)
-    ]
-
-
-def temporal_drop_warning_payloads(temporal_dropped: frozenset[str]) -> list[dict]:
-    """Structured ``{kind, field}`` warnings for the same drop, shaped to validate as
-    ``shared.notes.TemporalWarning`` — for ``NoteService.update``/``edit_many``, whose
-    ``warnings`` field is typed and reused by both the REST API and MCP, so the message
-    text is the consuming schema's job, not this one's (#132 follow-up)."""
     return [
         {"kind": "temporal_value_ignored", "field": field} for field in sorted(temporal_dropped)
     ]

@@ -201,11 +201,18 @@ class NoteTagService:
             logger.info("note_tags_changed", note_id=note_id)
         inline = extract_inline_tags(content)
         effective = list(dict.fromkeys([*new_tags, *sorted(inline)]))
+        # TagOperationResult.warnings is untyped list[str] (unlike update()/edit_many()'s
+        # typed TemporalWarning), so this formats its own English text from the same
+        # {kind, field} payload rather than workspace.py growing a second shape for it.
+        temporal_warnings = [
+            f"{w['field']}: file value was unparseable — ignored, kept the previous value."
+            for w in temporal_drop_warnings(existing_meta.temporal_dropped)
+        ]
         return {
             "note_id": note_id,
             "tags": effective,
             "frontmatter_tags": new_tags,
-            "warnings": [*warnings, *temporal_drop_warnings(existing_meta.temporal_dropped)],
+            "warnings": [*warnings, *temporal_warnings],
             "changed": changed,
         }
 

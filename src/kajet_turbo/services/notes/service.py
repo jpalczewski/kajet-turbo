@@ -76,7 +76,7 @@ from kajet_turbo.workspace import (
     parse_frontmatter,
     read_note_file,
     resolve_temporal_fields,
-    temporal_drop_warning_payloads,
+    temporal_drop_warnings,
     write_note_file,
 )
 
@@ -1147,7 +1147,7 @@ class NoteService:
             "note_id": note_id,
             "replaced": replaced,
             "warnings": wikilink_warnings(links),
-            "temporal_warnings": temporal_drop_warning_payloads(existing_meta.temporal_dropped),
+            "temporal_warnings": temporal_drop_warnings(existing_meta.temporal_dropped),
             "occurred_at": new_occurred_at,
             "period": new_period,
         }
@@ -1346,7 +1346,7 @@ class NoteService:
                 "note_id": p.note_id,
                 "replaced": p.replaced,
                 "warnings": wikilink_warnings(p.links),
-                "temporal_warnings": temporal_drop_warning_payloads(p.meta.temporal_dropped),
+                "temporal_warnings": temporal_drop_warnings(p.meta.temporal_dropped),
             }
             for p in prepared
         ]
