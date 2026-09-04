@@ -27,7 +27,7 @@ class SessionRepository(DbRepository):
         with self.timed_session() as session:
             row = session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
-                    "SELECT u.id, u.email FROM sessions s"
+                    "SELECT u.id, u.email, u.timezone, u.locale FROM sessions s"
                     " JOIN users u ON u.id = s.user_id"
                     " WHERE s.token = :token AND s.expires_at > :now"
                 ),

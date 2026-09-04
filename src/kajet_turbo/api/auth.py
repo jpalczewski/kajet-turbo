@@ -62,7 +62,12 @@ async def api_login(
 
 @router.get("/api/session", response_model=SessionResponse)
 async def api_session_get(user: dict = Depends(get_required_user)) -> Response:
-    return JSONResponse({"email": user["email"]})
+    return JSONResponse(
+        {
+            "email": user["email"],
+            "preferences": {"timezone": user["timezone"], "locale": user["locale"]},
+        }
+    )
 
 
 @router.delete("/api/session", response_model=OkResponse)

@@ -1,8 +1,11 @@
 from pydantic import BaseModel
 
+from kajet_turbo.api.schemas.preferences import UserPreferences
+
 
 class SessionResponse(BaseModel):
     email: str
+    preferences: UserPreferences
 
 
 class LoginResponse(BaseModel):

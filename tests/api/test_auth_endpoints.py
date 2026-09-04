@@ -32,6 +32,25 @@ def _client(database, *, user_id: str | None = None):
     return TestClient(app), users, sessions, oauth
 
 
+def test_session_get_includes_preferences(database):
+    client, users, _sessions, _oauth = _client(database)
+    user_id = users.create("pref@example.com", hash_password("password"))
+    client.app.dependency_overrides[get_required_user] = lambda: {
+        "id": user_id,
+        "email": "pref@example.com",
+        "timezone": "Europe/Warsaw",
+        "locale": "pl",
+    }
+
+    response = client.get("/api/session")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "email": "pref@example.com",
+        "preferences": {"timezone": "Europe/Warsaw", "locale": "pl"},
+    }
+
+
 def test_unknown_email_still_runs_password_verification_once(database, monkeypatch):
     client, _users, _sessions, _oauth = _client(database)
     calls = []

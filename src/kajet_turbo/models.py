@@ -20,6 +20,8 @@ class User(SQLModel, table=True):
     email: str = Field(sa_column=Column(Text, unique=True, nullable=False))
     password_hash: str | None = None
     created_at: str
+    timezone: str = Field(default="Europe/Warsaw")
+    locale: str = Field(default="pl")
 
 
 class WorkspaceAccess(SQLModel, table=True):
