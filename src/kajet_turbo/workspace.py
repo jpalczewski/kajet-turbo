@@ -2,6 +2,7 @@ import os
 import re
 import stat
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import cast
 
 import frontmatter
 
+from kajet_turbo.log import logger
 from kajet_turbo.models import Note
 from kajet_turbo.periods import parse_period_key
 from kajet_turbo.repositories.git import GitRepository, delete_workspace_tree
@@ -49,6 +51,11 @@ class NoteFrontmatter:
     occurred_at: str | None = field(default=None, kw_only=True)
     period: str | None = field(default=None, kw_only=True)
     extras: dict[str, object] = field(default_factory=dict)
+    # Names ("occurred_at"/"period") whose on-disk value parse_frontmatter had to drop to
+    # None because it was corrupted — as opposed to genuinely absent from the file. A
+    # read-modify-write must consult this before treating occurred_at/period as "unchanged
+    # value read from the file", or it silently persists the drop (#132 follow-up).
+    temporal_dropped: frozenset[str] = field(default_factory=frozenset, kw_only=True)
 
     def __post_init__(self) -> None:
         shadowed = RESERVED_FRONTMATTER_KEYS & self.extras.keys()
@@ -274,27 +281,86 @@ def write_note_file(path: str, meta: NoteFrontmatter, body: str) -> None:
         temp.unlink(missing_ok=True)
 
 
+def _parse_temporal_soft(
+    parser: Callable[[object], str | None], value: object, *, note_id: str | None, field: str
+) -> tuple[str | None, bool]:
+    """Run a strict ``_parse_occurred_at``/``_parse_period`` parser, but on a
+    ``TemporalMetadataError`` (a hand-edited or otherwise corrupted value) log a warning
+    and return ``(None, True)`` instead of propagating — see ``parse_frontmatter``. The
+    ``bool`` distinguishes "dropped a bad value" from "the file legitimately had none",
+    so a read-modify-write can fall back to the DB's last-known-good value instead of
+    silently persisting the drop (#132 follow-up)."""
+    try:
+        return parser(value), False
+    except TemporalMetadataError as exc:
+        logger.warning(
+            "frontmatter_temporal_value_ignored", note_id=note_id, field=field, error=str(exc)
+        )
+        return None, True
+
+
 def parse_frontmatter(post: frontmatter.Post) -> tuple[NoteFrontmatter, str]:
     """The one place every frontmatter reader turns a parsed ``Post`` into ``(meta, content)``.
 
     Only a YAML list is a valid ``tags`` value; anything else (a bare scalar from
     hand-edited frontmatter) becomes ``[]`` rather than propagating untyped garbage.
     Every other top-level key becomes ``meta.extras``, verbatim.
+
+    ``occurred_at``/``period`` are parsed leniently: a value a hand edit (or other
+    external write) left unparseable — individually, or two otherwise-valid values that
+    conflict (both set) — is dropped to ``None`` with a warning instead of raising, so a
+    note with corrupted temporal metadata stays readable. The drop is recorded in
+    ``meta.temporal_dropped`` so a caller doing a read-modify-write can tell "value was
+    corrupted" apart from "value is genuinely absent" instead of silently persisting the
+    drop. Writing new values still validates strictly, via ``normalize_temporal_metadata``.
     """
     metadata: dict[str, object] = dict(post.metadata)
+    note_id = cast("str | None", metadata.get("id"))
     tags = metadata.pop("tags", [])
-    occurred_at = _parse_occurred_at(metadata.pop("occurred_at", None))
-    period = _parse_period(metadata.pop("period", None))
-    meta = NoteFrontmatter(
-        id=cast("str | None", metadata.pop("id", None)),
-        title=cast("str | None", metadata.pop("title", None)),
-        tags=cast("list[str]", list(tags)) if isinstance(tags, list) else [],
-        created_at=cast("str | datetime | None", metadata.pop("created_at", None)),
-        updated_at=cast("str | datetime | None", metadata.pop("updated_at", None)),
-        occurred_at=occurred_at,
-        period=period,
-        extras=metadata,
+    occurred_at, occurred_at_dropped = _parse_temporal_soft(
+        _parse_occurred_at, metadata.pop("occurred_at", None), note_id=note_id, field="occurred_at"
     )
+    period, period_dropped = _parse_temporal_soft(
+        _parse_period, metadata.pop("period", None), note_id=note_id, field="period"
+    )
+    id_ = cast("str | None", metadata.pop("id", None))
+    title = cast("str | None", metadata.pop("title", None))
+    created_at = cast("str | datetime | None", metadata.pop("created_at", None))
+    updated_at = cast("str | datetime | None", metadata.pop("updated_at", None))
+    tags_list = cast("list[str]", list(tags)) if isinstance(tags, list) else []
+    temporal_dropped = frozenset(
+        name
+        for name, dropped in (("occurred_at", occurred_at_dropped), ("period", period_dropped))
+        if dropped
+    )
+    try:
+        meta = NoteFrontmatter(
+            id=id_,
+            title=title,
+            tags=tags_list,
+            created_at=created_at,
+            updated_at=updated_at,
+            occurred_at=occurred_at,
+            period=period,
+            extras=metadata,
+            temporal_dropped=temporal_dropped,
+        )
+    except TemporalMetadataError as exc:
+        # Both individually well-formed but simultaneously present — the file is still
+        # corrupted (this state is unreachable through the app's own writes), so drop
+        # both rather than arbitrating a winner.
+        logger.warning("frontmatter_temporal_value_ignored", note_id=note_id, error=str(exc))
+        meta = NoteFrontmatter(
+            id=id_,
+            title=title,
+            tags=tags_list,
+            created_at=created_at,
+            updated_at=updated_at,
+            occurred_at=None,
+            period=None,
+            extras=metadata,
+            temporal_dropped=frozenset({"occurred_at", "period"}),
+        )
     return meta, post.content
 
 
@@ -337,6 +403,20 @@ def normalize_temporal_metadata(
     if normalized_occurred_at is not None and normalized_period is not None:
         raise TemporalMetadataError("occurred_at and period are mutually exclusive.")
     return normalized_occurred_at, normalized_period
+
+
+def temporal_drop_warnings(temporal_dropped: frozenset[str]) -> list[dict]:
+    """Structured ``{kind, field}`` warnings for fields ``parse_frontmatter`` had to drop
+    as unparseable (see ``NoteFrontmatter.temporal_dropped``), shaped to validate as
+    ``shared.notes.TemporalWarning`` — so this is visible in a response instead of only a
+    server-side log line (#132 follow-up). The single source of truth for which fields
+    were dropped; a caller whose own warnings field is untyped ``list[str]`` (e.g.
+    ``NoteTagService``, MCP-only) formats its own English text from ``w["field"]`` rather
+    than this module growing a second near-duplicate shape.
+    """
+    return [
+        {"kind": "temporal_value_ignored", "field": field} for field in sorted(temporal_dropped)
+    ]
 
 
 def temporal_kwargs(occurred_at: str | None, period: str | None) -> dict[str, str]:

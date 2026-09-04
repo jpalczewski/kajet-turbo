@@ -68,6 +68,36 @@ def test_markdown_returns_404_when_note_missing(auth_client):
     assert resp.status_code == 404
 
 
+def test_markdown_survives_hand_corrupted_period(auth_client):
+    """A hand-edited/otherwise corrupted `period` in frontmatter must not turn a plain
+    read into a 500 (#132) — the note stays readable, with the bad value dropped."""
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Corrupt Period", "Body", [])["note_id"]
+    path = Path(ws_path) / "Corrupt Period.md"
+    corrupted = path.read_text().replace("period: null\n", "period: banana\n", 1)
+    assert corrupted.count("period:") == 1 and "period: banana\n" in corrupted
+    path.write_text(corrupted)
+
+    resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/markdown")
+
+    assert resp.status_code == 200
+    assert resp.json()["content"] == "Body"
+
+
+def test_html_survives_hand_corrupted_occurred_at(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save("u1", "test-ws", ws_path, "Corrupt Date", "Body", [])["note_id"]
+    path = Path(ws_path) / "Corrupt Date.md"
+    corrupted = path.read_text().replace("occurred_at: null\n", "occurred_at: 32-13-2026\n", 1)
+    assert corrupted.count("occurred_at:") == 1 and "occurred_at: 32-13-2026\n" in corrupted
+    path.write_text(corrupted)
+
+    resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/html")
+
+    assert resp.status_code == 200
+    assert "Body" in resp.json()["content_html"]
+
+
 def test_html_strips_script_tags(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save(
@@ -275,7 +305,7 @@ def test_update_note_response_matches_declared_schema(auth_client):
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"content": "new content", "expected_sha": sha},
     )
-    assert resp.json() == {"note_id": note_id, "warnings": []}
+    assert resp.json() == {"note_id": note_id, "warnings": [], "temporal_warnings": []}
 
 
 def test_update_note_rejects_malformed_period_with_422_not_404(auth_client):

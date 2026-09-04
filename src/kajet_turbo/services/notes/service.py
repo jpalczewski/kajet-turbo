@@ -76,6 +76,7 @@ from kajet_turbo.workspace import (
     parse_frontmatter,
     read_note_file,
     resolve_temporal_fields,
+    temporal_drop_warnings,
     write_note_file,
 )
 
@@ -143,6 +144,9 @@ class _PresentFile:
     content: str
     folder: str
     relative: str
+    # Fields read_note_file had to drop as unparseable (see NoteFrontmatter.temporal_dropped)
+    # — the reconcile drift check must not treat these as a genuine clear (#132 follow-up).
+    temporal_dropped: frozenset[str]
 
 
 def _present_file(
@@ -159,6 +163,17 @@ def _present_file(
         content=content,
         folder=folder,
         relative=relative,
+        temporal_dropped=meta.temporal_dropped,
+    )
+
+
+def _reconciled_temporal(pf: _PresentFile, existing: Note) -> tuple[str | None, str | None]:
+    """``pf``'s occurred_at/period, but falling back to ``existing``'s (DB) value for any
+    field ``read_note_file`` had to drop as unparseable — a dropped field must never look
+    like an intentional clear during reconcile's drift check or write-back (#132 follow-up)."""
+    return (
+        pf.occurred_at if "occurred_at" not in pf.temporal_dropped else existing.occurred_at,
+        pf.period if "period" not in pf.temporal_dropped else existing.period,
     )
 
 
@@ -1017,8 +1032,14 @@ class NoteService:
         existing_meta, old_content = read_note_file(old_path)
         if not clear_date_metadata and occurred_at is _UNCHANGED and period is _UNCHANGED:
             # The file is source of truth during a read-modify-write. This also repairs
-            # a temporal value hand-edited since the last reconcile instead of overwriting it.
-            new_occurred_at, new_period = existing_meta.occurred_at, existing_meta.period
+            # a temporal value hand-edited since the last reconcile instead of overwriting
+            # it — unless read_note_file had to drop it as unparseable, in which case
+            # `new_occurred_at`/`new_period` (already the DB's last-known-good value, from
+            # resolve_temporal_fields above) are kept instead of persisting the drop.
+            if "occurred_at" not in existing_meta.temporal_dropped:
+                new_occurred_at = existing_meta.occurred_at
+            if "period" not in existing_meta.temporal_dropped:
+                new_period = existing_meta.period
         new_extras = extras if extras is not None else existing_meta.extras
         # apply_edit owns every mode/parameter rule, including "overwrite without content
         # leaves the body alone" — the metadata-only edit path.
@@ -1126,6 +1147,7 @@ class NoteService:
             "note_id": note_id,
             "replaced": replaced,
             "warnings": wikilink_warnings(links),
+            "temporal_warnings": temporal_drop_warnings(existing_meta.temporal_dropped),
             "occurred_at": new_occurred_at,
             "period": new_period,
         }
@@ -1219,7 +1241,17 @@ class NoteService:
                     occurred_at=raw.get("occurred_at"),
                     period=raw.get("period"),
                     clear=clear_date_metadata,
-                    fallback=(existing_meta.occurred_at, existing_meta.period),
+                    # A field read_note_file had to drop as unparseable falls back to the
+                    # DB's last-known-good value instead of the file's (now None) one, so
+                    # an unrelated edit never silently persists the drop (#132 follow-up).
+                    fallback=(
+                        existing_meta.occurred_at
+                        if "occurred_at" not in existing_meta.temporal_dropped
+                        else loc.note.occurred_at,
+                        existing_meta.period
+                        if "period" not in existing_meta.temporal_dropped
+                        else loc.note.period,
+                    ),
                 )
             except ValueError as e:
                 errors.append({"index": index, "note_id": note_id, "error": str(e)})
@@ -1314,6 +1346,7 @@ class NoteService:
                 "note_id": p.note_id,
                 "replaced": p.replaced,
                 "warnings": wikilink_warnings(p.links),
+                "temporal_warnings": temporal_drop_warnings(p.meta.temporal_dropped),
             }
             for p in prepared
         ]
@@ -1783,13 +1816,14 @@ class NoteService:
                 changed_titles.add(pf.title)
                 continue
             identity_changed = existing.folder != pf.folder or existing.title != pf.title
+            pf_occurred_at, pf_period = _reconciled_temporal(pf, existing)
             drifted = (
                 identity_changed
                 or json.loads(existing.tags or "[]") != pf.tags
                 or existing.created_at != pf.created_at
                 or existing.updated_at != pf.updated_at
-                or existing.occurred_at != pf.occurred_at
-                or existing.period != pf.period
+                or existing.occurred_at != pf_occurred_at
+                or existing.period != pf_period
             )
             if drifted:
                 updated.append(note_id)
@@ -1845,6 +1879,7 @@ class NoteService:
                 )
             for note_id in updated:
                 pf = present[note_id]
+                pf_occurred_at, pf_period = _reconciled_temporal(pf, existing_by_id[note_id])
                 self._crud_repo.update_in_session(
                     session,
                     note_id,
@@ -1854,8 +1889,8 @@ class NoteService:
                     updated_at=pf.updated_at,
                     folder=pf.folder,
                     created_at=pf.created_at,
-                    occurred_at=pf.occurred_at,
-                    period=pf.period,
+                    occurred_at=pf_occurred_at,
+                    period=pf_period,
                     bump_index_generation=True,
                 )
 

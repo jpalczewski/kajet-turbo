@@ -3,6 +3,7 @@ file moves to the suite's helpers.py — it does not get copied."
 """
 
 import json
+import re
 from pathlib import Path
 
 from kajet_turbo.repositories.git import GitRepository
@@ -11,6 +12,17 @@ from kajet_turbo.repositories.git import GitRepository
 def head_sha(workspace, relative_path: str) -> str:
     """The current HEAD commit sha touching ``relative_path``."""
     return GitRepository(str(workspace)).file_history(relative_path, limit=1)[0]["sha"]
+
+
+def corrupt_temporal_field(path: str, field: str, bad_value: str) -> None:
+    """Hand-edit a saved note's file so ``field`` (``occurred_at``/``period``) becomes
+    unparseable, bypassing ``NoteFrontmatter``'s own validation — simulates the external
+    corruption #132's write-path regressions need to reproduce. Regex, not a plain string
+    replace, so it works regardless of PyYAML's quoting for the existing value."""
+    text = Path(path).read_text()
+    corrupted, n = re.subn(rf"(?m)^{field}:.*$", f"{field}: {bad_value}", text, count=1)
+    assert n == 1, f"{field!r} line not found in {path!r} to corrupt"
+    Path(path).write_text(corrupted)
 
 
 def build_reindex_handler(database, workspaces_dir: str, jobs=None):

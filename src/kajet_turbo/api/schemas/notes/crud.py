@@ -7,6 +7,7 @@ from kajet_turbo.shared.notes import (
     MovedNoteResult,
     NoteListItem,
     ReindexResult,
+    TemporalWarning,
     WikilinkWarning,
 )
 
@@ -50,6 +51,7 @@ class UpdateNoteRequest(BaseModel):
 class UpdateNoteResponse(BaseModel):
     note_id: str
     warnings: list[WikilinkWarning] = Field(default_factory=list)
+    temporal_warnings: list[TemporalWarning] = Field(default_factory=list)
 
 
 class MoveNoteRequest(BaseModel):

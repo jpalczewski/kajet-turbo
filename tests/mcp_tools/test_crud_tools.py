@@ -197,6 +197,7 @@ async def test_edit_note_append_mode(workspaces_dir, mcp_server):
             "note_id": note_id,
             "replaced": None,
             "warnings": [],
+            "temporal_warnings": [],
             "occurred_at": None,
             "period": None,
         }

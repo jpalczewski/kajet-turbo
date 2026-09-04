@@ -37,6 +37,7 @@ def test_update_fresh_sha_applies_content_overwrite(service, workspace):
         "note_id": note_id,
         "replaced": None,
         "warnings": [],
+        "temporal_warnings": [],
         "occurred_at": None,
         "period": None,
     }
@@ -60,6 +61,7 @@ def test_update_no_gate_on_empty_body_overwrite(service, workspace):
         "note_id": note_id,
         "replaced": None,
         "warnings": [],
+        "temporal_warnings": [],
         "occurred_at": None,
         "period": None,
     }
@@ -85,6 +87,7 @@ def test_update_no_gate_on_surgical_append(service, workspace):
         "note_id": note_id,
         "replaced": None,
         "warnings": [],
+        "temporal_warnings": [],
         "occurred_at": None,
         "period": None,
     }

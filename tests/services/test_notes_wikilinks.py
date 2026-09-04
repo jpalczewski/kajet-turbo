@@ -6,7 +6,12 @@ import pytest
 
 from kajet_turbo.markdown import BrokenWikilinkError, IndexedNote, render_markdown
 from tests.services.conftest import seed_user
-from tests.services.helpers import make_flaky_db_write, make_flaky_write, make_service_with_dangling
+from tests.services.helpers import (
+    corrupt_temporal_field,
+    make_flaky_db_write,
+    make_flaky_write,
+    make_service_with_dangling,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -423,6 +428,30 @@ def test_rewrite_backlinks_does_not_resync_occurred_at_period(service, workspace
     assert row_after.occurred_at == "2026-01-01"
     assert row_after.updated_at == updated_at_before
     assert row_after.index_generation == generation_before + 1
+
+
+def test_rewrite_backlinks_heals_corrupted_occurred_at_instead_of_nulling_it(service, workspace):
+    """#132 follow-up: a backlink rewrite reads the source file's frontmatter to preserve
+    it verbatim (#105), so a hand-edit that made occurred_at unparseable must not turn
+    into the rewrite silently writing `occurred_at: null` — it should fall back to the
+    DB's (untouched, still correct) value instead, in both the file and the DB row."""
+    from kajet_turbo.workspace import note_filepath, read_note_file
+
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    sid = service.save(
+        "u1", "ws", str(workspace), "Source", "[[Target]]", [], occurred_at="2026-01-01"
+    )["note_id"]
+
+    src_path = note_filepath(str(workspace), "", "Source")
+    corrupt_temporal_field(src_path, "occurred_at", "banana")
+
+    sha = service.get_history(tid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    service.update(tid, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="Renamed")
+
+    row_after = service._crud_repo.get(sid, owner_id="u1")
+    assert row_after.occurred_at == "2026-01-01"
+    src_meta, _ = read_note_file(src_path)
+    assert src_meta.occurred_at == "2026-01-01"
 
 
 def test_validate_wikilinks_accepts_extra_index_notes(service, workspace):
