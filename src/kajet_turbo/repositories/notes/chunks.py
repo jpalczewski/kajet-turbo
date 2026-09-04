@@ -40,7 +40,49 @@ _FTS_MIN_TOKEN = 3
 # words measured the same way sat at 0.2-6%. Dropping them cut real fts_ms 1.8x-8x on
 # stopword-heavy queries in that benchmark with the same top-50 result set (see #72).
 _FTS_STOPWORDS = frozenset(
-    ["ale", "bez", "być", "był", "było", "coś", "czy", "dla", "gdy", "gdzie", "ich", "ile", "jak", "jako", "jego", "jest", "już", "kto", "które", "mnie", "może", "nad", "nic", "nie", "niż", "ona", "one", "oni", "pod", "przez", "przy", "się", "tak", "tam", "tego", "ten", "tylko", "tym", "więc", "zamiast", "żeby"]
+    [
+        "ale",
+        "bez",
+        "być",
+        "był",
+        "było",
+        "coś",
+        "czy",
+        "dla",
+        "gdy",
+        "gdzie",
+        "ich",
+        "ile",
+        "jak",
+        "jako",
+        "jego",
+        "jest",
+        "już",
+        "kto",
+        "które",
+        "mnie",
+        "może",
+        "nad",
+        "nic",
+        "nie",
+        "niż",
+        "ona",
+        "one",
+        "oni",
+        "pod",
+        "przez",
+        "przy",
+        "się",
+        "tak",
+        "tam",
+        "tego",
+        "ten",
+        "tylko",
+        "tym",
+        "więc",
+        "zamiast",
+        "żeby",
+    ]
 )
 
 
