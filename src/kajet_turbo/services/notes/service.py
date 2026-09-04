@@ -44,6 +44,7 @@ from kajet_turbo.repositories.notes import (
 from kajet_turbo.services.notes.folders import NoteFolderService
 from kajet_turbo.services.notes.history import NoteVersionService
 from kajet_turbo.services.notes.links import NoteLinkService, wikilink_warnings
+from kajet_turbo.services.notes.locator import locate_many
 from kajet_turbo.services.notes.paths import (
     build_path_index,
     conflict_message,
@@ -343,33 +344,6 @@ class NoteService:
         if note is None:
             return None
         return locate_note(note, ws_path)
-
-    def _locate_batch(
-        self, note_ids: list[str], owner_id: str, ws_path: str, git_repo: GitRepository
-    ) -> dict[str, LocatedNote]:
-        """Resolve every note in a batch and compute all head shas in ONE git walk,
-        before per-item validation. One DB query for all rows, one git walk for all
-        head shas, instead of N of each. Only paths that exist on disk enter the
-        walk — a nonexistent file has no sha to resolve and would force a
-        full-history walk with no early exit.
-
-        DB rows and Path.exists() are read once here instead of per-item inside the
-        validation loop, which shifts the TOCTOU window slightly relative to a
-        concurrent write landing mid-batch. This is a conscious, acceptable change:
-        the sha-freshness check was already advisory outside the workspace lock
-        (a commit only takes the lock in commit_files/delete_files), so the class of
-        guarantee callers get is unchanged — only the window's exact size shifts.
-        """
-        stripped_ids = [n for raw_id in note_ids if (n := raw_id.strip())]
-        notes = self._crud_repo.get_many(stripped_ids, owner_id)
-        located = {note.id: locate_note(note, ws_path) for note in notes}
-        head_shas = git_repo.head_shas_for_paths(
-            [loc.relative for loc in located.values() if loc.file_exists]
-        )
-        return {
-            note_id: replace(loc, head_sha=head_shas.get(loc.relative))
-            for note_id, loc in located.items()
-        }
 
     def _validate_destructive_items(
         self,
@@ -759,7 +733,7 @@ class NoteService:
         }
 
     def get_with_content(self, note_id: str, owner_id: str, ws_path: str) -> NoteData | None:
-        """Single-note read. Batch reads go through ``get_many``/``_locate_batch``
+        """Single-note read. Batch reads go through ``get_many``/``locate_many``
         instead — a shared git walk beats N of these."""
         loc = self._locate(note_id, owner_id, ws_path)
         if loc is None or not loc.file_exists:
@@ -887,7 +861,7 @@ class NoteService:
         All head shas come from ONE shared git walk (head_shas_for_paths) instead of a
         per-note history walk — cost is the deepest note's history, not the sum."""
         git_repo = GitRepository(ws_path)
-        located = self._locate_batch(note_ids, owner_id, ws_path, git_repo)
+        located = locate_many(self._crud_repo, note_ids, owner_id, ws_path, git_repo)
         results: list[NoteData | dict] = []
         for note_id in note_ids:
             loc = located.get(note_id.strip())
@@ -1167,7 +1141,7 @@ class NoteService:
         git_repo = GitRepository(ws_path)
         note_ids = [e.note_id.strip() for e in edits]
         expected_shas = [e.expected_sha for e in edits]
-        located = self._locate_batch(note_ids, user_id, ws_path, git_repo)
+        located = locate_many(self._crud_repo, note_ids, user_id, ws_path, git_repo)
         workspace_links = self._link_service.for_workspace(ws_name, user_id)
         errors: list[dict] = []
         prepared: list[_PreparedEdit] = []
@@ -1431,7 +1405,7 @@ class NoteService:
         git_repo = GitRepository(ws_path)
         note_ids = [str(raw.get("note_id", "")).strip() for raw in deletes]
         expected_shas = [str(raw.get("expected_sha", "")) for raw in deletes]
-        located = self._locate_batch(note_ids, user_id, ws_path, git_repo)
+        located = locate_many(self._crud_repo, note_ids, user_id, ws_path, git_repo)
         errors: list[dict] = []
         prepared: list[_ValidatedDestructiveItem] = []
         for item in self._validate_destructive_items(note_ids, expected_shas, located):
@@ -1482,15 +1456,21 @@ class NoteService:
         include_descendants: bool = True,
         sort: str = "default",
     ) -> list[dict]:
+        allowed_note_ids: set[str] | None = None
+        if tags:
+            allowed_note_ids = self._tag_repo.note_ids_for_tags(
+                ws_name,
+                owner_id,
+                tags,
+                include_descendants=include_descendants,
+            )
         return self._crud_repo.list_notes(
             ws_name,
             owner_id=owner_id,
-            tags=tags,
+            allowed_note_ids=allowed_note_ids,
             limit=limit,
             folder=folder,
-            include_descendants=include_descendants,
             sort=sort,
-            _tag_repo=self._tag_repo if tags else None,
         )
 
     def entries_in(
@@ -1527,7 +1507,7 @@ class NoteService:
                 )
                 pending.append((payload, relative))
         # One batched git walk for every candidate's sha instead of one Repo-open-and-walk
-        # per note (_locate_batch does the same batching for every other batch operation).
+        # per note (locate_many does the same batching for every other batch operation).
         head_shas = GitRepository(ws_path).head_shas_for_paths(
             [relative for _, relative in pending]
         )
@@ -1547,10 +1527,12 @@ class NoteService:
         if len(set(requested_ids)) != len(requested_ids):
             raise ValueError("candidates: note_id values must be unique")
         # One GitRepository for both the batch locate and the staged write below — a
-        # second open re-parses refs/pack indexes for no reason (see _locate_batch's
+        # second open re-parses refs/pack indexes for no reason (see locate_many's
         # docstring and edit_many/delete_many for the established one-repo-per-batch shape).
         git_repo = GitRepository(ws_path)
-        located = self._locate_batch(cast(list[str], requested_ids), owner_id, ws_path, git_repo)
+        located = locate_many(
+            self._crud_repo, cast(list[str], requested_ids), owner_id, ws_path, git_repo
+        )
         prepared: list[_PreparedBackfill] = []
         for item in candidates:
             loc = located.get(item["note_id"])

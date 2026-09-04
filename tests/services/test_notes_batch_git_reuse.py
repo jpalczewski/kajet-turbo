@@ -13,6 +13,8 @@ git_walker pass over the batch (head_shas_for_paths), not N per-note walks
 open alone would not have been enough.
 """
 
+from pathlib import Path
+
 import pytest
 from dulwich.repo import BaseRepo
 
@@ -145,6 +147,22 @@ def test_delete_many_resolves_shas_in_one_walker_pass(service, workspace, walker
 
     assert result["applied"] is True
     assert walker_pass_count["count"] == 1
+
+
+def test_missing_files_do_not_walk_git_history(service, workspace, walker_pass_count):
+    notes = _saved_notes(service, workspace, count=1)
+    Path(workspace, "Note 0.md").unlink()
+    walker_pass_count["count"] = 0
+
+    results = service.get_many([notes[0]["note_id"]], "u1", str(workspace))
+
+    assert results == [
+        {
+            "note_id": notes[0]["note_id"],
+            "error": f"Notatka {notes[0]['note_id']} nie znaleziona.",
+        }
+    ]
+    assert walker_pass_count["count"] == 0
 
 
 def test_update_rename_with_backlink_opens_repo_once_for_the_rename_leg(

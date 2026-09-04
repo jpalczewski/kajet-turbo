@@ -213,6 +213,20 @@ def test_get_many_returns_notes_in_order_with_errors_for_missing(service, worksp
     assert results[2].note_id == r2["note_id"]
 
 
+def test_list_notes_resolves_hierarchical_tags_before_repository_filtering(service, workspace):
+    service.save("u1", "ws", str(workspace), "Alpha", "", ["work/projects"])
+    service.save("u1", "ws", str(workspace), "Beta", "", ["life"])
+    service.save("u1", "ws", str(workspace), "Gamma", "", ["work/other"])
+
+    matched = service.list_notes("ws", "u1", tags=["work"], limit=1, sort="title")
+    exact = service.list_notes("ws", "u1", tags=["work"], include_descendants=False, limit=None)
+    missing = service.list_notes("ws", "u1", tags=["missing"], limit=None)
+
+    assert [note["title"] for note in matched] == ["Alpha"]
+    assert exact == []
+    assert missing == []
+
+
 def test_get_outline_returns_headings_without_content(service, workspace):
     result = service.save(
         "u1", "ws", str(workspace), "Doc", "# Doc\n\n## Tasks\n\n- one\n\n## Notes\n\ntext\n", []
