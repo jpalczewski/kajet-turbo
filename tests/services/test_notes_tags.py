@@ -7,7 +7,7 @@ import pytest
 
 from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
 from tests.services.conftest import seed_user
-from tests.services.helpers import make_flaky_db_write
+from tests.services.helpers import corrupt_temporal_field, make_flaky_db_write
 
 
 @pytest.fixture(autouse=True)
@@ -95,6 +95,26 @@ def test_add_tags_unions_into_frontmatter(service, workspace):
     after = service._crud_repo.get(note_id, owner_id="u1")
     assert after is not None
     assert after.index_generation == before.index_generation
+
+
+def test_add_tags_keeps_db_occurred_at_when_file_value_is_corrupted(service, workspace):
+    """A tag-only edit must not silently discard a note's occurred_at just because a
+    hand-edit made the on-disk copy unparseable — it should fall back to the DB's
+    last-known-good value (in both file and DB) instead of persisting the drop, and
+    surface it as a warning (#132 follow-up)."""
+    note_id = service.save(
+        "u1", "ws", str(workspace), "Corrupt Tag", "treść", [], occurred_at="2026-03-22"
+    )["note_id"]
+    path = note_filepath(str(workspace), "", "Corrupt Tag")
+    corrupt_temporal_field(path, "occurred_at", "banana")
+
+    result = service.add_tags(note_id, "u1", str(workspace), ["work"])
+
+    assert any("occurred_at" in w for w in result["warnings"])
+    row = service._crud_repo.get(note_id, owner_id="u1")
+    assert row is not None and row.occurred_at == "2026-03-22"
+    after_meta, _ = read_note_file(path)
+    assert after_meta.occurred_at == "2026-03-22"
 
 
 def test_add_tags_preserves_hand_written_extras(service, workspace):

@@ -443,7 +443,18 @@ class NoteLinkService:
             # Identity stays DB-sourced defensively; tags/dates/extras come from the file
             # just read, not the DB row — this rewrite never changes them (#105). The DB row
             # write below enforces the same claim: only updated_at/index_generation move (#125).
-            meta = replace(data_meta, id=src.id, title=src.title)
+            # A field read_note_file had to drop as unparseable falls back to the DB's
+            # (untouched) value instead of the file's now-None one, so this wikilink-only
+            # rewrite never silently nulls a corrupted-but-real date (#132 follow-up).
+            occurred_at = (
+                data_meta.occurred_at
+                if "occurred_at" not in data_meta.temporal_dropped
+                else src.occurred_at
+            )
+            period = data_meta.period if "period" not in data_meta.temporal_dropped else src.period
+            meta = replace(
+                data_meta, id=src.id, title=src.title, occurred_at=occurred_at, period=period
+            )
             item = StagedChange(
                 add=loc.relative,
                 remove=None,
