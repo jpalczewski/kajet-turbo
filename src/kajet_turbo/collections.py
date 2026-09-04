@@ -96,6 +96,86 @@ class CollectionDefinition:
 
         return re.compile(f"{pattern_for(self.folder)}/{pattern_for(self.title)}$")
 
+    def matches(self, folder: str, title: str) -> bool:
+        """Whether ``(folder, title)`` is an actual member of this collection — exact,
+        not the ``render_set()`` sampling approximation ``collides``/``dropped_members``
+        use for collision/redefinition-impact checks. That approximation has a bounded
+        window (+/- a few years, a capped ordinal range) which is fine for "would this
+        ever plausibly collide", but silently misses real entries outside it, which is
+        wrong for "is this actually a member" — a workspace can (and does) hold entries
+        far older than the sampling window.
+
+        Recovers the candidate date from the match itself — via ``{date}`` or ``{key}``,
+        whichever the template carries — then confirms membership by re-rendering that
+        date and comparing strings exactly, not just "the shape matches" (this also
+        catches a folder/title pair whose date parts are individually well-formed but
+        mutually inconsistent, e.g. a hand-edited file). Falls back to the bounded
+        ``render_set`` check only for the rare template that uses neither ``{date}`` nor
+        ``{key}`` (only ``{year}``/``{month}``), which can't be uniquely inverted to a date.
+        """
+        pattern, groups = self._match_pattern()
+        m = pattern.match(f"{folder}/{title}")
+        if m is None:
+            return False
+        captured: dict[str, str] = {}
+        for field, value in zip(groups, m.groups(), strict=True):
+            captured.setdefault(field, value)
+        try:
+            when = self._recover_when(captured)
+        except ValueError:
+            # The captured text has the right shape (digits in the right places) but
+            # isn't a real calendar date/period, e.g. "2026-13-45" — not a member.
+            return False
+        if when is None:
+            return (folder, title) in render_set(self)
+        ordinal = int(captured["ordinal"]) if "ordinal" in captured else None
+        return self.render(when, ordinal) == (folder, title)
+
+    def _match_pattern(self) -> tuple[re.Pattern[str], list[str]]:
+        """Regex for ``matches()``: every placeholder becomes its own capture group,
+        typed by its exact format (``{key}`` uses this definition's grain, since that
+        fixes its shape unambiguously). Returns the pattern plus the field name each
+        group (in order) belongs to — a field used twice yields two groups, not one
+        shared name, for the same reason ``sibling_pattern`` does.
+        """
+        field_pattern = {**_FIELD_PATTERNS, "key": _KEY_PATTERNS[self.grain]}
+        groups: list[str] = []
+
+        def pattern_for(template: str) -> str:
+            parts: list[str] = []
+            for literal, field, _spec, _conv in Formatter().parse(template):
+                parts.append(re.escape(literal))
+                if field is not None:
+                    parts.append(f"({field_pattern[field]})")
+                    groups.append(field)
+            return "".join(parts)
+
+        pattern = re.compile(f"{pattern_for(self.folder)}/{pattern_for(self.title)}$")
+        return pattern, groups
+
+    def _recover_when(self, captured: dict[str, str]) -> date | None:
+        """The date a matched ``{date}``/``{key}`` capture implies, or ``None`` when the
+        template carries neither and a date can't be uniquely recovered."""
+        if "date" in captured:
+            return date.fromisoformat(captured["date"])
+        if "key" in captured:
+            return Period(self.grain, captured["key"]).start
+        return None
+
+
+_FIELD_PATTERNS = {
+    "date": r"\d{4}-\d{2}-\d{2}",
+    "year": r"\d{4}",
+    "month": r"\d{2}",
+    "ordinal": r"\d+",
+}
+_KEY_PATTERNS: dict[PeriodKind, str] = {
+    "day": r"\d{4}-\d{2}-\d{2}",
+    "week": r"\d{4}-W\d{2}",
+    "month": r"\d{4}-\d{2}",
+    "year": r"\d{4}",
+}
+
 
 def load_collections(workspace_path: str) -> dict[str, CollectionDefinition]:
     """Load ``.kajet/collections.yaml``; a missing file means no collections."""

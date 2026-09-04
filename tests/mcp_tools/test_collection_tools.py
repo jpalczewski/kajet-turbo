@@ -180,3 +180,46 @@ async def test_open_entry_rejects_malformed_date(workspaces_dir, mcp_server):
             raise AssertionError("expected ToolError")
         except ToolError as exc:
             assert "date" in str(exc)
+
+
+async def test_list_collection_entries_returns_members_across_periods(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        await call_json(
+            client,
+            "define_collection",
+            {
+                "name": "journal",
+                "grain": "day",
+                "cardinality": "one",
+                "folder": "journal/{year}/{month}",
+                "title": "{date}",
+            },
+        )
+        june = await call_json(
+            client, "open_entry", {"collection": "journal", "date": "2026-06-15"}
+        )
+        july = await call_json(
+            client, "open_entry", {"collection": "journal", "date": "2026-07-01"}
+        )
+        await call_json(
+            client,
+            "save_note",
+            {"title": "Not a date", "content": "", "folder": "journal/2026/06"},
+        )
+
+        result = await call_json(client, "list_collection_entries", {"collection": "journal"})
+
+        assert {n["note_id"] for n in result} == {june["note_id"], july["note_id"]}
+
+
+async def test_list_collection_entries_unknown_collection_rejected(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        try:
+            await client.call_tool("list_collection_entries", {"collection": "nope"})
+            raise AssertionError("expected ToolError")
+        except ToolError as exc:
+            assert "nope" in str(exc)

@@ -19,6 +19,7 @@ from kajet_turbo.mcp.tooling import publish_workspace_changed, read_tool, write_
 from kajet_turbo.periods import PeriodKind
 from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.shared.notes import NoteListItem
 
 
 def _to_result(name: str, definition: CollectionDefinition) -> CollectionResult:
@@ -154,5 +155,24 @@ def build_collections(
         if result["created"]:
             await publish_workspace_changed(ws)
         return OpenEntryResult.model_validate(result)
+
+    @srv.tool(**read_tool(tags={"collections"}))
+    @logged_tool
+    async def list_collection_entries(
+        collection: Annotated[str, Field(description="Name of the collection to list.")],
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> list[NoteListItem]:
+        """List every note that currently belongs to a collection, across all dates.
+
+        Membership means the note's (folder, title) actually matches what the
+        collection's pattern renders for some period — a note that merely lives under
+        the collection's folder without a matching title is not included. Unlike
+        `entries_in(collection=...)`, this takes no period: it returns the whole
+        collection's history in one call.
+        """
+        entries = await run_sync(
+            collection_service.list_entries, ws.path, ws.name, ws.owner_id, collection
+        )
+        return [NoteListItem.model_validate(n) for n in entries]
 
     return srv

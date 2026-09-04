@@ -258,3 +258,72 @@ def test_sibling_pattern_rejects_other_dates_and_collections():
     other_date_folder, other_date_title = definition.render(date(2026, 6, 2), ordinal=1)
     assert pattern.match(f"{other_date_folder}/{other_date_title}") is None
     assert pattern.match("sessions/2026/unrelated note") is None
+
+
+# --- matches (list_entries membership, #116) -----------------------------------
+
+
+def _journal(folder="journal/{year}/{month}", title="{date}"):
+    return CollectionDefinition("journal", "day", "one", folder, title)
+
+
+def test_matches_true_for_rendered_pair():
+    definition = _journal()
+    folder, title = definition.render(date(2026, 6, 15))
+    assert definition.matches(folder, title) is True
+
+
+def test_matches_is_not_bounded_by_render_sets_sampling_window():
+    # render_set() only samples +/- a few years around "today" — matches() must not
+    # inherit that limit, since a real workspace holds entries far outside it.
+    definition = _journal()
+    far_past = date(1994, 5, 2)
+    far_future = date(2099, 12, 31)
+    assert definition.matches(*definition.render(far_past)) is True
+    assert definition.matches(*definition.render(far_future)) is True
+
+
+def test_matches_week_grain_via_key():
+    definition = _weekly(folder="weekly/{year}", title="{key}")
+    folder, title = definition.render(date(2026, 6, 1))
+    assert definition.matches(folder, title) is True
+
+
+def test_matches_week_grain_with_month_round_trips_iso_thursday():
+    definition = _weekly(folder="weekly/{year}/{month}", title="{key}")
+    # Mon 2025-12-29 is in 2026-W01; its Thursday is Jan 1 -> month 01, year 2026.
+    folder, title = definition.render(date(2025, 12, 29))
+    assert (folder, title) == ("weekly/2026/01", "2026-W01")
+    assert definition.matches(folder, title) is True
+
+
+def test_matches_many_cardinality_round_trips_ordinal():
+    definition = _daily_many(folder="sessions/{year}", title="{date} {ordinal}")
+    folder, title = definition.render(date(2026, 6, 15), ordinal=4)
+    assert definition.matches(folder, title) is True
+    # A different ordinal for the same date is a different, equally real member.
+    assert definition.matches(folder, "2026-06-15 5") is True
+    # Non-numeric text where {ordinal} must be digits is not a member at all.
+    assert definition.matches(folder, "2026-06-15 fifth") is False
+
+
+def test_matches_false_for_wrong_shape():
+    definition = _journal()
+    assert definition.matches("elsewhere", "2026-06-15") is False
+    assert definition.matches("journal/2026/06", "not a date") is False
+
+
+def test_matches_false_for_shape_matching_but_invalid_date():
+    definition = _journal()
+    # "13" and "45" fit \d{2} but there is no such month or day.
+    assert definition.matches("journal/2026/13", "2026-13-45") is False
+
+
+def test_matches_false_for_mutually_inconsistent_duplicate_field():
+    # {year} appears in both folder and title; only the first occurrence is trusted to
+    # recover `when`, so a mismatched second occurrence must fail the round-trip check.
+    definition = CollectionDefinition("odd", "day", "one", "log/{year}", "{date} ({year})")
+    real_folder, real_title = definition.render(date(2026, 6, 15))
+    assert real_title.endswith("(2026)")
+    tampered_title = real_title.replace("(2026)", "(2027)")
+    assert definition.matches(real_folder, tampered_title) is False
