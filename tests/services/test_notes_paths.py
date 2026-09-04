@@ -3,6 +3,7 @@ from kajet_turbo.services.notes.paths import (
     build_path_index,
     find_path_collisions,
     note_path_conflict,
+    path_conflict_key,
 )
 from kajet_turbo.workspace import note_filepath
 
@@ -51,15 +52,58 @@ def test_build_path_index_matches_note_path_conflict():
 
     index = build_path_index(paths, WS_PATH)
 
-    assert index[note_filepath(WS_PATH, "", "A:B")].note_id == "n1"
-    assert note_filepath(WS_PATH, "sub", "Other") in index
-    assert index.get(note_filepath(WS_PATH, "", "Nope")) is None
+    assert index[path_conflict_key(note_filepath(WS_PATH, "", "A:B"))].note_id == "n1"
+    assert path_conflict_key(note_filepath(WS_PATH, "sub", "Other")) in index
+    assert index.get(path_conflict_key(note_filepath(WS_PATH, "", "Nope"))) is None
+
+
+def test_note_path_conflict_is_case_insensitive():
+    """A title differing only by case from an existing note collides — on Windows/macOS
+    checkouts (case-insensitive filesystems) the two would land on the same file, even
+    though prod's filesystem is case-sensitive and would happily keep both."""
+    paths = [IndexedNote("n1", "", "Readme")]
+
+    conflict = note_path_conflict(paths, WS_PATH, "", "readme")
+
+    assert conflict is not None
+    assert conflict.note_id == "n1"
+
+
+def test_note_path_conflict_case_only_rename_excludes_self():
+    """A case-only rename of the SAME note must not collide with its own old row."""
+    paths = [IndexedNote("n1", "", "readme")]
+
+    conflict = note_path_conflict(paths, WS_PATH, "", "README", exclude_id="n1")
+
+    assert conflict is None
+
+
+def test_build_path_index_groups_case_differing_titles():
+    paths = [IndexedNote("n1", "", "Readme")]
+
+    index = build_path_index(paths, WS_PATH)
+
+    assert index[path_conflict_key(note_filepath(WS_PATH, "", "readme"))].note_id == "n1"
 
 
 def test_find_path_collisions_groups_only_colliding_paths():
     paths = [
         IndexedNote("n1", "", "A B"),
         IndexedNote("n2", "", "A:B"),
+        IndexedNote("n3", "", "Solo"),
+    ]
+
+    collisions = find_path_collisions(paths, WS_PATH)
+
+    assert len(collisions) == 1
+    (group,) = collisions.values()
+    assert {n.note_id for n in group} == {"n1", "n2"}
+
+
+def test_find_path_collisions_groups_case_differing_titles():
+    paths = [
+        IndexedNote("n1", "", "Readme"),
+        IndexedNote("n2", "", "readme"),
         IndexedNote("n3", "", "Solo"),
     ]
 

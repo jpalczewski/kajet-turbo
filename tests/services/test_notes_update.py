@@ -150,6 +150,23 @@ def test_update_rejects_rename_onto_normalization_collision(service, workspace):
     assert other_content.strip() == "a b content"
 
 
+def test_update_rejects_rename_onto_case_only_collision(service, workspace):
+    """ "X" renamed to "readme" collides with an existing "Readme" — same file on a
+    case-insensitive checkout filesystem (Windows/macOS), even though prod's own
+    case-sensitive filesystem would happily keep both."""
+    x_id = service.save("u1", "ws", str(workspace), "X", "x content", [])["note_id"]
+    service.save("u1", "ws", str(workspace), "Readme", "readme content", [])
+    sha = service.get_history(x_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    with pytest.raises(FileExistsError, match="readme"):
+        service.update(
+            x_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="readme"
+        )
+
+    x_note = service.get_with_content(x_id, owner_id="u1", ws_path=str(workspace))
+    assert x_note.title == "X"
+
+
 def test_update_append_mode_adds_to_section(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Dziennik", "## Zadania\n\n- Pierwsze", [])[
         "note_id"

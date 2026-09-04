@@ -94,6 +94,24 @@ def test_move_folder_rejects_sibling_collision_within_same_move(service, workspa
     assert not (workspace / "b").exists()
 
 
+def test_move_folder_rejects_case_only_sibling_collision_within_same_move(service, workspace):
+    """Two notes moved together whose titles differ only by case must still conflict via
+    the in-batch `claimed` tracking — the same collision `test_move_folder_rejects_
+    sibling_collision_within_same_move` proves for normalization, but for case. Case-twin
+    rows can no longer be created via save() after this fix, so — like that test — this
+    simulates a pair left over from before the fix shipped, inserted directly."""
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+    service._crud_repo.insert("n1", "ws", "u1", "Readme", [], now, now, "a", None, None)
+    service._crud_repo.insert("n2", "ws", "u1", "readme", [], now, now, "a", None, None)
+
+    result = _mv(service, workspace, "a", "b")
+
+    assert "conflicts" in result
+    assert not (workspace / "b").exists()
+
+
 def test_move_folder_rejects_collision_with_orphan_file_on_disk(service, workspace):
     """A file with no matching DB row sitting at the destination must still block the
     move — the pre-flight loop only checks DB rows (a disk check there would falsely

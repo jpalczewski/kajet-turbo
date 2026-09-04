@@ -43,7 +43,12 @@ from kajet_turbo.repositories.notes import (
 from kajet_turbo.services.notes.folders import NoteFolderService
 from kajet_turbo.services.notes.history import NoteVersionService
 from kajet_turbo.services.notes.links import NoteLinkService, wikilink_warnings
-from kajet_turbo.services.notes.paths import build_path_index, conflict_message, note_path_conflict
+from kajet_turbo.services.notes.paths import (
+    build_path_index,
+    conflict_message,
+    note_path_conflict,
+    path_conflict_key,
+)
 from kajet_turbo.services.notes.search import NoteSearchService
 from kajet_turbo.services.notes.staged_change import (
     StagedChange,
@@ -567,7 +572,7 @@ class NoteService:
                 }
                 continue
             filepath = note_filepath(ws_path, folder, title)
-            conflict = path_index.get(filepath)
+            conflict = path_index.get(path_conflict_key(filepath))
             if conflict is not None:
                 results[index] = {
                     "index": index,
@@ -585,7 +590,7 @@ class NoteService:
             accepted.add(key)
             new_note = IndexedNote(note_id, folder, title)
             batch_notes.append(new_note)
-            path_index[filepath] = new_note
+            path_index[path_conflict_key(filepath)] = new_note
             survivors.append(
                 {
                     "index": index,
@@ -609,7 +614,7 @@ class NoteService:
                 survivors.pop()
                 accepted.remove(key)
                 batch_notes.pop()
-                del path_index[filepath]
+                del path_index[path_conflict_key(filepath)]
 
         # Phase 2: wikilink resolution against existing notes union the batch, sharing one
         # index. Non-cascading: the index is not rebuilt as notes are dropped, so a link to
