@@ -18,6 +18,13 @@ from dulwich.repo import BaseRepo
 
 import kajet_turbo.repositories.git as git_module
 from kajet_turbo.repositories.git import GitRepository
+from tests.services.conftest import seed_user
+
+
+@pytest.fixture(autouse=True)
+def _seed_default_owner(database):
+    # Batch writes now enqueue reindex_note jobs (user_id FK to users.id).
+    seed_user(database, "u1")
 
 
 @pytest.fixture

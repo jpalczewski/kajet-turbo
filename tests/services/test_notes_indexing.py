@@ -24,6 +24,7 @@ def test_save_writes_fts_via_indexer(database, git_workspace_factory):
     from sqlalchemy import text
 
     from kajet_turbo.embedding.cache import EmbeddingCacheRepository
+    from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.services.indexing import NoteIndexer
 
     chunk_repo = NoteChunkRepository(database.engine)
@@ -31,6 +32,7 @@ def test_save_writes_fts_via_indexer(database, git_workspace_factory):
         chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
+        jobs=JobRepository(database.engine),
     )
     service = build_note_service(database, indexer=indexer)
     ws = git_workspace_factory("ws")

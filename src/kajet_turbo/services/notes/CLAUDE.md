@@ -4,9 +4,9 @@ This package (`NoteService` plus its collaborators `NoteTagService`, `NoteFolder
 `NoteLinkService`) is the synchronous, request-facing CRUD layer for notes — called directly
 from API routes and MCP tools, not dispatched by job kind. That is the boundary between this
 package and the flat `services/` directory: background job handlers (`embed_handler.py`,
-`push_handler.py`, `reconcile_links_handler.py`) live there regardless of which domain they
-touch, registered once in `register_job_handlers()` (`server.py:48`). A new background handler
-does not belong in this package even if it operates on notes.
+`push_handler.py`, `reconcile_links_handler.py`, `reindex_handler.py`) live there regardless of
+which domain they touch, registered once in `register_job_handlers()` (`server.py:48`). A new
+background handler does not belong in this package even if it operates on notes.
 
 ## Note-body writes go through `staged_workspace_change`
 
@@ -100,16 +100,17 @@ for this: right after a rename elsewhere, a stale edge can briefly still be ther
 
 `NoteLinkService._rewrite_backlinks` (`links.py:356-460`) rewrites wikilink text in every note
 that links to something just moved/renamed, then writes the DB row and commits directly (rows
-first, one transaction, same #155 ordering as everything else here) — skipping four steps
-`update()` normally runs. The docstring at that call site enumerates and
-justifies each skipped step; it is not accidental duplication, it is a deliberate divergence
+first, one transaction, same #155 ordering as everything else here) — bypassing `update()`'s
+pipeline for three of its four post-write steps, addressing the fourth (search reindexing) with
+a `reindex_note` job enqueued in the same transaction instead. The docstring at that call site
+enumerates and justifies each. It is not accidental duplication, it is a deliberate divergence
 for batch-commit atomicity. The one thing to keep in sync from here: if `update()`'s pipeline
 gains or reorders steps, that enumeration is the one place that has to be revisited by hand —
 nothing enforces it automatically.
 
 ## Service boundaries
 
-`NoteService` owns the indexer, cache, `_locate_batch`/`_LocatedNote`, and the write pipeline.
+`NoteService` owns the indexer, `_locate_batch`/`_LocatedNote`, and the write pipeline.
 `NoteTagService`, `NoteFolderService`, and `NoteLinkService` are collaborators that, by default,
 operate on metadata only — `NoteFolderService.move_folder` needs no indexer because a folder
 move never touches note bodies. A method on one of these collaborators that starts writing note

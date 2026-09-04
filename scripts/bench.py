@@ -233,6 +233,7 @@ def inproc_search_phase(tmp: Path) -> dict:
     os.environ["DB_PATH"] = str(tmp / "bench.db")
     os.environ["WORKSPACES_DIR"] = str(tmp / "workspaces")
     from kajet_turbo.db import Database
+    from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.repositories.notes import (
         NoteChunkRepository,
         NoteLinkRepository,
@@ -258,24 +259,25 @@ def inproc_search_phase(tmp: Path) -> dict:
     link_repo = NoteLinkRepository(db.engine)
     tag_repo = NoteTagRepository(db.engine)
     chunk_repo = NoteChunkRepository(db.engine)
-    tag_service = NoteTagService(note_repo, tag_repo, cache=None)
+    job_repo = JobRepository(db.engine)
+    tag_service = NoteTagService(note_repo, tag_repo)
     link_service = NoteLinkService(
         note_repo,
         link_repo,
         dangling_repo=None,
         link_validation_enabled=None,
+        jobs=job_repo,
     )
     search_service = NoteSearchService(
         chunk_repo,
-        cache=None,
         query_resolver=None,
         build_embedder=None,
         query_cache=None,
         crud_repo=note_repo,
         tag_repo=tag_repo,
     )
-    version_service = NoteVersionService(note_repo, cache=None)
-    folder_service = NoteFolderService(note_repo, link_service, cache=None)
+    version_service = NoteVersionService(note_repo)
+    folder_service = NoteFolderService(note_repo, link_service)
     svc = NoteService(
         note_repo,
         link_repo,

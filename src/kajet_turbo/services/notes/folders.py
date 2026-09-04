@@ -4,7 +4,6 @@ from secrets import token_hex
 
 from sqlmodel import Session
 
-from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import IndexedNote
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
@@ -35,13 +34,11 @@ class NoteFolderService:
         self,
         crud_repo: NoteRepository,
         link_service: NoteLinkService,
-        cache: WorkspaceCache | None,
         folder_meta_repo: FolderMetaRepository | None = None,
         reconcile_repo: LinkReconcileRepository | None = None,
     ):
         self._crud_repo = crud_repo
         self._link_service = link_service
-        self._cache = cache
         self._folder_meta_repo = folder_meta_repo
         self._reconcile_repo = reconcile_repo
 
@@ -118,8 +115,6 @@ class NoteFolderService:
         )
         workspace_links.rewrite_backlinks([move], ws_path, repo)
         prune_empty_parents(ws_path, note.folder)
-        if self._cache is not None:
-            self._cache.bump(note.workspace, owner_id)
         logger.info("note_moved", note_id=note_id, folder=new_folder)
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
@@ -291,8 +286,6 @@ class NoteFolderService:
         remove_empty_tree(ws_path, src_n)
         if self._folder_meta_repo is not None:
             self._folder_meta_repo.rename_paths(owner_id, workspace, src_n, dst_n)
-        if self._cache is not None:
-            self._cache.bump(workspace, owner_id)
         logger.info("folder_moved", src=src_n, dst=dst_n, count=len(notes))
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(owner_id, workspace, affected_sources)

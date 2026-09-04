@@ -6,7 +6,14 @@ import pytest
 
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.services.notes import service as service_module
+from tests.services.conftest import seed_user
 from tests.services.helpers import make_flaky_db_write, make_flaky_write
+
+
+@pytest.fixture(autouse=True)
+def _seed_default_owner(database):
+    # edit_many now enqueues reindex_note jobs (user_id FK to users.id).
+    seed_user(database, "u1")
 
 
 def test_edit_many_applies_all_in_one_commit(service, workspace):

@@ -21,7 +21,9 @@ from kajet_turbo.markdown import (
 )
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
+from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
+from kajet_turbo.services.indexing import reindex_job_entries
 from kajet_turbo.services.notes.staged_change import StagedChange, commit_rows_then_tree
 from kajet_turbo.workspace import locate_note, path_segments, read_note_file, write_note_file
 
@@ -102,11 +104,13 @@ class NoteLinkService:
         link_repo: NoteLinkRepository,
         dangling_repo: DanglingLinkRepository | None,
         link_validation_enabled: Callable[[str, str], bool] | None,
+        jobs: JobRepository,
     ):
         self._crud_repo = crud_repo
         self._link_repo = link_repo
         self._dangling_repo = dangling_repo
         self._link_validation_enabled = link_validation_enabled
+        self._jobs = jobs
 
     def _links_validated(self, ws_name: str, owner_id: str) -> bool:
         if self._link_validation_enabled is None:
@@ -372,8 +376,9 @@ class NoteLinkService:
         syntax which is ID-stable and needs no path update.
 
         Every affected source is staged, then committed together in one batch — via a raw
-        write, deliberately not the full ``NoteService.update()`` pipeline. Four steps
-        ``update()`` runs are skipped here, each for its own reason:
+        write, deliberately not the full ``NoteService.update()`` pipeline. Of the four steps
+        ``update()`` normally runs beyond the row/tree write, three are skipped here and one
+        is not, each for its own reason:
 
         - ``replace_links``: no-op by construction. A link's graph edge is keyed on
           ``(source_note_id, target_note_id)``; the rewritten target is verified to resolve
@@ -381,11 +386,10 @@ class NoteLinkService:
         - ``sync_tags``: the rewrite only touches wikilink path text, never frontmatter tags.
         - ``write_dangling``: this only rewrites links that already resolved (they're in the
           link graph in the first place), so no pair moves between resolved/dangling.
-        - Search reindexing (chunks/FTS/embeddings): genuinely skipped, not a no-op. This
-          method has no indexer reference, so a rewritten source note's search index keeps
-          the OLD link text until that note's next real edit or a workspace-wide reindex.
-          Accepted as a cosmetic, self-healing gap — not worth threading an indexer through
-          this call for a stale snippet/chunk-offset window that closes on the next edit.
+        - Search reindexing (chunks/FTS/embeddings): not skipped — a ``reindex_note`` job is
+          enqueued per rewritten source, in the same transaction as the row update, so its
+          search index catches up with the new link text without waiting for the note's next
+          real edit or a workspace-wide reindex.
 
         The DB row update carries forward only ``updated_at`` (an unchanged passthrough, not
         bumped to now) and bumps ``index_generation``; ``occurred_at``/``period`` are
@@ -456,6 +460,13 @@ class NoteLinkService:
                         updated_at=updated_at,
                         bump_index_generation=True,
                     )
+                self._jobs.enqueue_many_in_session(
+                    session,
+                    "reindex_note",
+                    reindex_job_entries(
+                        workspace.owner_id, workspace.ws_name, (note_id for note_id, _ in rewrites)
+                    ),
+                )
 
             commit_rows_then_tree(
                 self._crud_repo,

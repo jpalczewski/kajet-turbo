@@ -5,7 +5,14 @@ from unittest.mock import patch
 import pytest
 
 from kajet_turbo.markdown import BrokenWikilinkError, IndexedNote, render_markdown
+from tests.services.conftest import seed_user
 from tests.services.helpers import make_flaky_db_write, make_flaky_write, make_service_with_dangling
+
+
+@pytest.fixture(autouse=True)
+def _seed_default_owner(database):
+    # rewrite_backlinks now enqueues reindex_note jobs (user_id FK to users.id).
+    seed_user(database, "u1")
 
 
 def test_save_with_valid_wikilink_succeeds(service, workspace):
@@ -167,6 +174,32 @@ def test_move_rewrites_backlink_path(service, workspace):
     assert "[[Old/Target" not in src.content
     # edge still points to the same target note
     assert service._link_service._link_repo.backlinks(tid) == [sid]
+
+
+def test_move_rewrite_enqueues_one_reindex_note_job_per_rewritten_source(
+    service, workspace, database
+):
+    """#89 acceptance criterion: rewrite_backlinks's search-reindex gap is closed by
+    enqueuing a reindex_note job per rewritten source, in the same transaction as the row
+    update — not by chunking inline (see NoteIndexer.index_many's contract change)."""
+    import json
+
+    from kajet_turbo.repositories.jobs import JobRepository
+
+    service.save("u1", "ws", str(workspace), "Target", "t", [], folder="Old")
+    sid_a = service.save("u1", "ws", str(workspace), "Source A", "see [[Old/Target|T]]", [])[
+        "note_id"
+    ]
+    sid_b = service.save("u1", "ws", str(workspace), "Source B", "see [[Old/Target|T]]", [])[
+        "note_id"
+    ]
+    tid = service._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
+
+    service.move(tid, owner_id="u1", ws_path=str(workspace), folder="New")
+
+    jobs = JobRepository(database.engine).list_jobs("u1", kind="reindex_note", status="pending")
+    note_ids = {json.loads(j.payload)["note_id"] for j in jobs}
+    assert note_ids == {sid_a, sid_b}
 
 
 def test_move_rewrite_leaves_source_outlinks_and_dangling_unchanged(database, workspace):
@@ -562,6 +595,7 @@ def test_reindex_resolves_short_links_and_xws_ids(service, workspace):
 def _make_service_with_validation(database, link_validation_enabled=None):
     """Build a NoteService with optional link_validation_enabled predicate."""
     from kajet_turbo.embedding.cache import EmbeddingCacheRepository
+    from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.repositories.notes import NoteChunkRepository
     from tests.services.conftest import build_note_service
 
@@ -572,6 +606,7 @@ def _make_service_with_validation(database, link_validation_enabled=None):
         chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda owner_id: None,
+        jobs=JobRepository(database.engine),
     )
     return build_note_service(
         database, indexer=indexer, link_validation_enabled=link_validation_enabled

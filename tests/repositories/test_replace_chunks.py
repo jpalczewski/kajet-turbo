@@ -175,3 +175,48 @@ def test_replace_chunks_embedding_count_must_match(database):
     repo.ensure_vec_table(2)
     with pytest.raises(ValueError):
         repo.replace_chunks("n1", "ws", "u1", "T", _chunks(), embeddings=[[0.1, 0.2]], dim=2)
+
+
+def test_replace_chunks_in_session_on_superseded_leaves_caller_session_usable(database):
+    # The _in_session split must NOT roll back on a CAS miss — that decision belongs to
+    # whoever owns the session, since it may be one write among several in one transaction
+    # (e.g. ReindexNoteHandler committing a chunk replace + an embed_note enqueue together).
+    _note(database)
+    _note(database, note_id="n2")
+    repo = NoteChunkRepository(database.engine)
+    original = [Chunk(ordinal=0, header_path=[], content="current", char_start=0, char_end=7)]
+    repo.replace_chunks("n1", "ws", "u1", "T", original, embeddings=None, dim=None)
+    with Session(database.engine) as session:
+        note = session.get(Note, "n1")
+        assert note is not None
+        note.index_generation += 1
+        session.add(note)
+        session.commit()
+
+    with Session(database.engine) as session:
+        # An earlier write in the same caller-owned transaction, uncommitted so far.
+        other = session.get(Note, "n2")
+        assert other is not None
+        other.title = "renamed before the superseded write"
+        session.add(other)
+
+        applied = NoteChunkRepository.replace_chunks_in_session(
+            session,
+            "n1",
+            "ws",
+            "u1",
+            "T",
+            [Chunk(ordinal=0, header_path=[], content="stale", char_start=0, char_end=5)],
+            None,
+            None,
+            expected_generation=1,
+        )
+        assert applied is False
+        # No self-rollback: the caller's session is still open and n2's staged change is
+        # still pending — the caller decides what happens to it (commit or roll back).
+        session.commit()
+
+    with Session(database.engine) as session:
+        n2 = session.get(Note, "n2")
+        assert n2 is not None and n2.title == "renamed before the superseded write"
+    assert [row["content"] for row in repo.get_chunks("n1")] == ["current"]

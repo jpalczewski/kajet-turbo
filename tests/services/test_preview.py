@@ -1,6 +1,7 @@
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
 from kajet_turbo.markdown import chunk_markdown, embedded_text
+from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
 
@@ -14,7 +15,9 @@ def _cfg():
 def test_preview_marks_embedded_from_cache(database):
     repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
-    indexer = NoteIndexer(repo, cache, resolve_backend=lambda o: _cfg())
+    indexer = NoteIndexer(
+        repo, cache, resolve_backend=lambda o: _cfg(), jobs=JobRepository(database.engine)
+    )
     # Bodies are sized above the small-section merge threshold so the two sections stay
     # as separate chunks (a tiny "alpha body / beta body" pair would merge into one).
     body1 = "alpha " * 60
@@ -37,7 +40,9 @@ def test_preview_marks_embedded_from_cache(database):
 def test_preview_no_backend_all_false(database):
     repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
-    indexer = NoteIndexer(repo, cache, resolve_backend=lambda o: None)
+    indexer = NoteIndexer(
+        repo, cache, resolve_backend=lambda o: None, jobs=JobRepository(database.engine)
+    )
     preview = indexer.preview("T", "# T\n\nbody\n", "u1")
     assert preview and all(p["embedded"] is False for p in preview)
 
@@ -45,5 +50,7 @@ def test_preview_no_backend_all_false(database):
 def test_preview_empty_content(database):
     repo = NoteChunkRepository(database.engine)
     cache = EmbeddingCacheRepository(database.engine)
-    indexer = NoteIndexer(repo, cache, resolve_backend=lambda o: None)
+    indexer = NoteIndexer(
+        repo, cache, resolve_backend=lambda o: None, jobs=JobRepository(database.engine)
+    )
     assert indexer.preview("T", "   \n", "u1") == []

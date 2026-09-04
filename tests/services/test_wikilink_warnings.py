@@ -1,5 +1,13 @@
 import pytest
 
+from tests.services.conftest import seed_user
+
+
+@pytest.fixture(autouse=True)
+def _seed_default_owner(database):
+    # update()'s rewrite_backlinks leg now enqueues reindex_note jobs (user_id FK).
+    seed_user(database, "u1")
+
 
 def _seed_ambiguous(service, workspace):
     service.save("u1", "ws", str(workspace), "README", "near", [], folder="Project")

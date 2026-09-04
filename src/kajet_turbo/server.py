@@ -54,6 +54,7 @@ def register_job_handlers() -> None:
         event_repo,
         push_handler,
         reconcile_links_handler,
+        reindex_handler,
     )
     from kajet_turbo.dependencies import job_repo as _job_repo
     from kajet_turbo.worker import register_handler
@@ -64,6 +65,7 @@ def register_job_handlers() -> None:
     register_handler("heal_dangling", reconcile_links_handler)
     register_handler("sweep_outbox", _make_sweep_handler(event_repo, _job_repo))
     register_handler("embed_note", embed_handler)
+    register_handler("reindex_note", reindex_handler)
 
 
 @asynccontextmanager

@@ -27,8 +27,8 @@ def _delete_workspace_notes(chunk_repo, note_repo, workspace, owner_id):
     Chunks must be deleted before note rows (FK constraint: note_chunks.note_id → notes.id
     with no cascade). Both sub-repos share the same engine so we use a single session."""
     with Session(chunk_repo._engine) as session:
-        chunk_repo.delete_for_workspace(workspace, owner_id, session)
-        note_repo.delete_for_workspace(workspace, owner_id, session)
+        chunk_repo.delete_for_workspace_in_session(workspace, owner_id, session)
+        note_repo.delete_for_workspace_in_session(workspace, owner_id, session)
         session.commit()
 
 

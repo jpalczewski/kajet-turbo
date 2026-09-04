@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 
 from kajet_turbo.db import Database
 from kajet_turbo.models import Job, User
-from kajet_turbo.repositories.jobs import JobRepository, backoff_seconds
+from kajet_turbo.repositories.jobs import JobEntry, JobRepository, backoff_seconds
 from tests.helpers import entries_named, read_log_entries
 
 
@@ -79,6 +79,54 @@ def test_enqueue_dedup_distinct_keys_coexist(database: Database):
     a = repo.enqueue("push_workspace", {}, dedup_key="u:ws1")
     b = repo.enqueue("push_workspace", {}, dedup_key="u:ws2")
     assert a != b
+
+
+def test_enqueue_many_inserts_one_job_per_entry_in_one_commit(database: Database):
+    repo = JobRepository(database.engine)
+    _ensure_user(database.engine, "u1")
+    job_ids = repo.enqueue_many(
+        "reindex_note",
+        [
+            JobEntry(payload={"note_id": "n1"}, dedup_key="reindex:u1:ws:n1", user_id="u1"),
+            JobEntry(payload={"note_id": "n2"}, dedup_key="reindex:u1:ws:n2", user_id="u1"),
+        ],
+    )
+    assert len(job_ids) == 2
+    rows = repo.list_jobs("u1", kind="reindex_note", status="pending")
+    assert sorted(json.loads(r.payload)["note_id"] for r in rows) == ["n1", "n2"]
+
+
+def test_enqueue_many_dedups_against_existing_pending_job(database: Database):
+    repo = JobRepository(database.engine)
+    first = repo.enqueue("reindex_note", {"note_id": "n1"}, dedup_key="reindex:u1:ws:n1")
+    [second] = repo.enqueue_many(
+        "reindex_note",
+        [JobEntry(payload={"note_id": "n1"}, dedup_key="reindex:u1:ws:n1")],
+    )
+    assert first == second  # re-armed the existing pending row, not a duplicate
+    assert len(_pending(database.engine, "reindex_note", "reindex:u1:ws:n1")) == 1
+
+
+def test_enqueue_many_in_session_shares_the_caller_transaction(database: Database):
+    # Fans out N job rows into a caller-owned session without opening a second write
+    # session — same contract as enqueue_in_session, just batched, and nothing is durable
+    # until the caller commits.
+    repo = JobRepository(database.engine)
+
+    def _count() -> int:
+        with Session(database.engine) as s:
+            return len(s.exec(select(Job).where(Job.kind == "reindex_note")).all())
+
+    with Session(database.engine) as session:
+        job_ids = repo.enqueue_many_in_session(
+            session,
+            "reindex_note",
+            [JobEntry(payload={"note_id": "n1"}), JobEntry(payload={"note_id": "n2"})],
+        )
+        assert len(job_ids) == 2
+        assert _count() == 0  # invisible to a separate session before commit
+        session.commit()
+    assert _count() == 2
 
 
 def test_enqueue_delay_sets_future_next_run_at(database: Database):

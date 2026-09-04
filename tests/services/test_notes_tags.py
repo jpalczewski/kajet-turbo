@@ -6,7 +6,14 @@ from unittest.mock import patch
 import pytest
 
 from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
+from tests.services.conftest import seed_user
 from tests.services.helpers import make_flaky_db_write
+
+
+@pytest.fixture(autouse=True)
+def _seed_default_owner(database):
+    # rename_tag now enqueues reindex_note jobs (user_id FK to users.id).
+    seed_user(database, "u1")
 
 
 def test_save_indexes_frontmatter_and_inline_tags(service, workspace):
@@ -244,10 +251,25 @@ def test_rename_tag_rewrites_inline_hashtags_so_the_old_tag_stays_gone(service, 
     assert _tag_paths(service) == {"ćwiczenia"}
 
 
-def test_rename_tag_reindexes_only_notes_whose_body_changed(service, workspace):
+def test_rename_tag_reindexes_only_notes_whose_body_changed(
+    service, database, git_workspace_factory
+):
+    from kajet_turbo.repositories.jobs import JobRepository
+    from tests.services.helpers import build_reindex_handler, drain_reindex_jobs
+
+    # rename_tag only enqueues reindex_note now (chunking moved into the handler), so the
+    # handler needs the note's real on-disk workspace root: <workspaces_dir>/u1/ws.
+    workspace = git_workspace_factory("u1/ws")
+    workspaces_dir = str(workspace.parent.parent)
+
     inline = service.save("u1", "ws", str(workspace), "A", "patrz #work tutaj", [])
     frontmatter = service.save("u1", "ws", str(workspace), "B", "body", ["work"])
     _rename(service, workspace, "work", "job")
+
+    jobs = JobRepository(database.engine)
+    handler = build_reindex_handler(database, workspaces_dir, jobs=jobs)
+    drain_reindex_jobs(jobs, handler, "u1", "ws")
+
     rewritten = " ".join(c["content"] for c in service._chunk_repo.get_chunks(inline["note_id"]))
     assert "#job" in rewritten
     # The frontmatter-only note is not rechunked — tags never reach a chunk.

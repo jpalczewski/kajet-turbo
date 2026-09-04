@@ -144,20 +144,6 @@ class NoteRepository(DbRepository):
             ).all()
         return set(rows)
 
-    def count_stale(self, workspace: str, owner_id: str) -> int:
-        """Count notes awaiting deferred embedding. Folded into the search cache key so
-        a worker flipping notes stale→indexed (which bumps no epoch, possibly in another
-        process) invalidates cached vector-less rankings on the next search."""
-        with self.timed_session() as session:
-            count = session.exec(
-                select(func.count()).where(
-                    Note.workspace == workspace,
-                    Note.owner_id == owner_id,
-                    Note.index_state == "stale",
-                )
-            ).one()
-        return int(count)
-
     def list_paths(self, workspace: str, owner_id: str) -> list[IndexedNote]:
         """Every note's ``(id, folder, title)`` in the workspace — the raw material for a
         ``LinkIndex``. One narrow query per operation (a single user's workspace is small)
@@ -488,7 +474,9 @@ class NoteRepository(DbRepository):
                 for workspace, file_count, last_updated in rows
             }
 
-    def delete_for_workspace(self, workspace: str, owner_id: str, session: Session) -> None:
+    def delete_for_workspace_in_session(
+        self, workspace: str, owner_id: str, session: Session
+    ) -> None:
         """Delete note rows for (workspace, owner_id). Uses the caller's session; does not
         commit. FK constraint requires chunks to be deleted first (done by NoteChunkRepository
         in the same session before this method is called)."""

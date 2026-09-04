@@ -53,6 +53,7 @@ def run_job(repo: JobRepository, job: Job, registry: dict[str, Handler]) -> None
     lose it silently.
     """
     started = time.monotonic()
+    queue_wait_ms = round(max(0.0, time.time() - job.next_run_at) * 1000)
     error: Exception | None = None
     repo_error: Exception | None = None
 
@@ -100,6 +101,7 @@ def run_job(repo: JobRepository, job: Job, registry: dict[str, Handler]) -> None
             outcome=outcome,
             repo_write_failed=repo_error is not None,
             duration_ms=round((time.monotonic() - started) * 1000),
+            queue_wait_ms=queue_wait_ms,
             **perf_fields,
         )
     if repo_error is not None:

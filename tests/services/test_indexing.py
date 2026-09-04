@@ -3,6 +3,7 @@ from sqlmodel import Session
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.models import Note
+from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
 
@@ -38,6 +39,7 @@ def _indexer(database, *, cfg=None):
         repo=repo,
         cache=cache,
         resolve_backend=lambda owner_id: cfg,
+        jobs=JobRepository(database.engine),
         enqueue_embed=lambda nid, ws, owner: enqueued.append((nid, ws, owner)),
     )
     return indexer, repo, enqueued
@@ -73,6 +75,7 @@ def test_index_note_resolver_error_degrades_to_stale(database):
         repo=repo,
         cache=cache,
         resolve_backend=_boom,
+        jobs=JobRepository(database.engine),
         enqueue_embed=lambda *a: enqueued.append(a),
     )
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
@@ -106,6 +109,7 @@ def test_index_note_without_enqueue_callable_still_indexes(database):
         repo=repo,
         cache=EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda owner_id: _cfg(),
+        jobs=JobRepository(database.engine),
     )
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")  # must not raise
     assert len(repo.get_chunks("n1")) >= 1

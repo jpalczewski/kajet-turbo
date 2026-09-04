@@ -85,6 +85,120 @@ class NoteChunkRepository(DbRepository):
             )
             session.commit()
 
+    @staticmethod
+    def replace_chunks_in_session(
+        session: Session,
+        note_id: str,
+        workspace: str,
+        owner_id: str,
+        title: str,
+        chunks: list,  # list[kajet_turbo.markdown.Chunk]
+        embeddings: list[list[float]] | None,
+        dim: int | None,
+        *,
+        expected_generation: int | None = None,
+    ) -> bool:
+        """Replace all chunks (and vectors) for a note, in the caller's session — does not
+        commit or roll back. ``embeddings`` is None (chunks only → stale) or one vector per
+        chunk (→ indexed, vectors into note_chunks_vec_{dim}).
+
+        When ``expected_generation`` is provided, the first statement acquires SQLite's
+        write lock and verifies the note revision. A superseded indexer therefore cannot
+        delete or overwrite chunks produced by a newer edit, even across processes. On a
+        superseded generation this returns False and leaves the session's transaction open
+        with nothing applied — the caller decides whether to roll back or fold that outcome
+        into a larger transaction. Returns whether the replacement was applied.
+        """
+        if embeddings is not None:
+            if dim is None:
+                raise ValueError("dim is required when embeddings are provided")
+            if len(embeddings) != len(chunks):
+                raise ValueError(
+                    f"embeddings ({len(embeddings)}) must match chunks ({len(chunks)})"
+                )
+        now = datetime.now(UTC).isoformat()
+        if expected_generation is not None:
+            current = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "UPDATE notes SET index_state = 'stale', indexed_at = NULL"
+                    " WHERE id = :nid AND index_generation = :expected"
+                    " RETURNING id"
+                ),
+                {"nid": note_id, "expected": expected_generation},
+            ).fetchone()
+            if current is None:
+                return False
+        NoteChunkRepository.delete_chunks(note_id, session)
+
+        for i, chunk in enumerate(chunks):
+            chunk_id = generate(size=12)
+            result = session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "INSERT INTO note_chunks"
+                    " (id, note_id, workspace, owner_id, ordinal, header_path, content,"
+                    "  char_start, char_end, dim, created_at)"
+                    " VALUES (:id, :nid, :ws, :owner, :ord, :hp, :content,"
+                    "  :cs, :ce, :dim, :now)"
+                ),
+                {
+                    "id": chunk_id,
+                    "nid": note_id,
+                    "ws": workspace,
+                    "owner": owner_id,
+                    "ord": chunk.ordinal,
+                    "hp": json.dumps(chunk.header_path),
+                    "content": chunk.content,
+                    "cs": chunk.char_start,
+                    "ce": chunk.char_end,
+                    "dim": dim if embeddings is not None else None,
+                    "now": now,
+                },
+            )
+            assert isinstance(result, CursorResult)
+            if embeddings is not None:
+                assert dim is not None  # validated above; narrows for the table name
+                session.execute(  # ty: ignore[deprecated] - raw SQL
+                    text(
+                        f"INSERT INTO note_chunks_vec_{int(dim)}"
+                        " (chunk_rowid, embedding, workspace, owner_id, note_id, chunk_id)"
+                        " VALUES (:rowid, :emb, :ws, :owner, :nid, :cid)"
+                    ),
+                    {
+                        "rowid": result.lastrowid,
+                        "emb": pack_vector(embeddings[i]),
+                        "ws": workspace,
+                        "owner": owner_id,
+                        "nid": note_id,
+                        "cid": chunk_id,
+                    },
+                )
+            session.execute(  # ty: ignore[deprecated] - raw SQL
+                text(
+                    "INSERT INTO notes_fts"
+                    " (chunk_id, note_id, workspace, title, header_path, content)"
+                    " VALUES (:cid, :nid, :ws, :title, :hp, :content)"
+                ),
+                {
+                    "cid": chunk_id,
+                    "nid": note_id,
+                    "ws": workspace,
+                    "title": title,
+                    "hp": " ".join(chunk.header_path),
+                    "content": chunk.content,
+                },
+            )
+
+        state = "indexed" if embeddings is not None else "stale"
+        session.execute(  # ty: ignore[deprecated] - raw SQL
+            text("UPDATE notes SET index_state = :s, indexed_at = :at WHERE id = :nid"),
+            {
+                "s": state,
+                "at": now if embeddings is not None else None,
+                "nid": note_id,
+            },
+        )
+        return True
+
     def replace_chunks(
         self,
         note_id: str,
@@ -97,22 +211,9 @@ class NoteChunkRepository(DbRepository):
         *,
         expected_generation: int | None = None,
     ) -> bool:
-        """Replace all chunks (and vectors) for a note. ``embeddings`` is None (chunks only
-        → stale) or one vector per chunk (→ indexed, vectors into note_chunks_vec_{dim}).
-
-        When ``expected_generation`` is provided, the first statement acquires SQLite's
-        write lock and verifies the note revision. A superseded indexer therefore cannot
-        delete or overwrite chunks produced by a newer edit, even across processes.
-        Returns whether the replacement was applied.
-        """
-        if embeddings is not None:
-            if dim is None:
-                raise ValueError("dim is required when embeddings are provided")
-            if len(embeddings) != len(chunks):
-                raise ValueError(
-                    f"embeddings ({len(embeddings)}) must match chunks ({len(chunks)})"
-                )
-        now = datetime.now(UTC).isoformat()
+        """Replace all chunks (and vectors) for a note. See ``replace_chunks_in_session`` for
+        the CAS/vector-write contract; this wrapper owns the session, commits on success, and
+        rolls back on a superseded generation."""
         with self.operation(
             "replace_chunks",
             note_id=note_id,
@@ -122,88 +223,21 @@ class NoteChunkRepository(DbRepository):
             vectorized=embeddings is not None,
         ) as operation:
             session = operation.session
-            if expected_generation is not None:
-                current = session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text(
-                        "UPDATE notes SET index_state = 'stale', indexed_at = NULL"
-                        " WHERE id = :nid AND index_generation = :expected"
-                        " RETURNING id"
-                    ),
-                    {"nid": note_id, "expected": expected_generation},
-                ).fetchone()
-                if current is None:
-                    session.rollback()
-                    operation.outcome = "superseded"
-                    return False
-            self.delete_chunks(note_id, session)
-
-            for i, chunk in enumerate(chunks):
-                chunk_id = generate(size=12)
-                result = session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text(
-                        "INSERT INTO note_chunks"
-                        " (id, note_id, workspace, owner_id, ordinal, header_path, content,"
-                        "  char_start, char_end, dim, created_at)"
-                        " VALUES (:id, :nid, :ws, :owner, :ord, :hp, :content,"
-                        "  :cs, :ce, :dim, :now)"
-                    ),
-                    {
-                        "id": chunk_id,
-                        "nid": note_id,
-                        "ws": workspace,
-                        "owner": owner_id,
-                        "ord": chunk.ordinal,
-                        "hp": json.dumps(chunk.header_path),
-                        "content": chunk.content,
-                        "cs": chunk.char_start,
-                        "ce": chunk.char_end,
-                        "dim": dim if embeddings is not None else None,
-                        "now": now,
-                    },
-                )
-                assert isinstance(result, CursorResult)
-                if embeddings is not None:
-                    assert dim is not None  # validated above; narrows for the table name
-                    session.execute(  # ty: ignore[deprecated] - raw SQL
-                        text(
-                            f"INSERT INTO note_chunks_vec_{int(dim)}"
-                            " (chunk_rowid, embedding, workspace, owner_id, note_id, chunk_id)"
-                            " VALUES (:rowid, :emb, :ws, :owner, :nid, :cid)"
-                        ),
-                        {
-                            "rowid": result.lastrowid,
-                            "emb": pack_vector(embeddings[i]),
-                            "ws": workspace,
-                            "owner": owner_id,
-                            "nid": note_id,
-                            "cid": chunk_id,
-                        },
-                    )
-                session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text(
-                        "INSERT INTO notes_fts"
-                        " (chunk_id, note_id, workspace, title, header_path, content)"
-                        " VALUES (:cid, :nid, :ws, :title, :hp, :content)"
-                    ),
-                    {
-                        "cid": chunk_id,
-                        "nid": note_id,
-                        "ws": workspace,
-                        "title": title,
-                        "hp": " ".join(chunk.header_path),
-                        "content": chunk.content,
-                    },
-                )
-
-            state = "indexed" if embeddings is not None else "stale"
-            session.execute(  # ty: ignore[deprecated] - raw SQL
-                text("UPDATE notes SET index_state = :s, indexed_at = :at WHERE id = :nid"),
-                {
-                    "s": state,
-                    "at": now if embeddings is not None else None,
-                    "nid": note_id,
-                },
+            applied = self.replace_chunks_in_session(
+                session,
+                note_id,
+                workspace,
+                owner_id,
+                title,
+                chunks,
+                embeddings,
+                dim,
+                expected_generation=expected_generation,
             )
+            if not applied:
+                session.rollback()
+                operation.outcome = "superseded"
+                return False
             session.commit()
             return True
 
@@ -492,10 +526,13 @@ class NoteChunkRepository(DbRepository):
             )
             session.commit()
 
-    def delete_for_workspace(self, workspace: str, owner_id: str, session: Session) -> None:
+    def delete_for_workspace_in_session(
+        self, workspace: str, owner_id: str, session: Session
+    ) -> None:
         """Delete chunks, vec, and FTS rows for (workspace, owner_id). Uses the caller's
-        session; does not commit. Must be called BEFORE NoteRepository.delete_for_workspace
-        in the same session — note_chunks has an FK to notes.id with no cascade."""
+        session; does not commit. Must be called BEFORE
+        NoteRepository.delete_for_workspace_in_session in the same session — note_chunks has
+        an FK to notes.id with no cascade."""
         params = {"workspace": workspace, "owner_id": owner_id}
         dims = session.exec(
             select(NoteChunk.dim)

@@ -10,14 +10,31 @@ from kajet_turbo.services.notes.service import (
     _RECONCILE_MIN_DELETE_FLOOR,
 )
 from kajet_turbo.workspace import note_filepath, write_note_file
+from tests.services.conftest import seed_user
 from tests.services.helpers import build_reconcile_wiring
+
+
+@pytest.fixture(autouse=True)
+def _seed_default_owner(database):
+    # reconcile_paths now enqueues reindex_note jobs (user_id FK to users.id); most tests
+    # here never cared about a real User row before this batch fan-out existed.
+    seed_user(database, "u1")
 
 
 def _rel(ws_path, filepath: str) -> str:
     return str(Path(filepath).relative_to(ws_path))
 
 
-def test_reconcile_inserts_new_file_not_yet_in_db(service, workspace, note_file_factory):
+def test_reconcile_inserts_new_file_not_yet_in_db(
+    service, database, git_workspace_factory, note_file_factory
+):
+    from kajet_turbo.repositories.jobs import JobRepository
+    from tests.services.helpers import build_reindex_handler, drain_reindex_jobs
+
+    # reconcile_paths only enqueues reindex_note now (chunking moved into the handler), so
+    # the handler needs the note's real on-disk workspace root: <workspaces_dir>/u1/ws.
+    workspace = git_workspace_factory("u1/ws")
+    workspaces_dir = str(workspace.parent.parent)
     path = note_file_factory(workspace, "New note", note_id="new1", tags=["x"])
 
     report = service.reconcile_paths(
@@ -29,6 +46,11 @@ def test_reconcile_inserts_new_file_not_yet_in_db(service, workspace, note_file_
     assert report.removed == []
     note = service._crud_repo.get("new1", owner_id="u1")
     assert note is not None and note.title == "New note"
+
+    jobs = JobRepository(database.engine)
+    handler = build_reindex_handler(database, workspaces_dir, jobs=jobs)
+    assert drain_reindex_jobs(jobs, handler, "u1", "ws") == 1
+
     assert service._chunk_repo.search_fts("New note", "ws", owner_id="u1")
 
 
@@ -118,7 +140,6 @@ def test_reconcile_tag_only_drift_does_not_requeue_backlinks(database, git_works
     folder/title identity change can. A pure tag-drift update on a note with an
     existing backlink must not enqueue a reconcile job for its source (mirrors
     edit_note's identity_changed gate)."""
-    from tests.services.conftest import seed_user
 
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
@@ -264,7 +285,6 @@ def test_reconcile_heals_dangling_link_when_target_appears(database, git_workspa
     """A source note with a wikilink to a not-yet-existing note is dangling; when
     reconcile_paths inserts the target from a hand-created file, the dangling link
     resolves — mirrors save()'s affected_sources ordering."""
-    from tests.services.conftest import seed_user
 
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
@@ -299,7 +319,6 @@ def test_reconcile_heals_link_to_old_title_when_target_renamed(database, git_wor
     """A note that hand-renames on disk (same id, new title) must requeue any source
     that linked to its OLD title, not just leave the stale graph edge in place — the
     ``changed_titles.add(existing.title)`` half of the affected-titles union."""
-    from tests.services.conftest import seed_user
 
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
@@ -342,7 +361,6 @@ def test_reconcile_heals_link_to_old_title_when_target_renamed(database, git_wor
 def test_reconcile_heals_dangling_link_when_target_removed(database, git_workspace_factory):
     """Deleting a note's file via reconcile must requeue any source that linked to
     it — same affected_sources ordering as delete()."""
-    from tests.services.conftest import seed_user
 
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
