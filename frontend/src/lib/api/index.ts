@@ -214,7 +214,14 @@ export const GitError = {
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
-export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,} as const
+export type PreferencesError = typeof PreferencesError[keyof typeof PreferencesError];
+
+
+export const PreferencesError = {
+  PREFERENCES_INVALID_INPUT: 'PREFERENCES_INVALID_INPUT',
+} as const;
+
+export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,...PreferencesError,} as const
 export type ErrorCode = typeof ErrorCode[keyof typeof ErrorCode];
 
 export interface ErrorResponse {
@@ -320,6 +327,14 @@ export interface LinksResponse {
   backlinks: NoteLinkItem[];
 }
 
+export type Locale = typeof Locale[keyof typeof Locale];
+
+
+export const Locale = {
+  pl: 'pl',
+  en: 'en',
+} as const;
+
 export interface LoginResponse {
   email: string;
   redirect_uri?: string | null;
@@ -395,8 +410,14 @@ export interface RestoreVersionResponse {
   warnings?: WikilinkWarning[];
 }
 
+export interface UserPreferences {
+  timezone: string;
+  locale: Locale;
+}
+
 export interface SessionResponse {
   email: string;
+  preferences: UserPreferences;
 }
 
 export interface SettingDefinition {
@@ -2846,6 +2867,97 @@ export const apiDeleteSshKeyApiMeSshKeysKeyIdDelete = async (keyId: string, opti
   {
     ...options,
     method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export type apiGetPreferencesApiMePreferencesGetResponse200 = {
+  data: UserPreferences
+  status: 200
+}
+
+export type apiGetPreferencesApiMePreferencesGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiGetPreferencesApiMePreferencesGetResponseSuccess = (apiGetPreferencesApiMePreferencesGetResponse200) & {
+  headers: Headers;
+};
+export type apiGetPreferencesApiMePreferencesGetResponseError = (apiGetPreferencesApiMePreferencesGetResponse401) & {
+  headers: Headers;
+};
+
+export type apiGetPreferencesApiMePreferencesGetResponse = (apiGetPreferencesApiMePreferencesGetResponseSuccess | apiGetPreferencesApiMePreferencesGetResponseError)
+
+export const getApiGetPreferencesApiMePreferencesGetUrl = () => {
+
+
+
+
+  return `/api/me/preferences`
+}
+
+/**
+ * @summary Api Get Preferences
+ */
+export const apiGetPreferencesApiMePreferencesGet = async ( options?: RequestInit): Promise<apiGetPreferencesApiMePreferencesGetResponse> => {
+
+  return customFetch<apiGetPreferencesApiMePreferencesGetResponse>(getApiGetPreferencesApiMePreferencesGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiUpdatePreferencesApiMePreferencesPatchResponse200 = {
+  data: UserPreferences
+  status: 200
+}
+
+export type apiUpdatePreferencesApiMePreferencesPatchResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiUpdatePreferencesApiMePreferencesPatchResponse422 = {
+  data: ErrorResponse
+  status: 422
+}
+
+export type apiUpdatePreferencesApiMePreferencesPatchResponseSuccess = (apiUpdatePreferencesApiMePreferencesPatchResponse200) & {
+  headers: Headers;
+};
+export type apiUpdatePreferencesApiMePreferencesPatchResponseError = (apiUpdatePreferencesApiMePreferencesPatchResponse401 | apiUpdatePreferencesApiMePreferencesPatchResponse422) & {
+  headers: Headers;
+};
+
+export type apiUpdatePreferencesApiMePreferencesPatchResponse = (apiUpdatePreferencesApiMePreferencesPatchResponseSuccess | apiUpdatePreferencesApiMePreferencesPatchResponseError)
+
+export const getApiUpdatePreferencesApiMePreferencesPatchUrl = () => {
+
+
+
+
+  return `/api/me/preferences`
+}
+
+/**
+ * @summary Api Update Preferences
+ */
+export const apiUpdatePreferencesApiMePreferencesPatch = async ( options?: RequestInit): Promise<apiUpdatePreferencesApiMePreferencesPatchResponse> => {
+
+  return customFetch<apiUpdatePreferencesApiMePreferencesPatchResponse>(getApiUpdatePreferencesApiMePreferencesPatchUrl(),
+  {
+    ...options,
+    method: 'PATCH'
 
 
   }
