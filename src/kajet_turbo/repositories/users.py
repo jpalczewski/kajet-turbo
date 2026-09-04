@@ -25,6 +25,30 @@ class UserRepository(DbRepository):
         with self.timed_session() as session:
             return session.exec(select(User).where(User.email == email)).first()
 
+    def get(self, user_id: str) -> User | None:
+        with self.timed_session() as session:
+            return session.get(User, user_id)
+
+    def update_preferences(
+        self, user_id: str, *, timezone: str | None = None, locale: str | None = None
+    ) -> User | None:
+        with self.operation(
+            "update_preferences", user_id=user_id, timezone=timezone, locale=locale
+        ) as operation:
+            session = operation.session
+            user = session.get(User, user_id)
+            if user is None:
+                operation.suppress_log()
+                return None
+            if timezone is not None:
+                user.timezone = timezone
+            if locale is not None:
+                user.locale = locale
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            return user
+
     def count(self) -> int:
         with self.timed_session() as session:
             result = session.execute(  # ty: ignore[deprecated] - raw SQL
