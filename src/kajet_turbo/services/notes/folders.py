@@ -1,4 +1,5 @@
 import shutil
+from itertools import batched
 from pathlib import Path
 from secrets import token_hex
 
@@ -18,8 +19,8 @@ from kajet_turbo.services.notes.paths import (
     path_conflict_key,
 )
 from kajet_turbo.services.notes.staged_change import (
+    MAX_BATCH_COMMIT_SIZE,
     StagedChange,
-    commit_rows_then,
     commit_rows_then_tree,
 )
 from kajet_turbo.workspace import (
@@ -32,6 +33,12 @@ from kajet_turbo.workspace import (
     prune_empty_parents,
     remove_empty_tree,
 )
+
+# Above this many notes, move_folder refuses before touching disk: an oversized folder
+# move is expensive and irreversible once the temp-dir choreography starts, and — unlike
+# rename_tag/_rewrite_backlinks (#171) — the caller has a real workaround (move a
+# subfolder at a time).
+_MOVE_FOLDER_MAX_NOTES = 5000
 
 
 class NoteFolderService:
@@ -150,6 +157,11 @@ class NoteFolderService:
         src_root = Path(ws_path, *path_segments(src_n))
         if not notes and not src_root.exists():
             raise FileNotFoundError(f"Folder '{src_n}' nie istnieje.")
+        if len(notes) > _MOVE_FOLDER_MAX_NOTES:
+            raise ValueError(
+                f"Moving '{src_n}' would touch {len(notes)} notes, above the "
+                f"{_MOVE_FOLDER_MAX_NOTES} safety threshold. Move a subfolder at a time instead."
+            )
 
         workspace_links = self._link_service.for_workspace(workspace, owner_id)
         # Every OTHER note's current path, indexed once for an O(1) lookup per note below
@@ -246,45 +258,42 @@ class NoteFolderService:
         repo = GitRepository(ws_path)
         message = f"folder: move {src_n} -> {dst_n or 'root'}"
 
-        # Update every folder column first, THEN rewrite backlinks: a link from one
-        # moved note to another (same folder being moved) is only found if the source
-        # note's DB folder already points at its new — and now real — file location.
-        def write_rows(session: Session) -> None:
-            for note in notes:
-                self._crud_repo.update_in_session(
-                    session,
-                    note.id,
+        # Unlike every other write path in this package, move_folder commits the git tree
+        # *first*, unconditionally — the temp-dir choreography above already physically
+        # moved every file, so there is no "nothing touches disk until the DB write
+        # succeeds" guarantee left to buy by deferring this. Committing git first restores
+        # the pre-#155 property that a DB-write failure only ever leaves rows *behind* an
+        # already-committed tree — the direction reconcile_paths heals — never the reverse.
+        # See services/notes/CLAUDE.md's #155 section.
+        repo.commit_changes(removed=removed_rels, added=added_rels, message=message)
+
+        # Update every folder column, batched in chunks (bounds SQLite write-lock hold
+        # time, #171) so a single move_folder call never opens one unbounded transaction.
+        # THEN rewrite backlinks: a link from one moved note to another (same folder being
+        # moved) is only found if the source note's DB folder already points at its new —
+        # and now real — file location.
+        for chunk in batched(notes, MAX_BATCH_COMMIT_SIZE, strict=False):
+            with (
+                self._crud_repo.operation(
+                    "move_folder",
+                    workspace=workspace,
                     owner_id=owner_id,
-                    updated_at=note.updated_at,
-                    folder=remap[note.id],
-                )
-
-        def commit_tree() -> None:
-            repo.commit_changes(removed=removed_rels, added=added_rels, message=message)
-
-        # move_folder's temp-dir choreography above already physically moved every file,
-        # unconditionally, before this call ever runs — and has its own correct rollback for
-        # that phase, but only for a failure *during* the choreography itself. Once it's done,
-        # this call only orders the DB rows and the git commit that records the move (#155):
-        # if write_rows or commit_tree raises, the rows roll back together, but the files stay
-        # at their new location on disk with no git commit recording it. Before this change, a
-        # write_rows-shaped (DB) failure could not happen here at all — commit_changes ran
-        # first, unconditionally, so a DB failure always left git and disk agreeing and only
-        # the rows behind, the direction reconcile_paths heals. Now a plain DB-write failure
-        # can also leave git stale relative to disk, and reconcile_paths never touches git —
-        # only a git-side failure used to have this shape. See services/notes/CLAUDE.md's
-        # #155 section for the full consequence (stale git history, a diverging push).
-        commit_rows_then(
-            self._crud_repo,
-            write_rows=write_rows,
-            commit_tree=commit_tree,
-            operation="move_folder",
-            workspace=workspace,
-            owner_id=owner_id,
-            src=src_n,
-            dst=dst_n,
-            count=len(notes),
-        )
+                    src=src_n,
+                    dst=dst_n,
+                    note_ids=[note.id for note in chunk],
+                ) as op,
+                op.session.begin(),
+            ):
+                for note in chunk:
+                    self._crud_repo.update_in_session(
+                        op.session,
+                        note.id,
+                        owner_id=owner_id,
+                        updated_at=note.updated_at,
+                        folder=remap[note.id],
+                    )
+                op.session.flush()
+                op.report_count(len(chunk))
         moves = [
             (
                 IndexedNote(note.id, note.folder, note.title),

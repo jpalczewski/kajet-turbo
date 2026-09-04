@@ -212,25 +212,17 @@ def test_prune_empty_folders_removes_orphans_keeps_gitkeep(service, workspace):
     assert "orphan" in result["pruned"]
 
 
-def test_move_folder_db_failure_rolls_back_rows_but_leaves_files_moved(service, workspace):
-    """#155: move_folder's row writes are now batched into one transaction that commits
-    last, via the lower-level commit_rows_then (its tree mutation — a temp-dir rename
-    choreography — isn't expressible as StagedChange items). A DB-side failure on note k
-    must roll back every note's row in the batch, not just k's — but the temp-dir
-    choreography has already unconditionally relocated every file to its destination
-    before commit_rows_then even runs, so (like a git-side failure — see the next test)
-    the files stay at the new location; only the rows and the git commit are ordered by
-    this fix, not the temp-dir phase's own irreversibility once it completes.
-
-    This is a new failure shape, not a narrower version of an old one: before this fix, a
-    plain DB-write failure here couldn't leave git stale, because commit_changes ran first,
-    unconditionally — git and disk always agreed, only the rows could lag, which
-    reconcile_paths heals by re-deriving folder from disk. Now a DB failure alone can leave
-    git behind disk too, and reconcile_paths never touches git."""
+def test_move_folder_db_failure_leaves_git_committed_and_rows_healable(service, workspace):
+    """#170: move_folder now commits the git tree unconditionally *first* (matching
+    pre-#155 behavior), then batches the DB folder-column update in its own transaction —
+    so a DB-side failure on note k rolls back every note's row in that transaction, but the
+    git commit recording the already-completed file move has already landed regardless.
+    This restores the self-healing direction: rows lag behind an already-correct tree,
+    which is exactly what reconcile_paths heals, and history for the note's new path is
+    real (not empty, which was the actual observable symptom of the pre-fix bug)."""
     a = service.save("u1", "ws", str(workspace), "A", "x", [], folder="people")["note_id"]
     b = service.save("u1", "ws", str(workspace), "B", "y", [], folder="people")["note_id"]
     sha_a_before = head_sha(workspace, "people/A.md")
-    sha_b_before = head_sha(workspace, "people/B.md")
 
     flaky_update = make_flaky_db_write(service._crud_repo.update_in_session, fail_on_call=2)
 
@@ -243,33 +235,88 @@ def test_move_folder_db_failure_rolls_back_rows_but_leaves_files_moved(service, 
     assert not (workspace / "people").exists()
     assert (workspace / "team" / "A.md").exists()
     assert (workspace / "team" / "B.md").exists()
-    # No git commit ever ran (write_rows raised before commit_tree()), so history for the
-    # old path is exactly what it was before the attempted move.
-    assert head_sha(workspace, "people/A.md") == sha_a_before
-    assert head_sha(workspace, "people/B.md") == sha_b_before
+    # The move's git commit already landed (git-first), so history for the old path now
+    # ends at that commit rather than staying at its pre-move sha.
+    assert head_sha(workspace, "people/A.md") != sha_a_before
+    # DB rows lag behind the already-committed tree — the healable direction.
     assert service.get(a, owner_id="u1")["folder"] == "people"
     assert service.get(b, owner_id="u1")["folder"] == "people"
 
+    service.reconcile_paths(
+        "ws", owner_id="u1", ws_path=str(workspace), paths=["team/A.md", "team/B.md"]
+    )
+    assert service.get(a, owner_id="u1")["folder"] == "team"
+    assert service.get(b, owner_id="u1")["folder"] == "team"
+    # The actual #170 symptom: before the fix, a healed row pointed history lookups at a
+    # git path with zero commits. Now the move's commit is there to find.
+    assert service.get_history(a, owner_id="u1", ws_path=str(workspace)) != []
+    assert service.get_history(b, owner_id="u1", ws_path=str(workspace)) != []
 
-def test_move_folder_git_failure_leaves_files_moved_but_db_and_git_consistent(service, workspace):
-    """The temp-dir choreography physically moves files before git is ever involved, with
-    its own correct rollback for that phase — this fix only orders the DB rows and the git
-    commit that records the move, not the temp-dir phase itself. So a commit_changes
-    failure here rolls the DB rows back to the old folder, but the files are already
-    physically at the new location on disk with no git commit recording it. Unlike a
-    DB-side failure (see the previous test), this shape of gap did already exist before
-    this fix — commit_changes could always fail on its own — so this test pins that the
-    gap's shape hasn't grown, not that it's new (named in services/notes/CLAUDE.md)."""
+
+def test_move_folder_git_failure_leaves_nothing_committed_or_written(service, workspace):
+    """Git now commits before any DB work starts, so a commit_changes failure means the DB
+    write phase never begins at all — no repository_operation call, no row change — unlike
+    the pre-#170 shape where a DB-write-shaped failure could roll back rows that had
+    already been written. The temp-dir choreography's own move+rollback is independent of
+    this and still isn't covered here: the files stay at the new location on disk with no
+    git commit recording it, which is the (unchanged, still-existing) gap `services/notes/
+    CLAUDE.md`'s #155 section documents."""
     from kajet_turbo.repositories.git import GitError, GitRepository
 
     a = service.save("u1", "ws", str(workspace), "A", "x", [], folder="people")["note_id"]
 
     with (
         patch.object(GitRepository, "commit_changes", side_effect=GitError("fail")),
+        patch.object(service._crud_repo, "update_in_session") as update_in_session,
         pytest.raises(GitError, match="fail"),
     ):
         _mv(service, workspace, "people", "team")
 
+    update_in_session.assert_not_called()
     assert not (workspace / "people").exists()
     assert (workspace / "team" / "A.md").exists()
     assert service.get(a, owner_id="u1")["folder"] == "people"
+
+
+def test_move_folder_with_no_notes_logs_nothing(service, workspace, capsys):
+    """#172: an aux-file-only folder move touches zero notes, so the chunked DB-write loop
+    never runs — zero repository_operation calls, not a suppressed count=0 one."""
+    from kajet_turbo.log import setup_logging
+    from kajet_turbo.repositories.git import GitRepository
+    from tests.helpers import entries_named, read_log_entries
+
+    setup_logging()
+    (workspace / "empty").mkdir()
+    (workspace / "empty" / ".gitkeep").touch()
+    GitRepository(str(workspace)).commit_changes(
+        removed=[], added=["empty/.gitkeep"], message="init"
+    )
+
+    result = _mv(service, workspace, "empty", "renamed")
+
+    assert result == {"moved": 0, "src": "empty", "dst": "renamed"}
+    assert (workspace / "renamed" / ".gitkeep").exists()
+    entries = entries_named(read_log_entries(capsys), "repository_operation")
+    move_ops = [e for e in entries if e.get("operation") == "notes.move_folder"]
+    assert move_ops == []
+
+
+def test_move_folder_refuses_above_max_notes_ceiling(service, workspace, monkeypatch):
+    """#171: an oversized folder move refuses before touching disk — unlike rename_tag/
+    _rewrite_backlinks, a folder move has a real workaround (move a subfolder at a time),
+    so a hard ceiling is the right shape here, checked before the irreversible temp-dir
+    choreography begins."""
+    import kajet_turbo.services.notes.folders as folders_module
+
+    monkeypatch.setattr(folders_module, "_MOVE_FOLDER_MAX_NOTES", 2)
+    a = service.save("u1", "ws", str(workspace), "A", "x", [], folder="people")["note_id"]
+    b = service.save("u1", "ws", str(workspace), "B", "y", [], folder="people")["note_id"]
+    c = service.save("u1", "ws", str(workspace), "C", "z", [], folder="people")["note_id"]
+
+    with pytest.raises(ValueError, match=r"people.*3 notes.*2"):
+        _mv(service, workspace, "people", "team")
+
+    assert (workspace / "people").exists()
+    assert not (workspace / "team").exists()
+    for note_id in (a, b, c):
+        assert service.get(note_id, owner_id="u1")["folder"] == "people"
