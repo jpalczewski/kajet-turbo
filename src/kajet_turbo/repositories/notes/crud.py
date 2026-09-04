@@ -30,6 +30,26 @@ def folder_sort_key(note: Note) -> tuple:
     return (is_readme, natural)
 
 
+def note_to_list_item(note: Note) -> dict:
+    """A ``Note`` row shaped like the dict ``mcp.shared.notes.NoteListItem`` validates
+    against — the shape ``list_notes``/``entries_in`` return, and the one other
+    callers (``services/collections.py``'s ``list_entries``) need when they fetch
+    full rows instead of going through one of those two methods.
+    """
+    return {
+        "note_id": note.id,
+        "workspace": note.workspace,
+        "owner_id": note.owner_id,
+        "title": note.title,
+        "folder": note.folder,
+        "tags": json.loads(note.tags or "[]"),
+        "created_at": note.created_at,
+        "updated_at": note.updated_at,
+        "occurred_at": note.occurred_at,
+        "period": note.period,
+    }
+
+
 class NoteRepository(DbRepository):
     repository_name = "notes"
 
@@ -355,20 +375,7 @@ class NoteRepository(DbRepository):
         for note in rows:
             if allowed is not None and note.id not in allowed:
                 continue
-            result.append(
-                {
-                    "note_id": note.id,
-                    "workspace": note.workspace,
-                    "owner_id": note.owner_id,
-                    "title": note.title,
-                    "folder": note.folder,
-                    "tags": json.loads(note.tags or "[]"),
-                    "created_at": note.created_at,
-                    "updated_at": note.updated_at,
-                    "occurred_at": note.occurred_at,
-                    "period": note.period,
-                }
-            )
+            result.append(note_to_list_item(note))
             if limit is not None and len(result) >= limit:
                 break
         return result
@@ -418,21 +425,7 @@ class NoteRepository(DbRepository):
                 matched.append((period_start, note))
         matched.sort(key=lambda pair: (pair[0], pair[1].created_at))
 
-        return [
-            {
-                "note_id": note.id,
-                "workspace": note.workspace,
-                "owner_id": note.owner_id,
-                "title": note.title,
-                "folder": note.folder,
-                "tags": json.loads(note.tags or "[]"),
-                "created_at": note.created_at,
-                "updated_at": note.updated_at,
-                "occurred_at": note.occurred_at,
-                "period": note.period,
-            }
-            for _, note in matched
-        ]
+        return [note_to_list_item(note) for _, note in matched]
 
     def list_folders(self, workspace: str, owner_id: str) -> list[str]:
         with self.timed_session() as session:

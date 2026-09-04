@@ -117,7 +117,13 @@ def build_mcp(
     mcp.add_middleware(ServiceErrorMiddleware())
     mcp.mount(build_workspaces(workspace_service, active_workspace_repo, state_store=state_store))
     mcp.mount(
-        build_notes(note_service, workspace_service, folder_meta_repo, state_store=state_store)
+        build_notes(
+            note_service,
+            workspace_service,
+            folder_meta_repo,
+            collection_service,
+            state_store=state_store,
+        )
     )
     mcp.mount(build_collections(collection_service, workspace_service, state_store=state_store))
     return mcp

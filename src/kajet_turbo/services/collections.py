@@ -30,7 +30,7 @@ from kajet_turbo.collections import (
 from kajet_turbo.log import logger
 from kajet_turbo.periods import Period, PeriodKind
 from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteRepository, note_to_list_item
 from kajet_turbo.services.notes.service import NoteService
 
 
@@ -84,6 +84,48 @@ class CollectionService:
 
     def list_collections(self, ws_path: str) -> dict[str, CollectionDefinition]:
         return load_collections(ws_path)
+
+    def _require_definition(self, ws_path: str, name: str) -> CollectionDefinition:
+        definition = load_collections(ws_path).get(name)
+        if definition is None:
+            raise ValueError(f"Collection '{name}' does not exist.")
+        return definition
+
+    def folder_prefix(self, ws_path: str, name: str) -> str | None:
+        """The folder scope ``entries_in(collection=name)`` should search: ``name``'s
+        static folder prefix (#112's "a collection name and a folder prefix select the
+        same set" — loose, path-boundary scoping, not exact membership; that stricter
+        check is ``list_entries``'s job, not this one). ``None`` means the template's
+        first segment is itself a placeholder, so no folder scoping is possible and the
+        caller must search the whole workspace, not just its root (an empty string
+        would mean root-only to ``entries_in``, which is wrong here).
+        """
+        definition = self._require_definition(ws_path, name)
+        return _static_prefix(definition.folder) or None
+
+    def list_entries(self, ws_path: str, ws_name: str, owner_id: str, name: str) -> list[dict]:
+        """Every note currently a member of collection ``name``, across its whole
+        history — not just a recent window. Membership is exact
+        (``CollectionDefinition.matches``), not the bounded ``render_set`` sampling
+        ``define_collection``'s collision/redefinition-impact checks use: those only
+        need "would this plausibly collide", this needs "is this actually a member",
+        and a workspace can hold entries far outside any reasonable sampling window. A
+        note that merely lives under the collection's folder without a matching title
+        does not count — unlike ``folder_prefix`` (used when a period already narrows
+        the search), this has no period to lean on, so it needs the stricter check to
+        stay meaningful.
+        """
+        definition = self._require_definition(ws_path, name)
+        prefix = _static_prefix(definition.folder)
+        if prefix:
+            candidates = self._note_repo.list_under_folder(ws_name, owner_id, prefix)
+            notes = [note_to_list_item(n) for n in candidates]
+        else:
+            notes = self._note_repo.list_notes(ws_name, owner_id, folder=None, limit=None)
+        matched = [n for n in notes if definition.matches(n["folder"], n["title"])]
+        matched.sort(key=lambda n: (n["folder"], n["title"]))
+        logger.info("collection_entries_listed", ws=ws_name, collection=name, count=len(matched))
+        return matched
 
     def _notes_under(self, ws_name: str, owner_id: str, folder: str) -> list[tuple[str, str]]:
         """(folder, title) pairs of every note that could possibly be a member of a
@@ -206,9 +248,7 @@ class CollectionService:
         Not in scope: templates. A collection without one creates an empty note in the
         right place with the right title, which is where the value is.
         """
-        definition = load_collections(ws_path).get(name)
-        if definition is None:
-            raise ValueError(f"Collection '{name}' does not exist.")
+        definition = self._require_definition(ws_path, name)
 
         ordinal: int | None = None
         payload: dict | None = None

@@ -228,3 +228,69 @@ async def test_entries_in_rejects_invalid_period(workspaces_dir, mcp_server):
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         with pytest.raises(ToolError, match="nope"):
             await client.call_tool("entries_in", {"period": "nope"})
+
+
+async def test_entries_in_collection_resolves_to_its_folder(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        await call_json(
+            client,
+            "define_collection",
+            {
+                "name": "journal",
+                "grain": "day",
+                "cardinality": "one",
+                "folder": "journal/{year}/{month}",
+                "title": "{date}",
+            },
+        )
+        wanted = await call_json(
+            client,
+            "save_note",
+            {
+                "title": "Wanted",
+                "content": "",
+                "folder": "journal/2026",
+                "occurred_at": "2026-03-22",
+            },
+        )
+        await call_json(
+            client,
+            "save_note",
+            {
+                "title": "Sibling",
+                "content": "",
+                "folder": "journals-old",
+                "occurred_at": "2026-03-22",
+            },
+        )
+
+        result = await call_json(
+            client, "entries_in", {"period": "2026-W12", "collection": "journal"}
+        )
+
+        assert [note["note_id"] for note in result] == [wanted["note_id"]]
+
+
+async def test_entries_in_rejects_folder_and_collection_together(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        await call_json(
+            client,
+            "define_collection",
+            {
+                "name": "journal",
+                "grain": "day",
+                "cardinality": "one",
+                "folder": "journal/{year}/{month}",
+                "title": "{date}",
+            },
+        )
+
+        with pytest.raises(ToolError, match=r"folder.*collection|collection.*folder"):
+            await client.call_tool(
+                "entries_in",
+                {"period": "2026-W12", "folder": "journal", "collection": "journal"},
+            )

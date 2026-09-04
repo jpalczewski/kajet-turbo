@@ -11,6 +11,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
 from string import Formatter
 from typing import Literal, cast
@@ -95,6 +96,112 @@ class CollectionDefinition:
             return "".join(parts)
 
         return re.compile(f"{pattern_for(self.folder)}/{pattern_for(self.title)}$")
+
+    def matches(self, folder: str, title: str) -> bool:
+        """Whether ``(folder, title)`` is an actual member of this collection — exact,
+        not the ``render_set()`` sampling approximation ``collides``/``dropped_members``
+        use for collision/redefinition-impact checks. That approximation has a bounded
+        window (+/- a few years, a capped ordinal range) which is fine for "would this
+        ever plausibly collide", but silently misses real entries outside it, which is
+        wrong for "is this actually a member" — a workspace can (and does) hold entries
+        far older than the sampling window.
+
+        Recovers the candidate date from the match itself — via ``{date}``, ``{key}``,
+        or (for day/month/year grain) bare ``{year}``/``{month}`` — then confirms
+        membership by re-rendering that date and comparing strings exactly, not just
+        "the shape matches" (this also catches a folder/title pair whose date parts are
+        individually well-formed but mutually inconsistent, e.g. a hand-edited file).
+        Falls back to the bounded ``render_set`` check only when no date can be
+        recovered at all (a template using none of those placeholders) — see
+        ``_recover_when`` for why week grain can't take the ``{year}``/``{month}`` path.
+        """
+        pattern, groups = _match_pattern_for(self)
+        m = pattern.match(f"{folder}/{title}")
+        if m is None:
+            return False
+        # A field used twice (rare) keeps its last captured value; any inconsistency
+        # between occurrences is still caught below by the render-and-compare check,
+        # which fails for either occurrence's value if they disagree.
+        captured = dict(zip(groups, m.groups(), strict=True))
+        try:
+            when = self._recover_when(captured)
+        except ValueError:
+            # The captured text has the right shape (digits in the right places) but
+            # isn't a real calendar date/period, e.g. "2026-13-45" — not a member.
+            return False
+        if when is None:
+            return (folder, title) in render_set(self)
+        ordinal = int(captured["ordinal"]) if "ordinal" in captured else None
+        return self.render(when, ordinal) == (folder, title)
+
+    def _recover_when(self, captured: dict[str, str]) -> date | None:
+        """The date a matched capture implies, or ``None`` when it can't be uniquely
+        recovered (the caller then falls back to the bounded ``render_set`` check).
+
+        ``{date}``/``{key}`` are unambiguous by construction. Bare ``{year}``(+``{month}``)
+        is also safe to invert for day/month/year grain: a template with no ``{month}``
+        placeholder never compares the reconstructed day-of-month against anything (an
+        unused format field), so guessing day=1 doesn't affect the round-trip check in
+        ``matches()``, and neither does guessing month=1 when ``{month}`` is absent too.
+        Week grain is excluded: its ``{month}`` is the *ISO-Thursday* month
+        (``month_of_week``), not the calendar month of an arbitrary day in that week, so
+        a naive ``date(year, month, 1)`` can land in a different ISO week than the one
+        that was actually rendered — re-deriving the wrong month/year and failing the
+        round-trip check for a genuine member. Week-grain templates without ``{key}``/
+        ``{date}`` fall back to ``render_set`` instead of risking that false negative.
+        """
+        if "date" in captured:
+            return date.fromisoformat(captured["date"])
+        if "key" in captured:
+            return Period(self.grain, captured["key"]).start
+        if self.grain != "week" and "year" in captured:
+            year = int(captured["year"])
+            month = int(captured["month"]) if "month" in captured else 1
+            return date(year, month, 1)
+        return None
+
+
+@lru_cache(maxsize=256)
+def _match_pattern_for(definition: CollectionDefinition) -> tuple[re.Pattern[str], tuple[str, ...]]:
+    """Regex for ``CollectionDefinition.matches()``: every placeholder becomes its own
+    capture group, typed by its exact format (``{key}`` uses the definition's grain,
+    since that fixes its shape unambiguously). Returns the pattern plus the field name
+    each group (in order) belongs to — a field used twice yields two groups, not one
+    shared name, for the same reason ``sibling_pattern`` does.
+
+    Cached (``CollectionDefinition`` is a frozen, hashable dataclass) because
+    ``matches()`` runs once per candidate note in ``list_entries``'s membership scan —
+    recompiling the identical pattern per note would be pure waste for the same
+    definition.
+    """
+    field_pattern = {**_FIELD_PATTERNS, "key": _KEY_PATTERNS[definition.grain]}
+    groups: list[str] = []
+
+    def pattern_for(template: str) -> str:
+        parts: list[str] = []
+        for literal, field, _spec, _conv in Formatter().parse(template):
+            parts.append(re.escape(literal))
+            if field is not None:
+                parts.append(f"({field_pattern[field]})")
+                groups.append(field)
+        return "".join(parts)
+
+    pattern = re.compile(f"{pattern_for(definition.folder)}/{pattern_for(definition.title)}$")
+    return pattern, tuple(groups)
+
+
+_FIELD_PATTERNS = {
+    "date": r"\d{4}-\d{2}-\d{2}",
+    "year": r"\d{4}",
+    "month": r"\d{2}",
+    "ordinal": r"\d+",
+}
+_KEY_PATTERNS: dict[PeriodKind, str] = {
+    "day": r"\d{4}-\d{2}-\d{2}",
+    "week": r"\d{4}-W\d{2}",
+    "month": r"\d{4}-\d{2}",
+    "year": r"\d{4}",
+}
 
 
 def load_collections(workspace_path: str) -> dict[str, CollectionDefinition]:

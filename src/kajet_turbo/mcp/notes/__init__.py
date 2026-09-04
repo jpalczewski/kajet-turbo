@@ -1,6 +1,7 @@
 from fastmcp import FastMCP
 
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
+from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -15,11 +16,18 @@ def build_notes(
     note_service: NoteService,
     workspace_service: WorkspaceService,
     folder_meta_repo: FolderMetaRepository,
+    collection_service: CollectionService,
     state_store=None,
 ) -> FastMCP:
     srv = FastMCP("notes", session_state_store=state_store)
     srv.mount(
-        build_crud(note_service, workspace_service, folder_meta_repo, state_store=state_store)
+        build_crud(
+            note_service,
+            workspace_service,
+            folder_meta_repo,
+            collection_service,
+            state_store=state_store,
+        )
     )
     srv.mount(
         build_folders(note_service, workspace_service, folder_meta_repo, state_store=state_store)

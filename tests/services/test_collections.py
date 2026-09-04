@@ -239,3 +239,77 @@ def test_open_entry_many_cardinality_skips_gap_never_reuses_ordinal(
 def test_open_entry_unknown_collection_raises(collections, workspace):
     with pytest.raises(ValueError, match="does not exist"):
         collections.open_entry(str(workspace), "ws", "u1", "nope", date(2026, 6, 15))
+
+
+# --- folder_prefix / list_entries (#116) ---------------------------------------
+
+
+def test_folder_prefix_returns_static_segments(collections, workspace):
+    collections.define_collection(
+        str(workspace), "ws", "u1", "journal", "day", "one", "journal/{year}/{month}", "{date}"
+    )
+
+    assert collections.folder_prefix(str(workspace), "journal") == "journal"
+
+
+def test_folder_prefix_fully_static_folder_returns_whole_folder(collections, workspace):
+    collections.define_collection(
+        str(workspace), "ws", "u1", "yearly", "year", "one", "Dzienniki/Rocznik", "{key}"
+    )
+
+    assert collections.folder_prefix(str(workspace), "yearly") == "Dzienniki/Rocznik"
+
+
+def test_folder_prefix_none_when_first_segment_is_placeholder(collections, workspace):
+    collections.define_collection(
+        str(workspace), "ws", "u1", "byyear", "day", "one", "{year}/journal", "{date}"
+    )
+
+    assert collections.folder_prefix(str(workspace), "byyear") is None
+
+
+def test_folder_prefix_unknown_collection_raises(collections, workspace):
+    with pytest.raises(ValueError, match="does not exist"):
+        collections.folder_prefix(str(workspace), "nope")
+
+
+def test_list_entries_returns_only_matching_members(collections, workspace):
+    collections.define_collection(
+        str(workspace), "ws", "u1", "journal", "day", "one", "journal/{year}/{month}", "{date}"
+    )
+    collections.open_entry(str(workspace), "ws", "u1", "journal", date(2026, 7, 1))
+    collections.open_entry(str(workspace), "ws", "u1", "journal", date(2026, 6, 15))
+
+    entries = collections.list_entries(str(workspace), "ws", "u1", "journal")
+
+    # Sorted by (folder, title) regardless of creation order — chronological here.
+    assert [e["title"] for e in entries] == ["2026-06-15", "2026-07-01"]
+    assert [e["folder"] for e in entries] == ["journal/2026/06", "journal/2026/07"]
+
+
+def test_list_entries_excludes_non_member_note_in_same_folder(collections, service, workspace):
+    collections.define_collection(
+        str(workspace), "ws", "u1", "journal", "day", "one", "journal/{year}/{month}", "{date}"
+    )
+    member = collections.open_entry(str(workspace), "ws", "u1", "journal", date(2026, 6, 15))
+    service.save("u1", "ws", str(workspace), "Not a date", "", [], folder="journal/2026/06")
+
+    entries = collections.list_entries(str(workspace), "ws", "u1", "journal")
+
+    assert [e["note_id"] for e in entries] == [member["note_id"]]
+
+
+def test_list_entries_scans_whole_workspace_without_static_prefix(collections, workspace):
+    collections.define_collection(
+        str(workspace), "ws", "u1", "byyear", "day", "one", "{year}/journal", "{date}"
+    )
+    created = collections.open_entry(str(workspace), "ws", "u1", "byyear", date(2026, 6, 15))
+
+    entries = collections.list_entries(str(workspace), "ws", "u1", "byyear")
+
+    assert [e["note_id"] for e in entries] == [created["note_id"]]
+
+
+def test_list_entries_unknown_collection_raises(collections, workspace):
+    with pytest.raises(ValueError, match="does not exist"):
+        collections.list_entries(str(workspace), "ws", "u1", "nope")
