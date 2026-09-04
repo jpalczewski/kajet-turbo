@@ -53,6 +53,18 @@ RUN apk upgrade --no-cache
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY --from=frontend-build /app/dist /srv
 
+# The CSP script-src hash changes every build (write-csp-hash.js hashes the
+# SvelteKit bootstrap script, which embeds a per-build random variable name),
+# so neither hash can be a literal in the Caddyfile. Bake them in here
+# instead. write-csp-hash.js writes these next to dist/, not inside it, so
+# they never end up in /srv and there's nothing to clean up afterwards.
+COPY --from=frontend-build /app/csp-script-hash.txt /app/csp-style-hash.txt /tmp/
+RUN sed -i \
+      -e "s#__CSP_SCRIPT_HASH__#$(cat /tmp/csp-script-hash.txt)#" \
+      -e "s#__CSP_STYLE_HASH__#$(cat /tmp/csp-style-hash.txt)#" \
+      /etc/caddy/Caddyfile && \
+    rm /tmp/csp-script-hash.txt /tmp/csp-style-hash.txt
+
 EXPOSE 80 8000
 
 FROM app-base AS app

@@ -32,24 +32,9 @@ runs:
       if: ${{ inputs.target == 'app' }}
       shell: bash
       run: |
-        ready=false
-        deadline=$((SECONDS + 30))
-        while (( SECONDS < deadline )); do
-          if [[ "$(docker inspect --format '{{.State.Running}}' kajet-app-smoke)" != true ]]; then
-            docker logs kajet-app-smoke
-            exit 1
-          fi
-          if docker exec kajet-app-smoke /app/.venv/bin/python -c \
-            'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/readyz", timeout=1).read()'; then
-            ready=true
-            break
-          fi
-          sleep 1
-        done
-        if [[ "$ready" != true ]]; then
-          docker logs kajet-app-smoke
-          exit 1
-        fi
+        scripts/wait-for-container.sh kajet-app-smoke 30 -- \
+          docker exec kajet-app-smoke /app/.venv/bin/python -c \
+            'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/readyz", timeout=1).read()'
 
     - name: Remove app smoke container
       if: ${{ always() && inputs.target == 'app' }}
@@ -62,3 +47,76 @@ runs:
       env:
         IMAGE_REF: ${{ inputs.image-ref }}
       run: docker run --rm --entrypoint caddy "$IMAGE_REF" validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+    # kajet-api/kajet-mcp aren't started here, so this only exercises routes
+    # Caddy can answer on its own: the static SPA and its 404 fallback (#45).
+    # That's enough to verify the response security headers (#92) — they're
+    # set once, upstream of @mcp/@api/@spa_*/file_server alike (see Caddyfile).
+    - name: Start ingress smoke test
+      if: ${{ inputs.target == 'ingress' }}
+      shell: bash
+      env:
+        IMAGE_REF: ${{ inputs.image-ref }}
+      run: docker run --detach --name kajet-ingress-smoke --publish 18080:8000 "$IMAGE_REF"
+
+    - name: Wait for ingress readiness
+      if: ${{ inputs.target == 'ingress' }}
+      shell: bash
+      run: |
+        scripts/wait-for-container.sh kajet-ingress-smoke 30 -- \
+          curl --silent --fail --output /dev/null http://127.0.0.1:18080/
+
+    - name: Verify ingress response security headers
+      if: ${{ inputs.target == 'ingress' }}
+      shell: bash
+      run: |
+        base=http://127.0.0.1:18080
+        fail=0
+
+        # One request per URL — everything below is checked against these
+        # captured responses instead of re-curling per header.
+        root_response="$(curl --silent --include "$base/")"
+        probe_response="$(curl --silent --include "$base/.env")"
+
+        check_header() {
+          local label=$1 response=$2 name=$3 expected=$4
+          local actual
+          actual="$(grep -i "^${name}:" <<<"$response" | tr -d '\r')"
+          if [[ "$actual" != "${name}: ${expected}"* ]]; then
+            echo "::error::${label} — expected '${name}: ${expected}', got '${actual:-<absent>}'"
+            fail=1
+          fi
+        }
+
+        # SPA root: full set of baseline headers.
+        check_header "$base/" "$root_response" "X-Content-Type-Options" "nosniff"
+        check_header "$base/" "$root_response" "X-Frame-Options" "DENY"
+        check_header "$base/" "$root_response" "Referrer-Policy" "strict-origin-when-cross-origin"
+        check_header "$base/" "$root_response" "Permissions-Policy" "camera=()"
+        check_header "$base/" "$root_response" "Content-Security-Policy" "default-src 'self'; script-src 'self' 'sha256-"
+
+        # Scanner-probe-shaped path (#45): still a real 404, still carries the
+        # same headers — the file_server error path is the one that silently
+        # dropped them when the header directive used `defer` (see Caddyfile).
+        probe_status="$(head -n1 <<<"$probe_response" | grep -o '[0-9]\{3\}')"
+        if [[ "$probe_status" != "404" ]]; then
+          echo "::error::GET /.env — expected 404, got ${probe_status:-<none>}"
+          fail=1
+        fi
+        check_header "$base/.env" "$probe_response" "X-Content-Type-Options" "nosniff"
+        check_header "$base/.env" "$probe_response" "Content-Security-Policy" "default-src 'self'; script-src 'self' 'sha256-"
+
+        # Locks in the current, deliberate choice not to set HSTS here (see
+        # Caddyfile comment) — a future edit that adds it should update that
+        # comment too, not slip in silently.
+        if grep -qi "^Strict-Transport-Security:" <<<"$root_response"; then
+          echo "::error::unexpected Strict-Transport-Security header — see Caddyfile comment on HSTS ownership"
+          fail=1
+        fi
+
+        exit "$fail"
+
+    - name: Remove ingress smoke container
+      if: ${{ always() && inputs.target == 'ingress' }}
+      shell: bash
+      run: docker rm --force kajet-ingress-smoke >/dev/null 2>&1 || true
