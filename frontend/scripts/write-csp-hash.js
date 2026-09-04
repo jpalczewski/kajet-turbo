@@ -13,7 +13,9 @@
 //   change updates the hash automatically instead of silently breaking CSP.
 //
 // The Dockerfile's ingress stage bakes both hashes into the Caddyfile at
-// image build time and then deletes this output (see /Dockerfile, /Caddyfile).
+// image build time (see /Dockerfile, /Caddyfile). The hash files are written
+// next to dist/, not inside it, so nothing needs to clean them out of the
+// shipped static assets afterwards.
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -33,20 +35,41 @@ function extractOne(source, pattern, label) {
   return matches[0][1];
 }
 
-const distDir = resolve(process.cwd(), '..', 'dist');
+// Svelte templates carry HTML-entity-escaped attribute text (e.g. `&amp;`),
+// but the browser hashes the *decoded* attribute value it parses into the
+// DOM — so the source text has to be decoded the same way before hashing,
+// or a future style value using one of these characters would compute a
+// hash that never matches what the browser actually enforces.
+function decodeHtmlAttr(value) {
+  return value
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&(?:#39|apos);/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+const projectDir = resolve(process.cwd());
+const distDir = resolve(projectDir, '..', 'dist');
 const indexHtml = readFileSync(resolve(distDir, 'index.html'), 'utf8');
 const scriptHash = sha256(
   extractOne(indexHtml, /<script>([\s\S]*?)<\/script>/g, 'inline <script> in dist/index.html'),
 );
 
-const rootSvelte = readFileSync(resolve('.svelte-kit/generated/root.svelte'), 'utf8');
+const rootSvelte = readFileSync(resolve(projectDir, '.svelte-kit/generated/root.svelte'), 'utf8');
+// Matched as a whole opening tag first, independent of attribute order, then
+// the style value is pulled out of that tag — so a future SvelteKit release
+// reordering attributes (or adding new ones) doesn't stop this from matching.
+const announcerTag = extractOne(
+  rootSvelte,
+  /(<div\b[^>]*\bid="svelte-announcer"[^>]*>)/g,
+  '#svelte-announcer opening tag in .svelte-kit/generated/root.svelte',
+);
 const announcerStyleHash = sha256(
-  extractOne(
-    rootSvelte,
-    /id="svelte-announcer"[^>]*\sstyle="([^"]*)"/g,
-    '#svelte-announcer style attribute in .svelte-kit/generated/root.svelte',
-  ),
+  decodeHtmlAttr(extractOne(announcerTag, /\sstyle="([^"]*)"/g, 'style attribute on that tag')),
 );
 
-writeFileSync(resolve(distDir, 'csp-script-hash.txt'), scriptHash);
-writeFileSync(resolve(distDir, 'csp-style-hash.txt'), announcerStyleHash);
+writeFileSync(resolve(projectDir, '..', 'csp-script-hash.txt'), scriptHash);
+writeFileSync(resolve(projectDir, '..', 'csp-style-hash.txt'), announcerStyleHash);

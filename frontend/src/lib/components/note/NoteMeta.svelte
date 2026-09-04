@@ -79,7 +79,7 @@
         <h4 class="meta__heading">Outline</h4>
         <ul class="meta__outline">
           {#each outline as item (item.id)}
-            <li style:padding-left="{(item.level - 1) * 10}px">
+            <li data-level={item.level}>
               <a class="meta__anchor" href={`#${item.id}`}>{item.text}</a>
             </li>
           {/each}
@@ -261,6 +261,17 @@
       display: flex;
       flex-direction: column;
       gap: v.$space-xs;
+
+      // Indent by heading level (h1-h6). A CSS attribute selector, not an
+      // inline style — CSP style-src has no per-value allowlist to give a
+      // dynamic style="padding-left: {n}px", only a fixed set of hashes.
+      > li {
+        @for $level from 1 through 6 {
+          &[data-level='#{$level}'] {
+            padding-left: ($level - 1) * 10px;
+          }
+        }
+      }
     }
 
     &__anchor {

@@ -56,18 +56,16 @@ COPY --from=frontend-build /app/dist /srv
 # The CSP script-src hash changes every build (write-csp-hash.js hashes the
 # SvelteKit bootstrap script, which embeds a per-build random variable name),
 # so neither hash can be a literal in the Caddyfile. Bake them in here
-# instead, then remove the scratch files so they aren't served as static
-# assets.
+# instead. write-csp-hash.js writes these next to dist/, not inside it, so
+# they never end up in /srv and there's nothing to clean up afterwards.
+COPY --from=frontend-build /app/csp-script-hash.txt /app/csp-style-hash.txt /tmp/
 RUN sed -i \
-      -e "s#__CSP_SCRIPT_HASH__#$(cat /srv/csp-script-hash.txt)#" \
-      -e "s#__CSP_STYLE_HASH__#$(cat /srv/csp-style-hash.txt)#" \
+      -e "s#__CSP_SCRIPT_HASH__#$(cat /tmp/csp-script-hash.txt)#" \
+      -e "s#__CSP_STYLE_HASH__#$(cat /tmp/csp-style-hash.txt)#" \
       /etc/caddy/Caddyfile && \
-    rm /srv/csp-script-hash.txt /srv/csp-style-hash.txt
+    rm /tmp/csp-script-hash.txt /tmp/csp-style-hash.txt
 
 EXPOSE 80 8000
 
 FROM app-base AS app
 COPY --from=frontend-build /app/dist ./dist
-# Ingress-only build artifacts (see the "ingress" stage above); harmless if
-# served here too, but they have no business in this image.
-RUN rm -f ./dist/csp-script-hash.txt ./dist/csp-style-hash.txt
