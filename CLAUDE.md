@@ -90,3 +90,5 @@ Cover behavior, edge cases, and regressions, especially for concurrency, persist
 Commit prefixes used in history include `feat:`, `fix:`, `refactor:`, `bench:`, `style:`, and `docs:`. Keep commits scoped and messages imperative when possible.
 
 PRs should describe the change, list tests, link issues, and include UI screenshots. Mention migrations, generated API updates, runtime-rule changes, or compatibility risks.
+
+GitHub issues are the project's only backlog. Filing, labeling, or editing one — including epics, project-board membership, blocked-by links, and sub-issues — follows the `issue-workflow` skill; use it instead of improvising title/label/body conventions.
