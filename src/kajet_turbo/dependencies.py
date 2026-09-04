@@ -8,7 +8,6 @@ from starlette.requests import Request
 
 from kajet_turbo import identity
 from kajet_turbo.auth import KajetOAuthProvider, create_auth
-from kajet_turbo.cache import WorkspaceCache, cache_enabled
 from kajet_turbo.crypto import cipher_for, cipher_from_env
 from kajet_turbo.db import Database
 from kajet_turbo.embedding import build_embedder, pooled_embedder_factory
@@ -55,6 +54,7 @@ from kajet_turbo.services.notes import (
 from kajet_turbo.services.push_enqueue import make_enqueue_push_on_commit
 from kajet_turbo.services.push_handler import PushHandler
 from kajet_turbo.services.reconcile_links_handler import ReconcileLinksHandler
+from kajet_turbo.services.reindex_handler import ReindexNoteHandler
 from kajet_turbo.services.ssh_keys import SshKeyService
 from kajet_turbo.services.workspace_remote import WorkspaceRemoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -111,6 +111,7 @@ note_indexer = NoteIndexer(
     repo=note_chunk_repo,
     cache=EmbeddingCacheRepository(db.engine),
     resolve_backend=_profile_resolver.resolve_backend,
+    jobs=job_repo,
     enqueue_embed=make_enqueue_embed(job_repo),
 )
 
@@ -121,24 +122,32 @@ embed_handler = EmbedNoteHandler(
     build_embedder=pooled_embedder_factory(),
 )
 
+reindex_handler = ReindexNoteHandler(
+    note_repo=note_repo,
+    chunk_repo=note_chunk_repo,
+    jobs=job_repo,
+    resolve_cfg=_profile_resolver.resolve_backend,
+    workspaces_dir=WORKSPACES_DIR,
+)
+
 _query_cache = QueryEmbeddingCache()
 
 workspace_meta_repo = WorkspaceMetaRepository(db.engine)
 dangling_repo = DanglingLinkRepository(db.engine)
 link_reconcile_repo = LinkReconcileRepository(db.engine, job_repo)
 
-_cache = WorkspaceCache() if cache_enabled() else None
 _link_validation = lambda ws, owner: workspace_service.get_settings(owner, ws)["validate_links"]  # noqa: E731
 
-_note_tag_service = NoteTagService(note_repo, note_tag_repo, _cache, indexer=note_indexer)
-_note_link_service = NoteLinkService(note_repo, note_link_repo, dangling_repo, _link_validation)
+_note_tag_service = NoteTagService(note_repo, note_tag_repo, indexer=note_indexer)
+_note_link_service = NoteLinkService(
+    note_repo, note_link_repo, dangling_repo, _link_validation, job_repo
+)
 # Long-lived client for query embedding: keep-alive across searches kills the
 # per-call TCP+TLS connect tail. Closed in the app lifespan (server.py).
 shared_embed_client = SharedEmbedderClient()
 
 _note_search_service = NoteSearchService(
     note_chunk_repo,
-    _cache,
     _profile_resolver.resolve_backend,
     pooled_embedder_factory(),
     _query_cache,
@@ -146,12 +155,11 @@ _note_search_service = NoteSearchService(
     note_tag_repo,
     async_build_embedder=lambda cfg: build_embedder(cfg, shared_embed_client.get()),
 )
-_note_version_service = NoteVersionService(note_repo, _cache)
+_note_version_service = NoteVersionService(note_repo)
 folder_meta_repo = FolderMetaRepository(db.engine)
 _note_folder_service = NoteFolderService(
     note_repo,
     _note_link_service,
-    _cache,
     folder_meta_repo,
     link_reconcile_repo,
 )
@@ -169,7 +177,6 @@ note_service = NoteService(
     _note_version_service,
     _note_folder_service,
     indexer=note_indexer,
-    cache=_cache,
     reconcile_repo=link_reconcile_repo,
 )
 
@@ -187,7 +194,6 @@ workspace_service = WorkspaceService(
     workspace_remote_repo,
     active_workspace_repo,
     job_repo,
-    cache=_cache,
     reconcile_repo=link_reconcile_repo,
 )
 push_handler = PushHandler(

@@ -95,19 +95,21 @@ def build_tags(
         merge: Annotated[
             bool,
             Field(
-                description="Zgoda na scalenie, gdy tag `new` już istnieje. Bez niej taki "
-                "przypadek zwraca TagConflictResult zamiast cokolwiek zmieniać."
+                description="Consent to merge when tag `new` already exists. Without it, "
+                "that case returns TagConflictResult instead of changing anything."
             ),
         ] = False,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> TagRenameResult | TagConflictResult:
-        """Zmienia nazwę taga w całym workspace jednym commitem — zamiast N x set_tags.
-        Zabiera poddrzewo: 'work' -> 'job' przepisze też 'work/projects' (dopasowanie po
-        granicy segmentu, więc 'workflow' zostaje). Przepisuje też inline #hashtagi
-        w treści, bo inaczej stary tag wróciłby przy najbliższej synchronizacji.
-        Gdy `new` już istnieje, to scalenie — wymaga merge=true, inaczej zwraca
-        TagConflictResult z liczbą notatek po obu stronach.
-        Bez expected_sha (operacja jest workspace-wide) — cofasz przez git history."""
+        """Renames a tag across the whole workspace in one commit, instead of N x set_tags
+        calls. Takes the whole subtree: 'work' -> 'job' also rewrites 'work/projects'
+        (matched on segment boundaries, so 'workflow' is left alone). Also rewrites inline
+        #hashtags in note bodies — otherwise the old tag would come back on the next sync.
+        When `new` already exists, this is a merge — requires merge=true, otherwise returns
+        TagConflictResult with the note count on each side.
+        No expected_sha (this is workspace-wide) — roll back via git history.
+        Search indexing (chunks/FTS/embeddings) is deferred to background jobs for every
+        note whose body was rewritten."""
         result = await run_sync(
             note_service.rename_tag,
             old,

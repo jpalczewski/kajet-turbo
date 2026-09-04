@@ -99,12 +99,13 @@ def build_crud(
         notes: list[NoteInput],
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> list[BatchNoteSuccess | BatchNoteError]:
-        """Zapisuje wiele notatek naraz (jeden commit, równoległe indeksowanie).
-        Użyj tego narzędzia zawsze, gdy dodajesz 2+ notatek — zamiast wielu wywołań
-        save_note. Best-effort: każda notatka walidowana osobno; wynik per-note to
-        BatchNoteSuccess {index, note_id} lub BatchNoteError {index, error}.
-        Wikilinki do notatek z tego samego batcha rozwiązują się niezależnie
-        od kolejności. content z prawdziwymi znakami nowej linii (\\n), nie literalnymi \\\\n."""
+        """Saves multiple notes at once, in one commit. Always use this instead of multiple
+        save_note calls when adding 2+ notes. Best-effort: each note is validated
+        independently; the per-note result is BatchNoteSuccess {index, note_id} or
+        BatchNoteError {index, error}. Wikilinks to notes in the same batch resolve
+        regardless of order. Search indexing (chunks/FTS/embeddings) is deferred to
+        background jobs — a note saved here may not appear in search_notes immediately.
+        content needs real newline characters (\\n), not literal \\\\n."""
         results = await run_sync(
             note_service.save_many,
             ws.owner_id,
@@ -314,6 +315,8 @@ def build_crud(
         proof you saw the current version. On a stale one, call get_note to re-read the
         note and retry.
         Scope: content and tags only — no title/folder changes (use edit_note for those).
+        Search indexing (chunks/FTS/embeddings) is deferred to background jobs — an edited
+        note's search_notes results may lag briefly behind this call.
         Max 50 edits per call."""
         check_batch(edits, "edits", "edycji")
         result = await run_sync(
@@ -618,7 +621,9 @@ def build_crud(
         """Reconciles the SQLite index against the .md files in the active workspace:
         repairs drifted or missing rows without wiping and rebuilding. Refuses (raises)
         if it would delete an unusually large share of the workspace's notes — that
-        signals a path or mount problem worth investigating before retrying."""
+        signals a path or mount problem worth investigating before retrying.
+        Row reconciliation is synchronous, but chunk/FTS/embedding rebuild for affected
+        notes runs in background jobs afterward — search_notes may lag this call briefly."""
         result = await run_sync(
             note_service.reindex, ws.name, owner_id=ws.owner_id, ws_path=ws.path
         )

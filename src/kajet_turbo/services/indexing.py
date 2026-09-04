@@ -1,23 +1,58 @@
-"""Note indexing: chunk a note, persist chunks + FTS inline, and defer embedding to
-the job queue.
+"""Note indexing: two different contracts depending on batch size.
 
-Chunks + FTS are the reliable, cheap backbone written on the request path (read-your-
-writes for full-text search). The embedding HTTP roundtrip is NOT done here anymore:
-when a backend resolves, an ``embed_note`` job is enqueued and the worker attaches
-vectors out-of-band (see ``services/embed_handler.py``), flipping the note from
-``stale`` to ``indexed``. Retry/backoff lives in the job queue.
+``index_note`` (single note) chunks and persists FTS inline on the request path — read-your-
+writes for full-text search. The embedding HTTP roundtrip is NOT done here: when a backend
+resolves, an ``embed_note`` job is enqueued and the worker attaches vectors out-of-band (see
+``services/embed_handler.py``), flipping the note from ``stale`` to ``indexed``.
 
-Best-effort contract: indexing NEVER raises to the caller. No backend / resolve error
-⇒ chunks are still written and the note stays ``index_state='stale'`` (FTS-only)."""
+``index_many`` (batch/side-effect writes — ``save_notes``, ``edit_notes``, ``rename_tag``,
+``reindex_workspace``, backlink rewrites) does no chunking at all: it enqueues one durable
+``reindex_note`` job per note (see ``services/reindex_handler.py``), which does the chunk + FTS
+write and chains into ``embed_note`` itself, off the request path entirely.
 
-from collections.abc import Callable
+Best-effort contract: indexing NEVER raises to the caller. For ``index_note``, no backend /
+resolve error ⇒ chunks are still written and the note stays ``index_state='stale'`` (FTS-only).
+For ``index_many``, an enqueue failure is logged and swallowed — the affected notes simply stay
+``stale`` until the next write re-enqueues them. Retry/backoff for the jobs themselves lives in
+the job queue."""
+
+from collections.abc import Callable, Iterable
 
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import chunk_markdown, embedded_text
 from kajet_turbo.perf import incr, timed
+from kajet_turbo.repositories.jobs import JobEntry, JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
+
+
+def reindex_job_entries(owner_id: str, workspace: str, note_ids: Iterable[str]) -> list[JobEntry]:
+    """Build one ``reindex_note`` JobEntry per note id, with the dedup key ``ReindexNoteHandler``
+    and every enqueue site (index_many, _rewrite_backlinks) agree on. Centralized so the payload
+    shape and dedup-key format can't drift between the two call sites that build it."""
+    return [
+        JobEntry(
+            payload={"owner_id": owner_id, "workspace": workspace, "note_id": note_id},
+            dedup_key=f"reindex:{owner_id}:{workspace}:{note_id}",
+            user_id=owner_id,
+        )
+        for note_id in note_ids
+    ]
+
+
+def safe_resolve_backend(
+    resolve_backend: Callable[[str], EmbedderConfig | None], owner_id: str
+) -> EmbedderConfig | None:
+    """Resolve an owner's active embedding backend, tolerating resolve errors (e.g. SECRET_KEY
+    unset → cipher refuses to build). Shared by NoteIndexer and ReindexNoteHandler so both
+    degrade the same way: a resolve failure never breaks indexing, it just means no embed
+    enqueue — the note stays FTS-only rather than losing already-written chunks."""
+    try:
+        return resolve_backend(owner_id)
+    except Exception as e:
+        logger.opt(exception=e).warning("index_resolve_failed", owner_id=owner_id)
+        return None
 
 
 class NoteIndexer:
@@ -26,12 +61,14 @@ class NoteIndexer:
         repo: NoteChunkRepository,
         cache: EmbeddingCacheRepository,
         resolve_backend: Callable[[str], EmbedderConfig | None],
+        jobs: JobRepository,
         *,
         enqueue_embed: Callable[[str, str, str], None] | None = None,
     ):
         self._repo = repo
         self._cache = cache
         self._resolve_backend = resolve_backend
+        self._jobs = jobs
         self._enqueue_embed = enqueue_embed
 
     def index_note(
@@ -105,15 +142,9 @@ class NoteIndexer:
         return bool(chunks)
 
     def _resolve_cfg(self, owner_id: str) -> EmbedderConfig | None:
-        # Resolving the backend can fail (e.g. SECRET_KEY unset → cipher refuses to
-        # build). That must not break indexing: no enqueue, note stays FTS-only.
         # No active profile → None. A keyless profile (api_key is None) is a valid
         # local/no-auth endpoint and DOES embed — the adapter omits the auth header.
-        try:
-            return self._resolve_backend(owner_id)
-        except Exception as e:
-            logger.opt(exception=e).warning("index_resolve_failed", owner_id=owner_id)
-            return None
+        return safe_resolve_backend(self._resolve_backend, owner_id)
 
     def preview(self, title: str, content: str, owner_id: str) -> list[dict]:
         """Live re-chunk of ``content`` with per-chunk 'embedded?' flags (a content-cache
@@ -145,48 +176,21 @@ class NoteIndexer:
         ]
 
     def index_many(self, workspace: str, owner_id: str, notes: list[dict]) -> None:
-        """Reindex a batch of notes. Chunking (pure CPU) parallelizes across threads under
-        free-threading. The chunk-replace write runs afterwards, sequentially: SQLite has
-        one writer, so N concurrent ``replace_chunks`` calls (each its own commit) don't
-        actually run in parallel — they just queue on the write lock, and per-note tail
-        latency grows with queue depth. Writing sequentially does the same work without
-        paying for that contention. Each chunked note enqueues its own ``embed_note`` job
-        (per-note retry, per-note dedup). The backend is resolved once for the whole batch.
-        A single note's failure is logged and skipped — it never aborts the batch. ``notes``
-        items need ``id``, ``title``, ``content``."""
-        from concurrent.futures import ThreadPoolExecutor
+        """Fan out a batch reindex as durable ``reindex_note`` jobs, one per note, in a
+        single commit — no request-path chunking. The handler (``ReindexNoteHandler``) reads
+        each note's file, chunks it, and chains into ``embed_note`` when a backend resolves.
+        ``notes`` items need only ``id``.
 
-        embeddable = self._enqueue_embed is not None and self._resolve_cfg(owner_id) is not None
-
-        def _chunk(note: dict) -> tuple[dict, list | None]:
-            try:
-                with timed("chunk_ms"):
-                    chunks = chunk_markdown(
-                        note.get("content") or "", title=note.get("title") or ""
-                    )
-                return note, chunks
-            except Exception as e:
-                logger.opt(exception=e).warning("reindex_note_failed", note_id=note.get("id"))
-                return note, None
-
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            chunked = list(pool.map(_chunk, notes))
-
-        for note, chunks in chunked:
-            if chunks is None:
-                continue
-            note_id = note["id"]
-            try:
-                has_chunks = self._persist_chunks(
-                    note_id,
-                    workspace,
-                    owner_id,
-                    note.get("title") or "",
-                    chunks,
-                    expected_generation=note.get("index_generation"),
-                )
-                if has_chunks and embeddable:
-                    assert self._enqueue_embed is not None  # narrowed by `embeddable`
-                    self._enqueue_embed(note_id, workspace, owner_id)
-            except Exception as e:
-                logger.opt(exception=e).warning("reindex_note_failed", note_id=note_id)
+        Best-effort like the rest of this module: enqueue failure (e.g. a DB hiccup) must
+        not surface to callers that already committed the note rows via
+        ``defer_workspace_postprocess`` — it is logged and swallowed. The affected notes stay
+        ``index_state='stale'`` until the next save/reindex re-enqueues them."""
+        if not notes:
+            return
+        try:
+            entries = reindex_job_entries(owner_id, workspace, (note["id"] for note in notes))
+            self._jobs.enqueue_many("reindex_note", entries)
+        except Exception as e:
+            logger.opt(exception=e).error(
+                "reindex_enqueue_failed", workspace=workspace, owner_id=owner_id, count=len(notes)
+            )

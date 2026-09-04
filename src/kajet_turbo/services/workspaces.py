@@ -2,7 +2,6 @@ import json
 from datetime import UTC, datetime
 
 from kajet_turbo import workspace_settings
-from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import tags as tagutil
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
@@ -39,7 +38,6 @@ class WorkspaceService:
         remote_repo: WorkspaceRemoteRepository,
         active_repo: ActiveWorkspaceRepository,
         job_repo: JobRepository,
-        cache: WorkspaceCache | None = None,
         reconcile_repo: LinkReconcileRepository | None = None,
     ) -> None:
         self._repo = workspace_repo
@@ -51,7 +49,6 @@ class WorkspaceService:
         self._remote_repo = remote_repo
         self._active_repo = active_repo
         self._job_repo = job_repo
-        self._cache = cache
         self._reconcile_repo = reconcile_repo
 
     def create(self, name: str, user_id: str, *, description: str = "") -> None:
@@ -85,8 +82,6 @@ class WorkspaceService:
         delete_workspace_directory(name, user_id=user_id)
         self._meta_repo.delete(user_id, name)
         self._repo.revoke_access(user_id, name)
-        if self._cache is not None:
-            self._cache.bump(name, user_id)
         logger.info("workspace_deleted", ws=name, owner_id=user_id)
 
     def workspace_path(self, user_id: str, name: str) -> str:

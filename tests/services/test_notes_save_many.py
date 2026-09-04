@@ -5,7 +5,14 @@ from unittest.mock import patch
 import pytest
 
 from kajet_turbo.services.notes import service as service_module
+from tests.services.conftest import seed_user
 from tests.services.helpers import make_flaky_db_write, make_flaky_write
+
+
+@pytest.fixture(autouse=True)
+def _seed_default_owner(database):
+    # save_many now enqueues reindex_note jobs (user_id FK to users.id).
+    seed_user(database, "u1")
 
 
 def _commit_count(workspace):
@@ -164,10 +171,10 @@ def test_save_many_db_failure_leaves_no_files_and_no_commit(service, workspace):
 def test_save_many_indexes_every_valid_note(service, workspace):
     notes = [{"title": "Idx A", "content": "a"}, {"title": "Idx B", "content": "b"}]
     with patch.object(service._indexer, "index_many") as idx:
-        service.save_many("u1", "ws", str(workspace), notes)
+        results = service.save_many("u1", "ws", str(workspace), notes)
     idx.assert_called_once()
     passed = idx.call_args.args[2]
-    assert {n["title"] for n in passed} == {"Idx A", "Idx B"}
+    assert {n["id"] for n in passed} == {r["note_id"] for r in results}
 
 
 def test_save_many_filename_collision_dedup(service, workspace):

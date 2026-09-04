@@ -1,7 +1,6 @@
 import asyncio
 from collections.abc import Callable
 
-from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.embedding.base import Embedder, EmbedderConfig
 from kajet_turbo.embedding.cache import pack_vector
@@ -13,7 +12,6 @@ class NoteSearchService:
     def __init__(
         self,
         chunk_repo: NoteChunkRepository,
-        cache: WorkspaceCache | None,
         query_resolver,
         build_embedder,
         query_cache,
@@ -22,7 +20,6 @@ class NoteSearchService:
         async_build_embedder: Callable[[EmbedderConfig], Embedder] | None = None,
     ):
         self._chunk_repo = chunk_repo
-        self._cache = cache
         self._query_resolver = query_resolver
         self._build_embedder = build_embedder
         self._query_cache = query_cache
@@ -42,9 +39,7 @@ class NoteSearchService:
         """Sync search: runs entirely on the calling (worker) thread, driving the
         embedder with ``asyncio.run``. The MCP boundary uses ``search_async`` instead
         so the query-embedding HTTP roundtrip doesn't pin a run_sync slot."""
-        cfg, key, cached = self._prepare(query, workspaces, owner_id, limit, folder, tags)
-        if cached is not None:
-            return cached
+        cfg = self._prepare(owner_id)
         embedding = None
         dim = None
         if cfg is not None:
@@ -54,7 +49,7 @@ class NoteSearchService:
                 dim = cfg.dim
             except Exception as e:
                 logger.opt(exception=e).warning("search_embed_failed", backend=cfg.backend_id)
-        return self._execute(key, query, workspaces, owner_id, limit, folder, tags, embedding, dim)
+        return self._execute(query, workspaces, owner_id, limit, folder, tags, embedding, dim)
 
     async def search_async(
         self,
@@ -73,11 +68,7 @@ class NoteSearchService:
             # No async embedder wired (test doubles / legacy wiring): run the whole
             # sync search in one worker-thread slot, as before.
             return await run_sync(self.search, query, workspaces, owner_id, limit, folder, tags)
-        cfg, key, cached = await run_sync(
-            self._prepare, query, workspaces, owner_id, limit, folder, tags
-        )
-        if cached is not None:
-            return cached
+        cfg = await run_sync(self._prepare, owner_id)
         embedding = None
         dim = None
         if cfg is not None:
@@ -88,69 +79,21 @@ class NoteSearchService:
             except Exception as e:
                 logger.opt(exception=e).warning("search_embed_failed", backend=cfg.backend_id)
         return await run_sync(
-            self._execute, key, query, workspaces, owner_id, limit, folder, tags, embedding, dim
+            self._execute, query, workspaces, owner_id, limit, folder, tags, embedding, dim
         )
 
-    def _prepare(
-        self,
-        query: str,
-        workspaces: list[str],
-        owner_id: str,
-        limit: int,
-        folder: str | None,
-        tags: list[str] | None,
-    ) -> tuple[EmbedderConfig | None, tuple | None, list[dict] | None]:
-        """Resolve the backend, build the cache key, and probe the result cache.
-        Returns ``(cfg, key, cached_results_or_None)``. Sync — cheap indexed DB reads."""
-        # Resolve the backend identity up front so it is part of the cache key: a config
-        # change (backend switch / key add) must not keep serving the old backend's ranking
-        # from cache. resolve is a cheap indexed read, fine to run on cache hits too.
-        cfg = None
-        if self._query_resolver is not None:
-            try:
-                cfg = self._query_resolver(owner_id)
-            except Exception as e:
-                logger.opt(exception=e).warning("search_resolve_failed", owner_id=owner_id)
-                cfg = None
-        # An active profile (even keyless — a local/no-auth endpoint) drives vector search.
-        embeddable = cfg is not None
-        # The model is part of the vector-space identity. Two models can share an endpoint and
-        # dimension while producing incomparable vectors, so their result rankings cannot share
-        # a cache entry.
-        backend_key = (cfg.backend_id, cfg.model, cfg.dim) if embeddable else None
-
-        key = None
-        if self._cache is not None:
-            epochs = tuple(self._cache.epoch(ws, owner_id) for ws in workspaces)
-            # Deferred embedding lands out-of-band (worker flips notes stale→indexed
-            # without bumping any epoch, possibly in another process); folding the
-            # per-workspace stale counts into the key stops a cached vector-less
-            # ranking from outliving the vectors. Indexed COUNT, sub-ms.
-            stale_counts = (
-                tuple(self._crud_repo.count_stale(ws, owner_id) for ws in workspaces)
-                if embeddable
-                else None
-            )
-            key = (
-                "search",
-                owner_id,
-                tuple(workspaces),
-                epochs,
-                stale_counts,
-                query,
-                limit,
-                backend_key,
-                folder,
-                tuple(tags or ()),
-            )
-            cached = self._cache.get(key)
-            if cached is not None:
-                return cfg, key, cached
-        return cfg, key, None
+    def _prepare(self, owner_id: str) -> EmbedderConfig | None:
+        """Resolve the active embedding backend, if any. Sync — cheap indexed DB read."""
+        if self._query_resolver is None:
+            return None
+        try:
+            return self._query_resolver(owner_id)
+        except Exception as e:
+            logger.opt(exception=e).warning("search_resolve_failed", owner_id=owner_id)
+            return None
 
     def _execute(
         self,
-        key: tuple | None,
         query: str,
         workspaces: list[str],
         owner_id: str,
@@ -160,7 +103,7 @@ class NoteSearchService:
         embedding: bytes | None,
         dim: int | None,
     ) -> list[dict]:
-        """Narrow, fuse (hybrid_search), cache, and log. Sync DB work."""
+        """Narrow, fuse (hybrid_search), and log. Sync DB work."""
         per_ws_limit = limit * 3 if len(workspaces) > 1 else limit
         results = []
         for ws in workspaces:
@@ -196,8 +139,6 @@ class NoteSearchService:
         # order. No-op for the single-workspace case (hybrid_search already returns sorted).
         results.sort(key=lambda r: r["score"], reverse=True)
         results = results[:limit]
-        if self._cache is not None and key is not None:
-            self._cache.put(key, results)
         logger.info(
             "search_performed", query_len=len(query), results=len(results), ws_count=len(workspaces)
         )

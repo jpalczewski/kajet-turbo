@@ -2,9 +2,24 @@
 
 import pytest
 
+from tests.services.conftest import seed_user
+from tests.services.helpers import build_reindex_handler, drain_reindex_jobs
 
-def test_reindex_rebuilds_fts(service, workspace):
+
+@pytest.fixture(autouse=True)
+def _seed_default_owner(database):
+    # reindex()/reconcile_paths now enqueues reindex_note jobs (user_id FK to users.id).
+    seed_user(database, "u1")
+
+
+def test_reindex_rebuilds_fts(service, database, git_workspace_factory):
+    from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.workspace import NoteFrontmatter, note_filepath, write_note_file
+
+    # reconcile_paths only enqueues reindex_note now (chunking moved into the handler),
+    # so the handler needs the note's real on-disk workspace root: <workspaces_dir>/u1/ws.
+    workspace = git_workspace_factory("u1/ws")
+    workspaces_dir = str(workspace.parent.parent)
 
     path = note_filepath(str(workspace), "", "Zewnętrzna notatka")
     write_note_file(
@@ -20,6 +35,11 @@ def test_reindex_rebuilds_fts(service, workspace):
     )
     result = service.reindex("ws", owner_id="u1", ws_path=str(workspace))
     assert result["count"] == 1
+
+    jobs = JobRepository(database.engine)
+    handler = build_reindex_handler(database, workspaces_dir, jobs=jobs)
+    assert drain_reindex_jobs(jobs, handler, "u1", "ws") == 1
+
     found = service._chunk_repo.search_fts("Zewnętrzna", "ws", owner_id="u1")
     assert any(n["note_id"] == "ext001" for n in found)
 

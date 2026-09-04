@@ -121,14 +121,16 @@ log). Most of the package marks it with an `_in_session` suffix — `links.py:82
 its own session" structural rather than a promise. Prefer that shape, with that suffix, for
 anything new.
 
-`delete_for_workspace` is the tracked exception, not a second valid spelling:
-`NoteChunkRepository` (`notes/chunks.py:495`) and `NoteRepository` (`notes/crud.py:453`)
-take a caller-owned `session` and don't commit — same contract as the `_in_session` group —
-but carry the bare name, same as five *other* repositories
-(`dangling_links.py:144`, `folder_meta.py:119`, `active_workspace.py:57`, `jobs.py:310`,
-`link_reconcile.py:102`) that own their session and commit themselves. `#139` tracks the
-rename. Until it lands: read the signature before calling `delete_for_workspace` anywhere,
-don't assume from the name.
+`delete_for_workspace` used to be a trap: `NoteChunkRepository` and `NoteRepository` carried
+a caller-owned-session, no-commit method under the same bare name that five *other*
+repositories (`dangling_links.py`, `folder_meta.py`, `active_workspace.py`, `jobs.py`,
+`link_reconcile.py`) use for the opposite contract — own session, commits itself. `#139`
+renamed the two offenders to `delete_for_workspace_in_session`
+(`notes/chunks.py:delete_for_workspace_in_session`,
+`notes/crud.py:delete_for_workspace_in_session`); the bare `delete_for_workspace` name is now
+exclusively the committing shape. Still read the signature before calling either spelling
+anywhere new — the naming now tells the truth, but two names this close are still worth a
+second look.
 
 One ordering constraint rides on the caller-owned pair regardless of naming:
 `note_chunks.note_id` is an FK to `notes.id` with no cascade, so chunks must be deleted

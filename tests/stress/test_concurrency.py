@@ -1,12 +1,11 @@
-"""Parallel save/search/history on one workspace — catches git races,
-SQLite pool exhaustion and (later) cache races under real threads."""
+"""Parallel save/search/history on one workspace — catches git races and
+SQLite pool exhaustion under real threads."""
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
-from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.repositories.git import GitRepository
 
 WS = "stress"
@@ -18,7 +17,7 @@ def svc(tmp_path, database_factory):
     from tests.services.conftest import build_note_service
 
     db = database_factory("stress.db")
-    service = build_note_service(db, cache=WorkspaceCache())
+    service = build_note_service(db)
     return service, str(tmp_path / "ws")
 
 

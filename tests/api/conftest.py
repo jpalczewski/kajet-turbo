@@ -65,6 +65,7 @@ def api_client_factory(
             note_chunk_repository,
             EmbeddingCacheRepository(database.engine),
             resolve_backend=lambda owner_id: None,  # FTS-only in tests
+            jobs=JobRepository(database.engine),
         )
         note_service = build_note_service(
             database, indexer=note_indexer, chunk_repo=note_chunk_repository

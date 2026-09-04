@@ -56,6 +56,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         note_chunk_repository,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda o: None,
+        jobs=JobRepository(database.engine),
     )
     note_service_inst = build_note_service(
         database, indexer=indexer, chunk_repo=note_chunk_repository

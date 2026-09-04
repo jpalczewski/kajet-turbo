@@ -45,9 +45,8 @@ Runtime is free-threaded Python 3.14t, so blocking and C-extension behavior matt
 - `DISABLE_SQLALCHEMY_CEXT_RUNTIME=1` must be set before SQLAlchemy imports. See `src/kajet_turbo/__init__.py` and `tests/conftest.py`; do not remove or move this setup casually.
 - Blocking DB, Dulwich git, and file I/O work in async endpoints and MCP tools must use `run_sync()` from `src/kajet_turbo/concurrency.py`.
 - Each user workspace is a Dulwich git repo. Git writes use an in-process `threading.Lock` and a cross-process `fcntl.flock` on `<workspace>/.git/kajet-write.lock`.
-- Workspace writes bump the per-process cache epoch in `src/kajet_turbo/cache.py`; TTL bounds cross-process staleness.
 
-Do not bypass repository, cache, or locking helpers for convenience.
+Do not bypass repository or locking helpers for convenience.
 
 ## Coding Style & Quality Preferences
 

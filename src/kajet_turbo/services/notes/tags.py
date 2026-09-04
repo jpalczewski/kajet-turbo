@@ -5,7 +5,6 @@ from functools import partial
 
 from sqlmodel import Session
 
-from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
     extract_inline_tags,
@@ -58,12 +57,10 @@ class NoteTagService:
         self,
         crud_repo: NoteRepository,
         tag_repo: NoteTagRepository,
-        cache: WorkspaceCache | None,
         indexer: NoteIndexer | None = None,
     ):
         self._crud_repo = crud_repo
         self._tag_repo = tag_repo
-        self._cache = cache
         # A tag lives in two places — frontmatter and inline #hashtags — so a rename has to
         # reach into note bodies, and the notes it rewrites need rechunking.
         self._indexer = indexer
@@ -180,8 +177,6 @@ class NoteTagService:
                 owner_id=owner_id,
             )
             self.sync_tags(note_id, note.workspace, owner_id, new_tags, content)
-            if self._cache is not None:
-                self._cache.bump(note.workspace, owner_id)
             logger.info("note_tags_changed", note_id=note_id)
         inline = extract_inline_tags(content)
         effective = list(dict.fromkeys([*new_tags, *sorted(inline)]))
@@ -387,20 +382,10 @@ class NoteTagService:
             owner_id,
             {item.note.id: self.tagged(item.new_tags, item.new_body) for item in staged},
         )
-        if self._cache is not None:
-            self._cache.bump(ws_name, owner_id)
         rewritten = [item for item in staged if item.body_changed]
         # Chunks are title + content, so only a rewritten body invalidates the search index.
         if self._indexer is not None and rewritten:
-            index_payload = [
-                {
-                    "id": item.note.id,
-                    "title": item.note.title,
-                    "content": item.new_body,
-                    "index_generation": item.note.index_generation + 1,
-                }
-                for item in rewritten
-            ]
+            index_payload = [{"id": item.note.id} for item in rewritten]
             defer_workspace_postprocess(
                 ws_path, partial(self._indexer.index_many, ws_name, owner_id, index_payload)
             )

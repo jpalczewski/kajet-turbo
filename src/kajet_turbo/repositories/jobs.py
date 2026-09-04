@@ -4,6 +4,7 @@ values are epoch seconds; ``now`` is injectable so tests are deterministic."""
 
 import json
 import time
+from dataclasses import dataclass
 
 from nanoid import generate
 from sqlalchemy import text
@@ -12,6 +13,15 @@ from sqlmodel import Session, col, select
 
 from kajet_turbo.models import Job
 from kajet_turbo.repositories import DbRepository
+
+
+@dataclass(frozen=True, slots=True)
+class JobEntry:
+    """One job to enqueue as part of a batch — see ``enqueue_many``/``enqueue_many_in_session``."""
+
+    payload: dict
+    dedup_key: str | None = None
+    user_id: str | None = None
 
 
 def backoff_seconds(attempts: int, base: float = 2.0, cap: float = 300.0) -> float:
@@ -150,6 +160,52 @@ class JobRepository(DbRepository):
             operation.add_fields(job_id=job_id)
             return job_id
 
+    def enqueue_many_in_session(
+        self,
+        session: Session,
+        kind: str,
+        entries: list[JobEntry],
+        *,
+        max_attempts: int = 5,
+        delay: float = 0.0,
+        now: float | None = None,
+    ) -> list[str]:
+        """Enqueue N same-kind jobs without committing, one INSERT/upsert per entry, so a
+        fan-out lands in the caller's transaction instead of opening N write sessions
+        against SQLite while the caller may already hold the write lock."""
+        now = time.time() if now is None else now
+        return [
+            self.enqueue_in_session(
+                session,
+                kind,
+                entry.payload,
+                dedup_key=entry.dedup_key,
+                user_id=entry.user_id,
+                max_attempts=max_attempts,
+                delay=delay,
+                now=now,
+            )
+            for entry in entries
+        ]
+
+    def enqueue_many(
+        self,
+        kind: str,
+        entries: list[JobEntry],
+        *,
+        max_attempts: int = 5,
+        delay: float = 0.0,
+        now: float | None = None,
+    ) -> list[str]:
+        with self.operation("enqueue_many", kind=kind, count=len(entries)) as operation:
+            session = operation.session
+            job_ids = self.enqueue_many_in_session(
+                session, kind, entries, max_attempts=max_attempts, delay=delay, now=now
+            )
+            session.commit()
+            operation.report_count(len(job_ids))
+            return job_ids
+
     def claim(
         self, worker_id: str, *, now: float | None = None, stale_after: float = 300.0
     ) -> Job | None:
@@ -166,7 +222,8 @@ class JobRepository(DbRepository):
                 return None
             job = Job(**row._mapping)
             operation.outcome = "claimed"
-            operation.add_fields(job_id=job.id, kind=job.kind)
+            queue_wait_ms = round(max(0.0, now - job.next_run_at) * 1000)
+            operation.add_fields(job_id=job.id, kind=job.kind, queue_wait_ms=queue_wait_ms)
             return job
 
     def complete(self, job_id: str, *, now: float | None = None) -> None:

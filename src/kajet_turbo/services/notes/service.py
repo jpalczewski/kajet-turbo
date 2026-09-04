@@ -13,7 +13,6 @@ from nanoid import generate
 from sqlmodel import Session
 
 from kajet_turbo import perf
-from kajet_turbo.cache import WorkspaceCache
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
     BrokenWikilinkError,
@@ -299,7 +298,6 @@ class NoteService:
         version_service: NoteVersionService,
         folder_service: NoteFolderService,
         indexer=None,
-        cache: WorkspaceCache | None = None,
         reconcile_repo: LinkReconcileRepository | None = None,
     ) -> None:
         self._crud_repo = crud_repo
@@ -312,7 +310,6 @@ class NoteService:
         self._version_service = version_service
         self._folder_service = folder_service
         self._indexer = indexer
-        self._cache = cache
         self._reconcile_repo = reconcile_repo
 
     def _locate(self, note_id: str, owner_id: str, ws_path: str) -> LocatedNote | None:
@@ -512,8 +509,6 @@ class NoteService:
         )
         self._link_service.persist(note_id, ws_name, user_id, links)
         self._tag_service.sync_tags(note_id, ws_name, user_id, tags, content)
-        if self._cache is not None:
-            self._cache.bump(ws_name, user_id)
         logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
         defer_workspace_postprocess(
             ws_path, partial(self._index, note_id, ws_name, user_id, title, content, 1)
@@ -698,21 +693,11 @@ class NoteService:
         for s in valid:
             self._tag_service.sync_tags(s["note_id"], ws_name, user_id, s["tags"], s["content"])
 
-        if self._cache is not None:
-            self._cache.bump(ws_name, user_id)
-
-        # Phase 5: index after releasing the workspace write lock. It remains synchronous
-        # from the caller's perspective, including the existing error behavior.
+        # Phase 5: index after releasing the workspace write lock. This only enqueues a
+        # reindex_note job per note (see NoteIndexer.index_many) — chunking/FTS/embeddings
+        # run later in the background, not before this call returns.
         if self._indexer is not None:
-            index_payload = [
-                {
-                    "id": s["note_id"],
-                    "title": s["title"],
-                    "content": s["content"],
-                    "index_generation": 1,
-                }
-                for s in valid
-            ]
+            index_payload = [{"id": s["note_id"]} for s in valid]
             defer_workspace_postprocess(
                 ws_path, partial(self._indexer.index_many, ws_name, user_id, index_payload)
             )
@@ -1117,8 +1102,6 @@ class NoteService:
                 IndexedNote(note_id, new_folder, new_title),
             )
             workspace_links.rewrite_backlinks([move], ws_path, repo)
-        if self._cache is not None:
-            self._cache.bump(note.workspace, owner_id)
         logger.info("note_updated", note_id=note_id, folder=new_folder)
         defer_workspace_postprocess(
             ws_path,
@@ -1314,19 +1297,8 @@ class NoteService:
         for p in prepared:
             self._tag_service.sync_tags(p.note_id, ws_name, user_id, p.new_tags, p.new_content)
 
-        if self._cache is not None:
-            self._cache.bump(ws_name, user_id)
-
         if self._indexer is not None:
-            index_payload = [
-                {
-                    "id": p.note_id,
-                    "title": p.loc.note.title,
-                    "content": p.new_content,
-                    "index_generation": p.loc.note.index_generation + 1,
-                }
-                for p in prepared
-            ]
+            index_payload = [{"id": p.note_id} for p in prepared]
             defer_workspace_postprocess(
                 ws_path, partial(self._indexer.index_many, ws_name, user_id, index_payload)
             )
@@ -1394,8 +1366,6 @@ class NoteService:
                 # perf: keep this commit's wall time out of db_ms, see perf.excluded_from.
                 with perf.excluded_from("db_ms"):
                     GitRepository(ws_path).delete_file(relative, f"note: delete {note_id}")
-        if self._cache is not None:
-            self._cache.bump(note.workspace, owner_id)
         logger.info("note_deleted", note_id=note_id)
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
@@ -1475,8 +1445,6 @@ class NoteService:
         for p in prepared:
             logger.info("note_deleted", note_id=p.note_id)
 
-        if self._cache is not None:
-            self._cache.bump(ws_name, user_id)
         logger.info("notes_deleted_batch", ws=ws_name, count=len(prepared))
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
@@ -1635,8 +1603,6 @@ class NoteService:
             owner_id=owner_id,
             count=len(prepared),
         )
-        if self._cache is not None:
-            self._cache.bump(ws_name, owner_id)
         logger.info("temporal_backfill_applied", ws=ws_name, count=len(prepared))
         return {"applied": len(prepared)}
 
@@ -1652,8 +1618,8 @@ class NoteService:
             session = operation.session
             with session.begin():
                 self._tag_repo.delete_workspace_tags_in_session(session, ws_name, owner_id)
-                self._chunk_repo.delete_for_workspace(ws_name, owner_id, session)
-                self._crud_repo.delete_for_workspace(ws_name, owner_id, session)
+                self._chunk_repo.delete_for_workspace_in_session(ws_name, owner_id, session)
+                self._crud_repo.delete_for_workspace_in_session(ws_name, owner_id, session)
                 self._link_repo.delete_workspace_links_in_session(session, ws_name, owner_id)
                 self._link_service.delete_dangling_for_workspace_in_session(
                     session, ws_name, owner_id
@@ -1678,9 +1644,10 @@ class NoteService:
           ``replace_chunks`` is idempotent — re-deriving is cheap-correct rather than a
           partial-repair guess. Chunk re-derivation is not what "updated" reports; that's
           folder/title/tags/created_at drift only.
-        - Indexing failures are swallowed per note (``NoteIndexer.index_many``'s existing
-          contract — matches today's reindex): one bad note logs and is skipped, it never
-          aborts the reconcile.
+        - Indexing never aborts the reconcile: it only enqueues ``reindex_note`` jobs now
+          (``NoteIndexer.index_many``), and that enqueue is whole-batch best-effort — a
+          failure logs once and is swallowed for the batch, it does not raise here. The
+          actual chunk/FTS write happens later, per note, in the background job.
         - A file that fails to parse is left alone entirely — logged, never routed into
           deletion, since "unreadable" is not evidence the note is gone.
         - Two files sharing an id: the first (sorted path order) is reconciled; the rest are
@@ -1892,16 +1859,9 @@ class NoteService:
         workspace_links = self._link_service.for_workspace(ws_name, owner_id)
         resolutions = {}
         tagged_by_note = {}
-        generation_by_id: dict[str, int] = {}
         for note_id, pf in present.items():
             tagged_by_note[note_id] = NoteTagService.tagged(pf.tags, pf.content)
             resolutions[note_id] = workspace_links.resolve(pf.content, pf.folder)
-            if note_id in inserted:
-                generation_by_id[note_id] = 1
-            elif note_id in updated:
-                generation_by_id[note_id] = existing_by_id[note_id].index_generation + 1
-            else:
-                generation_by_id[note_id] = existing_by_id[note_id].index_generation
         self._tag_repo.sync_note_tags_many(ws_name, owner_id, tagged_by_note)
         self._link_service.persist_many(ws_name, owner_id, resolutions)
 
@@ -1909,29 +1869,14 @@ class NoteService:
 
             def _reindex_chunks() -> None:
                 assert self._indexer is not None  # narrowed by the outer guard
-                try:
-                    self._indexer.index_many(
-                        ws_name,
-                        owner_id,
-                        [
-                            {
-                                "id": note_id,
-                                "title": present[note_id].title,
-                                "content": present[note_id].content,
-                                "index_generation": generation_by_id[note_id],
-                            }
-                            for note_id in present
-                        ],
-                    )
-                except Exception as e:
-                    logger.opt(exception=e).warning("reconcile_chunk_index_failed", ws=ws_name)
+                self._indexer.index_many(
+                    ws_name, owner_id, [{"id": note_id} for note_id in present]
+                )
 
-            # Deferred past lock release, like save()'s _index call — chunking a whole
-            # workspace is CPU work that must not hold other writers behind the git lock.
+            # Deferred past lock release, like save()'s _index call. index_many only
+            # enqueues a reindex_note job per note now — it no longer chunks inline — but
+            # deferral still keeps job-queue I/O for a whole workspace off the git lock.
             defer_workspace_postprocess(ws_path, _reindex_chunks)
-
-        if self._cache is not None:
-            self._cache.bump(ws_name, owner_id)
 
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(owner_id, ws_name, affected)

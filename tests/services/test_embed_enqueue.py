@@ -39,6 +39,7 @@ def _indexer(database, jobs, *, cfg=None):
         repo=NoteChunkRepository(database.engine),
         cache=EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda owner_id: cfg,
+        jobs=jobs,
         enqueue_embed=make_enqueue_embed(jobs),
     )
 
@@ -93,6 +94,7 @@ def test_resolver_error_enqueues_nothing_but_writes_chunks(database):
         repo=repo,
         cache=EmbeddingCacheRepository(database.engine),
         resolve_backend=_boom,
+        jobs=jobs,
         enqueue_embed=make_enqueue_embed(jobs),
     )
     indexer.index_note("n1", "ws", "u1", "T", "# T\n\nbody\n")
@@ -106,17 +108,3 @@ def test_empty_content_enqueues_nothing(database):
     indexer = _indexer(database, jobs, cfg=_cfg())
     indexer.index_note("n1", "ws", "u1", "T", "   \n\n  ")
     assert jobs.list_jobs("u1", kind="embed_note") == []
-
-
-def test_index_many_enqueues_per_note(database):
-    _seed(database, note_ids=("n0", "n1", "n2"))
-    jobs = JobRepository(database.engine)
-    indexer = _indexer(database, jobs, cfg=_cfg())
-
-    notes = [
-        {"id": f"n{i}", "title": f"T{i}", "content": f"# T{i}\n\nbody {i}\n"} for i in range(3)
-    ]
-    indexer.index_many("ws", "u1", notes)
-
-    listed = jobs.list_jobs("u1", kind="embed_note", status="pending")
-    assert sorted(j.dedup_key for j in listed) == ["u1:ws:n0", "u1:ws:n1", "u1:ws:n2"]

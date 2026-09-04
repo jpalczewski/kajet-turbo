@@ -2,6 +2,7 @@
 file moves to the suite's helpers.py — it does not get copied."
 """
 
+import json
 from pathlib import Path
 
 from kajet_turbo.repositories.git import GitRepository
@@ -10,6 +11,46 @@ from kajet_turbo.repositories.git import GitRepository
 def head_sha(workspace, relative_path: str) -> str:
     """The current HEAD commit sha touching ``relative_path``."""
     return GitRepository(str(workspace)).file_history(relative_path, limit=1)[0]["sha"]
+
+
+def build_reindex_handler(database, workspaces_dir: str, jobs=None):
+    """A ``ReindexNoteHandler`` wired to the same engine a ``build_note_service`` /
+    ``service`` fixture uses, for tests that need to drain the ``reindex_note`` jobs a
+    batch write or backlink rewrite now enqueues instead of chunking inline.
+
+    ``workspaces_dir`` must be the directory such that
+    ``<workspaces_dir>/<owner_id>/<workspace_name>`` is the note's on-disk workspace root
+    (the same layout ``workspace_path()`` expects) — see ``drain_reindex_jobs``.
+    """
+    from kajet_turbo.repositories.jobs import JobRepository
+    from kajet_turbo.repositories.notes import NoteChunkRepository, NoteRepository
+    from kajet_turbo.services.reindex_handler import ReindexNoteHandler
+
+    if jobs is None:
+        jobs = JobRepository(database.engine)
+    return ReindexNoteHandler(
+        note_repo=NoteRepository(database.engine),
+        chunk_repo=NoteChunkRepository(database.engine),
+        jobs=jobs,
+        resolve_cfg=lambda owner_id: None,
+        workspaces_dir=workspaces_dir,
+    )
+
+
+def drain_reindex_jobs(jobs, handler, owner_id: str, workspace_name: str) -> int:
+    """Run every pending ``reindex_note`` job for ``(owner_id, workspace_name)`` through
+    ``handler`` synchronously and mark it complete — the test-side stand-in for the real
+    worker loop, so a test can assert post-batch chunk/FTS state without a real worker.
+    Returns how many jobs were drained."""
+    pending = [
+        job
+        for job in jobs.list_jobs(owner_id, kind="reindex_note", status="pending")
+        if json.loads(job.payload)["workspace"] == workspace_name
+    ]
+    for job in pending:
+        handler(json.loads(job.payload))
+        jobs.complete(job.id)
+    return len(pending)
 
 
 def build_reconcile_wiring(database, base: Path):
@@ -47,6 +88,7 @@ def make_service_with_dangling(database, link_validation_enabled=None):
     """Build a NoteService wired with a real DanglingLinkRepository on the same engine."""
     from kajet_turbo.embedding.cache import EmbeddingCacheRepository
     from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
+    from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.repositories.notes import NoteChunkRepository
     from kajet_turbo.services.indexing import NoteIndexer
     from tests.services.conftest import build_note_service
@@ -56,6 +98,7 @@ def make_service_with_dangling(database, link_validation_enabled=None):
         chunk_repo,
         EmbeddingCacheRepository(database.engine),
         resolve_backend=lambda owner_id: None,
+        jobs=JobRepository(database.engine),
     )
     dangling = DanglingLinkRepository(database.engine)
     return (
