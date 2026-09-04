@@ -37,7 +37,8 @@ def bearer_token_from_headers(headers: Mapping[str, str]) -> str:
 
 
 def resolve_session_user(session_repo: SessionRepository, token: str) -> dict | None:
-    """Session cookie -> ``{"id", "email"}``. Expiry is enforced in SQL by the repo."""
+    """Session cookie -> ``{"id", "email", "timezone", "locale"}``. Expiry is enforced
+    in SQL by the repo."""
     if not token:
         return None
     return session_repo.get_user(token)
@@ -46,8 +47,8 @@ def resolve_session_user(session_repo: SessionRepository, token: str) -> dict | 
 def resolve_session_user_from_cookies(
     session_repo: SessionRepository, cookies: Mapping[str, str]
 ) -> dict | None:
-    """Cookie jar -> ``{"id", "email"}``, or None. The one place callers hand a raw
-    jar instead of an already-extracted token."""
+    """Cookie jar -> ``{"id", "email", "timezone", "locale"}``, or None. The one place
+    callers hand a raw jar instead of an already-extracted token."""
     return resolve_session_user(session_repo, session_token_from_cookies(cookies))
 
 

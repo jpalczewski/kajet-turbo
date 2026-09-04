@@ -75,7 +75,12 @@ def test_resolve_session_user_returns_id_and_email(database: Database):
 
     user = resolve_session_user(SessionRepository(database.engine), "good-token")
 
-    assert user == {"id": "u1", "email": "u1@test.com"}
+    assert user == {
+        "id": "u1",
+        "email": "u1@test.com",
+        "timezone": "Europe/Warsaw",
+        "locale": "pl",
+    }
 
 
 def test_resolve_session_user_refuses_an_expired_session(database: Database):
