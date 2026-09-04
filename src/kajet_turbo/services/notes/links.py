@@ -422,8 +422,7 @@ class NoteLinkService:
             if len(moves) == 1
             else f"note: rewrite wikilinks after moving {len(moves)} notes"
         )
-        items: list[StagedChange] = []
-        rewrites: list[tuple[str, str]] = []
+        paired: list[tuple[StagedChange, tuple[str, str]]] = []
         for src in self._crud_repo.get_many(sorted(source_ids), workspace.owner_id):
             loc = locate_note(src, ws_path)
             if not loc.file_exists:
@@ -445,21 +444,18 @@ class NoteLinkService:
             # just read, not the DB row — this rewrite never changes them (#105). The DB row
             # write below enforces the same claim: only updated_at/index_generation move (#125).
             meta = replace(data_meta, id=src.id, title=src.title)
-            items.append(
-                StagedChange(
-                    add=loc.relative,
-                    remove=None,
-                    apply=partial(write_note_file, loc.filepath, meta, new_body),
-                )
+            item = StagedChange(
+                add=loc.relative,
+                remove=None,
+                apply=partial(write_note_file, loc.filepath, meta, new_body),
             )
-            rewrites.append((src.id, src.updated_at))
+            paired.append((item, (src.id, src.updated_at)))
 
         # Chunked (#171): one commit_rows_then_tree call per MAX_BATCH_COMMIT_SIZE sources,
         # not one for the whole (workspace-derived, unbounded) rewrite. Unlike rename_tag,
         # this never rejects an oversized batch outright — it always runs after a primary
         # write (a move/rename/update) already committed, so refusing here would leave that
         # primary operation committed while silently skipping backlink repair.
-        paired = list(zip(items, rewrites, strict=True))
         for chunk in batched(paired, MAX_BATCH_COMMIT_SIZE, strict=False):
             chunk_items = [item for item, _ in chunk]
             chunk_rewrites = [rewrite for _, rewrite in chunk]
@@ -505,5 +501,5 @@ class NoteLinkService:
             ws=workspace.ws_name,
             moved=len(moves),
             sources=len(source_ids),
-            rewritten=len(rewrites),
+            rewritten=len(paired),
         )

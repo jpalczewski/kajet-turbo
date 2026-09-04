@@ -402,6 +402,37 @@ def test_rename_tag_db_failure_leaves_tree_and_all_rows_untouched(service, works
         assert on_disk.tags == ["work"]
 
 
+def test_rename_tag_join_table_sync_failure_rolls_back_the_whole_chunk(service, workspace):
+    """#171: sync_note_tags_many_in_session runs inside write_rows now — the same
+    transaction as the row update, committed before the same chunk's file write and git
+    commit (commit_rows_then_tree runs write_rows, then StagedChange.apply(), then
+    commit_changes, in that order) — instead of as a separate call after
+    commit_rows_then_tree already returned. A failure there must roll back the row update
+    and skip the file write and git commit entirely, not leave the file/row saying the new
+    tag while note_tags (what note_ids_for_tags reads) still says the old one — the shape
+    that made a note permanently unrepairable by a retry, since the retry's dedup check
+    skips a note whose file already matches the target."""
+    note_id = service.save("u1", "ws", str(workspace), "A", "body", ["work"])["note_id"]
+    sha_before = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    with (
+        patch.object(
+            service._tag_repo,
+            "sync_note_tags_many_in_session",
+            side_effect=RuntimeError("tag sync exploded"),
+        ),
+        pytest.raises(RuntimeError, match="tag sync exploded"),
+    ):
+        _rename(service, workspace, "work", "job")
+
+    assert service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"] == (
+        sha_before
+    )
+    assert service.get(note_id, owner_id="u1")["tags"] == ["work"]
+    on_disk, _ = read_note_file(note_filepath(str(workspace), "", "A"))
+    assert on_disk.tags == ["work"]
+
+
 def test_rename_tag_serializes_with_a_concurrent_tag_edit(service, workspace, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event

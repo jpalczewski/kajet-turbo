@@ -73,9 +73,11 @@ resolve within the active workspace.
 ## Tags
 - Tags are hierarchical slash-paths ("work/projects"); list_notes/search_notes filters match
   by segment prefix, so tags= ["work"] also returns notes tagged "work/projects"
-- rename_tag — rename a tag across the whole workspace in one commit instead of N x set_tags.
-  Takes the subtree with it and rewrites inline #hashtags in note bodies. Renaming onto an
-  existing tag is a merge and needs merge=true; otherwise it reports the conflict untouched
+- rename_tag — rename a tag across the whole workspace instead of N x set_tags. Takes the
+  subtree with it and rewrites inline #hashtags in note bodies. Renaming onto an existing tag
+  is a merge and needs merge=true; otherwise it reports the conflict untouched. A rename over
+  ~500 notes lands as several git commits, not one — a mid-rename failure needs a merge=true
+  retry, same as renaming onto an existing tag
 
 ## Batch editing
 - edit_note(replace_all=true) — replace_text/delete_text on every match in one note

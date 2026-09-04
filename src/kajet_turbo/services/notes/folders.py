@@ -303,13 +303,22 @@ class NoteFolderService:
             )
             for note in notes
         ]
-        workspace_links.rewrite_backlinks(moves, ws_path, repo)
+        try:
+            workspace_links.rewrite_backlinks(moves, ws_path, repo)
+        finally:
+            # rewrite_backlinks chunks internally (#171): a failure partway through can
+            # leave some of affected_sources rewritten and some not, with the exception
+            # propagating before this method would otherwise reach mark_and_enqueue below.
+            # Marking regardless of success queues the lazy ReconcileLinksHandler pass
+            # (services/notes/CLAUDE.md's "Link resolution has two consistency tiers") as a
+            # safety net for whatever a partial rewrite left stale — the move itself already
+            # committed by this point either way, so there's nothing to roll back here.
+            if self._reconcile_repo is not None:
+                self._reconcile_repo.mark_and_enqueue(owner_id, workspace, affected_sources)
         remove_empty_tree(ws_path, src_n)
         if self._folder_meta_repo is not None:
             self._folder_meta_repo.rename_paths(owner_id, workspace, src_n, dst_n)
         logger.info("folder_moved", src=src_n, dst=dst_n, count=len(notes))
-        if self._reconcile_repo is not None:
-            self._reconcile_repo.mark_and_enqueue(owner_id, workspace, affected_sources)
         return {"moved": len(notes), "src": src_n, "dst": dst_n}
 
     @workspace_write_transaction
