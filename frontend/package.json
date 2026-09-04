@@ -6,7 +6,7 @@
   "scripts": {
     "prepare": "svelte-kit sync",
     "dev": "vite dev",
-    "build": "vite build",
+    "build": "vite build && bun scripts/write-csp-hash.js",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",

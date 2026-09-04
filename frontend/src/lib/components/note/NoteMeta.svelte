@@ -79,7 +79,7 @@
         <h4 class="meta__heading">Outline</h4>
         <ul class="meta__outline">
           {#each outline as item (item.id)}
-            <li style="padding-left: {(item.level - 1) * 10}px">
+            <li style:padding-left="{(item.level - 1) * 10}px">
               <a class="meta__anchor" href={`#${item.id}`}>{item.text}</a>
             </li>
           {/each}

@@ -62,3 +62,80 @@ runs:
       env:
         IMAGE_REF: ${{ inputs.image-ref }}
       run: docker run --rm --entrypoint caddy "$IMAGE_REF" validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+    # kajet-api/kajet-mcp aren't started here, so this only exercises routes
+    # Caddy can answer on its own: the static SPA and its 404 fallback (#45).
+    # That's enough to verify the response security headers (#92) — they're
+    # set once, upstream of @mcp/@api/@spa_*/file_server alike (see Caddyfile).
+    - name: Start ingress smoke test
+      if: ${{ inputs.target == 'ingress' }}
+      shell: bash
+      env:
+        IMAGE_REF: ${{ inputs.image-ref }}
+      run: docker run --detach --name kajet-ingress-smoke --publish 18080:8000 "$IMAGE_REF"
+
+    - name: Verify ingress response security headers
+      if: ${{ inputs.target == 'ingress' }}
+      shell: bash
+      run: |
+        ready=false
+        deadline=$((SECONDS + 30))
+        while (( SECONDS < deadline )); do
+          if [[ "$(docker inspect --format '{{.State.Running}}' kajet-ingress-smoke)" != true ]]; then
+            docker logs kajet-ingress-smoke
+            exit 1
+          fi
+          if curl --silent --fail --output /dev/null http://127.0.0.1:18080/; then
+            ready=true
+            break
+          fi
+          sleep 1
+        done
+        if [[ "$ready" != true ]]; then
+          docker logs kajet-ingress-smoke
+          exit 1
+        fi
+
+        fail=0
+        check_header() {
+          local url=$1 name=$2 expected=$3
+          local actual
+          actual="$(curl --silent --include "$url" | grep -i "^${name}:" | tr -d '\r')"
+          if [[ "$actual" != "${name}: ${expected}"* ]]; then
+            echo "::error::${url} — expected '${name}: ${expected}', got '${actual:-<absent>}'"
+            fail=1
+          fi
+        }
+
+        # SPA root: full set of baseline headers.
+        check_header "http://127.0.0.1:18080/" "X-Content-Type-Options" "nosniff"
+        check_header "http://127.0.0.1:18080/" "X-Frame-Options" "DENY"
+        check_header "http://127.0.0.1:18080/" "Referrer-Policy" "strict-origin-when-cross-origin"
+        check_header "http://127.0.0.1:18080/" "Permissions-Policy" "camera=()"
+        check_header "http://127.0.0.1:18080/" "Content-Security-Policy" "default-src 'self'; script-src 'self' 'sha256-"
+
+        # Scanner-probe-shaped path (#45): still a real 404, still carries the
+        # same headers — the file_server error path is the one that silently
+        # dropped them when the header directive used `defer` (see Caddyfile).
+        probe_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/.env)"
+        if [[ "$probe_status" != "404" ]]; then
+          echo "::error::GET /.env — expected 404, got ${probe_status}"
+          fail=1
+        fi
+        check_header "http://127.0.0.1:18080/.env" "X-Content-Type-Options" "nosniff"
+        check_header "http://127.0.0.1:18080/.env" "Content-Security-Policy" "default-src 'self'; script-src 'self' 'sha256-"
+
+        # Locks in the current, deliberate choice not to set HSTS here (see
+        # Caddyfile comment) — a future edit that adds it should update that
+        # comment too, not slip in silently.
+        if curl --silent --include http://127.0.0.1:18080/ | grep -qi "^Strict-Transport-Security:"; then
+          echo "::error::unexpected Strict-Transport-Security header — see Caddyfile comment on HSTS ownership"
+          fail=1
+        fi
+
+        exit "$fail"
+
+    - name: Remove ingress smoke container
+      if: ${{ always() && inputs.target == 'ingress' }}
+      shell: bash
+      run: docker rm --force kajet-ingress-smoke >/dev/null 2>&1 || true

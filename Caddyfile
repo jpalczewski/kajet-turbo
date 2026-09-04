@@ -33,6 +33,38 @@
 		not path_regexp (^|/)\.[^/]+
 	}
 
+	# Baseline response security headers (#92), applied to every response this
+	# server writes — static SPA files, the @mcp/@api reverse proxies, and
+	# Caddy's own file_server 404s for scanner probes (#45) alike. No `defer`
+	# needed: kajet-api/kajet-mcp never set these header names themselves, so
+	# there's no upstream value to race — confirmed against reverse_proxy
+	# locally, where deferring instead dropped these off file_server's error
+	# responses entirely (Caddy's error path writes fresh, bypassing deferred
+	# header ops registered on the normal response chain).
+	#
+	# No Strict-Transport-Security here. Caddy only ever speaks plain HTTP on
+	# :80/:8000 — TLS terminates at the host Traefik/Coolify proxy upstream of
+	# this container — so Caddy has no visibility into the public domain,
+	# certs, or subdomains an HSTS policy needs to be scoped against; that
+	# context lives entirely at the host layer, which is where the decision
+	# belongs. Whether Traefik/Coolify already sends HSTS on the production
+	# domain is unverified as of #92 — check and add it there if not, rather
+	# than duplicating a policy this repo can't fully see into.
+	#
+	# CSP script-src/style-src carry hashes for the two bits of inline content
+	# SvelteKit's static output needs allowed — the hydration bootstrap script
+	# and the #svelte-announcer a11y live region's style attribute (needs
+	# 'unsafe-hashes' since CSP hashes don't cover attributes by default).
+	# Baked in at image build time by the Dockerfile (see write-csp-hash.js) —
+	# the placeholders below never reach a running container.
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		X-Frame-Options "DENY"
+		Content-Security-Policy "default-src 'self'; script-src 'self' '__CSP_SCRIPT_HASH__'; style-src 'self' 'unsafe-hashes' '__CSP_STYLE_HASH__'; img-src 'self' https: data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+	}
+
 	# Keep route order explicit: public backend routes must win before static files.
 	route {
 		handle @mcp {
