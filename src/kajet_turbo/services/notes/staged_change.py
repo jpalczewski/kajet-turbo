@@ -16,10 +16,13 @@ from kajet_turbo import perf
 from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
 
-# Caps how many rows/items a single commit_rows_then(_tree) transaction covers (#171):
-# above this, a caller chunks into several transactions/commits instead of one, bounding
-# the SQLite write-lock hold time and the size of a batch's note_ids log field. 500 is
-# well above ordinary personal-notebook batch sizes, so routine calls never chunk.
+# Shared size cap for callers whose batch is workspace-derived rather than caller-bounded
+# (#171: rename_tag, _rewrite_backlinks) — above this, such a caller chunks its own batch
+# via itertools.batched into several commit_rows_then_tree calls instead of one, bounding
+# the SQLite write-lock hold time and the size of a chunk's note_ids log field. Neither
+# commit_rows_then nor commit_rows_then_tree enforces this themselves; each caller that
+# needs it applies it before calling in. 500 is well above ordinary personal-notebook
+# batch sizes, so routine calls never chunk.
 MAX_BATCH_COMMIT_SIZE = 500
 
 

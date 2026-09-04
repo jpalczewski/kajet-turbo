@@ -214,9 +214,10 @@ def test_prune_empty_folders_removes_orphans_keeps_gitkeep(service, workspace):
 
 def test_move_folder_db_failure_leaves_git_committed_and_rows_healable(service, workspace):
     """#170: move_folder now commits the git tree unconditionally *first* (matching
-    pre-#155 behavior), then batches the DB folder-column update in its own transaction —
-    so a DB-side failure on note k rolls back every note's row in that transaction, but the
-    git commit recording the already-completed file move has already landed regardless.
+    pre-#155 behavior), then writes every note's folder-column update in one DB
+    transaction of its own — so a DB-side failure on note k rolls back every note's row,
+    but the git commit recording the already-completed file move has already landed
+    regardless.
     This restores the self-healing direction: rows lag behind an already-correct tree,
     which is exactly what reconcile_paths heals, and history for the note's new path is
     real (not empty, which was the actual observable symptom of the pre-fix bug)."""
@@ -279,8 +280,9 @@ def test_move_folder_git_failure_leaves_nothing_committed_or_written(service, wo
 
 
 def test_move_folder_with_no_notes_logs_nothing(service, workspace, capsys):
-    """#172: an aux-file-only folder move touches zero notes, so the chunked DB-write loop
-    never runs — zero repository_operation calls, not a suppressed count=0 one."""
+    """#172: an aux-file-only folder move touches zero notes, so the `if notes:` guard
+    around the DB write never opens a transaction — zero repository_operation calls, not a
+    suppressed count=0 one."""
     from kajet_turbo.log import setup_logging
     from kajet_turbo.repositories.git import GitRepository
     from tests.helpers import entries_named, read_log_entries

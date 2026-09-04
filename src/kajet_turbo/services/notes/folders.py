@@ -1,5 +1,4 @@
 import shutil
-from itertools import batched
 from pathlib import Path
 from secrets import token_hex
 
@@ -19,7 +18,6 @@ from kajet_turbo.services.notes.paths import (
     path_conflict_key,
 )
 from kajet_turbo.services.notes.staged_change import (
-    MAX_BATCH_COMMIT_SIZE,
     StagedChange,
     commit_rows_then_tree,
 )
@@ -267,12 +265,18 @@ class NoteFolderService:
         # See services/notes/CLAUDE.md's #155 section.
         repo.commit_changes(removed=removed_rels, added=added_rels, message=message)
 
-        # Update every folder column, batched in chunks (bounds SQLite write-lock hold
-        # time, #171) so a single move_folder call never opens one unbounded transaction.
+        # Update every folder column in one transaction — safe to leave unchunked because
+        # _MOVE_FOLDER_MAX_NOTES above already bounds it to a few thousand plain UPDATEs,
+        # and (unlike the old commit_rows_then call) no git commit runs inside this
+        # transaction to make its hold time a concern. Chunking here would trade this
+        # atomicity for no benefit: a failure partway through a chunked write would leave
+        # the git tree fully reflecting the move while only some chunks' rows updated, and
+        # skip the backlink rewrite/cleanup below entirely for every note including
+        # already-committed chunks — worse than the single-transaction shape kept here.
         # THEN rewrite backlinks: a link from one moved note to another (same folder being
         # moved) is only found if the source note's DB folder already points at its new —
         # and now real — file location.
-        for chunk in batched(notes, MAX_BATCH_COMMIT_SIZE, strict=False):
+        if notes:
             with (
                 self._crud_repo.operation(
                     "move_folder",
@@ -280,11 +284,11 @@ class NoteFolderService:
                     owner_id=owner_id,
                     src=src_n,
                     dst=dst_n,
-                    note_ids=[note.id for note in chunk],
+                    count=len(notes),
                 ) as op,
                 op.session.begin(),
             ):
-                for note in chunk:
+                for note in notes:
                     self._crud_repo.update_in_session(
                         op.session,
                         note.id,
@@ -292,8 +296,6 @@ class NoteFolderService:
                         updated_at=note.updated_at,
                         folder=remap[note.id],
                     )
-                op.session.flush()
-                op.report_count(len(chunk))
         moves = [
             (
                 IndexedNote(note.id, note.folder, note.title),
