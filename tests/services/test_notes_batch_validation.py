@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from kajet_turbo.repositories.git import GitRepository
+from tests.services.helpers import edit_item
 
 
 def _head_sha(workspace, relative_path: str) -> str:
@@ -13,7 +14,10 @@ def _head_sha(workspace, relative_path: str) -> str:
 
 def _run(operation: str, service, workspace, items: list[dict]) -> dict:
     if operation == "edit":
-        edits = [{"mode": "append", "content": "x", **item} for item in items]
+        edits = [
+            edit_item(item.get("note_id", ""), item.get("expected_sha", ""), content="x")
+            for item in items
+        ]
         return service.edit_many("u1", "ws", str(workspace), edits)
     return service.delete_many("u1", "ws", str(workspace), items)
 
@@ -106,14 +110,14 @@ def test_edit_many_preserves_mixed_validation_error_order(service, workspace):
         "ws",
         str(workspace),
         [
-            {
-                "note_id": first["note_id"],
-                "mode": "replace_text",
-                "old_str": "missing",
-                "new_str": "x",
-                "expected_sha": _head_sha(workspace, "First.md"),
-            },
-            {"note_id": second["note_id"]},
+            edit_item(
+                first["note_id"],
+                _head_sha(workspace, "First.md"),
+                mode="replace_text",
+                old_str="missing",
+                new_str="x",
+            ),
+            edit_item(second["note_id"]),
         ],
     )
 

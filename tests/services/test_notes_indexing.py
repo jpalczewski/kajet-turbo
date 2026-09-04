@@ -1,3 +1,4 @@
+from kajet_turbo.markdown import EditSpec
 from kajet_turbo.repositories.notes import NoteChunkRepository
 from tests.services.conftest import build_note_service
 
@@ -68,7 +69,7 @@ def test_update_reindexes_with_new_content(database, git_workspace_factory):
         owner_id="u1",
         ws_path=str(ws),
         expected_sha=sha,
-        content="# Title\n\nbrand new body\n",
+        edit=EditSpec(content="# Title\n\nbrand new body\n"),
     )
     assert any("brand new body" in c for _, _, c in indexer.indexed)
 

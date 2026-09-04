@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from kajet_turbo.markdown import EditSpec
 from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
 from tests.services.conftest import seed_user
 from tests.services.helpers import corrupt_temporal_field, make_flaky_db_write
@@ -50,7 +51,7 @@ def test_update_resyncs_tags(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        content="body #new",
+        edit=EditSpec(content="body #new"),
     )
     paths = {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")}
     assert paths == {"keep", "new"}  # #old gone, #new added, frontmatter 'keep' stays

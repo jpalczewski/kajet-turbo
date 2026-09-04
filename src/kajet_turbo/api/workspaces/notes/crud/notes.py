@@ -14,7 +14,7 @@ from kajet_turbo.api.workspaces.notes._views import enrich_note_items
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
 from kajet_turbo.errors import AuthError, FolderError, NoteError
-from kajet_turbo.markdown import BrokenWikilinkError
+from kajet_turbo.markdown import BrokenWikilinkError, EditSpec
 from kajet_turbo.repositories.git import GitError  # exception class, not errors.GitError StrEnum
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -181,7 +181,7 @@ async def api_update_note(
             ws_path=ws_path,
             expected_sha=expected_sha,
             title=title,
-            content=content,
+            edit=EditSpec(content=content),
             tags=tags,
             folder=folder,
             clear_date_metadata=bool(body.get("clear_date_metadata", False)),

@@ -2,6 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from kajet_turbo.markdown import EditMode, EditSpec
 from kajet_turbo.shared.notes import (
     FolderContext,
     NoteLinkItemWithMeta,
@@ -259,15 +260,7 @@ class NoteEditInput(ToolInput):
         description="The note's current HEAD sha from get_note/get_note_history — proof you "
         "saw this version before editing. A mismatch rejects the whole batch."
     )
-    mode: Literal[
-        "overwrite",
-        "append",
-        "prepend",
-        "replace_section",
-        "replace_text",
-        "insert_after",
-        "delete_text",
-    ] = Field(
+    mode: EditMode = Field(
         default="append",
         description="As in edit_note. Defaults to 'append' (the least destructive) — in a "
         "batch, 'overwrite' across many notes at once is easy to get wrong.",
@@ -293,6 +286,18 @@ class NoteEditInput(ToolInput):
     clear_date_metadata: bool = Field(
         default=False, description="Clear occurred_at and period; cannot be combined with either"
     )
+
+    def to_edit_spec(self) -> EditSpec:
+        """The mode-dependent edit payload, typed — batch bookkeeping (note_id,
+        expected_sha, tags, ...) stays on this model, edit_many assembles the rest."""
+        return EditSpec(
+            mode=self.mode,
+            content=self.content,
+            old_str=self.old_str,
+            new_str=self.new_str,
+            target_heading=self.target_heading,
+            replace_all=self.replace_all,
+        )
 
 
 class EditNotesSuccessItem(BaseModel):

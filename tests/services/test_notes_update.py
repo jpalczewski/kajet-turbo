@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from kajet_turbo import perf
+from kajet_turbo.markdown import EditSpec
 from tests.services.helpers import head_sha, make_flaky_db_write
 
 
@@ -20,7 +21,11 @@ def test_update_perf_span_excludes_git_commit_from_db_ms(service, workspace):
     started = time.monotonic()
     with perf.perf_span() as span:
         service.update(
-            note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, content="new body"
+            note_id,
+            owner_id="u1",
+            ws_path=str(workspace),
+            expected_sha=sha,
+            edit=EditSpec(content="new body"),
         )
     duration_ms = (time.monotonic() - started) * 1000
 
@@ -51,7 +56,7 @@ def test_update_git_error_reverts_file(service, workspace):
             owner_id="u1",
             ws_path=str(workspace),
             expected_sha=sha,
-            content="nowa treść",
+            edit=EditSpec(content="nowa treść"),
         )
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
     assert note.content == "stara treść"
@@ -82,7 +87,7 @@ def test_update_rename_git_error_reverts_to_old_path(service, workspace):
             ws_path=str(workspace),
             expected_sha=sha,
             title="New title",
-            content="new content",
+            edit=EditSpec(content="new content"),
         )
 
     assert (workspace / "Original.md").exists()
@@ -111,7 +116,7 @@ def test_update_db_failure_leaves_file_and_row_untouched(service, workspace):
             owner_id="u1",
             ws_path=str(workspace),
             expected_sha=sha,
-            content="new content",
+            edit=EditSpec(content="new content"),
         )
 
     assert head_sha(workspace, "Stable.md") == sha
@@ -178,9 +183,7 @@ def test_update_append_mode_adds_to_section(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        content="- Drugie",
-        mode="append",
-        target_heading="## Zadania",
+        edit=EditSpec(content="- Drugie", mode="append", target_heading="## Zadania"),
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
@@ -198,9 +201,7 @@ def test_update_replace_text_mode(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        mode="replace_text",
-        old_str="world",
-        new_str="earth",
+        edit=EditSpec(mode="replace_text", old_str="world", new_str="earth"),
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
@@ -216,9 +217,7 @@ def test_update_insert_after_mode(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        mode="insert_after",
-        old_str="- A",
-        new_str="- A.5",
+        edit=EditSpec(mode="insert_after", old_str="- A", new_str="- A.5"),
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
@@ -235,8 +234,7 @@ def test_update_edit_mode_requires_content(service, workspace):
             owner_id="u1",
             ws_path=str(workspace),
             expected_sha=sha,
-            mode="append",
-            target_heading=None,
+            edit=EditSpec(mode="append", target_heading=None),
         )
 
 
@@ -250,8 +248,7 @@ def test_update_replace_text_requires_new_str(service, workspace):
             owner_id="u1",
             ws_path=str(workspace),
             expected_sha=sha,
-            mode="replace_text",
-            old_str="world",
+            edit=EditSpec(mode="replace_text", old_str="world"),
         )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
@@ -267,8 +264,7 @@ def test_update_delete_text_mode(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        mode="delete_text",
-        old_str="- B\n",
+        edit=EditSpec(mode="delete_text", old_str="- B\n"),
     )
 
     note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
@@ -285,9 +281,7 @@ def test_update_replace_text_ambiguous_raises(service, workspace):
             owner_id="u1",
             ws_path=str(workspace),
             expected_sha=sha,
-            mode="replace_text",
-            old_str="foo",
-            new_str="qux",
+            edit=EditSpec(mode="replace_text", old_str="foo", new_str="qux"),
         )
 
 
@@ -299,10 +293,7 @@ def test_update_replace_text_replace_all_reports_count(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        mode="replace_text",
-        old_str="foo",
-        new_str="qux",
-        replace_all=True,
+        edit=EditSpec(mode="replace_text", old_str="foo", new_str="qux", replace_all=True),
     )
     assert updated["replaced"] == 3
     reread = service.get_with_content(result["note_id"], "u1", str(workspace))
@@ -317,9 +308,7 @@ def test_update_without_replace_all_replaced_is_none(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        mode="replace_text",
-        old_str="unique",
-        new_str="new",
+        edit=EditSpec(mode="replace_text", old_str="unique", new_str="new"),
     )
     assert updated["replaced"] is None
 
@@ -333,7 +322,5 @@ def test_update_replace_all_wrong_mode_raises(service, workspace):
             owner_id="u1",
             ws_path=str(workspace),
             expected_sha=sha,
-            mode="overwrite",
-            content="new body",
-            replace_all=True,
+            edit=EditSpec(mode="overwrite", content="new body", replace_all=True),
         )

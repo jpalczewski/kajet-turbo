@@ -1,5 +1,7 @@
 """set_tags/update confirmation gating and stale expected_sha coverage."""
 
+from kajet_turbo.markdown import EditSpec
+
 
 def test_set_tags_stale_sha_rejected(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "T", "body", ["docs", "extra"])["note_id"]
@@ -30,7 +32,11 @@ def test_update_fresh_sha_applies_content_overwrite(service, workspace):
     sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
     result = service.update(
-        note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, content="nowa treść"
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha,
+        edit=EditSpec(content="nowa treść"),
     )
 
     assert result == {
@@ -54,7 +60,7 @@ def test_update_no_gate_on_empty_body_overwrite(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        content="pierwsza treść",
+        edit=EditSpec(content="pierwsza treść"),
     )
 
     assert result == {
@@ -78,9 +84,7 @@ def test_update_no_gate_on_surgical_append(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=sha,
-        content="- b",
-        mode="append",
-        target_heading="## H",
+        edit=EditSpec(content="- b", mode="append", target_heading="## H"),
     )
 
     assert result == {
@@ -115,7 +119,7 @@ def test_update_rejects_stale_expected_sha(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=stale_sha,
-        content="v2",
+        edit=EditSpec(content="v2"),
     )
 
     result = service.update(
@@ -123,7 +127,7 @@ def test_update_rejects_stale_expected_sha(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=stale_sha,
-        content="v3",
+        edit=EditSpec(content="v3"),
     )
 
     assert result["stale_sha"] is True
@@ -167,9 +171,7 @@ def test_update_stale_sha_rejected_even_for_pure_append(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=stale_sha,
-        content="- b",
-        mode="append",
-        target_heading="## H",
+        edit=EditSpec(content="- b", mode="append", target_heading="## H"),
     )
 
     result = service.update(
@@ -177,9 +179,7 @@ def test_update_stale_sha_rejected_even_for_pure_append(service, workspace):
         owner_id="u1",
         ws_path=str(workspace),
         expected_sha=stale_sha,
-        content="- c",
-        mode="append",
-        target_heading="## H",
+        edit=EditSpec(content="- c", mode="append", target_heading="## H"),
     )
 
     assert result["stale_sha"] is True
@@ -190,7 +190,13 @@ def test_update_stale_sha_rejected_even_for_pure_append(service, workspace):
 def test_restore_version_stale_expected_sha_rejected(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Hist", "v1", [])["note_id"]
     sha1 = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace)).sha
-    service.update(note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha1, content="v2")
+    service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha1,
+        edit=EditSpec(content="v2"),
+    )
     result = service.restore_version(
         note_id, sha1, owner_id="u1", ws_path=str(workspace), expected_sha="0" * 12
     )

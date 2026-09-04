@@ -3,6 +3,7 @@ import pytest
 from kajet_turbo.markdown import (
     AnchorAmbiguousError,
     AnchorNotFoundError,
+    EditSpec,
     HeadingAmbiguousError,
     HeadingNotFoundError,
     append_content,
@@ -232,12 +233,12 @@ def test_insert_after_not_found_and_ambiguous():
 
 
 def test_apply_edit_overwrite_returns_content():
-    assert apply_edit("old", "overwrite", content="new").body == "new"
+    assert apply_edit("old", EditSpec(mode="overwrite", content="new")).body == "new"
 
 
 def test_apply_edit_overwrite_without_content_keeps_body():
     """The metadata-only edit path: edit_note(title=...) leaves the body untouched."""
-    assert apply_edit("old", "overwrite").body == "old"
+    assert apply_edit("old", EditSpec(mode="overwrite")).body == "old"
 
 
 @pytest.mark.parametrize(
@@ -253,12 +254,16 @@ def test_apply_edit_overwrite_without_content_keeps_body():
 )
 def test_apply_edit_requires_its_own_parameters(mode, kwargs, missing):
     with pytest.raises(ValueError, match=f"requires {missing}"):
-        apply_edit("body", mode, **kwargs)
+        apply_edit("body", EditSpec(mode=mode, **kwargs))
 
 
 def test_apply_edit_rejects_an_unknown_mode():
     with pytest.raises(ValueError, match="Unknown edit mode"):
-        apply_edit("body", "bogus", content="x")
+        apply_edit(
+            "body",
+            # deliberately outside EditMode - apply_edit's own runtime check is what's under test
+            EditSpec(mode="bogus", content="x"),  # ty: ignore[invalid-argument-type]
+        )
 
 
 @pytest.mark.parametrize(
@@ -277,11 +282,13 @@ def test_apply_edit_rejects_every_parameter_a_mode_does_not_own(mode, foreign):
     with pytest.raises(ValueError) as exc:
         apply_edit(
             "body",
-            mode,
-            content=passed["content"],
-            old_str=passed["old_str"],
-            new_str=passed["new_str"],
-            target_heading=passed["target_heading"],
+            EditSpec(
+                mode=mode,
+                content=passed["content"],
+                old_str=passed["old_str"],
+                new_str=passed["new_str"],
+                target_heading=passed["target_heading"],
+            ),
         )
     assert f"does not take {foreign}" in str(exc.value)
 
@@ -289,48 +296,60 @@ def test_apply_edit_rejects_every_parameter_a_mode_does_not_own(mode, foreign):
 def test_apply_edit_rejects_a_foreign_parameter_even_when_empty():
     """Presence, not truthiness — content="" is still the caller using the wrong parameter."""
     with pytest.raises(ValueError, match="does not take content"):
-        apply_edit("body", "replace_text", old_str="a", new_str="b", content="")
+        apply_edit("body", EditSpec(mode="replace_text", old_str="a", new_str="b", content=""))
 
 
 def test_apply_edit_routes_to_modes():
-    assert apply_edit("a\n", "append", content="b").body == "a\nb\n"
-    assert apply_edit("foo bar", "replace_text", old_str="foo", new_str="qux").body == "qux bar"
-    assert apply_edit("a", "insert_after", old_str="a", new_str="b").body == "a\nb\n"
-    assert apply_edit("keep [drop] keep", "delete_text", old_str="[drop] ").body == "keep keep"
+    assert apply_edit("a\n", EditSpec(mode="append", content="b")).body == "a\nb\n"
+    assert (
+        apply_edit("foo bar", EditSpec(mode="replace_text", old_str="foo", new_str="qux")).body
+        == "qux bar"
+    )
+    assert apply_edit("a", EditSpec(mode="insert_after", old_str="a", new_str="b")).body == "a\nb\n"
+    assert (
+        apply_edit("keep [drop] keep", EditSpec(mode="delete_text", old_str="[drop] ")).body
+        == "keep keep"
+    )
 
 
 def test_apply_edit_replace_text_replace_all_returns_count():
     result = apply_edit(
-        "foo bar foo baz foo", "replace_text", old_str="foo", new_str="qux", replace_all=True
+        "foo bar foo baz foo",
+        EditSpec(mode="replace_text", old_str="foo", new_str="qux", replace_all=True),
     )
     assert result.body == "qux bar qux baz qux"
     assert result.replaced == 3
 
 
 def test_apply_edit_delete_text_replace_all_returns_count():
-    result = apply_edit("x foo y foo z", "delete_text", old_str="foo ", replace_all=True)
+    result = apply_edit(
+        "x foo y foo z", EditSpec(mode="delete_text", old_str="foo ", replace_all=True)
+    )
     assert result.body == "x y z"
     assert result.replaced == 2
 
 
 def test_apply_edit_replace_all_no_match_raises():
     with pytest.raises(AnchorNotFoundError):
-        apply_edit("no match here", "replace_text", old_str="zzz", new_str="x", replace_all=True)
+        apply_edit(
+            "no match here",
+            EditSpec(mode="replace_text", old_str="zzz", new_str="x", replace_all=True),
+        )
 
 
 def test_apply_edit_replace_all_rejects_non_text_mode():
     with pytest.raises(ValueError, match="replace_all"):
-        apply_edit("body", "append", content="x", replace_all=True)
+        apply_edit("body", EditSpec(mode="append", content="x", replace_all=True))
 
 
 def test_apply_edit_without_replace_all_keeps_uniqueness_requirement():
     with pytest.raises(AnchorAmbiguousError):
-        apply_edit("foo bar foo", "replace_text", old_str="foo", new_str="qux")
+        apply_edit("foo bar foo", EditSpec(mode="replace_text", old_str="foo", new_str="qux"))
 
 
 def test_apply_edit_non_replace_all_modes_have_replaced_none():
-    assert apply_edit("old", "overwrite", content="new").replaced is None
-    assert apply_edit("a\n", "append", content="b").replaced is None
+    assert apply_edit("old", EditSpec(mode="overwrite", content="new")).replaced is None
+    assert apply_edit("a\n", EditSpec(mode="append", content="b")).replaced is None
 
 
 def test_polish_content_append_to_section():

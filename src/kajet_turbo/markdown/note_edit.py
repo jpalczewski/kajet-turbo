@@ -19,6 +19,7 @@ The parameter names mirror ``edit_note``'s and are chosen there — see
 """
 
 from dataclasses import dataclass
+from typing import Literal
 
 from markdown_it import MarkdownIt
 
@@ -44,6 +45,36 @@ class AnchorNotFoundError(ValueError):
 
 class AnchorAmbiguousError(ValueError):
     """Raised when ``old_str`` occurs more than once in the body."""
+
+
+EditMode = Literal[
+    "overwrite",
+    "append",
+    "prepend",
+    "replace_section",
+    "replace_text",
+    "insert_after",
+    "delete_text",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class EditSpec:
+    """One edit's payload, typed all the way from the MCP/REST boundary to ``apply_edit``.
+
+    Mirrors ``EditResult`` on the input side: a single object instead of five loose
+    kwargs, so a caller building one gets ``ty`` checking on every field instead of a
+    string-keyed dict lookup that silently yields ``None`` on a typo. Each mode owns a
+    subset of these fields — see ``_ACCEPTS`` below; passing a foreign one is a
+    validation error, not a silent no-op.
+    """
+
+    mode: EditMode = "overwrite"
+    content: str | None = None
+    old_str: str | None = None
+    new_str: str | None = None
+    target_heading: str | None = None
+    replace_all: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,17 +348,9 @@ def _text_edit(body: str, anchor: str, replacement: str, replace_all: bool) -> E
     return EditResult(body=replace_text(body, anchor, replacement))
 
 
-def apply_edit(
-    body: str,
-    mode: str,
-    *,
-    content: str | None = None,
-    old_str: str | None = None,
-    new_str: str | None = None,
-    target_heading: str | None = None,
-    replace_all: bool = False,
-) -> EditResult:
-    """Dispatch to the transform for ``mode``, validating its parameter set against _ACCEPTS.
+def apply_edit(body: str, spec: EditSpec) -> EditResult:
+    """Dispatch to the transform for ``spec.mode``, validating its parameter set against
+    _ACCEPTS.
 
     ``body`` is the current note body (no frontmatter). A parameter another mode owns is a
     validation error rather than a silently dropped argument.
@@ -342,6 +365,14 @@ def apply_edit(
     Raises ``ValueError`` (or a subclass) on an invalid parameter set or a failed
     anchor/heading lookup.
     """
+    mode = spec.mode
+    content, old_str, new_str, target_heading, replace_all = (
+        spec.content,
+        spec.old_str,
+        spec.new_str,
+        spec.target_heading,
+        spec.replace_all,
+    )
     if mode not in _ACCEPTS:
         raise ValueError(f"Unknown edit mode: '{mode}'.")
     if replace_all and mode not in ("replace_text", "delete_text"):
