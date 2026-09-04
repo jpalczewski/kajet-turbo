@@ -16,6 +16,15 @@ from kajet_turbo import perf
 from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
 
+# Shared size cap for callers whose batch is workspace-derived rather than caller-bounded
+# (#171: rename_tag, _rewrite_backlinks) — above this, such a caller chunks its own batch
+# via itertools.batched into several commit_rows_then_tree calls instead of one, bounding
+# the SQLite write-lock hold time and the size of a chunk's note_ids log field. Neither
+# commit_rows_then nor commit_rows_then_tree enforces this themselves; each caller that
+# needs it applies it before calling in. 500 is well above ordinary personal-notebook
+# batch sizes, so routine calls never chunk.
+MAX_BATCH_COMMIT_SIZE = 500
+
 
 @dataclass(frozen=True, slots=True)
 class StagedChange:
@@ -91,17 +100,14 @@ def commit_rows_then(
     failed", which leaves the tree ahead of the index; ``reconcile_paths`` heals that direction.
 
     "Rows first because SQL is cheap to fail before anything has touched disk" is the
-    rationale for every caller whose tree mutation runs *inside* ``commit_tree`` — that's
-    ``commit_rows_then_tree`` below, the ``StagedChange``-shaped specialization used by every
-    write whose tree mutation is expressible as add/remove items. It does NOT hold for
-    ``NoteFolderService.move_folder`` (``folders.py``), the other caller: its tree mutation is
-    a temp-dir rename choreography that physically moves files *before* this function ever
-    runs, not inside ``commit_tree`` — so by the time ``write_rows`` executes, disk has already
-    been mutated regardless of what happens next. For that caller this function only orders
-    the DB rows against the git commit that records an already-completed move; it does not
-    give the "nothing touched disk until the DB write succeeds" guarantee this docstring
-    describes for `commit_rows_then_tree`-shaped callers. See the call-site comment in
-    ``folders.py`` for what `move_folder` still doesn't cover.
+    rationale for every caller here — every one of them expresses its tree mutation as
+    ``StagedChange`` add/remove items and goes through ``commit_rows_then_tree`` below, which
+    is the only caller of this lower-level function. ``NoteFolderService.move_folder``
+    (``folders.py``) deliberately does NOT use this primitive: its tree mutation is a
+    temp-dir rename choreography that physically moves files *before* any commit path runs,
+    so the "nothing touched disk until the DB write succeeds" guarantee this docstring
+    describes would buy it nothing — see ``folders.py`` and ``services/notes/CLAUDE.md``'s
+    #155 section for why it commits git first instead.
     """
     with crud_repo.operation(operation, **operation_fields) as op, op.session.begin():
         write_rows(op.session)
