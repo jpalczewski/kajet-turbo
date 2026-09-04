@@ -1,4 +1,5 @@
 from dataclasses import asdict
+from datetime import date as _date
 from typing import Annotated
 
 from fastmcp import FastMCP
@@ -11,6 +12,7 @@ from kajet_turbo.mcp.collections.types import (
     CollectionResult,
     DefineCollectionResult,
     DeleteCollectionResult,
+    OpenEntryResult,
 )
 from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
 from kajet_turbo.mcp.tooling import publish_workspace_changed, read_tool, write_tool
@@ -117,5 +119,40 @@ def build_collections(
         """List every collection defined in the active workspace."""
         definitions = await run_sync(collection_service.list_collections, ws.path)
         return [_to_result(name, d) for name, d in definitions.items()]
+
+    @srv.tool(**write_tool(tags={"collections"}, destructive=False, idempotent=False))
+    @logged_tool
+    async def open_entry(
+        collection: Annotated[
+            str, Field(description="Name of the collection to open an entry in.")
+        ],
+        date: Annotated[
+            str,
+            Field(description="ISO calendar date (YYYY-MM-DD) the entry is addressed by."),
+        ],
+        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+    ) -> OpenEntryResult:
+        """Resolve or create a collection's entry for a date.
+
+        For a `cardinality="one"` collection this is idempotent: calling it again for the
+        same date always returns the same note (`created=false`) instead of risking a
+        duplicate alongside it — the natural way to fill in a past entry. For
+        `cardinality="many"` it always creates a new entry and allocates the next ordinal,
+        since entries at that cardinality are logged, not addressed by date alone.
+
+        Creates an empty note with no content — this does not apply a template.
+        """
+        try:
+            when = _date.fromisoformat(date)
+        except ValueError as exc:
+            raise ValueError(
+                f"date must be an ISO calendar date (YYYY-MM-DD), got {date!r}."
+            ) from exc
+        result = await run_sync(
+            collection_service.open_entry, ws.path, ws.name, ws.owner_id, collection, when
+        )
+        if result["created"]:
+            await publish_workspace_changed(ws)
+        return OpenEntryResult.model_validate(result)
 
     return srv

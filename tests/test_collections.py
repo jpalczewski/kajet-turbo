@@ -219,3 +219,42 @@ def test_dropped_members_empty_when_pair_still_matches_new_definition():
 )
 def test_static_prefix(template, expected):
     assert _static_prefix(template) == expected
+
+
+# --- sibling_pattern (open_entry ordinal allocation, #115) --------------------
+
+
+def test_sibling_pattern_matches_ordinal_in_folder():
+    definition = _daily_many(folder="sessions/{year}/{ordinal}", title="{date}")
+    pattern = definition.sibling_pattern(date(2026, 6, 1))
+    folder, title = definition.render(date(2026, 6, 1), ordinal=3)
+    match = pattern.match(f"{folder}/{title}")
+    assert match is not None
+    assert match.groups() == ("3",)
+
+
+def test_sibling_pattern_matches_ordinal_in_title():
+    definition = _daily_many(folder="sessions/{year}", title="{date} {ordinal}")
+    pattern = definition.sibling_pattern(date(2026, 6, 1))
+    folder, title = definition.render(date(2026, 6, 1), ordinal=12)
+    match = pattern.match(f"{folder}/{title}")
+    assert match is not None
+    assert match.groups() == ("12",)
+
+
+def test_sibling_pattern_matches_padded_ordinal():
+    definition = _daily_many(folder="sessions/{year}", title="{date} {ordinal:03d}")
+    pattern = definition.sibling_pattern(date(2026, 6, 1))
+    folder, title = definition.render(date(2026, 6, 1), ordinal=7)
+    assert title.endswith("007")
+    match = pattern.match(f"{folder}/{title}")
+    assert match is not None
+    assert int(match.group(1)) == 7
+
+
+def test_sibling_pattern_rejects_other_dates_and_collections():
+    definition = _daily_many(folder="sessions/{year}", title="{date} {ordinal}")
+    pattern = definition.sibling_pattern(date(2026, 6, 1))
+    other_date_folder, other_date_title = definition.render(date(2026, 6, 2), ordinal=1)
+    assert pattern.match(f"{other_date_folder}/{other_date_title}") is None
+    assert pattern.match("sessions/2026/unrelated note") is None

@@ -78,7 +78,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         oauth_repository,
         active_workspace_repository,
         provider,
-        CollectionService(note_repository),
+        CollectionService(note_repository, note_service_inst),
     )
     return McpTestContext(
         server,

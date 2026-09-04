@@ -164,8 +164,6 @@ _note_folder_service = NoteFolderService(
     link_reconcile_repo,
 )
 
-collection_service = CollectionService(note_repo)
-
 note_service = NoteService(
     note_repo,
     note_link_repo,
@@ -179,6 +177,8 @@ note_service = NoteService(
     indexer=note_indexer,
     reconcile_repo=link_reconcile_repo,
 )
+
+collection_service = CollectionService(note_repo, note_service)
 
 _ssh_key_repo = SshKeyRepository(db.engine)
 ssh_key_service = SshKeyService(_ssh_key_repo, lambda: cipher_for("ssh-key"))
