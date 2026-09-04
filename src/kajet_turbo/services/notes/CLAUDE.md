@@ -82,10 +82,21 @@ behind a `write_rows` closure passed into a shared helper), so a folder move tou
 
 Separately: `rename_tag` and `_rewrite_backlinks` can still touch every note in a workspace (a
 tag applied everywhere, a heavily-linked hub note being renamed) in one `commit_rows_then_tree`
-call, holding the single shared SQLite write lock for the DB rows *and* the multi-file git
-commit that follows, in one transaction — a cost the five original `commit_rows_then_tree`
-callers (`save`, `save_many`, `update`, `edit_many`, `apply_temporal_backfill`) already accepted,
-but only ever at a caller-bounded batch size. These two have no such bound (#171).
+call — unlike the five original `commit_rows_then_tree` callers (`save`, `save_many`, `update`,
+`edit_many`, `apply_temporal_backfill`), whose batch size is always caller-bounded. Both now
+chunk their writes to `MAX_BATCH_COMMIT_SIZE` (500) items per transaction/git commit
+(`staged_change.py`) instead of holding the shared SQLite write lock across one unbounded git
+commit (#171), trading single-commit atomicity for bounded lock-hold time, bounded
+`repository_operation` log-line size (a `note_ids` field per chunk restores the per-note
+traceability #173 lost), and resumability — `rename_tag` re-run after a mid-batch failure picks
+up exactly the unprocessed remainder, since `note_ids_for_tags` reads live join-table state; the
+already-renamed notes now carry the target tag, so the retry needs `merge=True`, same as
+renaming onto any other pre-existing tag. `move_folder`'s own DB write, by contrast, stays a
+single unchunked transaction (see above) — it doesn't need this trade-off since no git commit
+runs inside it — and rejects outright above `_MOVE_FOLDER_MAX_NOTES` (5000) before its disk move
+begins: unlike a tag rename or backlink rewrite, an oversized folder move is expensive and
+irreversible before either commit path runs, and the tool exposes a real workaround (move a
+subfolder at a time) that renaming a popular tag does not have.
 
 ## Link resolution has two consistency tiers
 

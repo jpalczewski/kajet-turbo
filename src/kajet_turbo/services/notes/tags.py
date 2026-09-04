@@ -2,6 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
+from itertools import batched
 
 from sqlmodel import Session
 
@@ -19,7 +20,11 @@ from kajet_turbo.repositories.git import (
 )
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.services.indexing import NoteIndexer
-from kajet_turbo.services.notes.staged_change import StagedChange, commit_rows_then_tree
+from kajet_turbo.services.notes.staged_change import (
+    MAX_BATCH_COMMIT_SIZE,
+    StagedChange,
+    commit_rows_then_tree,
+)
 from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
 from kajet_turbo.workspace import (
     LocatedNote,
@@ -327,68 +332,82 @@ class NoteTagService:
             return self._rename_result(old_n, new_n, 0, 0, bool(target_ids), warnings)
 
         now = datetime.now(UTC).isoformat()
-        items = [
-            StagedChange(
-                add=item.loc.relative,
-                remove=None,
-                apply=partial(
-                    write_note_file,
-                    item.loc.filepath,
-                    replace(
-                        item.meta,
-                        id=item.note.id,
-                        title=item.note.title,
-                        tags=item.new_tags,
-                        created_at=item.note.created_at,
-                        updated_at=now,
-                    ),
-                    item.new_body,
-                ),
-            )
-            for item in staged
-        ]
+        git_repo = GitRepository(ws_path)
         message = f"tag: rename {old_n} -> {new_n}"
 
-        def write_rows(session: Session) -> None:
-            for item in staged:
-                self._crud_repo.update_in_session(
-                    session,
-                    item.note.id,
-                    owner_id=owner_id,
-                    title=item.note.title,
-                    tags=item.new_tags,
-                    updated_at=now,
-                    folder=item.note.folder,
-                    occurred_at=item.meta.occurred_at,
-                    period=item.meta.period,
-                    bump_index_generation=item.body_changed,
+        # Chunked (#171): one commit_rows_then_tree call per MAX_BATCH_COMMIT_SIZE notes,
+        # not one for the whole (workspace-derived, unbounded) rename. sync_note_tags_many
+        # runs *inside* the loop — not after it — because note_ids_for_tags (used by a
+        # retry after a mid-batch failure) reads the note_tags join table that call
+        # maintains, so resumability depends on each chunk's join-table rows being synced
+        # before the next chunk or a re-run queries them again.
+        rewritten: list[_RenamedNote] = []
+        for chunk in batched(staged, MAX_BATCH_COMMIT_SIZE, strict=False):
+            items = [
+                StagedChange(
+                    add=item.loc.relative,
+                    remove=None,
+                    apply=partial(
+                        write_note_file,
+                        item.loc.filepath,
+                        replace(
+                            item.meta,
+                            id=item.note.id,
+                            title=item.note.title,
+                            tags=item.new_tags,
+                            created_at=item.note.created_at,
+                            updated_at=now,
+                        ),
+                        item.new_body,
+                    ),
                 )
+                for item in chunk
+            ]
 
-        commit_rows_then_tree(
-            self._crud_repo,
-            GitRepository(ws_path),
-            items,
-            message,
-            operation="rename_tag",
-            write_rows=write_rows,
-            owner_id=owner_id,
-            old=old_n,
-            new=new_n,
-            count=len(staged),
-        )
-        # One transaction and one orphan sweep for the batch, not one per note.
-        self._tag_repo.sync_note_tags_many(
-            ws_name,
-            owner_id,
-            {item.note.id: self.tagged(item.new_tags, item.new_body) for item in staged},
-        )
-        rewritten = [item for item in staged if item.body_changed]
-        # Chunks are title + content, so only a rewritten body invalidates the search index.
-        if self._indexer is not None and rewritten:
-            index_payload = [{"id": item.note.id} for item in rewritten]
-            defer_workspace_postprocess(
-                ws_path, partial(self._indexer.index_many, ws_name, owner_id, index_payload)
+            # write_rows runs synchronously within this same iteration (commit_rows_then_tree
+            # doesn't defer it), so closing over `chunk` is safe — the default arg below only
+            # silences ruff's B023, which can't see that.
+            def write_rows(session: Session, chunk: tuple[_RenamedNote, ...] = chunk) -> None:
+                for item in chunk:
+                    self._crud_repo.update_in_session(
+                        session,
+                        item.note.id,
+                        owner_id=owner_id,
+                        title=item.note.title,
+                        tags=item.new_tags,
+                        updated_at=now,
+                        folder=item.note.folder,
+                        occurred_at=item.meta.occurred_at,
+                        period=item.meta.period,
+                        bump_index_generation=item.body_changed,
+                    )
+
+            commit_rows_then_tree(
+                self._crud_repo,
+                git_repo,
+                items,
+                message,
+                operation="rename_tag",
+                write_rows=write_rows,
+                owner_id=owner_id,
+                old=old_n,
+                new=new_n,
+                count=len(chunk),
+                note_ids=[item.note.id for item in chunk],
             )
+            self._tag_repo.sync_note_tags_many(
+                ws_name,
+                owner_id,
+                {item.note.id: self.tagged(item.new_tags, item.new_body) for item in chunk},
+            )
+            chunk_rewritten = [item for item in chunk if item.body_changed]
+            rewritten.extend(chunk_rewritten)
+            # Chunks are title + content, so only a rewritten body invalidates the search index.
+            if self._indexer is not None and chunk_rewritten:
+                index_payload = [{"id": item.note.id} for item in chunk_rewritten]
+                defer_workspace_postprocess(
+                    ws_path, partial(self._indexer.index_many, ws_name, owner_id, index_payload)
+                )
         logger.info(
             "tag_renamed",
             old=old_n,

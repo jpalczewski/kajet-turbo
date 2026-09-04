@@ -360,6 +360,41 @@ def test_rewrite_backlinks_git_failure_leaves_row_and_move_intact(service, works
     )
 
 
+def test_rewrite_backlinks_chunks_large_batches_logging_note_ids_per_chunk(
+    service, workspace, monkeypatch, capsys
+):
+    """#171/#173: above MAX_BATCH_COMMIT_SIZE, _rewrite_backlinks splits into several
+    commit_rows_then_tree calls instead of one unbounded batch, each logging its own
+    repository_operation line with a note_ids field bounded to the chunk size."""
+    from kajet_turbo.log import setup_logging
+    from kajet_turbo.services.notes import links as links_module
+    from tests.helpers import entries_named, read_log_entries
+
+    monkeypatch.setattr(links_module, "MAX_BATCH_COMMIT_SIZE", 2)
+    tid = service.save("u1", "ws", str(workspace), "Target", "t", [])["note_id"]
+    source_ids = {
+        service.save("u1", "ws", str(workspace), f"Source {i}", "[[Target]]", [])["note_id"]
+        for i in range(5)
+    }
+    sha = service.get_history(tid, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    setup_logging()
+    service.update(tid, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="Renamed")
+
+    entries = entries_named(read_log_entries(capsys), "repository_operation")
+    rewrite_ops = [e for e in entries if e.get("operation") == "notes.rewrite_backlinks"]
+    assert len(rewrite_ops) == 3  # ceil(5/2)
+    logged_ids: set[str] = set()
+    for op in rewrite_ops:
+        chunk_ids = op["note_ids"]
+        assert len(chunk_ids) <= 2
+        logged_ids.update(chunk_ids)
+    assert logged_ids == source_ids
+    for source_id in source_ids:
+        src = service.get_with_content(source_id, owner_id="u1", ws_path=str(workspace))
+        assert src.content == "[[Renamed]]"
+
+
 def test_rewrite_backlinks_does_not_resync_occurred_at_period(service, workspace):
     """#125 (narrow): a backlink rewrite only ever changes wikilink text. It must not
     resync occurred_at/period from the file even when the file has drifted from the DB

@@ -3,7 +3,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
-from itertools import chain
+from itertools import batched, chain
 
 from sqlmodel import Session
 
@@ -24,7 +24,11 @@ from kajet_turbo.repositories.git import GitRepository, workspace_write_transact
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
 from kajet_turbo.services.indexing import reindex_job_entries
-from kajet_turbo.services.notes.staged_change import StagedChange, commit_rows_then_tree
+from kajet_turbo.services.notes.staged_change import (
+    MAX_BATCH_COMMIT_SIZE,
+    StagedChange,
+    commit_rows_then_tree,
+)
 from kajet_turbo.workspace import locate_note, path_segments, read_note_file, write_note_file
 
 # (old, new) identity of a note that was moved and/or renamed.
@@ -375,10 +379,11 @@ class NoteLinkService:
         Only same-workspace backlinks are rewritten: cross-workspace links use ``[[note:ID]]``
         syntax which is ID-stable and needs no path update.
 
-        Every affected source is staged, then committed together in one batch — via a raw
-        write, deliberately not the full ``NoteService.update()`` pipeline. Of the four steps
-        ``update()`` normally runs beyond the row/tree write, three are skipped here and one
-        is not, each for its own reason:
+        Every affected source is staged, then committed in chunks of up to
+        ``MAX_BATCH_COMMIT_SIZE`` sources (#171), each its own transaction and git commit —
+        via a raw write, deliberately not the full ``NoteService.update()`` pipeline. Of the
+        four steps ``update()`` normally runs beyond the row/tree write, three are skipped
+        here and one is not, each for its own reason:
 
         - ``replace_links``: no-op by construction. A link's graph edge is keyed on
           ``(source_note_id, target_note_id)``; the rewritten target is verified to resolve
@@ -449,10 +454,23 @@ class NoteLinkService:
             )
             rewrites.append((src.id, src.updated_at))
 
-        if items:
+        # Chunked (#171): one commit_rows_then_tree call per MAX_BATCH_COMMIT_SIZE sources,
+        # not one for the whole (workspace-derived, unbounded) rewrite. Unlike rename_tag,
+        # this never rejects an oversized batch outright — it always runs after a primary
+        # write (a move/rename/update) already committed, so refusing here would leave that
+        # primary operation committed while silently skipping backlink repair.
+        paired = list(zip(items, rewrites, strict=True))
+        for chunk in batched(paired, MAX_BATCH_COMMIT_SIZE, strict=False):
+            chunk_items = [item for item, _ in chunk]
+            chunk_rewrites = [rewrite for _, rewrite in chunk]
 
-            def write_rows(session: Session) -> None:
-                for note_id, updated_at in rewrites:
+            # write_rows runs synchronously within this same iteration (commit_rows_then_tree
+            # doesn't defer it), so closing over `chunk_rewrites` is safe — the default arg
+            # below only silences ruff's B023, which can't see that.
+            def write_rows(
+                session: Session, chunk_rewrites: list[tuple[str, str]] = chunk_rewrites
+            ) -> None:
+                for note_id, updated_at in chunk_rewrites:
                     self._crud_repo.update_in_session(
                         session,
                         note_id,
@@ -464,20 +482,23 @@ class NoteLinkService:
                     session,
                     "reindex_note",
                     reindex_job_entries(
-                        workspace.owner_id, workspace.ws_name, (note_id for note_id, _ in rewrites)
+                        workspace.owner_id,
+                        workspace.ws_name,
+                        (note_id for note_id, _ in chunk_rewrites),
                     ),
                 )
 
             commit_rows_then_tree(
                 self._crud_repo,
                 repo,
-                items,
+                chunk_items,
                 message,
                 operation="rewrite_backlinks",
                 write_rows=write_rows,
                 workspace=workspace.ws_name,
                 owner_id=workspace.owner_id,
-                count=len(rewrites),
+                count=len(chunk_rewrites),
+                note_ids=[note_id for note_id, _ in chunk_rewrites],
             )
         logger.info(
             "backlinks_rewritten",
