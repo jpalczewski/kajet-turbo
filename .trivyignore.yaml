@@ -121,6 +121,14 @@ vulnerabilities:
     purls: *util-linux-purls
     expired_at: 2026-09-30
     statement: Debian 13 has not published a fixed util-linux package.
+  - id: CVE-2026-78409
+    purls: *util-linux-purls
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed util-linux package.
+  - id: CVE-2026-78410
+    purls: *util-linux-purls
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed util-linux package.
 
   # Caddy 2.11.4 is the latest upstream release, but its binary was compiled
   # before these Go fixes. Scope each exception to that exact binary/package
