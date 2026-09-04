@@ -1,17 +1,20 @@
-"""Write verbs for workspace collections: define (add/redefine) and delete.
+"""Write verbs for workspace collections: define (add/redefine), delete, and open_entry.
 
 Collections are a single Git-tracked file, ``.kajet/collections.yaml`` — no DB mirror
-(see ``collections.py``). Writes go through ``GitRepository.transaction()`` (the
-in-process lock plus cross-process flock) around a read-modify-write-commit sequence,
-the same primitive ``api/workspaces/notes/crud/folders.py`` uses for its one-file
-``.gitkeep`` marker — not ``staged_workspace_change``, which is built for multi-file
-note-body batches with per-item rollback.
+(see ``collections.py``). ``define_collection``/``delete_collection`` go through
+``GitRepository.transaction()`` (the in-process lock plus cross-process flock) around a
+read-modify-write-commit sequence, the same primitive ``api/workspaces/notes/crud/folders.py``
+uses for its one-file ``.gitkeep`` marker — not ``staged_workspace_change``, which is built
+for multi-file note-body batches with per-item rollback. ``open_entry`` writes a note body
+instead of the collections file, so it delegates to ``NoteService.save`` (which does use
+``staged_workspace_change``) under the same reentrant workspace lock.
 """
 
 import os
 import stat
 import tempfile
 from dataclasses import asdict
+from datetime import date
 from pathlib import Path
 
 from kajet_turbo.collections import (
@@ -24,9 +27,11 @@ from kajet_turbo.collections import (
     load_collections,
     validate_definition,
 )
-from kajet_turbo.periods import PeriodKind
-from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.log import logger
+from kajet_turbo.periods import Period, PeriodKind
+from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.services.notes.service import NoteService
 
 
 def _write_collections_file(ws_path: str, definitions: dict[str, CollectionDefinition]) -> None:
@@ -62,9 +67,20 @@ def _serialize(definition: CollectionDefinition) -> dict:
     return asdict(definition)
 
 
+def _temporal_for(grain: PeriodKind, when: date) -> tuple[date | None, str | None]:
+    """The (occurred_at, period) frontmatter pair an entry addressed by ``when`` at
+    ``grain`` should carry — day grain is a point in time, everything coarser is a
+    period. Mutually exclusive by construction, matching NoteService.save's contract.
+    """
+    if grain == "day":
+        return when, None
+    return None, Period.containing(when, grain).key
+
+
 class CollectionService:
-    def __init__(self, note_repo: NoteRepository):
+    def __init__(self, note_repo: NoteRepository, note_service: NoteService):
         self._note_repo = note_repo
+        self._note_service = note_service
 
     def list_collections(self, ws_path: str) -> dict[str, CollectionDefinition]:
         return load_collections(ws_path)
@@ -170,3 +186,98 @@ class CollectionService:
             _write_collections_file(ws_path, updated)
             repo.commit_file(".kajet/collections.yaml", f"collections: delete {name}")
         return {"name": name, "deleted": True}
+
+    @workspace_write_transaction
+    def open_entry(self, ws_path: str, ws_name: str, owner_id: str, name: str, when: date) -> dict:
+        """Resolve or create ``name``'s entry addressed by ``when``.
+
+        ``cardinality="one"``: idempotent — the period key is an address, so this always
+        resolves to the same note, never a duplicate alongside it. ``cardinality="many"``:
+        entries are logged, not addressed, so this always creates a new one and allocates
+        the next ordinal (see ``_next_ordinal``).
+
+        ``workspace_write_transaction`` makes "does it already exist" and "create it" one
+        atomic step under the same reentrant, cross-process workspace lock ``NoteService.save``
+        itself takes (``git.py:_workspace_lock``) — no other writer can land a colliding note
+        between the check and the create, so the ``FileExistsError`` ``save`` can still raise
+        stays a defensive backstop (a ghost DB row, a case-fold collision), not the normal
+        control path for concurrent callers.
+
+        Not in scope: templates. A collection without one creates an empty note in the
+        right place with the right title, which is where the value is.
+        """
+        definition = load_collections(ws_path).get(name)
+        if definition is None:
+            raise ValueError(f"Collection '{name}' does not exist.")
+
+        ordinal: int | None = None
+        payload: dict | None = None
+        if definition.cardinality == "one":
+            folder, title = definition.render(when)
+            existing = self._note_repo.get_by_path(ws_name, owner_id, folder, title)
+            if existing is not None:
+                payload = {
+                    "note_id": existing.id,
+                    "folder": folder,
+                    "title": title,
+                    "created": False,
+                    "ordinal": None,
+                    "occurred_at": existing.occurred_at,
+                    "period": existing.period,
+                }
+        else:
+            ordinal = self._next_ordinal(ws_name, owner_id, definition, when)
+            folder, title = definition.render(when, ordinal)
+
+        if payload is None:
+            occurred_at, period = _temporal_for(definition.grain, when)
+            result = self._note_service.save(
+                owner_id,
+                ws_name,
+                ws_path,
+                title,
+                "",
+                [],
+                folder=folder,
+                occurred_at=occurred_at,
+                period=period,
+            )
+            payload = {
+                "note_id": result["note_id"],
+                "folder": folder,
+                "title": title,
+                "created": True,
+                "ordinal": ordinal,
+                "occurred_at": result["occurred_at"],
+                "period": result["period"],
+            }
+
+        logger.info(
+            "collection_entry_opened",
+            ws=ws_name,
+            collection=name,
+            grain=definition.grain,
+            created=payload["created"],
+            ordinal=ordinal,
+        )
+        return payload
+
+    def _next_ordinal(
+        self, ws_name: str, owner_id: str, definition: CollectionDefinition, when: date
+    ) -> int:
+        """The next ordinal for ``definition``'s entries on ``when``: the max ordinal
+        already in use among today's siblings, plus one — never a reused or renumbered
+        value (see ``CollectionDefinition.sibling_pattern``). Scoped to
+        ``_static_prefix(definition.folder)`` the same way redefinition-impact queries
+        are, since a folder template can itself carry ``{ordinal}``.
+        """
+        pattern = definition.sibling_pattern(when)
+        prefix = _static_prefix(definition.folder)
+        pairs = self._notes_under(ws_name, owner_id, prefix)
+        max_ordinal = 0
+        for folder, title in pairs:
+            match = pattern.match(f"{folder}/{title}")
+            if match is not None:
+                matched_ordinal = max((int(g) for g in match.groups()), default=0)
+                max_ordinal = max(max_ordinal, matched_ordinal)
+        return max_ordinal + 1

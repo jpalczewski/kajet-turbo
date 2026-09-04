@@ -29,3 +29,13 @@ class DefineCollectionResult(BaseModel):
 class DeleteCollectionResult(BaseModel):
     name: str
     deleted: bool
+
+
+class OpenEntryResult(BaseModel):
+    note_id: str
+    folder: str
+    title: str
+    created: bool
+    ordinal: int | None = None
+    occurred_at: str | None = None
+    period: str | None = None

@@ -7,6 +7,7 @@ mutations and call back into the pure helpers here for validation, collision
 detection, and redefinition-impact analysis.
 """
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
@@ -44,25 +45,56 @@ class CollectionDefinition:
     title: str
     description: str | None = None
 
-    def render(self, when: date, ordinal: int | None = None) -> tuple[str, str]:
-        """Render the collection path and title for a date.
-
-        ``ordinal`` is intentionally accepted here although creation belongs to #115:
-        it lets validation prove the configured pattern is legal without duplicating
-        the period-to-placeholder convention later.
-        """
+    def _placeholder_values(self, when: date) -> dict[str, object]:
         period = Period.containing(when, self.grain)
         values: dict[str, object] = {
             "date": when.isoformat(),
             "key": period.key,
             "year": period.key[:4],
-            "ordinal": ordinal if ordinal is not None else 1,
         }
         if self.grain == "week":
             values["month"] = month_of_week(period).key[5:]
         elif self.grain != "year":
             values["month"] = f"{when.month:02d}"
+        return values
+
+    def render(self, when: date, ordinal: int | None = None) -> tuple[str, str]:
+        """Render the collection path and title for a date.
+
+        ``ordinal`` lets validation (and ``open_entry``, #115) prove the configured
+        pattern is legal without duplicating the placeholder convention elsewhere.
+        """
+        values = {
+            **self._placeholder_values(when),
+            "ordinal": ordinal if ordinal is not None else 1,
+        }
         return self.folder.format(**values), self.title.format(**values)
+
+    def sibling_pattern(self, when: date) -> re.Pattern[str]:
+        """Regex matching the rendered ``folder/title`` of every entry this definition
+        could produce for ``when``, for any ordinal.
+
+        Used by ``open_entry`` (#115) to find this date's existing ``cardinality="many"``
+        entries and allocate the next ordinal as their max + 1 — never a reused or
+        renumbered value (see the module using this for why). ``{ordinal}`` may appear in
+        ``folder``, ``title``, or both (schema allows either); each occurrence becomes its
+        own unnamed capture group rather than one shared name, since Python's ``re`` forbids
+        reusing a group name — callers take ``max()`` across every captured group instead of
+        assuming a single one.
+        """
+        values = {k: re.escape(str(v)) for k, v in self._placeholder_values(when).items()}
+
+        def pattern_for(template: str) -> str:
+            parts: list[str] = []
+            for literal, field, _spec, _conv in Formatter().parse(template):
+                parts.append(re.escape(literal))
+                if field == "ordinal":
+                    parts.append(r"(\d+)")
+                elif field is not None:
+                    parts.append(values[field])
+            return "".join(parts)
+
+        return re.compile(f"{pattern_for(self.folder)}/{pattern_for(self.title)}$")
 
 
 def load_collections(workspace_path: str) -> dict[str, CollectionDefinition]:
