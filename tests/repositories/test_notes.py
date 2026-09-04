@@ -11,7 +11,6 @@ from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
     NoteRepository,
-    NoteTagRepository,
 )
 
 
@@ -28,11 +27,6 @@ def notes(db):
 @pytest.fixture
 def link_repo(db):
     return NoteLinkRepository(db.engine)
-
-
-@pytest.fixture
-def tag_repo(db):
-    return NoteTagRepository(db.engine)
 
 
 @pytest.fixture
@@ -113,15 +107,23 @@ def test_list_notes_by_workspace(notes):
     assert "id3" not in ids
 
 
-def test_list_notes_filter_by_tag(notes, tag_repo):
-    notes.insert("id1", "ws1", "u1", "Tagged", ["python", "mcp"], _now(), _now())
-    notes.insert("id2", "ws1", "u1", "Untagged", [], _now(), _now())
-    # list() now filters via the tag index (not JSON field); sync_note_tags populates it.
-    tag_repo.sync_note_tags("id1", "ws1", "u1", [("python", "frontmatter"), ("mcp", "frontmatter")])
-    result = notes.list_notes("ws1", owner_id="u1", tags=["python"], _tag_repo=tag_repo)
-    ids = [n["note_id"] for n in result]
-    assert "id1" in ids
-    assert "id2" not in ids
+def test_list_notes_filters_by_allowed_note_ids_after_ordering_and_before_limit(notes):
+    notes.insert("id1", "ws1", "u1", "Older allowed", [], _now(), "2026-01-01")
+    notes.insert("id2", "ws1", "u1", "Newest excluded", [], _now(), "2026-01-03")
+    notes.insert("id3", "ws1", "u1", "Newer allowed", [], _now(), "2026-01-02")
+
+    result = notes.list_notes("ws1", owner_id="u1", allowed_note_ids={"id1", "id3"}, limit=1)
+
+    assert [note["note_id"] for note in result] == ["id3"]
+
+
+def test_list_notes_empty_allowed_note_ids_skips_database(notes, monkeypatch):
+    def fail_if_opened():
+        raise AssertionError("list_notes opened a database session for an empty id filter")
+
+    monkeypatch.setattr(notes, "timed_session", fail_if_opened)
+
+    assert notes.list_notes("ws1", owner_id="u1", allowed_note_ids=set()) == []
 
 
 def test_list_notes_isolated_by_owner(notes):

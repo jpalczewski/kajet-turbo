@@ -339,25 +339,13 @@ class NoteRepository(DbRepository):
         self,
         workspace: str,
         owner_id: str,
-        tags: list[str] | None = None,
+        allowed_note_ids: set[str] | None = None,
         limit: int | None = 20,
         folder: str | None = None,
-        include_descendants: bool = True,
         sort: str = "default",
-        _tag_repo=None,
     ) -> list[dict]:
-        allowed: set[str] | None = None
-        if tags:
-            if _tag_repo is None:
-                raise ValueError(
-                    "list() requires _tag_repo when tags are specified; "
-                    "pass a NoteTagRepository instance"
-                )
-            allowed = _tag_repo.note_ids_for_tags(
-                workspace, owner_id, tags, include_descendants=include_descendants
-            )
-            if not allowed:
-                return []
+        if allowed_note_ids is not None and not allowed_note_ids:
+            return []
         with self.timed_session() as session:
             q = select(Note).where(Note.workspace == workspace, Note.owner_id == owner_id)
             if folder is not None:
@@ -373,7 +361,7 @@ class NoteRepository(DbRepository):
 
         result = []
         for note in rows:
-            if allowed is not None and note.id not in allowed:
+            if allowed_note_ids is not None and note.id not in allowed_note_ids:
                 continue
             result.append(note_to_list_item(note))
             if limit is not None and len(result) >= limit:

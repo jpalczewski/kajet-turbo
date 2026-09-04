@@ -138,7 +138,9 @@ nothing enforces it automatically.
 
 ## Service boundaries
 
-`NoteService` owns the indexer, `_locate_batch`/`_LocatedNote`, and the write pipeline.
+`NoteService` owns the indexer and the write pipeline. Shared batch reads use the neutral
+`locate_many` helper in `locator.py`, which returns `workspace.LocatedNote` values and leaves
+validation policy with its callers.
 `NoteTagService`, `NoteFolderService`, and `NoteLinkService` are collaborators that, by default,
 operate on metadata only — `NoteFolderService.move_folder` needs no indexer because a folder
 move never touches note bodies. A method on one of these collaborators that starts writing note

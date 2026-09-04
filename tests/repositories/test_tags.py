@@ -143,13 +143,10 @@ def test_tag_counts_folder_underscore_not_overmatched(
     assert paths == {"inside"}
 
 
-def test_list_tag_filter_is_prefix_aware(note_repo: NoteRepository, repo: NoteTagRepository):
+def test_note_ids_for_tags_is_prefix_aware(note_repo: NoteRepository, repo: NoteTagRepository):
     _insert_note(note_repo, "n1")
     _insert_note(note_repo, "n2")
     repo.sync_note_tags("n1", "ws", "u1", [("work/projects", "frontmatter")])
     repo.sync_note_tags("n2", "ws", "u1", [("life", "frontmatter")])
-    got = {
-        r["note_id"]
-        for r in note_repo.list_notes("ws", "u1", tags=["work"], limit=None, _tag_repo=repo)
-    }
+    got = repo.note_ids_for_tags("ws", "u1", ["work"])
     assert got == {"n1"}  # matched via descendant work/projects
