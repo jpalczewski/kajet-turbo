@@ -42,6 +42,7 @@ from .notes import (
     WikilinkWarning,
     WorkspaceContentsResponse,
 )
+from .preferences import UserPreferences
 from .ssh_keys import SshKeyItem, SshKeysResponse
 from .workspace_remote import WorkspaceRemoteResponse, WorkspaceRemoteView
 from .workspaces import (
@@ -107,6 +108,7 @@ __all__ = [
     "UpdateNoteResponse",
     "UpdateWorkspaceResponse",
     "UpdateWorkspaceSettingsResponse",
+    "UserPreferences",
     "WikilinkWarning",
     "WorkspaceContentsResponse",
     "WorkspaceInfo",

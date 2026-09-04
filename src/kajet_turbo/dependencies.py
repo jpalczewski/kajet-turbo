@@ -51,6 +51,7 @@ from kajet_turbo.services.notes import (
     NoteTagService,
     NoteVersionService,
 )
+from kajet_turbo.services.preferences import PreferencesService
 from kajet_turbo.services.push_enqueue import make_enqueue_push_on_commit
 from kajet_turbo.services.push_handler import PushHandler
 from kajet_turbo.services.reconcile_links_handler import ReconcileLinksHandler
@@ -183,6 +184,8 @@ collection_service = CollectionService(note_repo, note_service)
 _ssh_key_repo = SshKeyRepository(db.engine)
 ssh_key_service = SshKeyService(_ssh_key_repo, lambda: cipher_for("ssh-key"))
 
+preferences_service = PreferencesService(user_repo)
+
 workspace_remote_repo = WorkspaceRemoteRepository(db.engine)
 workspace_service = WorkspaceService(
     workspace_repo,
@@ -241,6 +244,10 @@ def get_workspace_remote_service() -> WorkspaceRemoteService:
 
 def get_ssh_key_service() -> SshKeyService:
     return ssh_key_service
+
+
+def get_preferences_service() -> PreferencesService:
+    return preferences_service
 
 
 def get_embedding_profile_service() -> EmbeddingProfileService:
