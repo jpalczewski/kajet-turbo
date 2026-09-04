@@ -278,5 +278,6 @@ class CollectionService:
         for folder, title in pairs:
             match = pattern.match(f"{folder}/{title}")
             if match is not None:
-                max_ordinal = max(max_ordinal, *(int(g) for g in match.groups()))
+                matched_ordinal = max((int(g) for g in match.groups()), default=0)
+                max_ordinal = max(max_ordinal, matched_ordinal)
         return max_ordinal + 1
