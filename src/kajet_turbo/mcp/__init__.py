@@ -17,9 +17,11 @@ _INSTRUCTIONS = """
 Kajet — git-versioned markdown notebook.
 
 ## Workflow
-1. list_workspaces → activate_workspace before operations that use the active workspace
-2. search_notes(workspace="all") or search_notes(workspace="NAME") can be used without
-   activation; "all" omits workspaces whose global-search setting is disabled
+1. list_workspaces to see which workspaces you can use, then pass `workspace` on
+   workspace-scoped tools (save_note, list_notes, search_notes, ...) — note_id-addressed
+   tools (get_note, edit_note, delete_note, ...) need no workspace at all
+2. search_notes(workspace="all") or search_notes(workspace="NAME") — "all" omits
+   workspaces whose global-search setting is disabled
 3. list_folders / search_notes / list_notes to orient yourself
 4. get_note / save_note / edit_note / save_notes for reads and writes
 
@@ -42,7 +44,7 @@ Kajet — git-versioned markdown notebook.
   from any note response; renders as a clickable link to the note in its workspace
 
 Use [[note:NOTE_ID]] when linking across workspaces — the title-based forms only
-resolve within the active workspace.
+resolve within the note's own workspace.
 
 ## Identifiers
 - note_id: stable UUID — use for get_note, edit_note, delete_note, get_note_links
@@ -104,7 +106,6 @@ def build_mcp(resources: AppResources) -> FastMCP:
     context = build_mcp_context(
         resources.workspace_service,
         resources.oauth_repo,
-        resources.active_workspace_repo,
         resources.event_repo,
         resources.post_commit_hooks,
         resources.target_resolver,
@@ -115,7 +116,7 @@ def build_mcp(resources: AppResources) -> FastMCP:
         auth=resources.provider,
     )
     mcp.add_middleware(ServiceErrorMiddleware(context))
-    mcp.mount(build_workspaces(resources.workspace_service, resources.active_workspace_repo))
+    mcp.mount(build_workspaces(resources.workspace_service))
     mcp.mount(
         build_notes(
             resources.note_service,

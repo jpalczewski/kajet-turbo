@@ -12,14 +12,27 @@ from kajet_turbo.repositories.git import GitRepository
 async def test_get_note_links(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         target_id = json.loads(
-            (await client.call_tool("save_note", {"title": "Target", "content": "content"}))
+            (
+                await client.call_tool(
+                    "save_note",
+                    {"workspace": "test-ws", "title": "Target", "content": "content"},
+                )
+            )
             .content[0]
             .text
         )["note_id"]
         source_id = json.loads(
-            (await client.call_tool("save_note", {"title": "Source", "content": "see [[Target]]"}))
+            (
+                await client.call_tool(
+                    "save_note",
+                    {
+                        "workspace": "test-ws",
+                        "title": "Source",
+                        "content": "see [[Target]]",
+                    },
+                )
+            )
             .content[0]
             .text
         )["note_id"]
@@ -60,7 +73,6 @@ async def test_get_note_links(workspaces_dir, mcp_server):
 async def test_get_note_links_not_found(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         with pytest.raises(ToolError):
             await client.call_tool("get_note_links", {"note_id": "nonexistent"})
 
@@ -68,18 +80,28 @@ async def test_get_note_links_not_found(workspaces_dir, mcp_server):
 async def test_get_note_links_include_meta(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         target_id = json.loads(
             (
                 await client.call_tool(
-                    "save_note", {"title": "Tagged", "content": "content", "tags": ["work"]}
+                    "save_note",
+                    {
+                        "workspace": "test-ws",
+                        "title": "Tagged",
+                        "content": "content",
+                        "tags": ["work"],
+                    },
                 )
             )
             .content[0]
             .text
         )["note_id"]
         source_id = json.loads(
-            (await client.call_tool("save_note", {"title": "Linker", "content": "[[Tagged]]"}))
+            (
+                await client.call_tool(
+                    "save_note",
+                    {"workspace": "test-ws", "title": "Linker", "content": "[[Tagged]]"},
+                )
+            )
             .content[0]
             .text
         )["note_id"]
@@ -107,22 +129,24 @@ async def test_get_note_links_exclude_cross_workspace(workspaces_dir, mcp_server
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         # Create target note in ws-b.
-        await client.call_tool("activate_workspace", {"name": "ws-b"})
         target_id = json.loads(
-            (await client.call_tool("save_note", {"title": "Target", "content": "content"}))
+            (
+                await client.call_tool(
+                    "save_note",
+                    {"workspace": "ws-b", "title": "Target", "content": "content"},
+                )
+            )
             .content[0]
             .text
         )["note_id"]
 
         # Create source note in ws-a with a cross-workspace link to target.
-        await client.call_tool("activate_workspace", {"name": "ws-a"})
         await client.call_tool(
             "save_note",
-            {"title": "Source", "content": f"[[note:{target_id}]]"},
+            {"workspace": "ws-a", "title": "Source", "content": f"[[note:{target_id}]]"},
         )
 
-        # Switch back to ws-b and verify that include_cross_workspace=False hides the backlink.
-        await client.call_tool("activate_workspace", {"name": "ws-b"})
+        # Verify that include_cross_workspace=False hides the backlink.
         result = json.loads(
             (
                 await client.call_tool(
@@ -140,24 +164,46 @@ async def test_get_note_links_exclude_cross_workspace(workspaces_dir, mcp_server
 async def test_get_workspace_graph(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         target_id = json.loads(
-            (await client.call_tool("save_note", {"title": "Target", "content": "content"}))
+            (
+                await client.call_tool(
+                    "save_note",
+                    {"workspace": "test-ws", "title": "Target", "content": "content"},
+                )
+            )
             .content[0]
             .text
         )["note_id"]
         source_id = json.loads(
-            (await client.call_tool("save_note", {"title": "Source", "content": "see [[Target]]"}))
+            (
+                await client.call_tool(
+                    "save_note",
+                    {
+                        "workspace": "test-ws",
+                        "title": "Source",
+                        "content": "see [[Target]]",
+                    },
+                )
+            )
             .content[0]
             .text
         )["note_id"]
         json.loads(
-            (await client.call_tool("save_note", {"title": "Lonely", "content": "no links"}))
+            (
+                await client.call_tool(
+                    "save_note",
+                    {"workspace": "test-ws", "title": "Lonely", "content": "no links"},
+                )
+            )
             .content[0]
             .text
         )
 
-        result = json.loads((await client.call_tool("get_workspace_graph", {})).content[0].text)
+        result = json.loads(
+            (await client.call_tool("get_workspace_graph", {"workspace": "test-ws"}))
+            .content[0]
+            .text
+        )
 
     assert {n["title"] for n in result["nodes"]} == {"Target", "Source", "Lonely"}
     assert result["edges"] == [{"source": source_id, "target": target_id}]
@@ -167,14 +213,23 @@ async def test_get_workspace_graph(workspaces_dir, mcp_server):
 async def test_get_note_neighborhood(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         target_id = json.loads(
-            (await client.call_tool("save_note", {"title": "Target", "content": "content"}))
+            (
+                await client.call_tool(
+                    "save_note",
+                    {"workspace": "test-ws", "title": "Target", "content": "content"},
+                )
+            )
             .content[0]
             .text
         )["note_id"]
         source_id = json.loads(
-            (await client.call_tool("save_note", {"title": "Source", "content": "[[Target]]"}))
+            (
+                await client.call_tool(
+                    "save_note",
+                    {"workspace": "test-ws", "title": "Source", "content": "[[Target]]"},
+                )
+            )
             .content[0]
             .text
         )["note_id"]

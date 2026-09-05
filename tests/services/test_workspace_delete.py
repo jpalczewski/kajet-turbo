@@ -6,7 +6,6 @@ from sqlmodel import Session, col, select
 
 from kajet_turbo.markdown import Chunk
 from kajet_turbo.models import (
-    ActiveWorkspace,
     DanglingLink,
     FolderMeta,
     Job,
@@ -19,7 +18,6 @@ from kajet_turbo.models import (
     WorkspaceMeta,
     WorkspaceRemote,
 )
-from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
@@ -75,10 +73,6 @@ def _seed_full_workspace(database, *, user_id: str, name: str) -> None:
     WorkspaceRemoteRepository(database.engine).upsert(
         user_id, name, origin_url="git@host:repo.git", ssh_key_id=key.id, enabled=True
     )
-
-    active_repo = ActiveWorkspaceRepository(database.engine)
-    active_repo.set(user_id, name)
-    active_repo.set(user_id, name, scope="mcp-session-1")
 
     job_repo = JobRepository(database.engine)
     job_repo.enqueue(
@@ -138,7 +132,6 @@ def _counts(database, *, workspace: str, owner_id: str) -> dict[str, int]:
             "dangling_links": count(DanglingLink, workspace=workspace, owner_id=owner_id),
             "folder_meta": count(FolderMeta, workspace=workspace, owner_id=owner_id),
             "workspace_remote": count(WorkspaceRemote, workspace=workspace, user_id=owner_id),
-            "active_workspace": count(ActiveWorkspace, workspace=workspace, user_id=owner_id),
             "workspace_access": count(WorkspaceAccess, workspace=workspace, user_id=owner_id),
             "workspace_meta": count(WorkspaceMeta, workspace=workspace, user_id=owner_id),
             "jobs": _job_count(session, workspace=workspace, owner_id=owner_id),

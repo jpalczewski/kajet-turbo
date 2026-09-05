@@ -1,22 +1,20 @@
 from typing import Annotated
 
 from fastmcp import FastMCP
-from fastmcp.server.context import Context
+from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import (
-    ACTIVE_WORKSPACE,
-    MCP_CONTEXT,
-    ActiveWorkspace,
-    active_workspace,
+    WORKSPACE_TARGET,
     require_user_id,
     require_workspace_access,
 )
 from kajet_turbo.mcp.notes.types import GrepMatch, GrepResult, SearchChunkResult
 from kajet_turbo.mcp.tooling import read_tool
 from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 
 
@@ -27,7 +25,7 @@ def build_search(note_service: NoteService, workspace_service: WorkspaceService)
     @logged_tool
     async def search_notes(
         query: str,
-        workspace: str = "active",
+        workspace: str = "all",
         limit: int = 10,
         folder: Annotated[
             str | None,
@@ -43,31 +41,30 @@ def build_search(note_service: NoteService, workspace_service: WorkspaceService)
                 "as in list_notes)."
             ),
         ] = None,
-        ctx: Context = MCP_CONTEXT,
     ) -> list[SearchChunkResult]:
         """Search notes using chunk-level hybrid ranking: FTS, semantic similarity, and
         exact title/tag/folder matches.
-        workspace='active' (default) searches the active workspace and requires prior
-        activation. workspace='all' needs no activation and searches every accessible
-        workspace that allows global search. Passing an exact workspace name also needs no
-        activation and searches that workspace even when it is excluded from 'all'.
+        workspace='all' (default) searches every accessible workspace that allows global
+        search. Passing an exact workspace name searches that workspace even when it is
+        excluded from 'all'.
         folder and tags narrow the candidate notes; when both are present they intersect.
         Returns chunks with note_id, title, folder, updated_at, header_path, content, score,
         and optional matched_on. It never returns a complete note. Use search_notes to find
         note IDs, then get_note or get_notes for complete current content. Cross-workspace
         note IDs can be linked with [[note:NOTE_ID]]. Returns [] when nothing matches."""
-        ws_param = workspace or "active"
+        ws_param = workspace or "all"
         if ws_param == "active":
-            ws = await active_workspace(ctx)
-            workspaces = [ws.name]
-            owner_id = ws.owner_id
+            raise ToolError(
+                "workspace='active' was removed: there is no session-active workspace "
+                "anymore. Pass an explicit workspace name, or omit workspace / pass 'all' "
+                "to search every accessible workspace."
+            )
+        owner_id = await require_user_id()
+        if ws_param == "all":
+            workspaces = await run_sync(workspace_service.list_searchable_in_all, owner_id)
         else:
-            owner_id = await require_user_id()
-            if ws_param == "all":
-                workspaces = await run_sync(workspace_service.list_searchable_in_all, owner_id)
-            else:
-                await require_workspace_access(ws_param, owner_id)
-                workspaces = [ws_param]
+            await require_workspace_access(ws_param, owner_id)
+            workspaces = [ws_param]
         if not workspaces:
             return []
         # search_async borrows a run_sync slot only for the ms-scale DB phases; the
@@ -86,23 +83,25 @@ def build_search(note_service: NoteService, workspace_service: WorkspaceService)
     @logged_tool
     async def grep_notes(
         pattern: str,
+        workspace: str,
         folder: Annotated[
             str | None,
-            Field(description="Zawęź do notatek w tym folderze i podfolderach."),
+            Field(description="Restrict to notes in this folder and its subfolders."),
         ] = None,
         case_sensitive: bool = False,
         max_results: int = 100,
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        target: WorkspaceTarget = WORKSPACE_TARGET,
     ) -> GrepResult:
-        """Literalny (nie semantyczny) grep po treści notatek, z numerami linii.
-        Użyj zamiast search_notes, gdy potrzebujesz pewności dokładnego dopasowania
-        stringa (refaktor nazwy, weryfikacja "czy fraza gdzieś jeszcze została") —
-        search_notes szuka znaczeniowo i nie gwarantuje trafienia literalnego tekstu.
-        Przeszukuje surowy plik notatki, łącznie z frontmatter (id/title/tags/daty)."""
+        """Literal (not semantic) grep over note content, with line numbers.
+        workspace: the workspace name to search in.
+        Use this instead of search_notes when you need certainty of an exact string match
+        (a rename refactor, checking "is this phrase still somewhere") — search_notes
+        matches by meaning and does not guarantee a literal text hit.
+        Searches the raw note file, including frontmatter (id/title/tags/dates)."""
         result = await run_sync(
             note_service.grep,
-            ws.name,
-            ws.path,
+            target.name,
+            str(target.path),
             pattern,
             folder=folder,
             case_sensitive=case_sensitive,

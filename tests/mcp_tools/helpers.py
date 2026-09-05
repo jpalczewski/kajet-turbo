@@ -29,3 +29,19 @@ async def save_and_get_sha(
         )
     )["note_id"]
     return note_id, (await call_json(client, "get_note", {"note_id": note_id}))["sha"]
+
+
+async def seed_note(client, *, workspace: str, title: str, content: str = "", **kwargs) -> dict:
+    """Save a note directly into `workspace` (the #248 explicit-workspace contract -- no
+    activate_workspace call) and return the save_note result merged with its sha.
+
+    Workspace-scoped counterpart to save_and_get_sha, for tests exercising tools that take
+    an explicit `workspace` parameter instead of relying on session-activated state.
+    """
+    result = await call_json(
+        client,
+        "save_note",
+        {"workspace": workspace, "title": title, "content": content, **kwargs},
+    )
+    sha = (await call_json(client, "get_note", {"note_id": result["note_id"]}))["sha"]
+    return {**result, "sha": sha}

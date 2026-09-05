@@ -6,20 +6,35 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from tests.mcp_tools.helpers import call_json, save_and_get_sha
+from kajet_turbo.repositories.git import GitRepository
+from tests.mcp_tools.helpers import call_json, seed_note
+
+
+def _second_workspace(workspaces_dir, mcp_server, name: str = "second-ws"):
+    """Grants u1 a second, independent git workspace alongside test-ws."""
+    ws_dir = workspaces_dir / name
+    ws_dir.mkdir()
+    GitRepository.init(str(ws_dir))
+    mcp_server.workspace_repo.grant_access("u1", name)
+    return ws_dir
+
+
+def _head_sha(ws_dir) -> str | None:
+    snapshot = GitRepository(str(ws_dir)).head_snapshot()
+    return snapshot.sha if snapshot else None
 
 
 async def test_save_notes_tool_batch(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         result = await client.call_tool(
             "save_notes",
             {
+                "workspace": "test-ws",
                 "notes": [
                     {"title": "Batch M1", "content": "a"},
                     {"title": "Batch M2", "content": "b", "tags": ["x"]},
-                ]
+                ],
             },
         )
     out = json.loads(result.content[0].text)
@@ -30,8 +45,9 @@ async def test_save_notes_tool_batch(workspaces_dir, mcp_server):
 async def test_edit_notes_batch_applies_together(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        saved = await client.call_tool("save_note", {"title": "First", "content": "one\n"})
+        saved = await client.call_tool(
+            "save_note", {"workspace": "test-ws", "title": "First", "content": "one\n"}
+        )
         note_id = json.loads(saved.content[0].text)["note_id"]
         sha = json.loads(
             (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
@@ -58,9 +74,12 @@ async def test_edit_notes_batch_applies_together(workspaces_dir, mcp_server):
 async def test_edit_notes_batch_rejects_all_on_one_bad_item(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        r1 = await client.call_tool("save_note", {"title": "First", "content": "one\n"})
-        r2 = await client.call_tool("save_note", {"title": "Second", "content": "two\n"})
+        r1 = await client.call_tool(
+            "save_note", {"workspace": "test-ws", "title": "First", "content": "one\n"}
+        )
+        r2 = await client.call_tool(
+            "save_note", {"workspace": "test-ws", "title": "Second", "content": "two\n"}
+        )
         id1 = json.loads(r1.content[0].text)["note_id"]
         id2 = json.loads(r2.content[0].text)["note_id"]
         sha1 = json.loads((await client.call_tool("get_note", {"note_id": id1})).content[0].text)[
@@ -98,15 +117,10 @@ async def test_edit_notes_batch_rejects_all_on_one_bad_item(workspaces_dir, mcp_
 async def test_delete_notes_batch_applies_together(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        r1 = await client.call_tool("save_note", {"title": "First", "content": "one\n"})
-        r2 = await client.call_tool("save_note", {"title": "Second", "content": "two\n"})
-        id1 = json.loads(r1.content[0].text)["note_id"]
-        id2 = json.loads(r2.content[0].text)["note_id"]
-        h1 = await client.call_tool("get_note_history", {"note_id": id1})
-        h2 = await client.call_tool("get_note_history", {"note_id": id2})
-        sha1 = json.loads(h1.content[0].text)[0]["sha"]
-        sha2 = json.loads(h2.content[0].text)[0]["sha"]
+        first = await seed_note(client, workspace="test-ws", title="First", content="one\n")
+        second = await seed_note(client, workspace="test-ws", title="Second", content="two\n")
+        id1, sha1 = first["note_id"], first["sha"]
+        id2, sha2 = second["note_id"], second["sha"]
 
         result = await client.call_tool(
             "delete_notes",
@@ -128,13 +142,10 @@ async def test_delete_notes_batch_applies_together(workspaces_dir, mcp_server):
 async def test_delete_notes_batch_rejects_all_on_stale_sha(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        r1 = await client.call_tool("save_note", {"title": "First", "content": "one\n"})
-        r2 = await client.call_tool("save_note", {"title": "Second", "content": "two\n"})
-        id1 = json.loads(r1.content[0].text)["note_id"]
-        id2 = json.loads(r2.content[0].text)["note_id"]
-        h1 = await client.call_tool("get_note_history", {"note_id": id1})
-        sha1 = json.loads(h1.content[0].text)[0]["sha"]
+        first = await seed_note(client, workspace="test-ws", title="First", content="one\n")
+        second = await seed_note(client, workspace="test-ws", title="Second", content="two\n")
+        id1, sha1 = first["note_id"], first["sha"]
+        id2 = second["note_id"]
 
         result = await client.call_tool(
             "delete_notes",
@@ -157,8 +168,8 @@ async def test_edit_notes_batch_takes_old_str_and_new_str_per_item(workspaces_di
     """NoteEditInput carries the same parameter split as edit_note."""
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id, sha = await save_and_get_sha(client, "Pair", "Hello world.")
+        note = await seed_note(client, workspace="test-ws", title="Pair", content="Hello world.")
+        note_id, sha = note["note_id"], note["sha"]
         result = await client.call_tool(
             "edit_notes",
             {
@@ -182,8 +193,8 @@ async def test_edit_notes_batch_takes_old_str_and_new_str_per_item(workspaces_di
 async def test_edit_notes_batch_rejects_an_item_mixing_parameter_sets(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id, sha = await save_and_get_sha(client, "Strict", "Hello world.")
+        note = await seed_note(client, workspace="test-ws", title="Strict", content="Hello world.")
+        note_id, sha = note["note_id"], note["sha"]
         result = await client.call_tool(
             "edit_notes",
             {
@@ -210,8 +221,8 @@ async def test_edit_notes_batch_rejects_an_unknown_key_in_an_item(workspaces_dir
     """A typo inside a batch item must fail as loudly as one on the tool's own signature."""
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id, sha = await save_and_get_sha(client, "Typo", "one\n")
+        note = await seed_note(client, workspace="test-ws", title="Typo", content="one\n")
+        note_id, sha = note["note_id"], note["sha"]
         with pytest.raises(ToolError, match="old_text"):
             await client.call_tool(
                 "edit_notes",
@@ -234,8 +245,8 @@ async def test_edit_notes_batch_rejects_an_item_that_changes_nothing(workspaces_
     """Batch scope is content + tags; an item carrying neither would commit an untouched file."""
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id, sha = await save_and_get_sha(client, "Noop", "Body stays.")
+        note = await seed_note(client, workspace="test-ws", title="Noop", content="Body stays.")
+        note_id, sha = note["note_id"], note["sha"]
         result = await call_json(
             client,
             "edit_notes",
@@ -246,3 +257,84 @@ async def test_edit_notes_batch_rejects_an_item_that_changes_nothing(workspaces_
         assert (await call_json(client, "get_note", {"note_id": note_id}))[
             "content"
         ] == "Body stays."
+
+
+async def test_edit_notes_mixed_workspace_batch_leaves_both_workspaces_untouched(
+    workspaces_dir, mcp_server
+):
+    """The resolver's mixed-workspace prevalidation (#246) must reject the whole batch
+    before any write — proven here at the tool boundary by comparing each workspace's
+    file content and Git HEAD before and after the rejected call, not just the response."""
+    second_dir = _second_workspace(workspaces_dir, mcp_server)
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        first = await seed_note(client, workspace="test-ws", title="First", content="one\n")
+        second = await seed_note(client, workspace="second-ws", title="Second", content="two\n")
+
+        head1_before = _head_sha(workspaces_dir / "test-ws")
+        head2_before = _head_sha(second_dir)
+
+        with pytest.raises(ToolError, match="MIXED_WORKSPACES"):
+            await client.call_tool(
+                "edit_notes",
+                {
+                    "edits": [
+                        {
+                            "note_id": first["note_id"],
+                            "expected_sha": first["sha"],
+                            "mode": "append",
+                            "content": "more",
+                        },
+                        {
+                            "note_id": second["note_id"],
+                            "expected_sha": second["sha"],
+                            "mode": "append",
+                            "content": "more",
+                        },
+                    ]
+                },
+            )
+
+        assert _head_sha(workspaces_dir / "test-ws") == head1_before
+        assert _head_sha(second_dir) == head2_before
+        assert (await call_json(client, "get_note", {"note_id": first["note_id"]}))[
+            "content"
+        ] == "one"
+        assert (await call_json(client, "get_note", {"note_id": second["note_id"]}))[
+            "content"
+        ] == "two"
+
+
+async def test_delete_notes_mixed_workspace_batch_leaves_both_workspaces_untouched(
+    workspaces_dir, mcp_server
+):
+    """Same guarantee as the edit_notes case above, for delete_notes: a batch spanning
+    two workspaces is rejected before either workspace's files or Git HEAD are touched."""
+    second_dir = _second_workspace(workspaces_dir, mcp_server)
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        first = await seed_note(client, workspace="test-ws", title="First", content="one\n")
+        second = await seed_note(client, workspace="second-ws", title="Second", content="two\n")
+
+        head1_before = _head_sha(workspaces_dir / "test-ws")
+        head2_before = _head_sha(second_dir)
+
+        with pytest.raises(ToolError, match="MIXED_WORKSPACES"):
+            await client.call_tool(
+                "delete_notes",
+                {
+                    "deletes": [
+                        {"note_id": first["note_id"], "expected_sha": first["sha"]},
+                        {"note_id": second["note_id"], "expected_sha": second["sha"]},
+                    ]
+                },
+            )
+
+        assert _head_sha(workspaces_dir / "test-ws") == head1_before
+        assert _head_sha(second_dir) == head2_before
+        assert (await call_json(client, "get_note", {"note_id": first["note_id"]}))[
+            "content"
+        ] == "one"
+        assert (await call_json(client, "get_note", {"note_id": second["note_id"]}))[
+            "content"
+        ] == "two"

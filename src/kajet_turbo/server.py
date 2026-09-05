@@ -339,7 +339,6 @@ def _cmd_purge_tech_users() -> None:
         child_tables = [
             "sessions",
             "client_authorizations",
-            "active_workspaces",
             "workspace_access",
             "workspace_meta",
             "embedding_profiles",

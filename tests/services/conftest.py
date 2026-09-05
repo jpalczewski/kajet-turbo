@@ -7,7 +7,6 @@ from sqlmodel import Session
 from kajet_turbo.db import Database
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.models import User
-from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
@@ -120,7 +119,6 @@ def build_workspace_service(database: Database) -> WorkspaceService:
         DanglingLinkRepository(engine),
         FolderMetaRepository(engine),
         WorkspaceRemoteRepository(engine),
-        ActiveWorkspaceRepository(engine),
         jobs,
         reconcile_repo=reconcile_repo,
     )

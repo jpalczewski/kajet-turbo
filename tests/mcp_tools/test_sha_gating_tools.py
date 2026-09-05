@@ -4,14 +4,16 @@ import json
 
 from fastmcp import Client
 
-from tests.mcp_tools.helpers import SHA_LIKE, save_and_get_sha
+from tests.mcp_tools.helpers import SHA_LIKE, seed_note
 
 
 async def test_set_tags_applies_with_fresh_sha(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id, sha = await save_and_get_sha(client, "Tagged", "body", ["docs", "extra"])
+        seeded = await seed_note(
+            client, workspace="test-ws", title="Tagged", content="body", tags=["docs", "extra"]
+        )
+        note_id, sha = seeded["note_id"], seeded["sha"]
         res = json.loads(
             (
                 await client.call_tool(
@@ -27,8 +29,10 @@ async def test_set_tags_applies_with_fresh_sha(workspaces_dir, mcp_server):
 async def test_set_tags_stale_sha_returns_stale_version(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        note_id, _sha = await save_and_get_sha(client, "Tagged2", "body", ["docs", "extra"])
+        seeded = await seed_note(
+            client, workspace="test-ws", title="Tagged2", content="body", tags=["docs", "extra"]
+        )
+        note_id = seeded["note_id"]
         res = json.loads(
             (
                 await client.call_tool(
@@ -51,9 +55,12 @@ async def test_set_tags_stale_sha_returns_stale_version(workspaces_dir, mcp_serv
 async def test_edit_note_overwrite_applies_with_fresh_sha(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         note_id = json.loads(
-            (await client.call_tool("save_note", {"title": "E", "content": "stara"}))
+            (
+                await client.call_tool(
+                    "save_note", {"workspace": "test-ws", "title": "E", "content": "stara"}
+                )
+            )
             .content[0]
             .text
         )["note_id"]
@@ -79,8 +86,9 @@ async def test_edit_note_overwrite_applies_with_fresh_sha(workspaces_dir, mcp_se
 async def test_edit_note_stale_sha_rejected(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        saved = await client.call_tool("save_note", {"title": "Stale", "content": "v1\n"})
+        saved = await client.call_tool(
+            "save_note", {"workspace": "test-ws", "title": "Stale", "content": "v1\n"}
+        )
         note_id = json.loads(saved.content[0].text)["note_id"]
         stale_sha = json.loads(
             (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
@@ -104,9 +112,12 @@ async def test_edit_note_stale_sha_rejected(workspaces_dir, mcp_server):
 async def test_edit_notes_batch_stale_sha_rejects_all(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        r1 = await client.call_tool("save_note", {"title": "First", "content": "one\n"})
-        r2 = await client.call_tool("save_note", {"title": "Second", "content": "two\n"})
+        r1 = await client.call_tool(
+            "save_note", {"workspace": "test-ws", "title": "First", "content": "one\n"}
+        )
+        r2 = await client.call_tool(
+            "save_note", {"workspace": "test-ws", "title": "Second", "content": "two\n"}
+        )
         id1 = json.loads(r1.content[0].text)["note_id"]
         id2 = json.loads(r2.content[0].text)["note_id"]
         sha2 = json.loads((await client.call_tool("get_note", {"note_id": id2})).content[0].text)[
@@ -143,8 +154,9 @@ async def test_edit_notes_batch_stale_sha_rejects_all(workspaces_dir, mcp_server
 async def test_delete_note_stale_sha_returns_stale_version(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        save_result = await client.call_tool("save_note", {"title": "Zostaje", "content": "treść"})
+        save_result = await client.call_tool(
+            "save_note", {"workspace": "test-ws", "title": "Zostaje", "content": "treść"}
+        )
         note_id = json.loads(save_result.content[0].text)["note_id"]
         res = json.loads(
             (await client.call_tool("delete_note", {"note_id": note_id, "expected_sha": "0" * 12}))
@@ -160,8 +172,9 @@ async def test_delete_note_stale_sha_returns_stale_version(workspaces_dir, mcp_s
 async def test_restore_note_version_stale_sha_returns_stale_version(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        saved = await client.call_tool("save_note", {"title": "Hist", "content": "v1"})
+        saved = await client.call_tool(
+            "save_note", {"workspace": "test-ws", "title": "Hist", "content": "v1"}
+        )
         note_id = json.loads(saved.content[0].text)["note_id"]
         sha1 = json.loads(
             (await client.call_tool("get_note", {"note_id": note_id})).content[0].text
@@ -192,9 +205,12 @@ async def test_stale_sha_responses_never_leak_a_sha(workspaces_dir, mcp_server):
     # entirely — read the error, retry with the leaked value, never see the content.
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        r1 = await client.call_tool("save_note", {"title": "First", "content": "one\n"})
-        r2 = await client.call_tool("save_note", {"title": "Second", "content": "two\n"})
+        r1 = await client.call_tool(
+            "save_note", {"workspace": "test-ws", "title": "First", "content": "one\n"}
+        )
+        r2 = await client.call_tool(
+            "save_note", {"workspace": "test-ws", "title": "Second", "content": "two\n"}
+        )
         id1 = json.loads(r1.content[0].text)["note_id"]
         id2 = json.loads(r2.content[0].text)["note_id"]
         sha2 = json.loads((await client.call_tool("get_note", {"note_id": id2})).content[0].text)[

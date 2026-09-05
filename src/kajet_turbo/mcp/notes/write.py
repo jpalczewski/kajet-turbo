@@ -1,16 +1,16 @@
 from typing import Annotated
 
 from fastmcp import FastMCP
+from fastmcp.dependencies import Depends
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
 from kajet_turbo.markdown import EditMode, EditSpec
 from kajet_turbo.mcp.context import (
-    ACTIVE_WORKSPACE,
     NOTE_TARGET,
-    ActiveWorkspace,
-    reauthorize_workspace,
+    WORKSPACE_TARGET,
+    require_user_id,
     resolve_notes_in_one_workspace,
 )
 from kajet_turbo.mcp.notes.types import (
@@ -35,7 +35,7 @@ from kajet_turbo.mcp.tooling import (
     write_tool,
 )
 from kajet_turbo.services.notes import EditBatchItem, NoteService
-from kajet_turbo.services.targets import NoteTarget
+from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.shared.notes import MovedNoteResult
 from kajet_turbo.workspace import temporal_kwargs
 
@@ -48,17 +48,17 @@ def build_write(note_service: NoteService) -> FastMCP:
     async def save_note(
         title: str,
         content: str,
+        workspace: str,
         tags: list[str] | None = None,
         folder: str = "",
         occurred_at: str | None = None,
         period: str | None = None,
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        target: WorkspaceTarget = WORKSPACE_TARGET,
     ) -> SavedNoteResult:
-        """Zapisuje nową notatkę w podanym folderze (domyślnie root).
-        folder: opcjonalna ścieżka np. 'Projekty/Klient A'.
-        Uwaga: content powinien zawierać rzeczywiste znaki nowej linii (\\n),
-        nie literalne \\\\n."""
-        target = await reauthorize_workspace(ws)
+        """Saves a new note in the given folder (root by default).
+        workspace: the workspace name to save the note in.
+        folder: optional path, e.g. 'Projects/Client A'.
+        content must contain real newline characters (\\n), not literal \\\\n."""
         result = await run_sync(
             note_service.save,
             target,
@@ -76,16 +76,17 @@ def build_write(note_service: NoteService) -> FastMCP:
     @logged_tool
     async def save_notes(
         notes: list[NoteInput],
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        workspace: str,
+        target: WorkspaceTarget = WORKSPACE_TARGET,
     ) -> list[BatchNoteSuccess | BatchNoteError]:
         """Saves multiple notes at once, in one commit. Always use this instead of multiple
-        save_note calls when adding 2+ notes. Best-effort: each note is validated
-        independently; the per-note result is BatchNoteSuccess {index, note_id} or
-        BatchNoteError {index, error}. Wikilinks to notes in the same batch resolve
-        regardless of order. Search indexing (chunks/FTS/embeddings) is deferred to
-        background jobs — a note saved here may not appear in search_notes immediately.
+        save_note calls when adding 2+ notes. workspace: the workspace name to save the
+        notes in. Best-effort: each note is validated independently; the per-note result
+        is BatchNoteSuccess {index, note_id} or BatchNoteError {index, error}. Wikilinks to
+        notes in the same batch resolve regardless of order. Search indexing (chunks/FTS/
+        embeddings) is deferred to background jobs — a note saved here may not appear in
+        search_notes immediately.
         content needs real newline characters (\\n), not literal \\\\n."""
-        target = await reauthorize_workspace(ws)
         results = await run_sync(
             note_service.save_many,
             target,
@@ -106,8 +107,8 @@ def build_write(note_service: NoteService) -> FastMCP:
         expected_sha: Annotated[
             str,
             Field(
-                description="Aktualny HEAD sha notatki z get_note/get_note_history — dowód, że "
-                "przed edycją widziałeś bieżącą wersję. Niezgodność odrzuca edycję."
+                description="The note's current HEAD sha from get_note/get_note_history — proof "
+                "you saw the current version before editing. A mismatch rejects the edit."
             ),
         ],
         title: str | None = None,
@@ -166,7 +167,6 @@ def build_write(note_service: NoteService) -> FastMCP:
                 "count."
             ),
         ] = False,
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
         target: NoteTarget = NOTE_TARGET,
     ) -> EditNoteSuccess | StaleVersion:
         """Edit a note. By default (mode='overwrite') it replaces the whole body with content;
@@ -208,7 +208,7 @@ def build_write(note_service: NoteService) -> FastMCP:
     @logged_tool
     async def edit_notes(
         edits: list[NoteEditInput],
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        user_id: str = Depends(require_user_id),
     ) -> EditNotesApplied | EditNotesRejected:
         """Edit many notes in one atomic commit. All-or-nothing: if ANY edit in the batch is
         invalid (wrong note, broken wikilink, ambiguous target_heading/old_str, duplicate
@@ -223,8 +223,8 @@ def build_write(note_service: NoteService) -> FastMCP:
         Search indexing (chunks/FTS/embeddings) is deferred to background jobs — an edited
         note's search_notes results may lag briefly behind this call.
         Max 50 edits per call."""
-        check_batch(edits, "edits", "edycji")
-        workspace, _ = await resolve_notes_in_one_workspace(ws.owner_id, [e.note_id for e in edits])
+        check_batch(edits, "edits", "edits")
+        workspace, _ = await resolve_notes_in_one_workspace(user_id, [e.note_id for e in edits])
         result = await run_sync(
             note_service.edit_many,
             workspace,
@@ -251,11 +251,10 @@ def build_write(note_service: NoteService) -> FastMCP:
     async def move_note(
         note_id: str,
         folder: str,
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
         target: NoteTarget = NOTE_TARGET,
     ) -> MovedNoteResult:
-        """Przenosi notatkę do folderu w aktywnym workspace, tworząc brakującą ścieżkę.
-        folder: pełna ścieżka folderu lub pusty string dla root."""
+        """Moves a note to a folder in its own workspace, creating the path if missing.
+        folder: full folder path, or an empty string for root."""
         result = await run_sync(
             note_service.move,
             target,
@@ -271,16 +270,16 @@ def build_write(note_service: NoteService) -> FastMCP:
         expected_sha: Annotated[
             str,
             Field(
-                description="Aktualny HEAD sha notatki z get_note/get_note_history — dowód, "
-                "że przed usunięciem widziałeś bieżącą wersję. Niezgodność zwraca StaleVersion."
+                description="The note's current HEAD sha from get_note/get_note_history — "
+                "proof you saw the current version before deleting. A mismatch returns "
+                "StaleVersion."
             ),
         ],
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
         target: NoteTarget = NOTE_TARGET,
     ) -> DeletedNoteResult | StaleVersion:
-        """Usuwa notatkę. Błąd gdy notatka nie istnieje. Wymaga expected_sha z
-        get_note/get_note_history; przy niezgodności zwraca StaleVersion — doczytaj
-        aktualną wersję i spróbuj ponownie z nowym sha."""
+        """Deletes a note. Errors when the note does not exist. Requires expected_sha from
+        get_note/get_note_history; on a mismatch returns StaleVersion — re-read the current
+        version and retry with the fresh sha."""
         result = await run_sync(
             note_service.delete,
             target,
@@ -295,7 +294,7 @@ def build_write(note_service: NoteService) -> FastMCP:
     @logged_tool
     async def delete_notes(
         deletes: list[NoteDeleteInput],
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        user_id: str = Depends(require_user_id),
     ) -> DeleteNotesApplied | DeleteNotesRejected:
         """Delete multiple notes in one Git commit and one DB transaction. All-or-nothing
         at validation: if ANY item in the batch is invalid (wrong note, duplicate note_id,
@@ -304,10 +303,8 @@ def build_write(note_service: NoteService) -> FastMCP:
         last commit sha from get_note_history — proving the caller saw the current version
         before deleting. On a mismatch, call get_note_history to read the current version
         and retry. Max 50 deletes per call."""
-        check_batch(deletes, "deletes", "usunięć")
-        workspace, _ = await resolve_notes_in_one_workspace(
-            ws.owner_id, [d.note_id for d in deletes]
-        )
+        check_batch(deletes, "deletes", "deletes")
+        workspace, _ = await resolve_notes_in_one_workspace(user_id, [d.note_id for d in deletes])
         result = await run_sync(
             note_service.delete_many,
             workspace,

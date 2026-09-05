@@ -66,7 +66,7 @@ class ServiceErrorMiddleware(Middleware):
 
     Registered once on the root server in build_mcp; applies to all mounted
     sub-servers. Sees every ToolError regardless of where it originated: raised
-    on purpose by a tool body or by a Depends dependency (e.g. ACTIVE_WORKSPACE,
+    on purpose by a tool body or by a Depends dependency (e.g. NOTE_TARGET,
     which resolves before logged_tool's wrapper ever runs), or wrapped by fastmcp
     around an unexpected exception that logged_tool already logged under its
     original type.

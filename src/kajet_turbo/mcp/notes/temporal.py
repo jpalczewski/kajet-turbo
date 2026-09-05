@@ -5,11 +5,12 @@ from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
-from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
+from kajet_turbo.mcp.context import WORKSPACE_TARGET
 from kajet_turbo.mcp.notes.types import NoteListItem
 from kajet_turbo.mcp.tooling import read_tool
 from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.targets import WorkspaceTarget
 
 
 def build_temporal(note_service: NoteService, collection_service: CollectionService) -> FastMCP:
@@ -28,6 +29,7 @@ def build_temporal(note_service: NoteService, collection_service: CollectionServ
                 "just day-grain notes. Invalid formats raise an error naming the bad value."
             ),
         ],
+        workspace: str,
         folder: Annotated[
             str | None,
             Field(
@@ -45,20 +47,23 @@ def build_temporal(note_service: NoteService, collection_service: CollectionServ
                 "same semantics as folder. Not combinable with folder."
             ),
         ] = None,
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        target: WorkspaceTarget = WORKSPACE_TARGET,
     ) -> list[NoteListItem]:
         """List notes whose date falls within a calendar period, optionally narrowed to a
         folder or a collection. period/folder use the same semantics as the REST GET
         /entries endpoint; collection is sugar for folder that names a collection
-        instead of a path — pass one or the other, never both."""
+        instead of a path — pass one or the other, never both.
+        workspace: the workspace name to search."""
         if folder is not None and collection is not None:
             raise ValueError(
                 "entries_in takes either folder or collection, not both — "
                 f"got folder={folder!r} and collection={collection!r}."
             )
         if collection is not None:
-            folder = await run_sync(collection_service.folder_prefix, ws.path, collection)
-        notes = await run_sync(note_service.entries_in, ws.name, ws.owner_id, period, folder)
+            folder = await run_sync(collection_service.folder_prefix, str(target.path), collection)
+        notes = await run_sync(
+            note_service.entries_in, target.name, target.owner_id, period, folder
+        )
         return [NoteListItem.model_validate(n) for n in notes]
 
     return srv

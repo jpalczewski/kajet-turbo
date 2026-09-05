@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from kajet_turbo.errors import TargetError
+from kajet_turbo.log import log_permission_denied
 from kajet_turbo.repositories.notes import NoteRepository
 
 if TYPE_CHECKING:
@@ -77,7 +78,9 @@ class TargetResolutionError(Exception):
 
     def __init__(self, failure: TargetFailure) -> None:
         self.failure = failure
-        super().__init__(f"{failure.error}: {failure.reason}")
+        # Public error code only -- failure.reason is the private diagnostic this
+        # dataclass exists to keep out of default serialization (see DenialReason).
+        super().__init__(f"target resolution failed: {failure.error}")
 
 
 class BatchTargetResolutionError(Exception):
@@ -92,6 +95,23 @@ class BatchTargetResolutionError(Exception):
 def is_denial(reason: DenialOrValidationReason) -> bool:
     """True when `reason` should be audited as a permission_denied event."""
     return isinstance(reason, DenialReason)
+
+
+def audit_denied(
+    failure: TargetFailure, *, action: str, resource: str, caller_id: str, **extra
+) -> bool:
+    """Shared denial-audit skeleton for TargetResolutionError/TargetFailure handlers
+    (#248): does the is_denial check plus the log_permission_denied call, and reports
+    whether this failure was a denial, so a caller can still decide its own error
+    chaining. Never raises -- callers raise their own ToolError/HTTPException with
+    their own status and message; this only centralizes the repeated audit-logging
+    skeleton duplicated across both adapters."""
+    if is_denial(failure.reason):
+        log_permission_denied(
+            action=action, resource=resource, caller_id=caller_id, reason=failure.reason, **extra
+        )
+        return True
+    return False
 
 
 class TargetResolver:
@@ -220,10 +240,14 @@ class TargetResolver:
         resolved = [NoteTarget(note_id=note_id, workspace=workspace) for note_id in note_ids]
         return workspace, resolved
 
-    def _missing_reason(self, note_id: str, user_id: str) -> DenialOrValidationReason:
+    def _missing_reason(self, note_id: str, user_id: str) -> DenialReason:
+        """Distinguish why `note_id` is absent from a `get_many(..., user_id)` result.
+
+        That query already filters on `Note.owner_id == user_id`, so absence has
+        exactly two causes: no such row, or a row owned by someone else. There is no
+        third "row is owned but its workspace access was revoked" case to detect here
+        -- this never calls workspace access checks -- so don't invent one."""
         note = self._note_repo.get(note_id)
         if note is None:
             return DenialReason.MISSING_ROW
-        if note.owner_id != user_id:
-            return DenialReason.WRONG_OWNER
-        return DenialReason.WORKSPACE_ACCESS_DENIED
+        return DenialReason.WRONG_OWNER

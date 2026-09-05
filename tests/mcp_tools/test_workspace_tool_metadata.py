@@ -17,7 +17,6 @@ READ_TOOLS = {
 }
 
 WRITE_TOOLS = {
-    "activate_workspace",
     "create_workspace",
     "update_workspace",
     "set_workspace_setting",
@@ -61,7 +60,6 @@ async def test_mcp_tools_have_safety_annotations(mcp_server):
         assert tools[name].annotations.open_world_hint is False
         assert tools[name].annotations.destructive_hint is (name in DESTRUCTIVE_TOOLS)
 
-    assert tools["activate_workspace"].annotations.idempotent_hint is True
     assert tools["create_workspace"].annotations.idempotent_hint is False
     assert tools["update_workspace"].annotations.idempotent_hint is True
     assert tools["set_workspace_setting"].annotations.idempotent_hint is True

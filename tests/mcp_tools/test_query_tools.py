@@ -1,5 +1,7 @@
 """list_notes/search/grep/export/reindex tool coverage."""
 
+import json
+
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
@@ -11,14 +13,20 @@ from tests.mcp_tools.helpers import call_json
 async def test_list_notes(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool(
-            "save_note", {"title": "Notatka 1", "content": "treść 1", "tags": ["python"]}
+            "save_note",
+            {
+                "title": "Notatka 1",
+                "content": "treść 1",
+                "tags": ["python"],
+                "workspace": "test-ws",
+            },
         )
         await client.call_tool(
-            "save_note", {"title": "Notatka 2", "content": "treść 2", "tags": ["js"]}
+            "save_note",
+            {"title": "Notatka 2", "content": "treść 2", "tags": ["js"], "workspace": "test-ws"},
         )
-        result = await client.call_tool("list_notes", {})
+        result = await client.call_tool("list_notes", {"workspace": "test-ws"})
         assert "Notatka 1" in result.content[0].text
         assert "Notatka 2" in result.content[0].text
 
@@ -26,10 +34,13 @@ async def test_list_notes(workspaces_dir, mcp_server):
 async def test_list_notes_sort_title(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        await client.call_tool("save_note", {"title": "Zebra", "content": "z"})
-        await client.call_tool("save_note", {"title": "Apple", "content": "a"})
-        result = await client.call_tool("list_notes", {"sort": "title"})
+        await client.call_tool(
+            "save_note", {"title": "Zebra", "content": "z", "workspace": "test-ws"}
+        )
+        await client.call_tool(
+            "save_note", {"title": "Apple", "content": "a", "workspace": "test-ws"}
+        )
+        result = await client.call_tool("list_notes", {"workspace": "test-ws", "sort": "title"})
         text = result.content[0].text
         assert text.index("Apple") < text.index("Zebra")
 
@@ -37,15 +48,27 @@ async def test_list_notes_sort_title(workspaces_dir, mcp_server):
 async def test_search_notes_fts_fallback(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool(
             "save_note",
-            {"title": "Python asyncio guide", "content": "Tutorial o coroutines.", "tags": []},
+            {
+                "title": "Python asyncio guide",
+                "content": "Tutorial o coroutines.",
+                "tags": [],
+                "workspace": "test-ws",
+            },
         )
         await client.call_tool(
-            "save_note", {"title": "JavaScript intro", "content": "Podstawy JS.", "tags": []}
+            "save_note",
+            {
+                "title": "JavaScript intro",
+                "content": "Podstawy JS.",
+                "tags": [],
+                "workspace": "test-ws",
+            },
         )
-        result = await client.call_tool("search_notes", {"query": "asyncio"})
+        result = await client.call_tool(
+            "search_notes", {"query": "asyncio", "workspace": "test-ws"}
+        )
         assert "Python asyncio guide" in result.content[0].text
         assert "JavaScript intro" not in result.content[0].text
 
@@ -53,7 +76,6 @@ async def test_search_notes_fts_fallback(workspaces_dir, mcp_server):
 async def test_search_notes_finds_note_by_tag_only(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool(
             "save_note",
             {
@@ -61,23 +83,32 @@ async def test_search_notes_finds_note_by_tag_only(workspaces_dir, mcp_server):
                 "content": "",
                 "tags": ["alice"],
                 "folder": "książki/Alice",
+                "workspace": "test-ws",
             },
         )
-        result = await client.call_tool("search_notes", {"query": "alice"})
+        result = await client.call_tool("search_notes", {"query": "alice", "workspace": "test-ws"})
         assert "Rozmowa" in result.content[0].text
 
 
 async def test_search_notes_folder_narrowing(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool(
-            "save_note", {"title": "In scope", "content": "keyword here", "folder": "a"}
+            "save_note",
+            {"title": "In scope", "content": "keyword here", "folder": "a", "workspace": "test-ws"},
         )
         await client.call_tool(
-            "save_note", {"title": "Out of scope", "content": "keyword here", "folder": "b"}
+            "save_note",
+            {
+                "title": "Out of scope",
+                "content": "keyword here",
+                "folder": "b",
+                "workspace": "test-ws",
+            },
         )
-        result = await client.call_tool("search_notes", {"query": "keyword", "folder": "a"})
+        result = await client.call_tool(
+            "search_notes", {"query": "keyword", "folder": "a", "workspace": "test-ws"}
+        )
         text = result.content[0].text
         assert "In scope" in text
         assert "Out of scope" not in text
@@ -91,13 +122,23 @@ async def test_search_notes_all_workspaces(workspaces_dir, mcp_server):
 
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool(
-            "save_note", {"title": "Notatka w ws1", "content": "Python content.", "tags": []}
+            "save_note",
+            {
+                "title": "Notatka w ws1",
+                "content": "Python content.",
+                "tags": [],
+                "workspace": "test-ws",
+            },
         )
-        await client.call_tool("activate_workspace", {"name": "drugi-ws"})
         await client.call_tool(
-            "save_note", {"title": "Notatka w ws2", "content": "Python content.", "tags": []}
+            "save_note",
+            {
+                "title": "Notatka w ws2",
+                "content": "Python content.",
+                "tags": [],
+                "workspace": "drugi-ws",
+            },
         )
         result = await client.call_tool("search_notes", {"query": "Python", "workspace": "all"})
         text = result.content[0].text
@@ -110,19 +151,19 @@ async def test_search_all_excludes_opted_out_workspace_but_named_search_finds_it
 ):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool(
             "save_note",
-            {"title": "Private search note", "content": "selective-keyword", "tags": []},
+            {
+                "title": "Private search note",
+                "content": "selective-keyword",
+                "tags": [],
+                "workspace": "test-ws",
+            },
         )
         await client.call_tool(
             "set_workspace_setting",
             {"name": "test-ws", "setting": "include_in_search_all", "value": False},
         )
-
-    # Remove both persisted fallback scopes so neither assertion can accidentally use
-    # activation left behind by the setup client.
-    mcp_server.active_workspace_repo.delete_for_workspace("u1", "test-ws")
 
     async with Client(mcp) as client:
         all_result = await client.call_tool(
@@ -136,28 +177,57 @@ async def test_search_all_excludes_opted_out_workspace_but_named_search_finds_it
     assert "Private search note" in named_result.content[0].text
 
 
+async def test_search_notes_unknown_workspace_lists_available(workspaces_dir, mcp_server):
+    """Folded from the deleted test_workspace_session_tools.py: an explicit unknown
+    workspace name is still rejected with a ToolError whose JSON body names every
+    workspace the caller can actually reach."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        with pytest.raises(ToolError) as exc_info:
+            await client.call_tool("search_notes", {"query": "anything", "workspace": "no-such-ws"})
+    data = json.loads(str(exc_info.value))
+    assert data["available"] == ["test-ws"]
+
+
+async def test_search_notes_rejects_active_literal(workspaces_dir, mcp_server):
+    """#248 removed the session-active workspace concept entirely; workspace="active"
+    must be rejected with an error naming the change, never silently reinterpreted as
+    "all" or as a literal workspace named "active"."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        with pytest.raises(ToolError, match="workspace='active' was removed"):
+            await client.call_tool("search_notes", {"query": "anything", "workspace": "active"})
+
+
 async def test_grep_notes_finds_literal_line(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool(
-            "save_note", {"title": "Notes", "content": "line one\nmafioso appears\nline three\n"}
+            "save_note",
+            {
+                "title": "Notes",
+                "content": "line one\nmafioso appears\nline three\n",
+                "workspace": "test-ws",
+            },
         )
-        result = await client.call_tool("grep_notes", {"pattern": "mafioso"})
+        result = await client.call_tool(
+            "grep_notes", {"pattern": "mafioso", "workspace": "test-ws"}
+        )
         assert "mafioso appears" in result.content[0].text
 
 
 async def test_export_folder(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool(
-            "save_note", {"title": "One", "content": "body one", "folder": "docs"}
+            "save_note",
+            {"title": "One", "content": "body one", "folder": "docs", "workspace": "test-ws"},
         )
         await client.call_tool(
-            "save_note", {"title": "Two", "content": "body two", "folder": "docs"}
+            "save_note",
+            {"title": "Two", "content": "body two", "folder": "docs", "workspace": "test-ws"},
         )
-        result = await client.call_tool("export_folder", {"folder": "docs"})
+        result = await client.call_tool("export_folder", {"folder": "docs", "workspace": "test-ws"})
         text = result.content[0].text
         assert "body one" in text
         assert "body two" in text
@@ -182,17 +252,17 @@ async def test_reindex_workspace(workspaces_dir, mcp_server):
 
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        reindex_result = await call_json(client, "reindex_workspace")
+        reindex_result = await call_json(client, "reindex_workspace", {"workspace": "test-ws"})
         assert reindex_result["count"] == 1
-        search_result = await client.call_tool("search_notes", {"query": "Reindexed"})
+        search_result = await client.call_tool(
+            "search_notes", {"query": "Reindexed", "workspace": "test-ws"}
+        )
         assert "Reindexed note" in search_result.content[0].text
 
 
 async def test_entries_in_filters_by_period_and_folder(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         wanted = await call_json(
             client,
             "save_note",
@@ -201,6 +271,7 @@ async def test_entries_in_filters_by_period_and_folder(workspaces_dir, mcp_serve
                 "content": "",
                 "folder": "journal/2026",
                 "occurred_at": "2026-03-22",
+                "workspace": "test-ws",
             },
         )
         await call_json(
@@ -211,13 +282,20 @@ async def test_entries_in_filters_by_period_and_folder(workspaces_dir, mcp_serve
                 "content": "",
                 "folder": "journals-old",
                 "occurred_at": "2026-03-22",
+                "workspace": "test-ws",
             },
         )
         await call_json(
-            client, "save_note", {"title": "Summary", "content": "", "period": "2026-W12"}
+            client,
+            "save_note",
+            {"title": "Summary", "content": "", "period": "2026-W12", "workspace": "test-ws"},
         )
 
-        result = await call_json(client, "entries_in", {"period": "2026-W12", "folder": "journal"})
+        result = await call_json(
+            client,
+            "entries_in",
+            {"period": "2026-W12", "folder": "journal", "workspace": "test-ws"},
+        )
 
         assert [note["note_id"] for note in result] == [wanted["note_id"]]
 
@@ -225,15 +303,13 @@ async def test_entries_in_filters_by_period_and_folder(workspaces_dir, mcp_serve
 async def test_entries_in_rejects_invalid_period(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         with pytest.raises(ToolError, match="nope"):
-            await client.call_tool("entries_in", {"period": "nope"})
+            await client.call_tool("entries_in", {"period": "nope", "workspace": "test-ws"})
 
 
 async def test_entries_in_collection_resolves_to_its_folder(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         await call_json(
             client,
             "define_collection",
@@ -243,6 +319,7 @@ async def test_entries_in_collection_resolves_to_its_folder(workspaces_dir, mcp_
                 "cardinality": "one",
                 "folder": "journal/{year}/{month}",
                 "title": "{date}",
+                "workspace": "test-ws",
             },
         )
         wanted = await call_json(
@@ -253,6 +330,7 @@ async def test_entries_in_collection_resolves_to_its_folder(workspaces_dir, mcp_
                 "content": "",
                 "folder": "journal/2026",
                 "occurred_at": "2026-03-22",
+                "workspace": "test-ws",
             },
         )
         await call_json(
@@ -263,11 +341,14 @@ async def test_entries_in_collection_resolves_to_its_folder(workspaces_dir, mcp_
                 "content": "",
                 "folder": "journals-old",
                 "occurred_at": "2026-03-22",
+                "workspace": "test-ws",
             },
         )
 
         result = await call_json(
-            client, "entries_in", {"period": "2026-W12", "collection": "journal"}
+            client,
+            "entries_in",
+            {"period": "2026-W12", "collection": "journal", "workspace": "test-ws"},
         )
 
         assert [note["note_id"] for note in result] == [wanted["note_id"]]
@@ -276,7 +357,6 @@ async def test_entries_in_collection_resolves_to_its_folder(workspaces_dir, mcp_
 async def test_entries_in_rejects_folder_and_collection_together(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         await call_json(
             client,
             "define_collection",
@@ -286,11 +366,17 @@ async def test_entries_in_rejects_folder_and_collection_together(workspaces_dir,
                 "cardinality": "one",
                 "folder": "journal/{year}/{month}",
                 "title": "{date}",
+                "workspace": "test-ws",
             },
         )
 
         with pytest.raises(ToolError, match=r"folder.*collection|collection.*folder"):
             await client.call_tool(
                 "entries_in",
-                {"period": "2026-W12", "folder": "journal", "collection": "journal"},
+                {
+                    "period": "2026-W12",
+                    "folder": "journal",
+                    "collection": "journal",
+                    "workspace": "test-ws",
+                },
             )

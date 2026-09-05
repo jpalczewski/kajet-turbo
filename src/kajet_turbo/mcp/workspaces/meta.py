@@ -2,49 +2,27 @@ from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logged_tool, logger
-from kajet_turbo.mcp.context import (
-    active_workspace_scope,
-    require_user_id,
-    require_workspace_access,
-)
+from kajet_turbo.log import logged_tool
+from kajet_turbo.mcp.context import require_user_id, require_workspace_access
 from kajet_turbo.mcp.tooling import read_tool, write_tool
-from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.services.workspaces import WorkspaceService
 
 from .types import WorkspaceInfo, WorkspaceMessageResult, WorkspacesResult, WorkspaceUpdatedResult
 
 
-def build_meta(
-    workspace_service: WorkspaceService,
-    active_workspace_repo: ActiveWorkspaceRepository,
-) -> FastMCP:
+def build_meta(workspace_service: WorkspaceService) -> FastMCP:
     srv = FastMCP("workspaces-meta")
 
     @srv.tool(**read_tool(tags={"workspace", "metadata"}))
     @logged_tool
     async def list_workspaces(ctx: Context) -> WorkspacesResult:
-        """Zwraca workspace'y dostępne dla użytkownika wraz z metadanymi.
-        Użyj `description`, by wybrać właściwy workspace przed activate_workspace()."""
+        """Returns the workspaces available to the user, with metadata.
+        Use `description` to pick the right workspace to pass as the `workspace`
+        parameter on workspace-scoped tools."""
         del ctx
         user_id = await require_user_id()
         workspaces = await run_sync(workspace_service.list_meta, user_id)
         return WorkspacesResult(workspaces=[WorkspaceInfo.model_validate(w) for w in workspaces])
-
-    @srv.tool(**write_tool(tags={"workspace", "state"}, idempotent=True))
-    @logged_tool
-    async def activate_workspace(name: str, ctx: Context) -> WorkspaceMessageResult:
-        """Ustawia aktywny workspace dla tej sesji."""
-        user_id = await require_user_id()
-        await require_workspace_access(name, user_id)
-        await ctx.set_state("active_workspace", name)
-        await ctx.set_state("active_user_id", user_id)
-        scope = active_workspace_scope(ctx)
-        if scope is not None:
-            await run_sync(active_workspace_repo.set, user_id, name, scope)
-        await run_sync(active_workspace_repo.set, user_id, name)
-        logger.info("workspace_switched", ws=name, scope=scope)
-        return WorkspaceMessageResult(message=f"Workspace '{name}' aktywny.", workspace=name)
 
     @srv.tool(**write_tool(tags={"workspace", "metadata"}, idempotent=False))
     @logged_tool

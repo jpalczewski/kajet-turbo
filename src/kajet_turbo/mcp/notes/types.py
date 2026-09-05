@@ -148,8 +148,8 @@ class NoteLinkItem(NoteLinkItemWithMeta):
     )
     workspace: str | None = Field(
         default=None,
-        description="Non-null and != active workspace means cross-workspace link; reference "
-        "with [[note:note_id]]",
+        description="Non-null and different from the note's own workspace means a "
+        "cross-workspace link; reference with [[note:note_id]]",
     )
 
 

@@ -198,15 +198,13 @@ def api_note_neighborhood(
     depth: Annotated[int, Query(ge=1, le=3)] = 2,
     include_cross_workspace: bool = False,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
     result = note_service.neighborhood(
-        note_id,
-        name,
-        user["id"],
+        target.note_id,
+        target.workspace.name,
+        target.workspace.owner_id,
         depth,
         include_cross_workspace,
     )

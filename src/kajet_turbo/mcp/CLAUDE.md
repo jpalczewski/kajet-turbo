@@ -48,7 +48,7 @@ they meant.
 - `logged_tool` sits *under* `@srv.tool`, so it only ever sees validated Python values. It
   is for timing, logging, and the `SERVICE_ERRORS` → `ToolError` boundary mapping — not
   argument preprocessing. It does not log `ToolError` — a `Depends` dependency (e.g.
-  `ACTIVE_WORKSPACE`) can raise one before `logged_tool`'s wrapper ever runs, so
+  `NOTE_TARGET`) can raise one before `logged_tool`'s wrapper ever runs, so
   `ServiceErrorMiddleware` (`tooling.py`) is the single place that logs a `ToolError`,
   whichever layer raised it.
 

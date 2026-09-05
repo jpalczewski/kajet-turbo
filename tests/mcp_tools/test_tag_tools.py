@@ -12,9 +12,14 @@ from tests.mcp_tools.helpers import call_json
 async def test_tag_tools_add_remove_set(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         save = await client.call_tool(
-            "save_note", {"title": "Tagi", "content": "body #inline", "tags": ["python"]}
+            "save_note",
+            {
+                "workspace": "test-ws",
+                "title": "Tagi",
+                "content": "body #inline",
+                "tags": ["python"],
+            },
         )
         note_id = json.loads(save.content[0].text)["note_id"]
 
@@ -60,21 +65,33 @@ async def test_tag_tools_add_remove_set(workspaces_dir, mcp_server):
 async def test_rename_tag_moves_subtree_and_inline_hashtags(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
         await call_json(
-            client, "save_note", {"title": "A", "content": "body", "tags": ["work/projects"]}
+            client,
+            "save_note",
+            {
+                "workspace": "test-ws",
+                "title": "A",
+                "content": "body",
+                "tags": ["work/projects"],
+            },
         )
         inline = await call_json(
-            client, "save_note", {"title": "B", "content": "patrz #work tutaj", "tags": []}
+            client,
+            "save_note",
+            {"workspace": "test-ws", "title": "B", "content": "patrz #work tutaj", "tags": []},
         )
         await call_json(
-            client, "save_note", {"title": "C", "content": "body", "tags": ["workflow"]}
+            client,
+            "save_note",
+            {"workspace": "test-ws", "title": "C", "content": "body", "tags": ["workflow"]},
         )
 
-        result = await call_json(client, "rename_tag", {"old": "work", "new": "job"})
+        result = await call_json(
+            client, "rename_tag", {"old": "work", "new": "job", "workspace": "test-ws"}
+        )
         assert (result["renamed"], result["merged"], result["inline_rewritten"]) == (2, False, 1)
 
-        tags = {t["path"] for t in await call_json(client, "list_tags", {})}
+        tags = {t["path"] for t in await call_json(client, "list_tags", {"workspace": "test-ws"})}
         assert tags == {"job", "job/projects", "workflow"}
         note = await call_json(client, "get_note", {"note_id": inline["note_id"]})
         assert "#job" in note["content"]
@@ -83,28 +100,48 @@ async def test_rename_tag_moves_subtree_and_inline_hashtags(workspaces_dir, mcp_
 async def test_rename_tag_reports_a_conflict_unless_merge_is_requested(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        await call_json(client, "save_note", {"title": "A", "content": "body", "tags": ["osoba"]})
-        await call_json(client, "save_note", {"title": "B", "content": "body", "tags": ["osoby"]})
+        await call_json(
+            client,
+            "save_note",
+            {"workspace": "test-ws", "title": "A", "content": "body", "tags": ["osoba"]},
+        )
+        await call_json(
+            client,
+            "save_note",
+            {"workspace": "test-ws", "title": "B", "content": "body", "tags": ["osoby"]},
+        )
 
-        conflict = await call_json(client, "rename_tag", {"old": "osoba", "new": "osoby"})
+        conflict = await call_json(
+            client, "rename_tag", {"old": "osoba", "new": "osoby", "workspace": "test-ws"}
+        )
         assert conflict["target"] == "osoby"
-        assert {t["path"] for t in await call_json(client, "list_tags", {})} == {"osoba", "osoby"}
+        assert {
+            t["path"] for t in await call_json(client, "list_tags", {"workspace": "test-ws"})
+        } == {"osoba", "osoby"}
 
         merged = await call_json(
-            client, "rename_tag", {"old": "osoba", "new": "osoby", "merge": True}
+            client,
+            "rename_tag",
+            {"old": "osoba", "new": "osoby", "merge": True, "workspace": "test-ws"},
         )
         assert merged["merged"] is True
-        assert {t["path"] for t in await call_json(client, "list_tags", {})} == {"osoby"}
+        assert {
+            t["path"] for t in await call_json(client, "list_tags", {"workspace": "test-ws"})
+        } == {"osoby"}
 
 
 async def test_rename_tag_rejects_an_unknown_tag(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        await call_json(client, "save_note", {"title": "A", "content": "body", "tags": ["work"]})
+        await call_json(
+            client,
+            "save_note",
+            {"workspace": "test-ws", "title": "A", "content": "body", "tags": ["work"]},
+        )
         with pytest.raises(ToolError, match="nie istnieje"):
-            await client.call_tool("rename_tag", {"old": "wrok", "new": "job"})
+            await client.call_tool(
+                "rename_tag", {"old": "wrok", "new": "job", "workspace": "test-ws"}
+            )
 
 
 async def test_per_note_tag_tools_publish_note_updated_only_on_a_real_change(
@@ -117,8 +154,9 @@ async def test_per_note_tag_tools_publish_note_updated_only_on_a_real_change(
         lambda _self, owner_id, kind, payload: published.append((kind, payload)),
     )
     async with Client(mcp) as client:
-        await client.call_tool("activate_workspace", {"name": "test-ws"})
-        saved = await call_json(client, "save_note", {"title": "A", "content": "body"})
+        saved = await call_json(
+            client, "save_note", {"workspace": "test-ws", "title": "A", "content": "body"}
+        )
         published.clear()
 
         await call_json(client, "add_tag", {"note_id": saved["note_id"], "tags": ["work"]})

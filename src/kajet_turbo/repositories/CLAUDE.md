@@ -126,9 +126,9 @@ its own session" structural rather than a promise. Prefer that shape, with that 
 anything new.
 
 `delete_for_workspace` used to be a trap: `NoteChunkRepository` and `NoteRepository` carried
-a caller-owned-session, no-commit method under the same bare name that five *other*
-repositories (`dangling_links.py`, `folder_meta.py`, `active_workspace.py`, `jobs.py`,
-`link_reconcile.py`) use for the opposite contract — own session, commits itself. `#139`
+a caller-owned-session, no-commit method under the same bare name that other
+repositories (`dangling_links.py`, `folder_meta.py`, `jobs.py`, `link_reconcile.py`) use
+for the opposite contract — own session, commits itself. `#139`
 renamed the two offenders to `delete_for_workspace_in_session`
 (`notes/chunks.py:delete_for_workspace_in_session`,
 `notes/crud.py:delete_for_workspace_in_session`); the bare `delete_for_workspace` name is now

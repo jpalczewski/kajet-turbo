@@ -650,8 +650,8 @@ def test_graph_returns_403_when_no_access(no_access_client):
 
 def test_neighborhood_returns_local_graph_and_validates_depth(auth_client):
     client, note_svc, ws_path = auth_client
-    target_id = note_svc.save("u1", "test-ws", ws_path, "Target", "", [])["note_id"]
-    source_id = note_svc.save("u1", "test-ws", ws_path, "Source", "[[Target]]", [])["note_id"]
+    target_id = note_svc.save(_ws(ws_path), "Target", "", [])["note_id"]
+    source_id = note_svc.save(_ws(ws_path), "Source", "[[Target]]", [])["note_id"]
 
     resp = client.get(f"/api/workspaces/test-ws/notes/{source_id}/neighborhood")
     assert resp.status_code == 200
@@ -663,7 +663,8 @@ def test_neighborhood_returns_local_graph_and_validates_depth(auth_client):
 
 def test_neighborhood_returns_404_for_note_outside_workspace(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save("u1", "other", ws_path, "Elsewhere", "", [])["note_id"]
+    other_ws = WorkspaceTarget(owner_id="u1", name="other", path=Path(ws_path))
+    note_id = note_svc.save(other_ws, "Elsewhere", "", [])["note_id"]
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/neighborhood")
     assert resp.status_code == 404
 

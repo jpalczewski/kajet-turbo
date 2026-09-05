@@ -16,7 +16,6 @@ from kajet_turbo.dependencies import (
     get_workspace_service,
 )
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
-from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
@@ -84,7 +83,6 @@ def api_client_factory(
             DanglingLinkRepository(database.engine),
             FolderMetaRepository(database.engine),
             WorkspaceRemoteRepository(database.engine),
-            ActiveWorkspaceRepository(database.engine),
             JobRepository(database.engine),
         )
 

@@ -5,7 +5,7 @@ from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
-from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace, reauthorize_workspace
+from kajet_turbo.mcp.context import WORKSPACE_TARGET
 from kajet_turbo.mcp.notes.types import (
     ConflictItem,
     FolderConflictResult,
@@ -17,6 +17,7 @@ from kajet_turbo.mcp.notes.types import (
 from kajet_turbo.mcp.tooling import publish_workspace_changed, read_tool, write_tool
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.workspace import normalize_folder
 
@@ -31,18 +32,17 @@ def build_folders(
     @srv.tool(**read_tool(tags={"notes", "folders"}))
     @logged_tool
     async def list_folders(
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        workspace: str,
+        target: WorkspaceTarget = WORKSPACE_TARGET,
     ) -> list[FolderInfo]:
-        """Zwraca istniejące foldery aktywnego workspace z ich opisami.
-        Pusty string w path oznacza katalog główny workspace.
-        description jest pusty gdy folder nie ma ustawionych metadanych."""
-        workspace = await reauthorize_workspace(ws)
-        paths = await run_sync(note_service.list_folders, str(workspace.path))
+        """Returns the existing folders in the given workspace, with their descriptions.
+        An empty path means the workspace root; description is empty when a folder has no
+        metadata set.
+        workspace: the workspace name to list folders in."""
+        paths = await run_sync(note_service.list_folders, str(target.path))
         if not paths:
             return []
-        meta_map = await run_sync(
-            folder_meta_repo.get_many, workspace.owner_id, workspace.name, paths
-        )
+        meta_map = await run_sync(folder_meta_repo.get_many, target.owner_id, target.name, paths)
         return [
             FolderInfo(path=p, description=meta_map[p].description if p in meta_map else "")
             for p in paths
@@ -57,6 +57,7 @@ def build_folders(
                 description="Folder path, e.g. 'Projekty/Klient A'. Empty string = workspace root."
             ),
         ],
+        workspace: str,
         description: Annotated[
             str | None,
             Field(
@@ -70,44 +71,43 @@ def build_folders(
                 "Omit to keep existing."
             ),
         ] = None,
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        target: WorkspaceTarget = WORKSPACE_TARGET,
     ) -> FolderContext:
-        """Ustawia metadane folderu widoczne pasywnie dla LLM-a w list_notes i list_folders.
-        description: krótki opis co zawiera folder.
-        instructions: instrukcje dla LLM-a wyświetlane przy list_notes dla tego folderu.
-        Pominięcie parametru zachowuje istniejącą wartość."""
-        workspace = await reauthorize_workspace(ws)
+        """Sets folder metadata, shown passively to the LLM in list_notes and list_folders.
+        description: short description of what the folder contains.
+        instructions: LLM instructions shown when listing notes in this folder.
+        Omitting a parameter keeps its existing value.
+        workspace: the workspace name the folder belongs to."""
         path = normalize_folder(folder)
         await run_sync(
             folder_meta_repo.set,
-            workspace.owner_id,
-            workspace.name,
+            target.owner_id,
+            target.name,
             path,
             description=description,
             instructions=instructions,
         )
-        meta = await run_sync(folder_meta_repo.get, workspace.owner_id, workspace.name, path)
+        meta = await run_sync(folder_meta_repo.get, target.owner_id, target.name, path)
         assert meta is not None
         return FolderContext.model_validate(meta)
 
     async def _move_folder(
-        src: str, dst: str, ws: ActiveWorkspace
+        src: str, dst: str, target: WorkspaceTarget
     ) -> MovedFolderResult | FolderConflictResult:
-        workspace = await reauthorize_workspace(ws)
         result = await run_sync(
             note_service.move_folder,
             src,
             dst,
-            owner_id=workspace.owner_id,
-            ws_path=str(workspace.path),
-            workspace=workspace.name,
+            owner_id=target.owner_id,
+            ws_path=str(target.path),
+            workspace=target.name,
         )
         if "conflicts" in result:
             return FolderConflictResult(
                 error=result["error"],
                 conflicts=[ConflictItem.model_validate(c) for c in result["conflicts"]],
             )
-        await publish_workspace_changed(workspace)
+        await publish_workspace_changed(target)
         return MovedFolderResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "folders"}))
@@ -115,38 +115,43 @@ def build_folders(
     async def move_folder(
         src: str,
         dst: str,
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        workspace: str,
+        target: WorkspaceTarget = WORKSPACE_TARGET,
     ) -> MovedFolderResult | FolderConflictResult:
-        """Przenosi/scala folder (z notatkami i podfolderami) w aktywnym workspace.
-        Jeśli dst istnieje, foldery są scalane. Przy kolizji nazw notatek nic nie jest
-        przenoszone i zwracana jest lista kolizji.
-        Sukces: {moved, src, dst}. Kolizja: {error, conflicts: [{title, folder}]}."""
-        return await _move_folder(src, dst, ws)
+        """Moves/merges a folder (with its notes and subfolders) within the given workspace.
+        If dst already exists, the folders are merged. On a note-title collision nothing is
+        moved and the list of conflicts is returned.
+        Success: {moved, src, dst}. Collision: {error, conflicts: [{title, folder}]}.
+        workspace: the workspace name to operate in."""
+        return await _move_folder(src, dst, target)
 
     @srv.tool(**write_tool(tags={"notes", "folders"}))
     @logged_tool
     async def rename_folder(
         folder: str,
         new_name: str,
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        workspace: str,
+        target: WorkspaceTarget = WORKSPACE_TARGET,
     ) -> MovedFolderResult | FolderConflictResult:
-        """Zmienia nazwę folderu (w obrębie tego samego rodzica). new_name to sama nazwa
-        liścia, bez ścieżki. Pozwala m.in. zmienić wielkość liter na case-sensitive FS.
-        Sukces: {moved, src, dst}. Kolizja: {error, conflicts: [{title, folder}]}."""
+        """Renames a folder (within the same parent). new_name is the leaf name only,
+        without a path — this also allows fixing letter case on a case-sensitive filesystem.
+        Success: {moved, src, dst}. Collision: {error, conflicts: [{title, folder}]}.
+        workspace: the workspace name to operate in."""
         parent = folder.rsplit("/", 1)[0] if "/" in folder.strip("/") else ""
         dst = f"{parent}/{new_name}" if parent else new_name
-        return await _move_folder(folder, dst, ws)
+        return await _move_folder(folder, dst, target)
 
     @srv.tool(**write_tool(tags={"notes", "folders"}, idempotent=True))
     @logged_tool
     async def prune_empty_folders(
-        ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        workspace: str,
+        target: WorkspaceTarget = WORKSPACE_TARGET,
     ) -> PrunedFoldersResult:
-        """Usuwa puste katalogi (osierocone po przenoszeniu notatek).
-        Foldery z .gitkeep są zachowane."""
-        workspace = await reauthorize_workspace(ws)
-        result = await run_sync(note_service.prune_empty_folders, str(workspace.path))
-        await publish_workspace_changed(workspace)
+        """Removes empty directories (orphaned after moving notes). Folders containing
+        .gitkeep are kept.
+        workspace: the workspace name to prune."""
+        result = await run_sync(note_service.prune_empty_folders, str(target.path))
+        await publish_workspace_changed(target)
         return PrunedFoldersResult.model_validate(result)
 
     return srv

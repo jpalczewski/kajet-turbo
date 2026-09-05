@@ -1,6 +1,5 @@
 """MCP tools reject callers without a resolvable identity."""
 
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -13,15 +12,17 @@ from kajet_turbo.repositories.git import GitRepository
 async def test_tokenless_list_workspaces_rejected(tokenless_mcp_server):
     mcp, _ = tokenless_mcp_server
     async with Client(mcp) as client:
-        with pytest.raises(ToolError, match="Wymagane zalogowanie"):
+        with pytest.raises(ToolError, match="Authentication required"):
             await client.call_tool("list_workspaces")
 
 
 async def test_tokenless_save_note_rejected(tokenless_mcp_server):
     mcp, _ = tokenless_mcp_server
     async with Client(mcp) as client:
-        with pytest.raises(ToolError, match="Wymagane zalogowanie"):
-            await client.call_tool("save_note", {"title": "Nope", "content": "body"})
+        with pytest.raises(ToolError, match="Authentication required"):
+            await client.call_tool(
+                "save_note", {"title": "Nope", "content": "body", "workspace": "test-ws"}
+            )
 
 
 async def test_token_that_maps_to_no_user_is_rejected(tokenless_mcp_server, monkeypatch):
@@ -34,13 +35,13 @@ async def test_token_that_maps_to_no_user_is_rejected(tokenless_mcp_server, monk
     )
     mcp, _ = tokenless_mcp_server
     async with Client(mcp) as client:
-        with pytest.raises(ToolError, match="Wymagane zalogowanie"):
+        with pytest.raises(ToolError, match="Authentication required"):
             await client.call_tool("list_workspaces")
 
 
-async def test_activate_workspace_ignores_ungranted_disk_workspace(workspaces_dir, mcp_server):
-    """A workspace directory on disk without a DB grant must not be reachable — there is
-    no filesystem-listing fallback anymore."""
+async def test_ungranted_disk_workspace_is_unreachable(workspaces_dir, mcp_server):
+    """A workspace directory on disk without a DB grant must not be reachable through a
+    workspace-scoped tool — there is no filesystem-listing fallback."""
 
     other_ws = workspaces_dir / "other-ws"
     other_ws.mkdir()
@@ -48,8 +49,5 @@ async def test_activate_workspace_ignores_ungranted_disk_workspace(workspaces_di
 
     mcp, _ = mcp_server
     async with Client(mcp) as client:
-        with pytest.raises(ToolError) as exc_info:
-            await client.call_tool("activate_workspace", {"name": "other-ws"})
-
-    data = json.loads(str(exc_info.value))
-    assert data["available"] == ["test-ws"]
+        with pytest.raises(ToolError, match="Workspace not accessible: other-ws"):
+            await client.call_tool("list_folders", {"workspace": "other-ws"})

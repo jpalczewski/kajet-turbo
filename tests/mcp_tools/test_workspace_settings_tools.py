@@ -28,7 +28,7 @@ async def test_list_workspace_settings_no_access(workspaces_dir, mcp_server):
             await client.call_tool("list_workspace_settings", {"name": "no-such-ws"})
         except ToolError as e:
             data = json.loads(str(e))
-            assert "brak dostępu" in data["error"]
+            assert "not accessible" in data["error"]
             assert data["available"] == ["test-ws"]
         else:  # pragma: no cover
             raise AssertionError("Expected ToolError")
@@ -71,7 +71,7 @@ async def test_set_workspace_setting_no_access(workspaces_dir, mcp_server):
             )
         except ToolError as e:
             data = json.loads(str(e))
-            assert "brak dostępu" in data["error"]
+            assert "not accessible" in data["error"]
             assert data["available"] == ["test-ws"]
         else:  # pragma: no cover
             raise AssertionError("Expected ToolError")

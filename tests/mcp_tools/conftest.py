@@ -12,7 +12,6 @@ from kajet_turbo.auth import create_auth
 from kajet_turbo.db import Database
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.mcp import build_mcp
-from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.git import PostCommitHooks
 from kajet_turbo.repositories.notes import NoteRepository
@@ -35,7 +34,6 @@ class McpTestContext:
     database: Database
     oauth_repo: OAuthRepository
     workspace_repo: WorkspaceRepository
-    active_workspace_repo: ActiveWorkspaceRepository
     note_service: NoteService | None = None
 
     def __iter__(self):
@@ -54,7 +52,6 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
     note_repository = NoteRepository(database.engine)
     workspace_repository = WorkspaceRepository(database.engine)
-    active_workspace_repository = ActiveWorkspaceRepository(database.engine)
     oauth_repository = OAuthRepository(database.engine)
     provider = create_auth(oauth_repository)
     note_chunk_repository = _NoteChunkRepo(database.engine)
@@ -76,7 +73,6 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         DanglingLinkRepository(database.engine),
         folder_meta_repository,
         WorkspaceRemoteRepository(database.engine),
-        active_workspace_repository,
         JobRepository(database.engine),
     )
     # Minimal AppResources-shaped stand-in: build_mcp only reads the fields it mounts,
@@ -87,7 +83,6 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         target_resolver=TargetResolver(note_repository, workspace_service),
         folder_meta_repo=folder_meta_repository,
         oauth_repo=oauth_repository,
-        active_workspace_repo=active_workspace_repository,
         provider=provider,
         collection_service=CollectionService(note_repository, note_service_inst),
         event_repo=EventRepository(database.engine),
@@ -99,7 +94,6 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         database,
         oauth_repository,
         workspace_repository,
-        active_workspace_repository,
         note_service_inst,
     )
 

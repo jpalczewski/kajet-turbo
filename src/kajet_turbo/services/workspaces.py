@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 from kajet_turbo import workspace_settings
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import tags as tagutil
-from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
@@ -36,7 +35,6 @@ class WorkspaceService:
         dangling_repo: DanglingLinkRepository,
         folder_meta_repo: FolderMetaRepository,
         remote_repo: WorkspaceRemoteRepository,
-        active_repo: ActiveWorkspaceRepository,
         job_repo: JobRepository,
         reconcile_repo: LinkReconcileRepository | None = None,
         workspaces_dir: str | None = None,
@@ -48,7 +46,6 @@ class WorkspaceService:
         self._dangling_repo = dangling_repo
         self._folder_meta_repo = folder_meta_repo
         self._remote_repo = remote_repo
-        self._active_repo = active_repo
         self._job_repo = job_repo
         self._reconcile_repo = reconcile_repo
         self._workspaces_dir = workspaces_dir
@@ -77,7 +74,6 @@ class WorkspaceService:
         self._dangling_repo.delete_for_workspace(user_id, name)
         self._folder_meta_repo.delete_for_workspace(user_id, name)
         self._remote_repo.delete(user_id, name)
-        self._active_repo.delete_for_workspace(user_id, name)
         self._job_repo.delete_for_workspace(user_id, name)
         if self._reconcile_repo is not None:
             self._reconcile_repo.delete_for_workspace(user_id, name)

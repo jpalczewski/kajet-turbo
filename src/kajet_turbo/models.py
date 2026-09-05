@@ -34,24 +34,6 @@ class WorkspaceAccess(SQLModel, table=True):
     role: str = Field(default="owner")
 
 
-class ActiveWorkspace(SQLModel, table=True):
-    """Active workspace persisted per authenticated MCP context.
-
-    Claude.ai can open several conversations through the same OAuth client and
-    user. Keying only by user_id turns the active workspace into a global switch;
-    adding scope lets each MCP session keep an independent fallback.
-    """
-
-    __tablename__ = "active_workspaces"
-
-    user_id: str = Field(
-        sa_column=Column(Text, ForeignKey("users.id"), primary_key=True, nullable=False)
-    )
-    scope: str = Field(default="user", primary_key=True)
-    workspace: str
-    updated_at: str
-
-
 class WorkspaceMeta(SQLModel, table=True):
     """Extensible per-workspace metadata. The on-disk git repo is the source of
     truth for existence and WorkspaceAccess for access; this row is the source of
