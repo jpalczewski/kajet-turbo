@@ -21,6 +21,7 @@ def test_jobs_table_columns(database: Database):
         "last_error",
         "created_at",
         "updated_at",
+        "priority",
     }
 
 

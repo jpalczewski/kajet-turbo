@@ -23,7 +23,7 @@ from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import chunk_markdown, embedded_text
 from kajet_turbo.perf import incr, timed
-from kajet_turbo.repositories.jobs import JobEntry, JobRepository
+from kajet_turbo.repositories.jobs import PRIORITY_BULK, JobEntry, JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 
 
@@ -189,7 +189,7 @@ class NoteIndexer:
             return
         try:
             entries = reindex_job_entries(owner_id, workspace, (note["id"] for note in notes))
-            self._jobs.enqueue_many("reindex_note", entries)
+            self._jobs.enqueue_many("reindex_note", entries, priority=PRIORITY_BULK)
         except Exception as e:
             logger.opt(exception=e).error(
                 "reindex_enqueue_failed", workspace=workspace, owner_id=owner_id, count=len(notes)

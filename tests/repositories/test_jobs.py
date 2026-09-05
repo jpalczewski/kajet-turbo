@@ -6,7 +6,13 @@ from sqlmodel import Session, select
 
 from kajet_turbo.db import Database
 from kajet_turbo.models import Job, User
-from kajet_turbo.repositories.jobs import JobEntry, JobRepository, backoff_seconds
+from kajet_turbo.repositories.jobs import (
+    PRIORITY_BULK,
+    PRIORITY_DEFAULT,
+    JobEntry,
+    JobRepository,
+    backoff_seconds,
+)
 from tests.helpers import entries_named, read_log_entries
 
 
@@ -209,6 +215,39 @@ def test_claim_no_double_claim_under_concurrency(database: Database):
         t.join()
     non_none = [r for r in results if r is not None]
     assert len(non_none) == 1  # exactly one worker claimed the single job
+
+
+def test_claim_priority_beats_fifo(database: Database):
+    repo = JobRepository(database.engine)
+    for i in range(20):
+        repo.enqueue("embed_note", {"i": i}, priority=PRIORITY_BULK, now=1000.0 + i)
+    push_id = repo.enqueue("push_workspace", {}, priority=PRIORITY_DEFAULT, now=2000.0)
+    claimed = repo.claim("worker-a", now=2001.0)
+    assert claimed is not None
+    assert claimed.id == push_id
+    assert claimed.kind == "push_workspace"
+
+
+def test_claim_same_priority_stays_fifo(database: Database):
+    repo = JobRepository(database.engine)
+    older_id = repo.enqueue("k", {}, now=1000.0)
+    repo.enqueue("k", {}, now=1001.0)
+    claimed = repo.claim("worker-a", now=1002.0)
+    assert claimed is not None
+    assert claimed.id == older_id
+
+
+def test_dedup_reenqueue_never_demotes_priority(database: Database):
+    repo = JobRepository(database.engine)
+    repo.enqueue("embed_note", {}, dedup_key="x", priority=PRIORITY_BULK, now=1000.0)
+    repo.enqueue("embed_note", {}, dedup_key="x", priority=PRIORITY_DEFAULT, now=1001.0)
+    row = _pending(database.engine, "embed_note", "x")[0]
+    assert row.priority == PRIORITY_DEFAULT  # a more urgent duplicate wins
+
+    repo.enqueue("embed_note", {}, dedup_key="y", priority=PRIORITY_DEFAULT, now=1000.0)
+    repo.enqueue("embed_note", {}, dedup_key="y", priority=PRIORITY_BULK, now=1001.0)
+    row = _pending(database.engine, "embed_note", "y")[0]
+    assert row.priority == PRIORITY_DEFAULT  # never demoted by a bulk re-enqueue
 
 
 def test_complete_marks_done(database: Database):

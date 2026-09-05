@@ -8,7 +8,7 @@ makes the job visible in the owner's jobs API."""
 from collections.abc import Callable
 
 from kajet_turbo.log import logger
-from kajet_turbo.repositories.jobs import JobRepository
+from kajet_turbo.repositories.jobs import PRIORITY_BULK, JobRepository
 
 
 def make_enqueue_embed(jobs: JobRepository) -> Callable[[str, str, str], None]:
@@ -18,6 +18,7 @@ def make_enqueue_embed(jobs: JobRepository) -> Callable[[str, str, str], None]:
             {"note_id": note_id, "workspace": workspace, "owner_id": owner_id},
             dedup_key=f"{owner_id}:{workspace}:{note_id}",
             user_id=owner_id,
+            priority=PRIORITY_BULK,
         )
         logger.debug("embed_enqueued", note_id=note_id)
 
