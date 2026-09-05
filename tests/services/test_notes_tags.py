@@ -358,7 +358,7 @@ def test_rename_tag_rejects_an_invalid_target(service, workspace):
 
 
 def test_rename_tag_restores_every_touched_file_when_a_write_fails(service, workspace, monkeypatch):
-    from kajet_turbo.services.notes import tags as tags_module
+    from kajet_turbo.services.notes import service as service_module
 
     a = service.save("u1", "ws", str(workspace), "A", "body", ["work"])
     service.save("u1", "ws", str(workspace), "B", "body", ["work"])
@@ -368,7 +368,7 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(service, work
     write_note_file(a_path, replace(a_meta, extras={"aliases": ["Old A"]}), a_content)
     head_before = service.get_history(a["note_id"], owner_id="u1", ws_path=str(workspace))[0]["sha"]
 
-    real_write = tags_module.write_note_file
+    real_write = service_module.write_note_file
     calls = {"n": 0}
 
     def flaky_write(*args, **kwargs):
@@ -377,11 +377,11 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(service, work
             raise OSError("disk full")
         return real_write(*args, **kwargs)
 
-    monkeypatch.setattr(tags_module, "write_note_file", flaky_write)
+    monkeypatch.setattr(service_module, "write_note_file", flaky_write)
     with pytest.raises(OSError, match="disk full"):
         _rename(service, workspace, "work", "job")
 
-    monkeypatch.setattr(tags_module, "write_note_file", real_write)
+    monkeypatch.setattr(service_module, "write_note_file", real_write)
     for title in ("A", "B"):
         on_disk, _ = read_note_file(note_filepath(str(workspace), "", title))
         assert on_disk.tags == ["work"]
@@ -458,19 +458,19 @@ def test_rename_tag_serializes_with_a_concurrent_tag_edit(service, workspace, mo
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
 
-    from kajet_turbo.services.notes import tags as tags_module
+    from kajet_turbo.services.notes import service as service_module
 
     note_id = service.save("u1", "ws", str(workspace), "A", "body #work", ["work"])["note_id"]
     rename_read = Event()
     release_rename = Event()
-    real_rewrite = tags_module.rewrite_inline_tags
+    real_rewrite = service_module.rewrite_inline_tags
 
     def paused_rewrite(*args, **kwargs):
         rename_read.set()
         assert release_rename.wait(timeout=2)
         return real_rewrite(*args, **kwargs)
 
-    monkeypatch.setattr(tags_module, "rewrite_inline_tags", paused_rewrite)
+    monkeypatch.setattr(service_module, "rewrite_inline_tags", paused_rewrite)
     with ThreadPoolExecutor(max_workers=2) as pool:
         rename = pool.submit(_rename, service, workspace, "work", "job")
         assert rename_read.wait(timeout=2)
@@ -494,10 +494,10 @@ def test_rename_tag_chunks_large_batches_logging_note_ids_per_chunk(
     its own repository_operation line with a note_ids field bounded to the chunk size —
     restoring the per-note traceability a single count=N line lost."""
     from kajet_turbo.log import setup_logging
-    from kajet_turbo.services.notes import tags as tags_module
+    from kajet_turbo.services.notes import service as service_module
     from tests.helpers import entries_named, read_log_entries
 
-    monkeypatch.setattr(tags_module, "MAX_BATCH_COMMIT_SIZE", 2)
+    monkeypatch.setattr(service_module, "MAX_BATCH_COMMIT_SIZE", 2)
     setup_logging()
     note_ids = {
         service.save("u1", "ws", str(workspace), title, "body", ["work"])["note_id"]
@@ -534,9 +534,9 @@ def test_rename_tag_resumes_after_a_mid_batch_chunk_failure(service, workspace, 
     already-committed chunks stay renamed, and note_ids_for_tags (reading live join-table
     state) excludes them from a retry, so calling rename_tag again picks up exactly the
     unprocessed remainder instead of requiring the whole batch to be redone."""
-    from kajet_turbo.services.notes import tags as tags_module
+    from kajet_turbo.services.notes import service as service_module
 
-    monkeypatch.setattr(tags_module, "MAX_BATCH_COMMIT_SIZE", 2)
+    monkeypatch.setattr(service_module, "MAX_BATCH_COMMIT_SIZE", 2)
     titles = ("A", "B", "C", "D")
     note_ids = {
         title: service.save("u1", "ws", str(workspace), title, "body", ["work"])["note_id"]

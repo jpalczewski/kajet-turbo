@@ -15,9 +15,16 @@ WORKDIR /app
 
 LABEL org.opencontainers.image.source="https://github.com/jpalczewski/kajet-turbo"
 
+# BuildKit caches this layer by instruction text alone, so `apt-get upgrade` never
+# re-runs once cached — freezing OS package versions at whatever they were on the
+# first build, however old that cache gets. OS_PKG_CACHE_BUST (the build date, set
+# by build-image/action.yml) is baked into the command so the layer — and every apt
+# invocation in it — is at most a day stale, not indefinitely.
+ARG OS_PKG_CACHE_BUST=0
 # openssh-client: dulwich's SubprocessSSHVendor shells out to `ssh` for git push
 # over SSH (workspace auto-push). Without it: FileNotFoundError [Errno 2] 'ssh'.
-RUN apt-get update && apt-get upgrade -y && \
+RUN echo "cache-bust: ${OS_PKG_CACHE_BUST}" && \
+    apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends git openssh-client && \
     rm -rf /var/lib/apt/lists/* && \
     git config --global user.email "kajet@localhost" && \
@@ -49,7 +56,9 @@ CMD ["/app/entrypoint.sh"]
 
 FROM caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 AS ingress
 LABEL org.opencontainers.image.source="https://github.com/jpalczewski/kajet-turbo"
-RUN apk upgrade --no-cache
+# See OS_PKG_CACHE_BUST above (app-deps stage) — same cached-forever problem applies here.
+ARG OS_PKG_CACHE_BUST=0
+RUN echo "cache-bust: ${OS_PKG_CACHE_BUST}" && apk upgrade --no-cache
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY --from=frontend-build /app/dist /srv
 
