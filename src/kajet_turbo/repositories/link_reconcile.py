@@ -22,7 +22,8 @@ class LinkReconcileRepository(DbRepository):
         source_note_ids = source_note_ids - {""}
         if not source_note_ids:
             return None
-        with self.timed_session() as session:
+        timing = self.timed_session()
+        with timing as session:
             for source_note_id in sorted(source_note_ids):
                 stmt = (
                     sqlite_insert(LinkReconcileDirty)
@@ -52,6 +53,7 @@ class LinkReconcileRepository(DbRepository):
             session.commit()
         self.log_operation(
             "mark_and_enqueue",
+            timing.db_ms,
             owner_id=owner_id,
             workspace=workspace,
             sources=len(source_note_ids),
@@ -100,7 +102,8 @@ class LinkReconcileRepository(DbRepository):
             session.commit()
 
     def delete_for_workspace(self, owner_id: str, workspace: str) -> None:
-        with self.timed_session() as session:
+        timing = self.timed_session()
+        with timing as session:
             result = session.execute(  # ty: ignore[deprecated] — exec() can't type DELETE
                 delete(LinkReconcileDirty).where(
                     col(LinkReconcileDirty.owner_id) == owner_id,
@@ -111,6 +114,7 @@ class LinkReconcileRepository(DbRepository):
             session.commit()
         self.log_operation(
             "delete_for_workspace",
+            timing.db_ms,
             owner_id=owner_id,
             workspace=workspace,
             count=count,

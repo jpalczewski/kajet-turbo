@@ -11,7 +11,7 @@ tables, not modules.
 Dulwich/filesystem repository that shares the layer's name and shape only. Root
 `CLAUDE.md`'s `DbRepository` rules do not apply to it; its locking rules do.
 
-## `log_operation()` is the third route, and it does not survive interleaving
+## `log_operation()` is the third route: hold the `TimedSession` handle
 
 Root `CLAUDE.md` names two: `timed_session()` for quiet reads, `operation()` for mutations.
 The third is `timed_session()` followed by `log_operation()`, for a line whose fields are
@@ -20,23 +20,29 @@ only known once the session has closed — a `rowcount` off a `CursorResult`
 (`link_reconcile.py:52-59`), a match count computed in Python after the query
 (`crud.py:230-237`).
 
-It works off a `ContextVar` written when a `timed_session()` **exits**, keyed by `id(self)`
-(`__init__.py:70-90`). That is the sharp edge: `log_operation()` reports the last
-`timed_session` *this* repository closed, and raises `RuntimeError` if the last one to close
-belonged to another repository (`__init__.py:87-89`). So nothing between the block's exit
-and the `log_operation()` call may open and close a session on a different repository. Keep
-the two adjacent, or use `operation()` — which needs no late field and cannot be interleaved
-out from under itself.
+`timed_session()` returns a `TimedSession` — a context manager whose `.db_ms` becomes
+readable once its `with` block exits (`__init__.py`). Callers who only need the session
+still write `with self.timed_session() as session:` and never see the object; callers who
+need the timing afterward keep the handle instead:
+
+```python
+timing = self.timed_session()
+with timing as session:
+    ...
+    session.commit()
+self.log_operation("action", timing.db_ms, ...)
+```
+
+The value flows through a local variable, not a keyed global, so there is no ordering
+hazard from another repository opening and closing a session in between — `timing.db_ms`
+raises `RuntimeError` if read before the block exits, and otherwise always reports *this*
+call's own elapsed time.
 
 Separately: when a repository composes another one inside its own session, it calls the
 `_in_session` variant. `LinkReconcileRepository.mark_and_enqueue` uses
 `JobRepository.enqueue_in_session` (`link_reconcile.py:45`) so the dirty markers and the
 job row commit together, and so no second write session opens against SQLite while the
 outer one already holds the write lock. Calling `enqueue()` there would cost both.
-
-`#142` tracks replacing the `ContextVar` coupling above with an explicit return value —
-the ordering hazard this section describes is a known, tracked wart, not an accepted
-permanent shape.
 
 ## Index generation is a cross-process compare-and-swap
 

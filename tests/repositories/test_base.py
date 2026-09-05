@@ -98,12 +98,14 @@ def test_operation_rejects_reserved_fields(database: Database):
         pass
 
 
-def test_log_operation_requires_this_repositorys_completed_session(database: Database):
-    first = _ExampleRepository(database.engine)
-    second = _ExampleRepository(database.engine)
+def test_timed_session_db_ms_unavailable_before_block_exits(database: Database):
+    repo = _ExampleRepository(database.engine)
+    timing = repo.timed_session()
 
-    with first.timed_session():
-        pass
+    with pytest.raises(RuntimeError, match="only available after"):
+        _ = timing.db_ms
 
-    with pytest.raises(RuntimeError, match="completed timed_session"):
-        second.log_operation("write")
+    with timing, pytest.raises(RuntimeError, match="only available after"):
+        _ = timing.db_ms
+
+    assert timing.db_ms >= 0
