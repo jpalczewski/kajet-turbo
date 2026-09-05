@@ -264,6 +264,31 @@ def workspace_write_transaction[**P, T](fn: Callable[P, T]) -> Callable[P, T]:
     return wrapped
 
 
+def target_write_transaction[**P, T](fn: Callable[P, T]) -> Callable[P, T]:
+    """Like ``workspace_write_transaction``, but binds a ``target`` parameter (an
+    authorized ``WorkspaceTarget`` or ``NoteTarget`` from ``services.targets``) instead
+    of a literal ``ws_path`` string.
+
+    Duck-types the two target shapes instead of importing them: repositories must not
+    import from services (see repository/service layering in CLAUDE.md). A
+    ``WorkspaceTarget`` exposes ``.path`` directly; a ``NoteTarget`` only exposes
+    ``.workspace.path``.
+    """
+    signature = inspect.signature(fn)
+    if "target" not in signature.parameters:
+        raise TypeError("target_write_transaction requires a target parameter")
+
+    @wraps(fn)
+    def wrapped(*args: P.args, **kwargs: P.kwargs) -> T:
+        bound = signature.bind(*args, **kwargs)
+        target = bound.arguments["target"]
+        path = target.path if hasattr(target, "path") else target.workspace.path
+        with _workspace_lock(str(path)):
+            return fn(*args, **kwargs)
+
+    return wrapped
+
+
 class GitRepository:
     def __init__(self, workspace_path: str, hooks: PostCommitHooks | None = None) -> None:
         self._workspace_path = workspace_path
