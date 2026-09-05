@@ -54,20 +54,10 @@ def _db_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def database_factory(tmp_path: Path, _db_template: Path) -> Iterator[Callable[..., Database]]:
     databases: list[Database] = []
 
-    def create(name: str = "test.db", *, embedding_dim: int | None = None) -> Database:
+    def create(name: str = "test.db") -> Database:
         dest = tmp_path / name
         shutil.copy2(_db_template, dest)
-        previous_dim = os.environ.get("EMBEDDING_DIM")
-        if embedding_dim is not None:
-            os.environ["EMBEDDING_DIM"] = str(embedding_dim)
-        try:
-            database = Database(str(dest), skip_migrations=True)
-        finally:
-            if embedding_dim is not None:
-                if previous_dim is None:
-                    os.environ.pop("EMBEDDING_DIM", None)
-                else:
-                    os.environ["EMBEDDING_DIM"] = previous_dim
+        database = Database(str(dest), skip_migrations=True)
         databases.append(database)
         return database
 
