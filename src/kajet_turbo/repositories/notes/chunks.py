@@ -16,10 +16,26 @@ from sqlalchemy import CursorResult, delete, text
 from sqlmodel import Session, col, select
 
 from kajet_turbo.embedding.cache import pack_vector
+from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.log import logger
 from kajet_turbo.models import NoteChunk
 from kajet_turbo.perf import timed
 from kajet_turbo.repositories import DbRepository
+
+# vec0 reads a whole block per query regardless of how many of its slots are live, so the
+# block size is the unit of wasted I/O. At 1024 (the vec0 default) a 3072-dim block is
+# 12 MiB and a workspace holding 13 vectors cost as much to scan as one holding 1024 —
+# measured 132 MiB allocated for 33 MiB of live vectors. 64 keeps the tail workspaces
+# proportional without fragmenting the large ones (#37).
+VEC_CHUNK_SIZE = 64
+
+
+def _validated_dim(dim: int) -> int:
+    """Guard a dimension before it is interpolated into vec0 DDL or a table name."""
+    if not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0:
+        raise ValueError(f"dim must be a positive int, got {dim!r}")
+    return dim
+
 
 _FTS_TOKEN = re.compile(r"\w+", re.UNICODE)
 
@@ -124,12 +140,18 @@ def _to_fts_query(query: str) -> str:
 class NoteChunkRepository(DbRepository):
     repository_name = "note_chunks"
 
-    def ensure_vec_table(self, dim: int) -> None:
-        """Lazily create the dim-sharded vec0 table for this dimension. ``dim`` MUST be a
-        positive int — it is interpolated into DDL, so a non-int is rejected to keep the
-        statement injection-proof."""
-        if not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0:
-            raise ValueError(f"dim must be a positive int, got {dim!r}")
+    def ensure_vec_table(self, identity: IndexIdentity) -> None:
+        """Lazily create the dim-sharded vec0 table for this identity's dimension.
+
+        IF NOT EXISTS means this never alters a table that already exists: the shape below
+        reaches an existing database ONLY through the Alembic rebuild that introduced it
+        (``identity`` partition key + ``chunk_size=64``). Changing this DDL therefore needs
+        a matching migration, or old and new databases silently diverge.
+
+        ``dim`` MUST be a positive int — it is interpolated into DDL, so a non-int is
+        rejected to keep the statement injection-proof.
+        """
+        dim = _validated_dim(identity.dim)
         with self.timed_session() as session:
             session.execute(  # ty: ignore[deprecated] - raw SQL
                 text(
@@ -137,9 +159,11 @@ class NoteChunkRepository(DbRepository):
                     " chunk_rowid INTEGER PRIMARY KEY,"
                     f" embedding float[{dim}],"
                     " workspace TEXT partition key,"
+                    " identity TEXT partition key,"
                     " owner_id TEXT,"
                     " note_id TEXT,"
-                    " chunk_id TEXT"
+                    " chunk_id TEXT,"
+                    f" chunk_size={VEC_CHUNK_SIZE}"
                     ")"
                 )
             )
@@ -154,13 +178,14 @@ class NoteChunkRepository(DbRepository):
         title: str,
         chunks: list,  # list[kajet_turbo.markdown.Chunk]
         embeddings: list[list[float]] | None,
-        dim: int | None,
+        identity: IndexIdentity | None,
         *,
         expected_generation: int | None = None,
     ) -> bool:
         """Replace all chunks (and vectors) for a note, in the caller's session — does not
         commit or roll back. ``embeddings`` is None (chunks only → stale) or one vector per
-        chunk (→ indexed, vectors into note_chunks_vec_{dim}).
+        chunk (→ indexed, vectors into note_chunks_vec_{identity.dim} under that
+        identity's partition).
 
         When ``expected_generation`` is provided, the first statement acquires SQLite's
         write lock and verifies the note revision. A superseded indexer therefore cannot
@@ -170,8 +195,8 @@ class NoteChunkRepository(DbRepository):
         into a larger transaction. Returns whether the replacement was applied.
         """
         if embeddings is not None:
-            if dim is None:
-                raise ValueError("dim is required when embeddings are provided")
+            if identity is None:
+                raise ValueError("identity is required when embeddings are provided")
             if len(embeddings) != len(chunks):
                 raise ValueError(
                     f"embeddings ({len(embeddings)}) must match chunks ({len(chunks)})"
@@ -210,23 +235,25 @@ class NoteChunkRepository(DbRepository):
                     "content": chunk.content,
                     "cs": chunk.char_start,
                     "ce": chunk.char_end,
-                    "dim": dim if embeddings is not None else None,
+                    "dim": identity.dim if embeddings is not None and identity else None,
                     "now": now,
                 },
             )
             assert isinstance(result, CursorResult)
             if embeddings is not None:
-                assert dim is not None  # validated above; narrows for the table name
+                assert identity is not None  # validated above; narrows for the table name
                 session.execute(  # ty: ignore[deprecated] - raw SQL
                     text(
-                        f"INSERT INTO note_chunks_vec_{int(dim)}"
-                        " (chunk_rowid, embedding, workspace, owner_id, note_id, chunk_id)"
-                        " VALUES (:rowid, :emb, :ws, :owner, :nid, :cid)"
+                        f"INSERT INTO note_chunks_vec_{_validated_dim(identity.dim)}"
+                        " (chunk_rowid, embedding, workspace, identity, owner_id,"
+                        "  note_id, chunk_id)"
+                        " VALUES (:rowid, :emb, :ws, :ident, :owner, :nid, :cid)"
                     ),
                     {
                         "rowid": result.lastrowid,
                         "emb": pack_vector(embeddings[i]),
                         "ws": workspace,
+                        "ident": identity.key,
                         "owner": owner_id,
                         "nid": note_id,
                         "cid": chunk_id,
@@ -267,7 +294,7 @@ class NoteChunkRepository(DbRepository):
         title: str,
         chunks: list,  # list[kajet_turbo.markdown.Chunk]
         embeddings: list[list[float]] | None,
-        dim: int | None,
+        identity: IndexIdentity | None,
         *,
         expected_generation: int | None = None,
     ) -> bool:
@@ -291,7 +318,7 @@ class NoteChunkRepository(DbRepository):
                 title,
                 chunks,
                 embeddings,
-                dim,
+                identity,
                 expected_generation=expected_generation,
             )
             if not applied:
@@ -306,7 +333,7 @@ class NoteChunkRepository(DbRepository):
         note_id: str,
         workspace: str,
         owner_id: str,
-        dim: int,
+        identity: IndexIdentity,
         vectors: dict[str, list[float]],
     ) -> bool:
         """Attach vectors to a note's EXISTING chunk rows (deferred embedding path).
@@ -316,11 +343,10 @@ class NoteChunkRepository(DbRepository):
         no-ops (returns False) and the note stays ``stale`` — the edit's own follow-up
         job repairs it. On success old-dim vectors are purged and the note flips to
         ``indexed``."""
-        if not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0:
-            raise ValueError(f"dim must be a positive int, got {dim!r}")
+        dim = _validated_dim(identity.dim)
         now = datetime.now(UTC).isoformat()
         with self.operation(
-            "attach_vectors", note_id=note_id, dim=dim, chunks=len(vectors)
+            "attach_vectors", note_id=note_id, dim=dim, identity=identity.key, chunks=len(vectors)
         ) as operation:
             session = operation.session
             rows = session.execute(  # ty: ignore[deprecated] - raw SQL
@@ -347,13 +373,15 @@ class NoteChunkRepository(DbRepository):
                 session.execute(  # ty: ignore[deprecated] - raw SQL
                     text(
                         f"INSERT INTO note_chunks_vec_{dim}"
-                        " (chunk_rowid, embedding, workspace, owner_id, note_id, chunk_id)"
-                        " VALUES (:rowid, :emb, :ws, :owner, :nid, :cid)"
+                        " (chunk_rowid, embedding, workspace, identity, owner_id,"
+                        "  note_id, chunk_id)"
+                        " VALUES (:rowid, :emb, :ws, :ident, :owner, :nid, :cid)"
                     ),
                     {
                         "rowid": m["rowid"],
                         "emb": pack_vector(vectors[m["id"]]),
                         "ws": workspace,
+                        "ident": identity.key,
                         "owner": owner_id,
                         "nid": note_id,
                         "cid": m["id"],
@@ -449,29 +477,41 @@ class NoteChunkRepository(DbRepository):
         ]
 
     def search_chunks_vec(
-        self, embedding: bytes, workspace: str, owner_id: str, dim: int, k: int = 50
+        self, embedding: bytes, workspace: str, owner_id: str, identity: IndexIdentity, k: int = 50
     ) -> list[dict]:
+        """KNN within one vector space. Both partition keys are constrained, so vectors
+        written under another identity are never scanned, let alone ranked — embeddings
+        from two models are not comparable and mixing them returns nonsense."""
         try:
             with self.timed_session() as session, timed("vec_ms"):
                 rows = session.execute(  # ty: ignore[deprecated] - raw SQL
                     text(
                         f"SELECT v.chunk_id AS chunk_id,{self._CHUNK_SELECT},"
                         " v.distance AS distance"
-                        f" FROM note_chunks_vec_{int(dim)} v"
+                        f" FROM note_chunks_vec_{_validated_dim(identity.dim)} v"
                         " JOIN note_chunks c ON c.id = v.chunk_id"
                         " JOIN notes n ON n.id = c.note_id"
                         " WHERE v.embedding MATCH :emb AND k = :k AND v.workspace = :ws"
-                        "  AND n.owner_id = :o"
+                        "  AND v.identity = :ident AND n.owner_id = :o"
                         " ORDER BY v.distance"
                     ),
-                    {"emb": embedding, "k": k, "ws": workspace, "o": owner_id},
+                    {
+                        "emb": embedding,
+                        "k": k,
+                        "ws": workspace,
+                        "ident": identity.key,
+                        "o": owner_id,
+                    },
                 ).fetchall()
         except Exception as e:
             # The dim-sharded vec table is created lazily at index time; if the user has a
             # backend configured but nothing embedded at this dim yet, the table is absent —
             # degrade to FTS-only rather than crashing the search.
             logger.opt(exception=e).warning(
-                "search_chunks_vec_failed", workspace=workspace, dim=dim
+                "search_chunks_vec_failed",
+                workspace=workspace,
+                dim=identity.dim,
+                identity=identity.key,
             )
             return []
         return [
@@ -484,7 +524,7 @@ class NoteChunkRepository(DbRepository):
         workspace: str,
         owner_id: str,
         embedding: bytes | None = None,
-        dim: int | None = None,
+        identity: IndexIdentity | None = None,
         limit: int = 10,
         per_note_cap: int = 3,
         meta_hits: list[dict] | None = None,
@@ -493,8 +533,10 @@ class NoteChunkRepository(DbRepository):
         candidate_limit = 200 if allowed_note_ids is not None else 50
         fts = self.search_fts(query, workspace, owner_id, limit=candidate_limit)
         vec = (
-            self.search_chunks_vec(embedding, workspace, owner_id, dim=dim, k=candidate_limit)
-            if embedding is not None and dim is not None
+            self.search_chunks_vec(
+                embedding, workspace, owner_id, identity=identity, k=candidate_limit
+            )
+            if embedding is not None and identity is not None
             else []
         )
         meta = meta_hits or []

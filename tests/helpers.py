@@ -8,6 +8,17 @@ import json
 from typing import Any
 
 
+def vec_identity(dim: int, model: str = "test-model", backend: str = "http://test"):
+    """An IndexIdentity for tests that only care about the vector-table shard.
+
+    Pass a distinct ``model`` (or ``backend``) when the test is about two vector spaces
+    coexisting at the same dimension.
+    """
+    from kajet_turbo.embedding.identity import IndexIdentity
+
+    return IndexIdentity(backend=backend, model=model, dim=dim)
+
+
 def read_log_entries(capsys) -> list[dict[str, Any]]:
     """Parse the JSONL our sink wrote to stderr.
 

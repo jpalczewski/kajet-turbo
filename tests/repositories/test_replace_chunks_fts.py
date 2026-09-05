@@ -37,7 +37,7 @@ def _chunks():
 def test_replace_chunks_writes_fts_rows(database):
     _note(database)
     repo = NoteChunkRepository(database.engine)
-    repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, dim=None)
+    repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, identity=None)
     with Session(database.engine) as session:
         rows = session.execute(  # ty: ignore[deprecated] - raw SQL
             _text(
@@ -54,7 +54,7 @@ def test_replace_chunks_writes_fts_rows(database):
 def test_replace_chunks_fts_is_searchable(database):
     _note(database)
     repo = NoteChunkRepository(database.engine)
-    repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, dim=None)
+    repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, identity=None)
     with Session(database.engine) as session:
         hits = session.execute(  # ty: ignore[deprecated] - raw SQL
             _text("SELECT content FROM notes_fts WHERE notes_fts MATCH 'banana'")
@@ -65,7 +65,7 @@ def test_replace_chunks_fts_is_searchable(database):
 def test_replace_chunks_replaces_fts_rows(database):
     _note(database)
     repo = NoteChunkRepository(database.engine)
-    repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, dim=None)
+    repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, identity=None)
     repo.replace_chunks(
         "n1",
         "ws",
@@ -77,7 +77,7 @@ def test_replace_chunks_replaces_fts_rows(database):
             )
         ],
         embeddings=None,
-        dim=None,
+        identity=None,
     )
     with Session(database.engine) as session:
         rows = session.execute(  # ty: ignore[deprecated] - raw SQL
@@ -89,8 +89,8 @@ def test_replace_chunks_replaces_fts_rows(database):
 def test_replace_chunks_empty_clears_fts(database):
     _note(database)
     repo = NoteChunkRepository(database.engine)
-    repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, dim=None)
-    repo.replace_chunks("n1", "ws", "u1", "Title", [], embeddings=None, dim=None)
+    repo.replace_chunks("n1", "ws", "u1", "Title", _chunks(), embeddings=None, identity=None)
+    repo.replace_chunks("n1", "ws", "u1", "Title", [], embeddings=None, identity=None)
     with Session(database.engine) as session:
         rows = session.execute(  # ty: ignore[deprecated] - raw SQL
             _text("SELECT content FROM notes_fts WHERE note_id='n1'")

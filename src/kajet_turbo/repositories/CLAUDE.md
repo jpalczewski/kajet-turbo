@@ -51,19 +51,19 @@ different processes. `notes.index_generation` is what keeps them honest, and it 
 cooperating pieces:
 
 - The writer bumps it **iff the note's indexed text changed — body or title**.
-  Chunks and the `notes_fts` rows are built from title + content (`chunks.py:184-196`), so
+  Chunks and the `notes_fts` rows are built from title + content (`chunks.py:218-276`), so
   a rename invalidates the index exactly as an edit does; that is why `NoteService.update()`'s
   rename/move leg passes `True`. `services/notes/tags.py:355` passes `item.body_changed`
   because tags are stripped before indexing; `apply_temporal_backfill`'s row write passes
   `False` because it rewrites frontmatter dates only.
 - The indexer passes the generation it read as `expected_generation`, and `replace_chunks`
   makes its *first* statement a conditional `UPDATE ... WHERE index_generation = :expected
-  RETURNING id` (`chunks.py:125-137`). That statement takes SQLite's write lock, so a
+  RETURNING id` (`chunks.py:204-215`). That statement takes SQLite's write lock, so a
   superseded indexer rolls back with `outcome="superseded"` instead of deleting a newer
   edit's chunks.
 - The deferred-embedding path has no generation to compare against, so `attach_vectors`
   substitutes set-equality on the stored chunk ids, checked inside the same transaction
-  (`chunks.py:236`), and no-ops if they moved.
+  (`chunks.py:356`), and no-ops if they moved.
 
 Bumping on a metadata-only edit is not a harmless conservative choice: it discards in-flight
 indexing work and re-enqueues embedding for a note whose indexed text did not change. In
@@ -138,4 +138,4 @@ second look.
 
 One ordering constraint rides on the caller-owned pair regardless of naming:
 `note_chunks.note_id` is an FK to `notes.id` with no cascade, so chunks must be deleted
-before notes within the same session (`chunks.py:497-498`, `crud.py:455-456`).
+before notes within the same session (`chunks.py:632-634`, `crud.py:455-456`).

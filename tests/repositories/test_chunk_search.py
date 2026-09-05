@@ -5,6 +5,7 @@ from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.markdown import Chunk
 from kajet_turbo.models import Note
 from kajet_turbo.repositories.notes import NoteChunkRepository
+from tests.helpers import vec_identity
 
 
 def _seed(database):
@@ -163,23 +164,77 @@ def test_search_chunks_vec_knn(database):
             )
         )
         session.commit()
-    repo.ensure_vec_table(2)
+    repo.ensure_vec_table(vec_identity(2))
     repo.replace_chunks(
-        "n1", "ws", "u1", "Fruit", [Chunk(0, ["# Fruit"], "apple", 0, 5)], [[1.0, 0.0]], 2
+        "n1",
+        "ws",
+        "u1",
+        "Fruit",
+        [Chunk(0, ["# Fruit"], "apple", 0, 5)],
+        [[1.0, 0.0]],
+        vec_identity(2),
     )
     repo.replace_chunks(
-        "n2", "ws", "u1", "Veg", [Chunk(0, ["# Veg"], "carrot", 0, 6)], [[0.0, 1.0]], 2
+        "n2",
+        "ws",
+        "u1",
+        "Veg",
+        [Chunk(0, ["# Veg"], "carrot", 0, 6)],
+        [[0.0, 1.0]],
+        vec_identity(2),
     )
-    hits = repo.search_chunks_vec(pack_vector([1.0, 0.0]), "ws", "u1", dim=2, k=10)
+    hits = repo.search_chunks_vec(
+        pack_vector([1.0, 0.0]), "ws", "u1", identity=vec_identity(2), k=10
+    )
     assert hits[0]["note_id"] == "n1"
     assert hits[0]["header_path"] == ["# Fruit"]
+
+
+def test_search_chunks_vec_never_crosses_identities_at_the_same_dim(database):
+    """Two models of equal dimension share a table but not a partition: embeddings from
+    different vector spaces are not comparable, so KNN under one must not rank the
+    other's vectors — not even when nothing else matches."""
+    repo = NoteChunkRepository(database.engine)
+    with Session(database.engine) as session:
+        for note_id, title in (("n1", "Mine"), ("n2", "Theirs")):
+            session.add(
+                Note(
+                    id=note_id,
+                    workspace="ws",
+                    owner_id="u1",
+                    title=title,
+                    folder="",
+                    created_at="2026-01-01",
+                    updated_at="2026-01-01",
+                )
+            )
+        session.commit()
+    mine = vec_identity(2, model="model-a")
+    theirs = vec_identity(2, model="model-b")
+    repo.ensure_vec_table(mine)
+    repo.replace_chunks(
+        "n1", "ws", "u1", "Mine", [Chunk(0, ["# Mine"], "apple", 0, 5)], [[0.0, 1.0]], mine
+    )
+    repo.replace_chunks(
+        "n2", "ws", "u1", "Theirs", [Chunk(0, ["# Theirs"], "apple", 0, 5)], [[1.0, 0.0]], theirs
+    )
+
+    hits = repo.search_chunks_vec(pack_vector([1.0, 0.0]), "ws", "u1", identity=mine, k=10)
+
+    # The perfect match belongs to the other identity; only n1 may come back.
+    assert [h["note_id"] for h in hits] == ["n1"]
 
 
 def test_search_chunks_vec_missing_table_degrades(database):
     # A backend configured before any indexing at its dim → no vec table yet. Must return []
     # (degrade to FTS) instead of raising "no such table".
     repo = NoteChunkRepository(database.engine)
-    assert repo.search_chunks_vec(pack_vector([1.0, 0.0]), "ws", "u1", dim=999, k=10) == []
+    assert (
+        repo.search_chunks_vec(
+            pack_vector([1.0, 0.0]), "ws", "u1", identity=vec_identity(999), k=10
+        )
+        == []
+    )
 
 
 def test_hybrid_search_caps_chunks_per_note(database):
@@ -224,7 +279,9 @@ def test_phase_fields_isolated_vec_only(database):
     # so vec_ms is still recorded on this path, with no need to seed a real vec table.
     hits = None
     with perf.perf_span() as span:
-        hits = repo.search_chunks_vec(pack_vector([1.0, 0.0]), "ws", "u1", dim=999, k=10)
+        hits = repo.search_chunks_vec(
+            pack_vector([1.0, 0.0]), "ws", "u1", identity=vec_identity(999), k=10
+        )
     assert hits == []
     assert "vec_ms" in span.fields
     assert "fts_ms" not in span.fields

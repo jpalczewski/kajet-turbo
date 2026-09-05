@@ -4,6 +4,7 @@ from collections.abc import Callable
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.embedding.base import Embedder, EmbedderConfig
 from kajet_turbo.embedding.cache import pack_vector
+from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.log import logger
 from kajet_turbo.repositories.notes import NoteChunkRepository, NoteRepository, NoteTagRepository
 
@@ -41,15 +42,15 @@ class NoteSearchService:
         so the query-embedding HTTP roundtrip doesn't pin a run_sync slot."""
         cfg = self._prepare(owner_id)
         embedding = None
-        dim = None
+        identity = None
         if cfg is not None:
             try:
                 vec = self._embed_query(cfg, query)
                 embedding = pack_vector(vec)
-                dim = cfg.dim
+                identity = IndexIdentity.from_config(cfg)
             except Exception as e:
                 logger.opt(exception=e).warning("search_embed_failed", backend=cfg.backend_id)
-        return self._execute(query, workspaces, owner_id, limit, folder, tags, embedding, dim)
+        return self._execute(query, workspaces, owner_id, limit, folder, tags, embedding, identity)
 
     async def search_async(
         self,
@@ -70,16 +71,16 @@ class NoteSearchService:
             return await run_sync(self.search, query, workspaces, owner_id, limit, folder, tags)
         cfg = await run_sync(self._prepare, owner_id)
         embedding = None
-        dim = None
+        identity = None
         if cfg is not None:
             try:
                 vec = await self._embed_query_async(cfg, query)
                 embedding = pack_vector(vec)
-                dim = cfg.dim
+                identity = IndexIdentity.from_config(cfg)
             except Exception as e:
                 logger.opt(exception=e).warning("search_embed_failed", backend=cfg.backend_id)
         return await run_sync(
-            self._execute, query, workspaces, owner_id, limit, folder, tags, embedding, dim
+            self._execute, query, workspaces, owner_id, limit, folder, tags, embedding, identity
         )
 
     def _prepare(self, owner_id: str) -> EmbedderConfig | None:
@@ -101,7 +102,7 @@ class NoteSearchService:
         folder: str | None,
         tags: list[str] | None,
         embedding: bytes | None,
-        dim: int | None,
+        identity: IndexIdentity | None,
     ) -> list[dict]:
         """Narrow, fuse (hybrid_search), and log. Sync DB work."""
         per_ws_limit = limit * 3 if len(workspaces) > 1 else limit
@@ -128,7 +129,7 @@ class NoteSearchService:
                 ws,
                 owner_id,
                 embedding=embedding,
-                dim=dim,
+                identity=identity,
                 limit=per_ws_limit,
                 meta_hits=meta_hits,
                 allowed_note_ids=allowed,

@@ -4,6 +4,7 @@ from sqlmodel import Session
 from kajet_turbo.markdown import Chunk
 from kajet_turbo.models import Note
 from kajet_turbo.repositories.notes import NoteChunkRepository, NoteRepository
+from tests.helpers import vec_identity
 
 
 def _note(database, note_id, owner="u1", ws="ws"):
@@ -38,9 +39,9 @@ def test_delete_workspace_notes_clears_chunks_and_does_not_fk_fail(database):
     chunk_repo = NoteChunkRepository(database.engine)
     note_repo = NoteRepository(database.engine)
     _note(database, "n1")
-    chunk_repo.ensure_vec_table(2)
+    chunk_repo.ensure_vec_table(vec_identity(2))
     chunk_repo.replace_chunks(
-        "n1", "ws", "u1", "T", [Chunk(0, ["# T"], "body", 0, 4)], [[0.1, 0.2]], 2
+        "n1", "ws", "u1", "T", [Chunk(0, ["# T"], "body", 0, 4)], [[0.1, 0.2]], vec_identity(2)
     )
 
     _delete_workspace_notes(chunk_repo, note_repo, "ws", "u1")  # must not raise

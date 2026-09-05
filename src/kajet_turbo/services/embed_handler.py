@@ -18,6 +18,7 @@ from collections.abc import Callable
 
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
+from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import Chunk, embedded_text
 from kajet_turbo.perf import incr
@@ -78,9 +79,10 @@ class EmbedNoteHandler:
             self._cache.put_many(new_entries, cfg.backend_id, cfg.model, cfg.dim)
             cached = {**cached, **new_entries}
 
-        self._repo.ensure_vec_table(cfg.dim)
+        identity = IndexIdentity.from_config(cfg)
+        self._repo.ensure_vec_table(identity)
         vectors = {r["id"]: cached[h] for r, h in zip(rows, hashes, strict=True)}
-        applied = self._repo.attach_vectors(note_id, workspace, owner_id, cfg.dim, vectors)
+        applied = self._repo.attach_vectors(note_id, workspace, owner_id, identity, vectors)
         if applied:
             self._repo.upsert_index_meta(owner_id, cfg.backend_id, cfg.model, cfg.dim)
         else:
