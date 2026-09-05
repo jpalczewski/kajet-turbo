@@ -50,25 +50,25 @@ async def test_mcp_tools_have_safety_annotations(mcp_server):
         tools = {tool.name: tool for tool in await client.list_tools()}
 
     for name in READ_TOOLS:
-        assert tools[name].annotations.readOnlyHint is True
-        assert tools[name].annotations.idempotentHint is True
-        assert tools[name].annotations.destructiveHint is False
-        assert tools[name].annotations.openWorldHint is False
+        assert tools[name].annotations.read_only_hint is True
+        assert tools[name].annotations.idempotent_hint is True
+        assert tools[name].annotations.destructive_hint is False
+        assert tools[name].annotations.open_world_hint is False
 
     for name in WRITE_TOOLS:
-        assert tools[name].annotations.readOnlyHint is False
-        assert tools[name].annotations.openWorldHint is False
-        assert tools[name].annotations.destructiveHint is (name in DESTRUCTIVE_TOOLS)
+        assert tools[name].annotations.read_only_hint is False
+        assert tools[name].annotations.open_world_hint is False
+        assert tools[name].annotations.destructive_hint is (name in DESTRUCTIVE_TOOLS)
 
-    assert tools["activate_workspace"].annotations.idempotentHint is True
-    assert tools["create_workspace"].annotations.idempotentHint is False
-    assert tools["update_workspace"].annotations.idempotentHint is True
-    assert tools["set_workspace_setting"].annotations.idempotentHint is True
-    assert tools["reindex_workspace"].annotations.idempotentHint is True
-    assert tools["add_tag"].annotations.idempotentHint is True
-    assert tools["remove_tag"].annotations.idempotentHint is True
-    assert tools["prune_empty_folders"].annotations.idempotentHint is True
-    assert tools["rename_tag"].annotations.idempotentHint is True
+    assert tools["activate_workspace"].annotations.idempotent_hint is True
+    assert tools["create_workspace"].annotations.idempotent_hint is False
+    assert tools["update_workspace"].annotations.idempotent_hint is True
+    assert tools["set_workspace_setting"].annotations.idempotent_hint is True
+    assert tools["reindex_workspace"].annotations.idempotent_hint is True
+    assert tools["add_tag"].annotations.idempotent_hint is True
+    assert tools["remove_tag"].annotations.idempotent_hint is True
+    assert tools["prune_empty_folders"].annotations.idempotent_hint is True
+    assert tools["rename_tag"].annotations.idempotent_hint is True
 
 
 async def test_context_dependencies_are_hidden_from_tool_schemas(mcp_server):
@@ -77,7 +77,7 @@ async def test_context_dependencies_are_hidden_from_tool_schemas(mcp_server):
         tools = {tool.name: tool for tool in await client.list_tools()}
 
     for name in ["get_note", "edit_note", "set_tags", "list_workspace_settings"]:
-        schema = tools[name].inputSchema
+        schema = tools[name].input_schema
         properties = schema.get("properties", {})
         assert "ws" not in properties
         assert "ctx" not in properties

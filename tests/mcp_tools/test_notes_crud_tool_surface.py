@@ -11,7 +11,7 @@ import hashlib
 
 from fastmcp import Client
 
-# name -> (tags without "read"/"write", destructiveHint, idempotentHint, readOnlyHint,
+# name -> (tags without "read"/"write", destructive_hint, idempotent_hint, read_only_hint,
 #          sorted params excluding ws/ctx, description sha256)
 EXPECTED: dict[str, tuple[frozenset[str], bool, bool, bool, tuple[str, ...], str]] = {
     "save_note": (
@@ -187,12 +187,12 @@ async def test_notes_crud_tool_surface_unchanged(mcp_server):
 
         annotations = tool.annotations
         assert annotations is not None, f"{name}: missing annotations"
-        assert annotations.readOnlyHint is read_only, name
-        assert annotations.destructiveHint is destructive, name
-        assert annotations.idempotentHint is idempotent, name
-        assert annotations.openWorldHint is False, name
+        assert annotations.read_only_hint is read_only, name
+        assert annotations.destructive_hint is destructive, name
+        assert annotations.idempotent_hint is idempotent, name
+        assert annotations.open_world_hint is False, name
 
-        properties = (tool.inputSchema or {}).get("properties", {})
+        properties = (tool.input_schema or {}).get("properties", {})
         assert "ws" not in properties, f"{name}: context dependency 'ws' leaked into schema"
         assert "ctx" not in properties, f"{name}: context dependency 'ctx' leaked into schema"
         actual_params = tuple(sorted(p for p in properties if p not in ("ws", "ctx")))

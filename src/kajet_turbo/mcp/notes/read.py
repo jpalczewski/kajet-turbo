@@ -22,10 +22,8 @@ from kajet_turbo.services.notes import NoteData, NoteService
 from kajet_turbo.workspace import normalize_folder
 
 
-def build_read(
-    note_service: NoteService, folder_meta_repo: FolderMetaRepository, state_store=None
-) -> FastMCP:
-    srv = FastMCP("notes-read", session_state_store=state_store)
+def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository) -> FastMCP:
+    srv = FastMCP("notes-read")
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
     @logged_tool

@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
-from key_value.aio.stores.memory import MemoryStore
 
 from kajet_turbo.mcp.collections import build_collections
 from kajet_turbo.mcp.context import build_mcp_context
@@ -102,7 +101,6 @@ the fresh sha. There is no confirm flag; git history (restore_note_version) is t
 def build_mcp(resources: AppResources) -> FastMCP:
     """Build MCP from one application graph. The single registration site (see
     src/kajet_turbo/mcp/CLAUDE.md) — callers pass one AppResources, real or test-built."""
-    state_store = MemoryStore()
     context = build_mcp_context(
         resources.workspace_service,
         resources.oauth_repo,
@@ -114,26 +112,16 @@ def build_mcp(resources: AppResources) -> FastMCP:
         "kajet-turbo",
         instructions=_INSTRUCTIONS,
         auth=resources.provider,
-        session_state_store=state_store,
     )
     mcp.add_middleware(ServiceErrorMiddleware(context))
-    mcp.mount(
-        build_workspaces(
-            resources.workspace_service, resources.active_workspace_repo, state_store=state_store
-        )
-    )
+    mcp.mount(build_workspaces(resources.workspace_service, resources.active_workspace_repo))
     mcp.mount(
         build_notes(
             resources.note_service,
             resources.workspace_service,
             resources.folder_meta_repo,
             resources.collection_service,
-            state_store=state_store,
         )
     )
-    mcp.mount(
-        build_collections(
-            resources.collection_service, resources.workspace_service, state_store=state_store
-        )
-    )
+    mcp.mount(build_collections(resources.collection_service, resources.workspace_service))
     return mcp

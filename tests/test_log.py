@@ -178,7 +178,13 @@ async def test_logged_tool_binds_live_context_without_ctx_parameter(capsys):
     async def tool_with_ctx(ctx: Context) -> str:
         return ctx.session_id
 
-    async with Client(server) as client:
+    # mode="legacy": this asserts that within one persistent session, logged_tool
+    # correctly binds the live per-call context rather than leaking initialize-time
+    # ids (issue #71) — it is not a claim that FastMCP 4's default "auto" negotiation
+    # keeps one session across calls (it doesn't; production's session continuity for
+    # activate_workspace instead relies on the DB-backed USER_SCOPE fallback in
+    # mcp/context.py, unaffected by this).
+    async with Client(server, mode="legacy") as client:
         without_result = await client.call_tool("tool_without_ctx")
         with_result = await client.call_tool("tool_with_ctx")
 

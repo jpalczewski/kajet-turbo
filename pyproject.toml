@@ -7,7 +7,7 @@ requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.141.0",
     "uvicorn>=0.30.0",
-    "fastmcp>=3.2.0",
+    "fastmcp>=4.0.3",
     "sqlite-vec>=0.1.9",
     "sqlmodel>=0.0.38",
     "python-frontmatter>=1.1.0",

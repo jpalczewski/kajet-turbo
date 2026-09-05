@@ -41,6 +41,26 @@ def test_imports_do_not_construct_resources_or_require_secrets(tmp_path: Path):
     assert not missing_parent.exists()
 
 
+def test_free_threading_survives_fastmcp_4_import(tmp_path: Path):
+    """#244: FastMCP 4 / MCP SDK v2 must not force the GIL back on. A subprocess, not
+    the already-imported test process, since the GIL is fixed for a process's whole
+    lifetime — an already-running interpreter would report yesterday's answer."""
+    env = {**os.environ, "DB_PATH": str(tmp_path / "kajet.db")}
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, kajet_turbo.server; "
+            "assert sys._is_gil_enabled() is False, 'GIL re-enabled after import'",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_two_apps_own_distinct_resources_and_disposal_is_isolated(tmp_path: Path):
     app_a = build_api_app(
         AppConfig(
