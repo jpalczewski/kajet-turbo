@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM oven/bun:1.4.0@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS frontend-deps
+FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS frontend-deps
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/bun.lock ./
 RUN bun ci
@@ -9,7 +9,7 @@ FROM frontend-deps AS frontend-build
 COPY frontend/ .
 RUN bun run build
 
-FROM ghcr.io/astral-sh/uv:0.12.7-trixie-slim@sha256:92d38da241c7962f8f863e288cc1c39795b79b6553245f623a82db6be95bdae0 AS app-deps
+FROM ghcr.io/astral-sh/uv:0.12.10-trixie-slim@sha256:260222c52f44bbf971682a1f84b333a6110ad03b41602cea2a3350e126e004ec AS app-deps
 
 WORKDIR /app
 
