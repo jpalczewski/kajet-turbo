@@ -12,6 +12,7 @@ where a cross-process nudge would later replace polling; the saturated wait is
 already event-driven — it wakes as soon as a slot frees rather than on a fixed
 tick, so sustained throughput is bounded by claim/handler cost, not poll_interval."""
 
+import contextvars
 import json
 import os
 import signal
@@ -31,16 +32,6 @@ from kajet_turbo.repositories.jobs import JobRepository
 
 Handler = Callable[[dict], None]
 _T = TypeVar("_T")
-
-_HANDLERS: dict[str, Handler] = {}
-
-
-def register_handler(kind: str, handler: Handler) -> None:
-    _HANDLERS[kind] = handler
-
-
-def get_handler(kind: str) -> Handler | None:
-    return _HANDLERS.get(kind)
 
 
 def run_job(repo: JobRepository, job: Job, registry: dict[str, Handler]) -> None:
@@ -126,7 +117,8 @@ def run_worker(
     is None, install SIGTERM/SIGINT handlers (entrypoint use, main thread only);
     when provided, the caller controls shutdown (tests)."""
     worker_id = worker_id or _default_worker_id()
-    registry = _HANDLERS if registry is None else registry
+    if registry is None:
+        raise ValueError("registry is required; worker handlers belong to an application instance")
     repo = JobRepository(engine)
 
     if stop_event is None:
@@ -145,7 +137,13 @@ def run_worker(
                 if job is None:
                     nothing_runnable = True
                     break
-                inflight.add(pool.submit(run_job, repo, job, registry))
+                # concurrent.futures does not itself copy the submitting thread's
+                # contextvars into the pool thread (unlike anyio/asyncio); a handler
+                # that opens a GitRepository relies on _CURRENT_HOOKS (repositories/git.py)
+                # to fire auto-push, so the job must run inside the caller's context.
+                inflight.add(
+                    pool.submit(contextvars.copy_context().run, run_job, repo, job, registry)
+                )
             if nothing_runnable and not inflight:
                 stop_event.wait(poll_interval)
             else:

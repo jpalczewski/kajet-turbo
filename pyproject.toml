@@ -76,3 +76,4 @@ extend-immutable-calls = ["fastapi.Depends"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-q -n auto"
+pythonpath = ["."]

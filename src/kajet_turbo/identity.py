@@ -6,7 +6,7 @@ would let a revoked token or a logged-out session keep working for the cache TTL
 future change wants to speed auth up, it must do so without a cache here.
 
 Repositories arrive as parameters rather than imports. Two DI mechanisms coexist in this
-codebase — the ``dependencies`` module globals and ``mcp.context.configure_mcp_context``,
+codebase — the application resource graph and factory-bound MCP dependencies,
 which the MCP tool tests populate with their own per-test repositories — so reaching for
 either from inside this module would resolve some callers against the wrong database.
 The parameter also keeps this module free of a ``dependencies`` import, which would be a

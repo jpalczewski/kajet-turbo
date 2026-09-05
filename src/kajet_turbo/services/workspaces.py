@@ -39,6 +39,7 @@ class WorkspaceService:
         active_repo: ActiveWorkspaceRepository,
         job_repo: JobRepository,
         reconcile_repo: LinkReconcileRepository | None = None,
+        workspaces_dir: str | None = None,
     ) -> None:
         self._repo = workspace_repo
         self._note_repo = note_repo
@@ -50,9 +51,10 @@ class WorkspaceService:
         self._active_repo = active_repo
         self._job_repo = job_repo
         self._reconcile_repo = reconcile_repo
+        self._workspaces_dir = workspaces_dir
 
     def create(self, name: str, user_id: str, *, description: str = "") -> None:
-        _create_workspace(name, user_id=user_id)
+        _create_workspace(name, self._workspaces_dir, user_id=user_id)
         self._repo.grant_access(user_id, name)
         self._meta_repo.ensure(user_id, name)
         if description:
@@ -79,13 +81,13 @@ class WorkspaceService:
         self._job_repo.delete_for_workspace(user_id, name)
         if self._reconcile_repo is not None:
             self._reconcile_repo.delete_for_workspace(user_id, name)
-        delete_workspace_directory(name, user_id=user_id)
+        delete_workspace_directory(name, self._workspaces_dir, user_id=user_id)
         self._meta_repo.delete(user_id, name)
         self._repo.revoke_access(user_id, name)
         logger.info("workspace_deleted", ws=name, owner_id=user_id)
 
     def workspace_path(self, user_id: str, name: str) -> str:
-        return _workspace_path(name, user_id=user_id)
+        return _workspace_path(name, self._workspaces_dir, user_id=user_id)
 
     def list_accessible(self, user_id: str) -> list[str]:
         return self._repo.list_user_workspaces(user_id)

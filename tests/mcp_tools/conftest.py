@@ -3,6 +3,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from fastmcp import FastMCP
@@ -12,6 +13,8 @@ from kajet_turbo.db import Database
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.mcp import build_mcp
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
+from kajet_turbo.repositories.events import EventRepository
+from kajet_turbo.repositories.git import PostCommitHooks
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
@@ -20,6 +23,9 @@ from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
+
+if TYPE_CHECKING:
+    from kajet_turbo.dependencies import AppResources
 
 
 @dataclass
@@ -61,25 +67,31 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
     note_service_inst = build_note_service(
         database, indexer=indexer, chunk_repo=note_chunk_repository
     )
-    server = build_mcp(
+    workspace_service = WorkspaceService(
+        workspace_repository,
+        note_repository,
+        WorkspaceMetaRepository(database.engine),
         note_service_inst,
-        WorkspaceService(
-            workspace_repository,
-            note_repository,
-            WorkspaceMetaRepository(database.engine),
-            note_service_inst,
-            DanglingLinkRepository(database.engine),
-            folder_meta_repository,
-            WorkspaceRemoteRepository(database.engine),
-            active_workspace_repository,
-            JobRepository(database.engine),
-        ),
+        DanglingLinkRepository(database.engine),
         folder_meta_repository,
-        oauth_repository,
+        WorkspaceRemoteRepository(database.engine),
         active_workspace_repository,
-        provider,
-        CollectionService(note_repository, note_service_inst),
+        JobRepository(database.engine),
     )
+    # Minimal AppResources-shaped stand-in: build_mcp only reads the fields it mounts,
+    # so isolated MCP tool tests don't need a full application resource graph.
+    resources = SimpleNamespace(
+        note_service=note_service_inst,
+        workspace_service=workspace_service,
+        folder_meta_repo=folder_meta_repository,
+        oauth_repo=oauth_repository,
+        active_workspace_repo=active_workspace_repository,
+        provider=provider,
+        collection_service=CollectionService(note_repository, note_service_inst),
+        event_repo=EventRepository(database.engine),
+        post_commit_hooks=PostCommitHooks(),
+    )
+    server = build_mcp(cast("AppResources", resources))
     return McpTestContext(
         server,
         database,

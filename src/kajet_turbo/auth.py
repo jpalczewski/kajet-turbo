@@ -49,9 +49,10 @@ def verify_password(password_hash: str, password: str) -> bool:
         return False
 
 
-def _resolve_base_url() -> str:
+def _resolve_base_url(base_url: str | None = None) -> str:
     raw = (
-        os.environ.get("MCP_BASE_URL")
+        base_url
+        or os.environ.get("MCP_BASE_URL")
         or os.environ.get("COOLIFY_FQDN")
         or os.environ.get("COOLIFY_URL")
     )
@@ -392,10 +393,10 @@ class KajetOAuthProvider(OAuthProvider):
             await run_sync(self._oauth_repo.revoke_by_refresh_token, token.token)
 
 
-def create_auth(oauth_repo: OAuthRepository) -> KajetOAuthProvider:
+def create_auth(oauth_repo: OAuthRepository, *, base_url: str | None = None) -> KajetOAuthProvider:
     return KajetOAuthProvider(
         oauth_repo=oauth_repo,
-        base_url=_resolve_base_url().rstrip("/") + "/mcp",
+        base_url=_resolve_base_url(base_url).rstrip("/") + "/mcp",
         client_registration_options=ClientRegistrationOptions(enabled=True),
         revocation_options=RevocationOptions(enabled=True),
     )
