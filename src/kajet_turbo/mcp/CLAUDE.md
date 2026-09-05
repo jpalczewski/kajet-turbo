@@ -45,6 +45,9 @@ they meant.
 - `Middleware.on_call_tool` runs *before* argument validation and can rewrite
   `context.message.arguments`. It is the only place raw wire arguments are visible.
 - `logged_tool` sits *under* `@srv.tool`, so it only ever sees validated Python values. It
-  is for timing and logging, not preprocessing.
+  is for timing and logging, not preprocessing. It does not log `ToolError` — a `Depends`
+  dependency (e.g. `ACTIVE_WORKSPACE`) can raise one before `logged_tool`'s wrapper ever
+  runs, so `ServiceErrorMiddleware` (`tooling.py`) is the single place that logs a
+  `ToolError`, whichever layer raised it.
 
 Never log note titles or bodies — logs are shipped off-box and notes are personal.

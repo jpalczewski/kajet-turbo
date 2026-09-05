@@ -10,6 +10,7 @@ import uuid
 from dataclasses import dataclass
 from functools import wraps
 
+from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_context
 from loguru import logger
 
@@ -211,6 +212,30 @@ def install_loop_exception_handler() -> None:
 _SLOW_TOOL_MS = float(os.getenv("SLOW_TOOL_MS", "2000"))
 
 
+def log_tool_error(tool: str, start: float) -> None:
+    """Shared by logged_tool and ServiceErrorMiddleware (mcp/tooling.py): both need the
+    same live-context session/request_id rebind logged_tool's success path already does
+    below — the FastMCP session task captures middleware contextvars at session-init
+    time, so ambient session_id/request_id are stale by the time either runs unless
+    re-read from the live Context.
+    """
+    try:
+        ctx = get_context()
+    except RuntimeError:
+        ctx = None
+    bind: dict[str, str] = {}
+    if ctx is not None:
+        for key in ("session_id", "request_id"):
+            try:
+                val = getattr(ctx, key)
+            except Exception:
+                continue
+            if val:
+                bind[key] = val
+    with logger.contextualize(**bind):
+        logger.exception(tool, tool=tool, duration_ms=round((time.monotonic() - start) * 1000))
+
+
 def logged_tool(fn):
     @wraps(fn)
     async def wrapper(*args, **kwargs):
@@ -241,12 +266,13 @@ def logged_tool(fn):
                     level.upper(), fn.__name__, tool=fn.__name__, duration_ms=duration_ms, **extra
                 )
                 return result
+            except ToolError:
+                # Logged once by ServiceErrorMiddleware (mcp/tooling.py), which sees
+                # every tool call including Depends resolution that never reaches this
+                # wrapper (issue #71).
+                raise
             except Exception:
-                logger.exception(
-                    fn.__name__,
-                    tool=fn.__name__,
-                    duration_ms=round((time.monotonic() - start) * 1000),
-                )
+                log_tool_error(fn.__name__, start)
                 raise
 
     return wrapper
