@@ -172,6 +172,65 @@ def test_update_rejects_rename_onto_case_only_collision(service, workspace):
     assert x_note.title == "X"
 
 
+def test_update_case_only_title_rename_succeeds(service, workspace):
+    """#181: renaming a note's title by case only used to raise a false
+    FileExistsError against the file's own not-yet-renamed self on a
+    case-insensitive-but-case-preserving filesystem (macOS APFS, Windows NTFS).
+    The fix routes the rename leg through a temp name, which produces the same
+    correct end state regardless of the filesystem's case sensitivity — so this
+    passes on a case-sensitive CI runner just as meaningfully as on local dev."""
+    note_id = service.save("u1", "ws", str(workspace), "readme", "content", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    service.update(note_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="README")
+
+    assert (workspace / "README.md").exists()
+    assert [p.name for p in workspace.glob("*.md")] == ["README.md"]
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note.title == "README"
+    assert note.content == "content"
+
+
+def test_update_case_only_rename_with_content_edit_succeeds(service, workspace):
+    """A case-only rename combined with a content edit in the same call must land
+    both: the new casing and the new content."""
+    note_id = service.save("u1", "ws", str(workspace), "readme", "old", [])["note_id"]
+    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    service.update(
+        note_id,
+        owner_id="u1",
+        ws_path=str(workspace),
+        expected_sha=sha,
+        title="README",
+        edit=EditSpec(content="new"),
+    )
+
+    assert (workspace / "README.md").exists()
+    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    assert note.title == "README"
+    assert note.content == "new"
+
+
+def test_update_rejects_rename_onto_orphan_file_on_disk(service, workspace):
+    """A file with no matching DB row already sitting at the target path must still
+    block the rename — this collision is now detected from inside the temp-routed
+    rename leg (#181) rather than a pre-check, and the source must come back intact."""
+    (workspace / "target.md").write_text("orphan content\n")
+    x_id = service.save("u1", "ws", str(workspace), "X", "x content", [])["note_id"]
+    sha = service.get_history(x_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+
+    with pytest.raises(FileExistsError, match="target"):
+        service.update(
+            x_id, owner_id="u1", ws_path=str(workspace), expected_sha=sha, title="target"
+        )
+
+    assert (workspace / "X.md").exists()
+    assert (workspace / "target.md").read_text() == "orphan content\n"
+    x_note = service.get_with_content(x_id, owner_id="u1", ws_path=str(workspace))
+    assert x_note.title == "X"
+
+
 def test_update_append_mode_adds_to_section(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Dziennik", "## Zadania\n\n- Pierwsze", [])[
         "note_id"
