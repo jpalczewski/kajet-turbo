@@ -1,8 +1,7 @@
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
-from itertools import batched
 
 from sqlmodel import Session
 
@@ -10,25 +9,18 @@ from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
     extract_inline_tags,
     normalize,
-    remap_path,
-    rewrite_inline_tags,
 )
 from kajet_turbo.repositories.git import (
     GitRepository,
-    defer_workspace_postprocess,
     workspace_write_transaction,
 )
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
-from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes.staged_change import (
-    MAX_BATCH_COMMIT_SIZE,
     StagedChange,
     commit_rows_then_tree,
 )
 from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
 from kajet_turbo.workspace import (
-    LocatedNote,
-    NoteFrontmatter,
     locate_note,
     read_note_file,
     temporal_drop_warnings,
@@ -38,38 +30,10 @@ from kajet_turbo.workspace import (
 type TaggedPairs = list[tuple[str, str]]
 
 
-@dataclass(frozen=True, slots=True)
-class _RenamedNote:
-    """One note staged for a tag rename: what to write, and what body changed for chunking."""
-
-    loc: LocatedNote
-    meta: NoteFrontmatter
-    new_tags: list[str]
-    new_body: str
-    old_body: str
-
-    @property
-    def note(self):
-        return self.loc.note
-
-    @property
-    def body_changed(self) -> bool:
-        """True when the rename reached inline ``#hashtags``, so the chunks are stale."""
-        return self.new_body != self.old_body
-
-
 class NoteTagService:
-    def __init__(
-        self,
-        crud_repo: NoteRepository,
-        tag_repo: NoteTagRepository,
-        indexer: NoteIndexer | None = None,
-    ):
+    def __init__(self, crud_repo: NoteRepository, tag_repo: NoteTagRepository) -> None:
         self._crud_repo = crud_repo
         self._tag_repo = tag_repo
-        # A tag lives in two places — frontmatter and inline #hashtags — so a rename has to
-        # reach into note bodies, and the notes it rewrites need rechunking.
-        self._indexer = indexer
 
     @staticmethod
     def normalize_tags(raw: list[str]) -> list[str]:
@@ -276,207 +240,3 @@ class NoteTagService:
         return self._apply_tag_change(
             note_id, owner_id, ws_path, lambda current, content: (normalized, warnings)
         )
-
-    @workspace_write_transaction
-    def rename_tag(
-        self,
-        old: str,
-        new: str,
-        *,
-        owner_id: str,
-        ws_name: str,
-        ws_path: str,
-        merge: bool = False,
-    ) -> dict:
-        """Rename a tag across the whole workspace; merges when ``new`` exists.
-
-        The subtree moves with the tag (``work`` -> ``job`` also remaps ``work/projects``),
-        matched on segment boundaries so ``workflow`` is left alone. Inline ``#hashtags`` in
-        the body are rewritten too — without that, ``sync_tags`` would union the old tag back
-        in from the content on the very next sync.
-
-        Merging is destructive in the sense that the two tags become indistinguishable, so it
-        needs ``merge=True``; otherwise an existing target is reported as a conflict payload.
-        Deliberately unguarded by ``expected_sha`` — like ``move_folder``, this is a
-        workspace-wide operation where a per-note sha is impractical; git history is the undo.
-        Above ``MAX_BATCH_COMMIT_SIZE`` notes this is several commits, not one (#171) — a
-        mid-rename failure leaves the already-renamed chunks carrying the target tag, so a
-        retry needs ``merge=True`` too, same as renaming onto any other pre-existing tag.
-
-        The ``tags`` / ``note_tags`` rows are never touched by hand: the repository rebuilds
-        each note's links from scratch and its GC sweeps the tag left orphaned by the rename.
-        """
-        old_n = normalize(old)
-        new_n = normalize(new)
-        if old_n is None:
-            raise ValueError(f"{old!r}: niepoprawny tag.")
-        if new_n is None:
-            raise ValueError(f"{new!r}: niepoprawny tag.")
-        if old_n == new_n:
-            return self._rename_result(old_n, new_n, 0, 0, False, [])
-        if new_n.startswith(old_n + "/"):
-            raise ValueError(f"Nie można przenieść taga '{old_n}' do jego własnego poddrzewa.")
-
-        source_ids = self._tag_repo.note_ids_for_tags(ws_name, owner_id, [old_n])
-        if not source_ids:
-            raise ValueError(f"Tag '{old_n}' nie istnieje.")
-        target_ids = self._tag_repo.note_ids_for_tags(ws_name, owner_id, [new_n])
-        if target_ids and not merge:
-            return {
-                "error": f"Tag '{new_n}' już istnieje — powtórz z merge=true, żeby scalić.",
-                "target": new_n,
-                "target_notes": len(target_ids),
-                "source_notes": len(source_ids),
-            }
-
-        def remap(tag: str) -> str | None:
-            return remap_path(tag, old_n, new_n)
-
-        warnings: list[str] = []
-        staged: list[_RenamedNote] = []
-        for note in self._crud_repo.get_many(sorted(source_ids), owner_id):
-            loc = locate_note(note, ws_path)
-            if not loc.file_exists:
-                warnings.append(f"{note.title}: plik notatki nie istnieje — pominięta")
-                continue
-            existing_meta, content = read_note_file(loc.filepath)
-            old_tags = NoteTagService.normalize_tags(existing_meta.tags)
-            new_tags = list(dict.fromkeys(remap(t) or t for t in old_tags))
-            new_body, _ = rewrite_inline_tags(content, remap)
-            if new_tags == old_tags and new_body == content:
-                continue
-            staged.append(
-                _RenamedNote(
-                    loc=loc,
-                    meta=existing_meta,
-                    new_tags=new_tags,
-                    new_body=new_body,
-                    old_body=content,
-                )
-            )
-        if not staged:
-            return self._rename_result(old_n, new_n, 0, 0, bool(target_ids), warnings)
-
-        now = datetime.now(UTC).isoformat()
-        git_repo = GitRepository(ws_path)
-        message = f"tag: rename {old_n} -> {new_n}"
-
-        # Chunked (#171): one commit_rows_then_tree call per MAX_BATCH_COMMIT_SIZE notes,
-        # not one for the whole (workspace-derived, unbounded) rename. sync_note_tags_many_
-        # in_session runs *inside* write_rows — same transaction as the row update and the
-        # git commit that follows it — not as a separate call after commit_rows_then_tree
-        # returns. Two separate commits per chunk would let a chunk's tree/row commit land
-        # while its join-table sync fails afterward: the file and notes.tags column would
-        # say new_n, note_ids_for_tags would still say old_n, and a retry's dedup check
-        # (new_tags == old_tags and new_body == content, below) would silently skip that
-        # chunk forever — resumability depends on this being one atomic unit, not two.
-        # The orphan sweep is NOT run per chunk: it scans every Tag row in the workspace
-        # regardless of chunk size, so running it once after the whole rename (not once per
-        # chunk) avoids paying that scan ceil(N/500) times for a result only the last chunk
-        # actually needed — see sync_note_tags_many_in_session's docstring.
-        rewritten_ids: list[str] = []
-        for chunk in batched(staged, MAX_BATCH_COMMIT_SIZE, strict=False):
-            items = [
-                StagedChange(
-                    add=item.loc.relative,
-                    remove=None,
-                    apply=partial(
-                        write_note_file,
-                        item.loc.filepath,
-                        replace(
-                            item.meta,
-                            id=item.note.id,
-                            title=item.note.title,
-                            tags=item.new_tags,
-                            created_at=item.note.created_at,
-                            updated_at=now,
-                        ),
-                        item.new_body,
-                    ),
-                )
-                for item in chunk
-            ]
-
-            # write_rows runs synchronously within this same iteration (commit_rows_then_tree
-            # doesn't defer it), so closing over `chunk` is safe — the default arg below only
-            # silences ruff's B023, which can't see that.
-            def write_rows(session: Session, chunk: tuple[_RenamedNote, ...] = chunk) -> None:
-                for item in chunk:
-                    self._crud_repo.update_in_session(
-                        session,
-                        item.note.id,
-                        owner_id=owner_id,
-                        title=item.note.title,
-                        tags=item.new_tags,
-                        updated_at=now,
-                        folder=item.note.folder,
-                        occurred_at=item.meta.occurred_at,
-                        period=item.meta.period,
-                        bump_index_generation=item.body_changed,
-                    )
-                self._tag_repo.sync_note_tags_many_in_session(
-                    session,
-                    ws_name,
-                    owner_id,
-                    {item.note.id: self.tagged(item.new_tags, item.new_body) for item in chunk},
-                    now,
-                )
-
-            commit_rows_then_tree(
-                self._crud_repo,
-                git_repo,
-                items,
-                message,
-                operation="rename_tag",
-                write_rows=write_rows,
-                owner_id=owner_id,
-                old=old_n,
-                new=new_n,
-                count=len(chunk),
-                note_ids=[item.note.id for item in chunk],
-            )
-            rewritten_ids.extend(item.note.id for item in chunk if item.body_changed)
-        with (
-            self._tag_repo.operation(
-                "sweep_orphan_tags", workspace=ws_name, owner_id=owner_id
-            ) as op,
-            op.session.begin(),
-        ):
-            self._tag_repo.sweep_orphan_tags_in_session(op.session, ws_name, owner_id)
-        # Chunks are title + content, so only a rewritten body invalidates the search index.
-        # One reindex dispatch for the whole rename, not one per chunk (mirrors the sweep
-        # above) — deferred, so this still doesn't hold the workspace lock any longer.
-        if self._indexer is not None and rewritten_ids:
-            index_payload = [{"id": note_id} for note_id in rewritten_ids]
-            defer_workspace_postprocess(
-                ws_path, partial(self._indexer.index_many, ws_name, owner_id, index_payload)
-            )
-        logger.info(
-            "tag_renamed",
-            old=old_n,
-            new=new_n,
-            renamed=len(staged),
-            merged=bool(target_ids),
-            inline_rewritten=len(rewritten_ids),
-        )
-        return self._rename_result(
-            old_n, new_n, len(staged), len(rewritten_ids), bool(target_ids), warnings
-        )
-
-    @staticmethod
-    def _rename_result(
-        old: str,
-        new: str,
-        renamed: int,
-        inline_rewritten: int,
-        merged: bool,
-        warnings: list[str],
-    ) -> dict:
-        return {
-            "old": old,
-            "new": new,
-            "renamed": renamed,
-            "merged": merged,
-            "inline_rewritten": inline_rewritten,
-            "warnings": warnings,
-        }

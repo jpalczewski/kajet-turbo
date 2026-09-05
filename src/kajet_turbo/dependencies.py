@@ -139,7 +139,7 @@ link_reconcile_repo = LinkReconcileRepository(db.engine, job_repo)
 
 _link_validation = lambda ws, owner: workspace_service.get_settings(owner, ws)["validate_links"]  # noqa: E731
 
-_note_tag_service = NoteTagService(note_repo, note_tag_repo, indexer=note_indexer)
+_note_tag_service = NoteTagService(note_repo, note_tag_repo)
 _note_link_service = NoteLinkService(
     note_repo, note_link_repo, dangling_repo, _link_validation, job_repo
 )

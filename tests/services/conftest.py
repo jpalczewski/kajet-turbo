@@ -75,7 +75,7 @@ def build_note_service(
     if jobs is None:
         jobs = JobRepository(engine)
 
-    tag_service = NoteTagService(crud_repo, tag_repo, indexer=indexer)
+    tag_service = NoteTagService(crud_repo, tag_repo)
     link_service = NoteLinkService(
         crud_repo, link_repo, dangling_repo, link_validation_enabled, jobs
     )
