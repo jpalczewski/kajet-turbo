@@ -201,6 +201,9 @@ class NoteChunkRepository(DbRepository):
                 raise ValueError(
                     f"embeddings ({len(embeddings)}) must match chunks ({len(chunks)})"
                 )
+        # None unless this call vectorises: note_chunks.dim records the shard a chunk's
+        # vector went into, and a chunks-only write leaves the note stale with no vector.
+        chunk_dim = identity.dim if embeddings is not None and identity is not None else None
         now = datetime.now(UTC).isoformat()
         if expected_generation is not None:
             current = session.execute(  # ty: ignore[deprecated] - raw SQL
@@ -235,7 +238,7 @@ class NoteChunkRepository(DbRepository):
                     "content": chunk.content,
                     "cs": chunk.char_start,
                     "ce": chunk.char_end,
-                    "dim": identity.dim if embeddings is not None and identity else None,
+                    "dim": chunk_dim,
                     "now": now,
                 },
             )
