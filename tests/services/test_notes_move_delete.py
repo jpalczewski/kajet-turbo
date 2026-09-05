@@ -125,6 +125,24 @@ def test_move_note_rejects_normalization_collision(service, workspace):
     assert dest_content.strip() == "destination"
 
 
+def test_move_note_case_only_folder_rename_succeeds(service, workspace):
+    """#181: moving a note into a folder differing only by case from its current one
+    used to raise a false FileExistsError against its own not-yet-moved source on a
+    case-insensitive-but-case-preserving filesystem. The fix routes the move through
+    a temp name, producing the same correct end state on any filesystem — see
+    NoteFolderService.move_folder's own test of the equivalent folder-level case,
+    test_move_folder_case_only_rename."""
+    note_id = service.save("u1", "ws", str(workspace), "N", "content", [], folder="Projekty")[
+        "note_id"
+    ]
+
+    service.move(note_id, owner_id="u1", ws_path=str(workspace), folder="projekty")
+
+    assert (workspace / "projekty" / "N.md").exists()
+    after = service.get(note_id, owner_id="u1")
+    assert after["folder"] == "projekty"
+
+
 def test_update_folder_only_keeps_path_creation_semantics(service, workspace):
     note_id = service.save("u1", "ws", str(workspace), "Move me", "content", [])["note_id"]
     before = service.get(note_id, owner_id="u1")

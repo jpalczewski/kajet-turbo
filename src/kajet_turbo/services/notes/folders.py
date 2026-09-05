@@ -76,8 +76,6 @@ class NoteFolderService:
         )
         if conflict is not None:
             raise FileExistsError(conflict_message(note.title, str(new_path), conflict))
-        if new_path.exists():
-            raise FileExistsError(f"Target file '{new_path.relative_to(ws_path)}' already exists.")
 
         affected_sources = workspace_links.affected_sources(
             {note.title}, include_source_ids={note_id}
@@ -87,13 +85,26 @@ class NoteFolderService:
         repo = GitRepository(ws_path)
 
         def apply_move() -> None:
-            # Normalize an OS-level rename failure (permissions, cross-device link) to
-            # GitError, matching every other write path here — callers only need to
-            # catch GitError.
+            # Route through a temp name in old_path's own folder — same choreography
+            # as move_folder's tmp_root (#181) — so a case-only folder rename never
+            # self-collides against its own not-yet-moved source, and the exists()
+            # check below is meaningful regardless of the filesystem's case
+            # sensitivity, instead of a pre-check that would misfire against the
+            # source's own alias on a case-insensitive-but-case-preserving filesystem
+            # (macOS APFS, Windows NTFS).
+            tmp_path = old_path.parent / f".kajet-move-{token_hex(8)}"
+            try:
+                old_path.rename(tmp_path)
+            except OSError as e:
+                raise GitError(str(e)) from e
+            if new_path.exists():
+                tmp_path.rename(old_path)
+                raise FileExistsError(f"Target file '{new_rel}' already exists.")
             try:
                 new_path.parent.mkdir(parents=True, exist_ok=True)
-                old_path.rename(new_path)
+                tmp_path.rename(new_path)
             except OSError as e:
+                tmp_path.rename(old_path)
                 raise GitError(str(e)) from e
 
         item = StagedChange(add=new_rel, remove=old_rel, apply=apply_move)

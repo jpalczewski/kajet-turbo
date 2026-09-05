@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from functools import partial
 from itertools import batched
 from pathlib import Path
+from secrets import token_hex
 from typing import cast
 
 import frontmatter
@@ -991,8 +992,6 @@ class NoteService:
             )
             if conflict is not None:
                 raise FileExistsError(conflict_message(new_title, new_path, conflict))
-            if Path(new_path).exists():
-                raise FileExistsError(f"Target file '{new_rel}' already exists.")
         existing_meta, old_content = read_note_file(old_path)
         if not clear_date_metadata and occurred_at is _UNCHANGED and period is _UNCHANGED:
             # The file is source of truth during a read-modify-write. This also repairs
@@ -1039,14 +1038,31 @@ class NoteService:
         repo = GitRepository(ws_path)
 
         def apply_update() -> None:
-            write_note_file(new_path, apply_meta, new_content)
-            if old_path != new_path:
-                # Normalize an OS-level unlink failure to GitError, matching every
-                # other write path here — callers only need to catch GitError.
-                try:
-                    Path(old_path).unlink()
-                except OSError as e:
-                    raise GitError(str(e)) from e
+            if old_path == new_path:
+                write_note_file(new_path, apply_meta, new_content)
+                return
+            # Route the rename leg through a temp name in old_path's own folder — same
+            # choreography as move_folder's tmp_root and NoteFolderService.move()
+            # (#181) — so a case-only rename never self-collides against its own
+            # not-yet-moved source, and the exists() check below is meaningful
+            # regardless of the filesystem's case sensitivity. Without this, on a
+            # case-insensitive-but-case-preserving filesystem (macOS APFS, Windows
+            # NTFS) old_path and new_path are the same physical file: writing
+            # new_content to new_path then unlinking old_path would delete it.
+            tmp_path = Path(old_path).parent / f".kajet-rename-{token_hex(8)}"
+            try:
+                Path(old_path).rename(tmp_path)
+            except OSError as e:
+                raise GitError(str(e)) from e
+            if Path(new_path).exists():
+                tmp_path.rename(old_path)
+                raise FileExistsError(f"Target file '{new_rel}' already exists.")
+            try:
+                write_note_file(new_path, apply_meta, new_content)
+            except OSError as e:
+                tmp_path.rename(old_path)
+                raise GitError(str(e)) from e
+            tmp_path.unlink(missing_ok=True)
 
         item = StagedChange(
             add=new_rel, remove=old_rel if old_path != new_path else None, apply=apply_update
