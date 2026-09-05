@@ -7,7 +7,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from kajet_turbo.repositories.git import GitRepository
-from tests.mcp_tools.helpers import call_json, seed_note
+from tests.mcp_tools.helpers import call_json, seed_note, workspace_head_sha
 
 
 def _second_workspace(workspaces_dir, mcp_server, name: str = "second-ws"):
@@ -17,11 +17,6 @@ def _second_workspace(workspaces_dir, mcp_server, name: str = "second-ws"):
     GitRepository.init(str(ws_dir))
     mcp_server.workspace_repo.grant_access("u1", name)
     return ws_dir
-
-
-def _head_sha(ws_dir) -> str | None:
-    snapshot = GitRepository(str(ws_dir)).head_snapshot()
-    return snapshot.sha if snapshot else None
 
 
 async def test_save_notes_tool_batch(workspaces_dir, mcp_server):
@@ -271,8 +266,8 @@ async def test_edit_notes_mixed_workspace_batch_leaves_both_workspaces_untouched
         first = await seed_note(client, workspace="test-ws", title="First", content="one\n")
         second = await seed_note(client, workspace="second-ws", title="Second", content="two\n")
 
-        head1_before = _head_sha(workspaces_dir / "test-ws")
-        head2_before = _head_sha(second_dir)
+        head1_before = workspace_head_sha(workspaces_dir / "test-ws")
+        head2_before = workspace_head_sha(second_dir)
 
         with pytest.raises(ToolError, match="MIXED_WORKSPACES"):
             await client.call_tool(
@@ -295,8 +290,8 @@ async def test_edit_notes_mixed_workspace_batch_leaves_both_workspaces_untouched
                 },
             )
 
-        assert _head_sha(workspaces_dir / "test-ws") == head1_before
-        assert _head_sha(second_dir) == head2_before
+        assert workspace_head_sha(workspaces_dir / "test-ws") == head1_before
+        assert workspace_head_sha(second_dir) == head2_before
         assert (await call_json(client, "get_note", {"note_id": first["note_id"]}))[
             "content"
         ] == "one"
@@ -316,8 +311,8 @@ async def test_delete_notes_mixed_workspace_batch_leaves_both_workspaces_untouch
         first = await seed_note(client, workspace="test-ws", title="First", content="one\n")
         second = await seed_note(client, workspace="second-ws", title="Second", content="two\n")
 
-        head1_before = _head_sha(workspaces_dir / "test-ws")
-        head2_before = _head_sha(second_dir)
+        head1_before = workspace_head_sha(workspaces_dir / "test-ws")
+        head2_before = workspace_head_sha(second_dir)
 
         with pytest.raises(ToolError, match="MIXED_WORKSPACES"):
             await client.call_tool(
@@ -330,8 +325,8 @@ async def test_delete_notes_mixed_workspace_batch_leaves_both_workspaces_untouch
                 },
             )
 
-        assert _head_sha(workspaces_dir / "test-ws") == head1_before
-        assert _head_sha(second_dir) == head2_before
+        assert workspace_head_sha(workspaces_dir / "test-ws") == head1_before
+        assert workspace_head_sha(second_dir) == head2_before
         assert (await call_json(client, "get_note", {"note_id": first["note_id"]}))[
             "content"
         ] == "one"

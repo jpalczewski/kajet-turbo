@@ -9,12 +9,13 @@ from fastmcp.server.dependencies import get_access_token
 
 from kajet_turbo import identity
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logger
+from kajet_turbo.log import log_permission_denied, logger
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.git import PostCommitHooks
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.services.targets import (
     BatchTargetResolutionError,
+    DenialReason,
     NoteTarget,
     TargetFailure,
     TargetResolutionError,
@@ -95,9 +96,22 @@ async def require_user_id() -> str:
 
 
 async def require_workspace_access(name: str, user_id: str) -> list[str]:
+    """Legacy workspace-access check kept for the handful of tools whose contract is
+    unchanged by #248 (settings, update_workspace) and for search_notes's explicit-name
+    branch, which needs the "available" list in its error body -- resolve_workspace_target
+    only names the one workspace that was denied. Still audits the denial like every
+    TargetResolutionError path, just without going through the resolver/TargetFailure
+    machinery this helper predates."""
     available = await run_sync(_deps().workspace_service.list_accessible, user_id)
     if name in available:
         return available
+    log_permission_denied(
+        action="workspace.read",
+        resource="workspace",
+        caller_id=user_id,
+        reason=DenialReason.WORKSPACE_ACCESS_DENIED,
+        workspace=name,
+    )
     msg = f"Workspace '{name}' does not exist or is not accessible."
     raise ToolError(json.dumps({"error": msg, "available": available}))
 

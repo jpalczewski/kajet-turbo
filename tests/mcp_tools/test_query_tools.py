@@ -114,7 +114,15 @@ async def test_search_notes_folder_narrowing(workspaces_dir, mcp_server):
         assert "Out of scope" not in text
 
 
-async def test_search_notes_all_workspaces(workspaces_dir, mcp_server):
+@pytest.mark.parametrize(
+    "workspace_arg",
+    [{"workspace": "all"}, {}],
+    ids=["workspace=all", "workspace omitted"],
+)
+async def test_search_notes_all_workspaces(workspaces_dir, mcp_server, workspace_arg):
+    """workspace="all" and omitting `workspace` entirely must behave identically (#248:
+    there is no session-active workspace to fall back to, so the omitted case defaults
+    to searching everything rather than raising)."""
     ws2 = workspaces_dir / "drugi-ws"
     ws2.mkdir()
     GitRepository.init(str(ws2))
@@ -140,7 +148,7 @@ async def test_search_notes_all_workspaces(workspaces_dir, mcp_server):
                 "workspace": "drugi-ws",
             },
         )
-        result = await client.call_tool("search_notes", {"query": "Python", "workspace": "all"})
+        result = await client.call_tool("search_notes", {"query": "Python", **workspace_arg})
         text = result.content[0].text
         assert "ws1" in text or "Notatka w ws1" in text
         assert "ws2" in text or "Notatka w ws2" in text

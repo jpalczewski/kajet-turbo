@@ -18,8 +18,9 @@ Kajet — git-versioned markdown notebook.
 
 ## Workflow
 1. list_workspaces to see which workspaces you can use, then pass `workspace` on
-   workspace-scoped tools (save_note, list_notes, search_notes, ...) — note_id-addressed
-   tools (get_note, edit_note, delete_note, ...) need no workspace at all
+   workspace-scoped tools (save_note, list_notes, search_notes, ...) — tools addressed by
+   note_id (get_note, edit_note, delete_note, ...) need no workspace at all, except
+   get_note by title, which still requires workspace
 2. search_notes(workspace="all") or search_notes(workspace="NAME") — "all" omits
    workspaces whose global-search setting is disabled
 3. list_folders / search_notes / list_notes to orient yourself

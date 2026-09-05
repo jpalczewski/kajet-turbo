@@ -3,6 +3,8 @@
 import json
 import re
 
+from kajet_turbo.repositories.git import GitRepository
+
 # Matches anything that looks like a (short or full) git sha — used to assert
 # stale-sha errors never leak the current sha. Floor is 8, not 7: note_ids are
 # 7-char nanoids and an all-hex one would false-positive against this pattern.
@@ -15,28 +17,23 @@ async def call_json(client, tool: str, args: dict | None = None):
     return json.loads(result.content[0].text)
 
 
-async def save_and_get_sha(
-    client, title: str, content: str, tags: list[str] | None = None
-) -> tuple[str, str]:
-    """Save a note and return its (note_id, current sha).
+def workspace_head_sha(ws_dir) -> str | None:
+    """The workspace repo's current HEAD commit sha, or None before any commit.
 
-    Every destructive tool is gated on a fresh expected_sha, so this is the opening move
-    of most write-path tests.
+    Named distinctly from tests/services' `_head_sha(workspace, filename)` -- that one
+    resolves a single file's blob history entry, this resolves the whole repo's HEAD.
     """
-    note_id = (
-        await call_json(
-            client, "save_note", {"title": title, "content": content, "tags": tags or []}
-        )
-    )["note_id"]
-    return note_id, (await call_json(client, "get_note", {"note_id": note_id}))["sha"]
+    snapshot = GitRepository(str(ws_dir)).head_snapshot()
+    return snapshot.sha if snapshot else None
 
 
 async def seed_note(client, *, workspace: str, title: str, content: str = "", **kwargs) -> dict:
     """Save a note directly into `workspace` (the #248 explicit-workspace contract -- no
     activate_workspace call) and return the save_note result merged with its sha.
 
-    Workspace-scoped counterpart to save_and_get_sha, for tests exercising tools that take
-    an explicit `workspace` parameter instead of relying on session-activated state.
+    Workspace-scoped counterpart to a raw save_note + get_note round trip, for tests
+    exercising tools that take an explicit `workspace` parameter instead of relying on
+    session-activated state.
     """
     result = await call_json(
         client,

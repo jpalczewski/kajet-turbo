@@ -12,9 +12,9 @@ from kajet_turbo.mcp.context import (
     NOTE_TARGET,
     OPTIONAL_NOTE_TARGET,
     WORKSPACE_TARGET,
-    current_mcp_dependencies,
     require_user_id,
     resolve_notes,
+    resolve_workspace_target,
 )
 from kajet_turbo.mcp.notes.types import (
     FolderContext,
@@ -30,9 +30,7 @@ from kajet_turbo.services.notes import NoteData, NoteService
 from kajet_turbo.services.targets import (
     NoteTarget,
     TargetFailure,
-    TargetResolutionError,
     WorkspaceTarget,
-    audit_denied,
 )
 from kajet_turbo.workspace import normalize_folder
 
@@ -62,8 +60,8 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         workspace: Annotated[
             str | None,
             Field(
-                description="Workspace to search in — required when addressing by title, "
-                "unused with note_id."
+                description="Workspace to search in — required when addressing by title. "
+                "Do not combine with note_id."
             ),
         ] = None,
         user_id: str = Depends(require_user_id),
@@ -90,19 +88,7 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
             raise ToolError("Provide note_id or title.")
         if workspace is None:
             raise ToolError("workspace is required when addressing by title.")
-        try:
-            resolved_workspace = await run_sync(
-                current_mcp_dependencies().target_resolver.workspace, user_id, workspace
-            )
-        except TargetResolutionError as e:
-            audit_denied(
-                e.failure,
-                action="workspace.read",
-                resource="workspace",
-                caller_id=user_id,
-                workspace=workspace,
-            )
-            raise ToolError(f"Workspace not accessible: {workspace}") from e
+        resolved_workspace = await resolve_workspace_target(workspace, user_id)
         return require_found(
             await run_sync(
                 note_service.get_with_content_by_title,
