@@ -609,6 +609,15 @@ period: string;
 folder?: string | null;
 };
 
+export type ApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetParams = {
+/**
+ * @minimum 1
+ * @maximum 3
+ */
+depth?: number;
+include_cross_workspace?: boolean;
+};
+
 export type apiLoginApiLoginPostResponse200 = {
   data: LoginResponse
   status: 200
@@ -2346,6 +2355,75 @@ export const apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGet = async (name: str
     noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse> => {
 
   return customFetch<apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse>(getApiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetUrl(name,noteId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse200 = {
+  data: GraphResponse
+  status: 200
+}
+
+export type apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponseSuccess = (apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse200) & {
+  headers: Headers;
+};
+export type apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponseError = (apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse401 | apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse403 | apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse404 | apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse = (apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponseSuccess | apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponseError)
+
+export const getApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetUrl = (name: string,
+    noteId: string,
+    params?: ApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/workspaces/${name}/notes/${noteId}/neighborhood?${stringifiedParams}` : `/api/workspaces/${name}/notes/${noteId}/neighborhood`
+}
+
+/**
+ * @summary Api Note Neighborhood
+ */
+export const apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGet = async (name: string,
+    noteId: string,
+    params?: ApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse> => {
+
+  return customFetch<apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse>(getApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetUrl(name,noteId,params),
   {
     ...options,
     method: 'GET'

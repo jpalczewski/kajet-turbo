@@ -1,4 +1,4 @@
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, col, select
 
@@ -140,3 +140,75 @@ class NoteLinkRepository(DbRepository):
                 )
             ).all()
         return [(s, t) for s, t in rows]
+
+    def neighborhood(
+        self,
+        note_id: str,
+        workspace: str,
+        owner_id: str,
+        depth: int,
+        *,
+        include_cross_workspace: bool,
+    ) -> list[tuple[str, str]]:
+        """Return the directed, induced edge set in a note's undirected N-hop neighborhood.
+
+        The recursive walk follows both link directions, while the final rows retain each
+        wikilink's original direction.  Keeping the traversal in SQLite avoids one query per
+        hop (and the frontend fan-out that would otherwise cause).
+        """
+        workspace_filter = ""
+        if not include_cross_workspace:
+            workspace_filter = """
+                AND source.workspace = :workspace
+                AND target.workspace = :workspace
+            """
+        query = text(
+            f"""
+            WITH RECURSIVE
+            eligible_edges AS (
+                SELECT links.source_note_id, links.target_note_id
+                FROM note_links AS links
+                JOIN notes AS source
+                  ON source.id = links.source_note_id AND source.owner_id = :owner_id
+                JOIN notes AS target
+                  ON target.id = links.target_note_id AND target.owner_id = :owner_id
+                WHERE links.owner_id = :owner_id
+                {workspace_filter}
+            ),
+            adjacency AS (
+                SELECT source_note_id AS source_id, target_note_id AS target_id
+                FROM eligible_edges
+                UNION
+                SELECT target_note_id AS source_id, source_note_id AS target_id
+                FROM eligible_edges
+            ),
+            walked(note_id, distance) AS (
+                SELECT :note_id, 0
+                UNION
+                SELECT adjacency.target_id, walked.distance + 1
+                FROM adjacency
+                JOIN walked ON adjacency.source_id = walked.note_id
+                WHERE walked.distance < :depth
+            ),
+            neighborhood_nodes AS (
+                SELECT DISTINCT note_id FROM walked
+            )
+            SELECT edges.source_note_id, edges.target_note_id
+            FROM eligible_edges AS edges
+            JOIN neighborhood_nodes AS source ON source.note_id = edges.source_note_id
+            JOIN neighborhood_nodes AS target ON target.note_id = edges.target_note_id
+            ORDER BY edges.source_note_id, edges.target_note_id
+            """
+        )
+        with self.timed_session() as session:
+            rows = self._raw_execute(
+                session,
+                query,
+                {
+                    "note_id": note_id,
+                    "workspace": workspace,
+                    "owner_id": owner_id,
+                    "depth": depth,
+                },
+            ).all()
+        return [(source, target) for source, target in rows]

@@ -1983,6 +1983,18 @@ class NoteService:
     def graph(self, ws_name: str, owner_id: str) -> dict:
         return self._link_service.graph(ws_name, owner_id)
 
+    def neighborhood(
+        self,
+        note_id: str,
+        ws_name: str,
+        owner_id: str,
+        depth: int = 2,
+        include_cross_workspace: bool = False,
+    ) -> dict | None:
+        return self._link_service.neighborhood(
+            note_id, ws_name, owner_id, depth, include_cross_workspace
+        )
+
     def link_resolver(self, ws_name: str, owner_id: str, source_folder: str = "") -> LinkResolver:
         resolver: LinkResolver | None = None
 
