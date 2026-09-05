@@ -336,9 +336,7 @@ class NoteTagRepository(DbRepository):
         counts: dict[str, set[str]] = {}
         for tag_path, note_id in pairs:
             counts.setdefault(tag_path, set()).add(note_id)
-        result = [
+        return [
             {"path": p, "name": p.rsplit("/", 1)[-1], "count": len(ids)}
-            for p, ids in counts.items()
+            for p, ids in sorted(counts.items(), key=lambda item: (-len(item[1]), item[0]))
         ]
-        result.sort(key=lambda r: (-r["count"], r["path"]))
-        return result

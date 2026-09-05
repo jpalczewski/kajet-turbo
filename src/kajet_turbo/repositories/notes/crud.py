@@ -258,8 +258,8 @@ class NoteRepository(DbRepository):
         updated_at: str = "",
         folder: str | None = None,
         created_at: str | None = None,
-        occurred_at: str | None | object = _UNSET,
-        period: str | None | object = _UNSET,
+        occurred_at: str | object | None = _UNSET,
+        period: str | object | None = _UNSET,
         bump_index_generation: bool = False,
     ) -> None:
         with self.operation("update", note_id=note_id, owner_id=owner_id) as operation:
@@ -289,8 +289,8 @@ class NoteRepository(DbRepository):
         updated_at: str = "",
         folder: str | None = None,
         created_at: str | None = None,
-        occurred_at: str | None | object = _UNSET,
-        period: str | None | object = _UNSET,
+        occurred_at: str | object | None = _UNSET,
+        period: str | object | None = _UNSET,
         bump_index_generation: bool = False,
     ) -> None:
         """Update one note row in a caller-owned transaction; does not commit."""

@@ -61,8 +61,7 @@
         rows="2"
         placeholder="Do czego służy ten folder"
         bind:value={description}
-        disabled={saveAction.busy}
-      ></textarea>
+        disabled={saveAction.busy}></textarea>
     </label>
     <label class="field">
       Instrukcje dla LLM
@@ -70,8 +69,7 @@
         rows="4"
         placeholder="Wskazówki dla asystenta przy pracy z notatkami w tym folderze"
         bind:value={instructions}
-        disabled={saveAction.busy}
-      ></textarea>
+        disabled={saveAction.busy}></textarea>
     </label>
   {/if}
 

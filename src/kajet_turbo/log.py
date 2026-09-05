@@ -109,6 +109,7 @@ def _json_sink(message) -> None:
     if (
         entry["level"] in ("error", "warning")
         and entry.get("request_id")
+        and isinstance(logger_name, str)
         and logger_name.startswith("fastmcp.")
         and _ErrorDedup.cache
     ):
