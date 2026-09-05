@@ -180,8 +180,9 @@ class NoteRepository(DbRepository):
         if not tokens:
             return []
         query_cf = query.casefold()
+        timing = self.timed_session()
         with timed("meta_ms"):
-            with self.timed_session() as session:
+            with timing as session:
                 notes = session.exec(
                     select(Note.id, Note.title, Note.folder, Note.updated_at).where(
                         Note.workspace == workspace, Note.owner_id == owner_id
@@ -241,6 +242,7 @@ class NoteRepository(DbRepository):
             results = hits[:limit]
         self.log_operation(
             "metadata_search",
+            timing.db_ms,
             workspace=workspace,
             query_tokens=len(tokens),
             matches=len(results),

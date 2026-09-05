@@ -26,7 +26,8 @@ class FolderMetaRepository(DbRepository):
     ) -> None:
         """Upsert folder metadata. None fields preserve existing values."""
         now = datetime.now(UTC).isoformat()
-        with self.timed_session() as session:
+        timing = self.timed_session()
+        with timing as session:
             row = session.exec(
                 select(FolderMeta).where(
                     FolderMeta.owner_id == owner_id,
@@ -51,7 +52,7 @@ class FolderMetaRepository(DbRepository):
                 row.updated_at = now
             session.add(row)
             session.commit()
-        self.log_operation("set", owner_id=owner_id, workspace=workspace, path=path)
+        self.log_operation("set", timing.db_ms, owner_id=owner_id, workspace=workspace, path=path)
 
     def get(self, owner_id: str, workspace: str, path: str) -> FolderMeta | None:
         with self.timed_session() as session:
@@ -87,7 +88,8 @@ class FolderMetaRepository(DbRepository):
         if src == dst:
             return
         now = datetime.now(UTC).isoformat()
-        with self.timed_session() as session:
+        timing = self.timed_session()
+        with timing as session:
             rows = session.exec(
                 select(FolderMeta).where(
                     FolderMeta.owner_id == owner_id,
@@ -109,6 +111,7 @@ class FolderMetaRepository(DbRepository):
             session.commit()
         self.log_operation(
             "rename_paths",
+            timing.db_ms,
             owner_id=owner_id,
             workspace=workspace,
             src=src,
@@ -117,7 +120,8 @@ class FolderMetaRepository(DbRepository):
         )
 
     def delete_for_workspace(self, owner_id: str, workspace: str) -> None:
-        with self.timed_session() as session:
+        timing = self.timed_session()
+        with timing as session:
             result = session.execute(  # ty: ignore[deprecated] - DELETE statement
                 delete(FolderMeta).where(
                     col(FolderMeta.owner_id) == owner_id,
@@ -128,5 +132,9 @@ class FolderMetaRepository(DbRepository):
             count = result.rowcount
             session.commit()
         self.log_operation(
-            "delete_for_workspace", owner_id=owner_id, workspace=workspace, count=count
+            "delete_for_workspace",
+            timing.db_ms,
+            owner_id=owner_id,
+            workspace=workspace,
+            count=count,
         )

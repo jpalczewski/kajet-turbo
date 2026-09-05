@@ -148,14 +148,19 @@ class NoteTagRepository(DbRepository):
         if not tagged_by_note:
             return
         now = datetime.now(UTC).isoformat()
-        with self.timed_session() as session:
+        timing = self.timed_session()
+        with timing as session:
             tag_ids = self.sync_note_tags_many_in_session(
                 session, workspace, owner_id, tagged_by_note, now
             )
             self.sweep_orphan_tags_in_session(session, workspace, owner_id)
             session.commit()
         self.log_operation(
-            "sync_many", workspace=workspace, notes=len(tagged_by_note), tags=len(tag_ids)
+            "sync_many",
+            timing.db_ms,
+            workspace=workspace,
+            notes=len(tagged_by_note),
+            tags=len(tag_ids),
         )
 
     def delete_note_tags(self, note_id: str, workspace: str, owner_id: str) -> None:
