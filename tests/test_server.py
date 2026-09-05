@@ -16,7 +16,19 @@ from kajet_turbo.server import (
 def _route_paths(app) -> set[str]:
     # build_mcp_app wraps the FastAPI in _MCPPathFix; unwrap to read routes.
     inner = getattr(app, "_app", app)
-    return {getattr(route, "path", "") for route in inner.routes}
+    paths = set()
+
+    def collect(routes) -> None:
+        for route in routes:
+            paths.add(getattr(route, "path", ""))
+            # FastAPI 0.141 keeps included routers as nested _IncludedRouter
+            # instances instead of flattening their routes into the app's list.
+            original_router = getattr(route, "original_router", None)
+            if original_router is not None:
+                collect(original_router.routes)
+
+    collect(inner.routes)
+    return paths
 
 
 def test_mcp_app_mounts_mcp_not_api():

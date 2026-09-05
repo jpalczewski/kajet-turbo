@@ -146,17 +146,24 @@ import re
 Add the regex constant after the existing `_ALLOWED_*` constants at the top of the file:
 
 ```python
-_FOLDER_PATH_RE = re.compile(r'^[a-zA-Z0-9._-][a-zA-Z0-9._\-/]*$')
+_FOLDER_PATH_RE = re.compile(r"^[a-zA-Z0-9._-][a-zA-Z0-9._\-/]*$")
 ```
 
 Update the imports from `kajet_turbo.api.schemas` to include the new schemas:
 
 ```python
 from kajet_turbo.api.schemas import (
-    CreateFolderRequest, CreateFolderResponse,
-    CreateWorkspaceResponse, LsEntry, LsResponse,
-    NoteHistoryResponse, NoteHtmlResponse, NoteMarkdownResponse,
-    NotesListResponse, RestoreVersionResponse, WorkspacesListResponse,
+    CreateFolderRequest,
+    CreateFolderResponse,
+    CreateWorkspaceResponse,
+    LsEntry,
+    LsResponse,
+    NoteHistoryResponse,
+    NoteHtmlResponse,
+    NoteMarkdownResponse,
+    NotesListResponse,
+    RestoreVersionResponse,
+    WorkspacesListResponse,
 )
 ```
 
@@ -186,6 +193,7 @@ async def api_create_folder(
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> JSONResponse:
     from kajet_turbo.repositories.git import GitRepository, GitError
+
     user = get_session_user(request)
     if not user:
         return JSONResponse({"error": "Not logged in"}, status_code=401)
