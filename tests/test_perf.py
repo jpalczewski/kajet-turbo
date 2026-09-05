@@ -86,21 +86,29 @@ def test_excluded_from_updates_span_and_local_scope_independently():
     assert span.fields["db_ms"] < 20
 
 
-async def test_logged_tool_merges_span_fields(capsys):
-    from kajet_turbo.log import logged_tool, setup_logging
+async def test_tool_dispatch_merges_span_fields(capsys):
+    """The perf span is opened by ToolDispatchMiddleware, so whatever a tool (or a
+    repository under it) records into the active span lands on that call's one record."""
+    from fastmcp import Client, FastMCP
+
+    from kajet_turbo.log import setup_logging
+    from kajet_turbo.mcp.tooling import ToolDispatchMiddleware
 
     setup_logging()
+    server = FastMCP("perf")
+    server.add_middleware(ToolDispatchMiddleware())
 
-    @logged_tool
+    @server.tool
     async def my_tool() -> str:
         perf.record("git_ms", 7)
         perf.incr("chunks", 4)
         return "ok"
 
-    await my_tool()
+    async with Client(server) as client:
+        await client.call_tool("my_tool")
 
     captured = capsys.readouterr()
-    entry = json.loads([ln for ln in captured.err.strip().split("\n") if ln][-1])
-    assert entry["tool"] == "my_tool"
+    entries = [json.loads(ln) for ln in captured.err.strip().split("\n") if ln]
+    (entry,) = [e for e in entries if e.get("tool") == "my_tool"]
     assert entry["git_ms"] == 7
     assert entry["chunks"] == 4

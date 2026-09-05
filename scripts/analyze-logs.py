@@ -91,16 +91,12 @@ def mode_sessions(events: list[dict]) -> None:
 
 
 def mode_workspaces(events: list[dict]) -> None:
-    relevant_msgs = {
-        "workspace_switched",
-        "activate_workspace",
-        "active_workspace_resolved",
-        "active_workspace_miss",
-        "db_fallback",
-    }
+    # No allowlist: every event this mode used to name explicitly described the
+    # active-workspace machinery, which no longer exists (#248, #249). Anything
+    # workspace-shaped that survives is matched by name.
     for e in events:
         msg = e.get("msg", "")
-        if msg not in relevant_msgs and "workspace" not in msg.lower():
+        if "workspace" not in msg.lower():
             continue
         ts = e.get("ts", "")[:19]
         lvl = e.get("level", "")[:4].upper()

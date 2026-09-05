@@ -4,7 +4,6 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import NOTE_TARGET
 from kajet_turbo.mcp.notes.types import (
     NoteLinkItem,
@@ -26,7 +25,6 @@ def build_history(
     srv = FastMCP("notes-history")
 
     @srv.tool(**read_tool(tags={"notes", "history"}))
-    @logged_tool
     async def get_note_history(
         note_id: str,
         limit: int = 50,
@@ -38,7 +36,6 @@ def build_history(
         return [HistoryEntry.model_validate(e) for e in entries]
 
     @srv.tool(**read_tool(tags={"notes", "history"}))
-    @logged_tool
     async def get_note_at_version(
         note_id: str,
         sha: str,
@@ -50,7 +47,6 @@ def build_history(
         return NoteData.model_validate(version)
 
     @srv.tool(**write_tool(tags={"notes", "history"}, destructive=True))
-    @logged_tool
     async def restore_note_version(
         note_id: str,
         sha: str,
@@ -79,7 +75,6 @@ def build_history(
         return SavedNoteResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "links"}))
-    @logged_tool
     async def get_note_links(
         note_id: str,
         include_meta: bool = False,

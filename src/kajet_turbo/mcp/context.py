@@ -126,12 +126,11 @@ async def resolve_note_target(
     directly, only what the resolver itself derived for `note_id`. No session-state
     dependency at all (#248).
 
-    Every raise below must be a ToolError: fastmcp resolves Depends() params in
-    _resolve_fastmcp_dependencies *before* the wrapped tool coroutine runs, so
-    logged_tool's SERVICE_ERRORS mapping never sees a failure here. A plain exception
-    would instead be flattened into an opaque RuntimeError("Failed to resolve
+    Every raise below must be a ToolError: fastmcp flattens a plain exception raised
+    during Depends() resolution into an opaque RuntimeError("Failed to resolve
     dependency ...") with the original message dropped from str() — see
-    fastmcp/server/dependencies.py.
+    fastmcp/server/dependencies.py — and that RuntimeError, not the original, is what
+    ToolDispatchMiddleware's SERVICE_ERRORS mapping would then see.
     """
     try:
         return await run_sync(current_mcp_dependencies().target_resolver.note, user_id, note_id)
@@ -214,11 +213,12 @@ async def resolve_notes_in_one_workspace(
             for f in e.failures
         )
         error = ToolError(f"Batch rejected before any write -- {details}")
-        # Chain only when a denial was already audited above: ServiceErrorMiddleware
-        # treats a ToolError with __cause__ set as already logged (#71) and skips its
-        # own log_tool_error call. A pure validation failure (mixed workspaces,
-        # malformed/duplicate ids, empty/oversized batch) is never audited as a
-        # denial, so it must stay uncaused here or it would end up logged nowhere.
+        # Chain only when a denial was already audited above: ToolDispatchMiddleware
+        # reads __cause__ to tell a deliberate ToolError from one fastmcp wrapped around
+        # something else, and logs the cause's type when there is one. A pure validation
+        # failure (mixed workspaces, malformed/duplicate ids, empty/oversized batch) is
+        # never audited as a denial, so it must stay uncaused here — chaining it would
+        # misreport a client mistake as an internal TargetResolutionError.
         if any_denied:
             raise error from e
         raise error from None

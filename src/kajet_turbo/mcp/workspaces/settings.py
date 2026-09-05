@@ -3,7 +3,6 @@ from fastmcp.exceptions import ToolError
 
 from kajet_turbo import workspace_settings
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import require_user_id, require_workspace_access
 from kajet_turbo.mcp.tooling import read_tool, write_tool
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -20,7 +19,6 @@ def build_settings(workspace_service: WorkspaceService) -> FastMCP:
     srv = FastMCP("workspaces-settings")
 
     @srv.tool(**read_tool(tags={"workspace", "settings"}))
-    @logged_tool
     async def list_workspace_settings(name: str, ctx: Context) -> WorkspaceSettingsResult:
         """Zwraca ustawienia workspace'u i ich definicje."""
         del ctx
@@ -33,7 +31,6 @@ def build_settings(workspace_service: WorkspaceService) -> FastMCP:
         )
 
     @srv.tool(**write_tool(tags={"workspace", "settings"}, idempotent=True))
-    @logged_tool
     async def set_workspace_setting(
         name: str,
         setting: SettingKey,

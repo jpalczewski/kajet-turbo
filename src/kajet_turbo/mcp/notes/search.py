@@ -5,7 +5,6 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import (
     WORKSPACE_TARGET,
     require_user_id,
@@ -22,7 +21,6 @@ def build_search(note_service: NoteService, workspace_service: WorkspaceService)
     srv = FastMCP("notes-search")
 
     @srv.tool(**read_tool(tags={"notes", "search"}))
-    @logged_tool
     async def search_notes(
         query: str,
         workspace: str = "all",
@@ -80,7 +78,6 @@ def build_search(note_service: NoteService, workspace_service: WorkspaceService)
         return [SearchChunkResult.model_validate(r) for r in results]
 
     @srv.tool(**read_tool(tags={"notes", "search"}))
-    @logged_tool
     async def grep_notes(
         pattern: str,
         workspace: str,

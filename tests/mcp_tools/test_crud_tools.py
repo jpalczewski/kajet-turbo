@@ -499,9 +499,9 @@ async def test_edit_note_rejects_a_parameter_from_another_mode(workspaces_dir, m
     The full mode/parameter matrix is covered in tests/markdown/test_note_edit.py — this
     only proves the wiring, so one case is enough for a fixture this expensive. Asserting
     the exact message (not a substring) also proves this ValueError reaches the client
-    clean via logged_tool's SERVICE_ERRORS mapping, not wrapped in fastmcp's own generic
-    "Error calling tool 'edit_note': ..." text — through the real mounted build_mcp()
-    stack, not just a unit test of the wrapper in isolation.
+    clean via ToolDispatchMiddleware's SERVICE_ERRORS mapping, not wrapped in fastmcp's
+    own generic "Error calling tool 'edit_note': ..." text — through the real mounted
+    build_mcp() stack, not just a unit test of the middleware in isolation.
     """
     args = {"mode": "replace_text", "old_str": "world", "content": "earth"}
     mcp, _ = mcp_server
@@ -536,6 +536,38 @@ async def test_edit_note_without_content_edits_metadata_only(workspaces_dir, mcp
         assert note["title"] == "After"
         assert note["tags"] == ["x"]
         assert note["content"] == "Body stays."
+
+
+async def test_argument_validation_never_logs_the_rejected_value(
+    workspaces_dir, mcp_server, capsys
+):
+    """An argument-validation failure must not put the caller's payload in the logs.
+
+    fastmcp formats pydantic's error list into its own "Invalid arguments for tool" line,
+    and that list embeds the rejected `input` verbatim — for save_note, the note body.
+    Logs are shipped off-box and notes are personal, so ToolDispatchMiddleware records
+    the rejected parameter *paths* only, and the intercept handler drops fastmcp's
+    version of the line entirely (#249). Driven through the real mounted build_mcp()
+    stack, because it is the interaction of the two that has to hold, not either alone.
+    """
+    from kajet_turbo.log import setup_logging
+    from tests.helpers import read_log_entries
+
+    setup_logging()
+    secret = "meeting notes about a private matter"
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        with pytest.raises(ToolError):
+            await client.call_tool(
+                "save_note",
+                {"title": "T", "content": secret, "workspace": "test-ws", "tags": secret},
+            )
+
+    entries = read_log_entries(capsys)
+    assert secret not in json.dumps(entries)
+    (entry,) = [e for e in entries if e.get("tool") == "save_note"]
+    assert entry["error_type"] == "ValidationError"
+    assert entry["rejected_params"] == ["tags"]
 
 
 async def test_edit_note_rejects_an_unknown_parameter(workspaces_dir, mcp_server):

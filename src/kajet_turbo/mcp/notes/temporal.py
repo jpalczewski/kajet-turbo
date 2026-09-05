@@ -4,7 +4,6 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import WORKSPACE_TARGET
 from kajet_turbo.mcp.notes.types import NoteListItem
 from kajet_turbo.mcp.tooling import read_tool
@@ -17,7 +16,6 @@ def build_temporal(note_service: NoteService, collection_service: CollectionServ
     srv = FastMCP("notes-temporal")
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
-    @logged_tool
     async def entries_in(
         period: Annotated[
             str,

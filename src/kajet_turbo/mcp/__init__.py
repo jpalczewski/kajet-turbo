@@ -7,7 +7,7 @@ from fastmcp import FastMCP
 from kajet_turbo.mcp.collections import build_collections
 from kajet_turbo.mcp.context import build_mcp_context
 from kajet_turbo.mcp.notes import build_notes
-from kajet_turbo.mcp.tooling import ServiceErrorMiddleware
+from kajet_turbo.mcp.tooling import ToolDispatchMiddleware
 from kajet_turbo.mcp.workspaces import build_workspaces
 
 if TYPE_CHECKING:
@@ -116,7 +116,7 @@ def build_mcp(resources: AppResources) -> FastMCP:
         instructions=_INSTRUCTIONS,
         auth=resources.provider,
     )
-    mcp.add_middleware(ServiceErrorMiddleware(context))
+    mcp.add_middleware(ToolDispatchMiddleware(context))
     mcp.mount(build_workspaces(resources.workspace_service))
     mcp.mount(
         build_notes(

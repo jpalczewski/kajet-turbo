@@ -7,7 +7,6 @@ from pydantic import Field
 
 from kajet_turbo.collections import Cardinality, CollectionDefinition
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.collections.types import (
     CollectionResult,
     DefineCollectionResult,
@@ -38,7 +37,6 @@ def build_collections(
     srv = FastMCP("collections")
 
     @srv.tool(**write_tool(tags={"collections"}, idempotent=False))
-    @logged_tool
     async def define_collection(
         name: str,
         grain: PeriodKind,
@@ -102,7 +100,6 @@ def build_collections(
         return DefineCollectionResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"collections"}, destructive=False, idempotent=True))
-    @logged_tool
     async def delete_collection(
         name: str,
         workspace: Annotated[
@@ -119,7 +116,6 @@ def build_collections(
         return DeleteCollectionResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"collections"}))
-    @logged_tool
     async def list_collections(
         workspace: Annotated[str, Field(description="The workspace name to list collections in.")],
         target: WorkspaceTarget = WORKSPACE_TARGET,
@@ -129,7 +125,6 @@ def build_collections(
         return [_to_result(name, d) for name, d in definitions.items()]
 
     @srv.tool(**write_tool(tags={"collections"}, destructive=False, idempotent=False))
-    @logged_tool
     async def open_entry(
         collection: Annotated[
             str, Field(description="Name of the collection to open an entry in.")
@@ -170,7 +165,6 @@ def build_collections(
         return OpenEntryResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"collections"}))
-    @logged_tool
     async def list_collection_entries(
         collection: Annotated[str, Field(description="Name of the collection to list.")],
         workspace: Annotated[str, Field(description="The workspace name the collection lives in.")],

@@ -4,7 +4,6 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import WORKSPACE_TARGET
 from kajet_turbo.mcp.notes.types import (
     ConflictItem,
@@ -30,7 +29,6 @@ def build_folders(
     srv = FastMCP("notes-folders")
 
     @srv.tool(**read_tool(tags={"notes", "folders"}))
-    @logged_tool
     async def list_folders(
         workspace: str,
         target: WorkspaceTarget = WORKSPACE_TARGET,
@@ -49,7 +47,6 @@ def build_folders(
         ]
 
     @srv.tool(**write_tool(tags={"notes", "folders"}))
-    @logged_tool
     async def set_folder_meta(
         folder: Annotated[
             str,
@@ -111,7 +108,6 @@ def build_folders(
         return MovedFolderResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "folders"}))
-    @logged_tool
     async def move_folder(
         src: str,
         dst: str,
@@ -126,7 +122,6 @@ def build_folders(
         return await _move_folder(src, dst, target)
 
     @srv.tool(**write_tool(tags={"notes", "folders"}))
-    @logged_tool
     async def rename_folder(
         folder: str,
         new_name: str,
@@ -142,7 +137,6 @@ def build_folders(
         return await _move_folder(folder, dst, target)
 
     @srv.tool(**write_tool(tags={"notes", "folders"}, idempotent=True))
-    @logged_tool
     async def prune_empty_folders(
         workspace: str,
         target: WorkspaceTarget = WORKSPACE_TARGET,

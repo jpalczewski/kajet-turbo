@@ -141,48 +141,29 @@ def test_json_sink_does_not_dedupe_non_fastmcp_loggers(capsys):
     assert len(entries_named(read_log_entries(capsys), "dedup_boom")) == 2
 
 
-async def test_logged_tool_logs_on_success(capsys):
-    from kajet_turbo.log import logged_tool, setup_logging
-
-    setup_logging()
-
-    @logged_tool
-    async def my_tool() -> str:
-        return "ok"
-
-    result = await my_tool()
-    assert result == "ok"
-
-    entry = read_log_entries(capsys)[-1]
-    assert entry["msg"] == "my_tool"
-    assert entry["tool"] == "my_tool"
-    assert "duration_ms" in entry
-    assert entry.get("session_id") is None
-
-
-async def test_logged_tool_binds_live_context_without_ctx_parameter(capsys):
+async def test_tool_dispatch_binds_live_session_id_not_initialize_time(capsys):
     from fastmcp import Client, Context, FastMCP
 
-    from kajet_turbo.log import logged_tool, setup_logging
+    from kajet_turbo.log import setup_logging
+    from kajet_turbo.mcp.tooling import ToolDispatchMiddleware
 
     setup_logging()
     server = FastMCP("logged-tools")
+    server.add_middleware(ToolDispatchMiddleware())
 
     @server.tool
-    @logged_tool
     async def tool_without_ctx() -> str:
         return "without"
 
     @server.tool
-    @logged_tool
     async def tool_with_ctx(ctx: Context) -> str:
         return ctx.session_id
 
-    # mode="legacy": this asserts that within one persistent session, logged_tool
-    # correctly binds the live per-call context rather than leaking initialize-time
-    # ids (issue #71) — it is not a claim that FastMCP 4's default "auto" negotiation
-    # keeps one session across calls (it doesn't; tools address their target
-    # explicitly per call since #248, so this is unaffected either way).
+    # mode="legacy": this asserts that within one persistent session the middleware
+    # binds each call's live context rather than leaking initialize-time ids (issue
+    # #71) — it is not a claim that FastMCP 4's default "auto" negotiation keeps one
+    # session across calls (it doesn't; tools address their target explicitly per call
+    # since #248, so this is unaffected either way).
     async with Client(server, mode="legacy") as client:
         without_result = await client.call_tool("tool_without_ctx")
         with_result = await client.call_tool("tool_with_ctx")
@@ -194,23 +175,6 @@ async def test_logged_tool_binds_live_context_without_ctx_parameter(capsys):
     assert without_entry["session_id"]
     assert with_entry["session_id"] == without_entry["session_id"]
     assert with_result.content[0].text == with_entry["session_id"]
-
-
-async def test_logged_tool_propagates_exception(capsys):
-    from kajet_turbo.log import logged_tool, setup_logging
-
-    setup_logging()
-
-    @logged_tool
-    async def broken_tool() -> str:
-        raise RuntimeError("fail")
-
-    with pytest.raises(RuntimeError, match="fail"):
-        await broken_tool()
-
-    entry = read_log_entries(capsys)[-1]
-    assert entry["level"] == "error"
-    assert entry["error_type"] == "RuntimeError"
 
 
 def test_logging_middleware_logs_http_entry(capsys):

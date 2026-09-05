@@ -187,8 +187,8 @@ def operations(
 
     A search records its query shape on ``search_performed`` and its timings on
     ``search_notes``, and those two lines do **not** share a ``request_id``:
-    ``LoggingMiddleware`` binds the HTTP one and ``logged_tool`` rebinds the MCP one from
-    the tool context. So grouping has to fall back on time.
+    ``LoggingMiddleware`` binds the HTTP one and ``ToolDispatchMiddleware`` rebinds the
+    MCP one from the tool context. So grouping has to fall back on time.
 
     Lines are walked in timestamp order; a line joins the open operation when it is within
     ``window_s`` of that operation's first line and its ``msg`` is not already present.

@@ -4,7 +4,6 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import (
     NOTE_TARGET,
     WORKSPACE_TARGET,
@@ -34,7 +33,6 @@ def build_tags(
     srv = FastMCP("notes-tags")
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, idempotent=True))
-    @logged_tool
     async def add_tag(
         note_id: str,
         tags: list[str],
@@ -48,7 +46,6 @@ def build_tags(
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, idempotent=True))
-    @logged_tool
     async def remove_tag(
         note_id: str,
         tags: list[str],
@@ -62,7 +59,6 @@ def build_tags(
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, destructive=True))
-    @logged_tool
     async def set_tags(
         note_id: str,
         tags: list[str],
@@ -89,7 +85,6 @@ def build_tags(
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, idempotent=True))
-    @logged_tool
     async def rename_tag(
         old: str,
         new: str,
@@ -131,7 +126,6 @@ def build_tags(
         return TagRenameResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "tags"}))
-    @logged_tool
     async def list_tags(
         workspace: str,
         folder: Annotated[

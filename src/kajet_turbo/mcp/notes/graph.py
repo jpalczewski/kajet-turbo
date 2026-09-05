@@ -4,7 +4,6 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logged_tool
 from kajet_turbo.mcp.context import NOTE_TARGET, WORKSPACE_TARGET
 from kajet_turbo.mcp.tooling import read_tool, require_found
 from kajet_turbo.services.notes import NoteService
@@ -24,7 +23,6 @@ def build_graph(
     srv = FastMCP("notes-graph")
 
     @srv.tool(**read_tool(tags={"notes", "links", "graph"}))
-    @logged_tool
     async def get_workspace_graph(
         workspace: str,
         target: WorkspaceTarget = WORKSPACE_TARGET,
@@ -39,7 +37,6 @@ def build_graph(
         return GraphResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "links", "graph"}))
-    @logged_tool
     async def get_note_neighborhood(
         note_id: str,
         depth: Annotated[

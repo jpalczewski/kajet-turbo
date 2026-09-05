@@ -5,7 +5,6 @@ from fastmcp.dependencies import Depends
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logged_tool
 from kajet_turbo.markdown import EditMode, EditSpec
 from kajet_turbo.mcp.context import (
     NOTE_TARGET,
@@ -44,7 +43,6 @@ def build_write(note_service: NoteService) -> FastMCP:
     srv = FastMCP("notes-write")
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
-    @logged_tool
     async def save_note(
         title: str,
         content: str,
@@ -73,7 +71,6 @@ def build_write(note_service: NoteService) -> FastMCP:
         return SavedNoteResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
-    @logged_tool
     async def save_notes(
         notes: list[NoteInput],
         workspace: str,
@@ -101,7 +98,6 @@ def build_write(note_service: NoteService) -> FastMCP:
         ]
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
-    @logged_tool
     async def edit_note(
         note_id: str,
         expected_sha: Annotated[
@@ -205,7 +201,6 @@ def build_write(note_service: NoteService) -> FastMCP:
         return EditNoteSuccess.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
-    @logged_tool
     async def edit_notes(
         edits: list[NoteEditInput],
         user_id: str = Depends(require_user_id),
@@ -247,7 +242,6 @@ def build_write(note_service: NoteService) -> FastMCP:
         return EditNotesApplied.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
-    @logged_tool
     async def move_note(
         note_id: str,
         folder: str,
@@ -264,7 +258,6 @@ def build_write(note_service: NoteService) -> FastMCP:
         return MovedNoteResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
-    @logged_tool
     async def delete_note(
         note_id: str,
         expected_sha: Annotated[
@@ -291,7 +284,6 @@ def build_write(note_service: NoteService) -> FastMCP:
         return DeletedNoteResult(note_id=note_id)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
-    @logged_tool
     async def delete_notes(
         deletes: list[NoteDeleteInput],
         user_id: str = Depends(require_user_id),

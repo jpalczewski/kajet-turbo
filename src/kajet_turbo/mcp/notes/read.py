@@ -6,7 +6,6 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logged_tool
 from kajet_turbo.markdown import join_target
 from kajet_turbo.mcp.context import (
     NOTE_TARGET,
@@ -39,7 +38,6 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
     srv = FastMCP("notes-read")
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
-    @logged_tool
     async def get_note(
         note_id: str | None = None,
         title: Annotated[
@@ -100,7 +98,6 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         )
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
-    @logged_tool
     async def get_notes(
         note_ids: list[str],
         user_id: str = Depends(require_user_id),
@@ -128,7 +125,6 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         return output
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
-    @logged_tool
     async def get_note_outline(
         note_id: str,
         target: NoteTarget = NOTE_TARGET,
@@ -143,7 +139,6 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         return NoteOutlineResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
-    @logged_tool
     async def list_notes(
         workspace: str,
         tags: list[str] | None = None,
@@ -193,7 +188,6 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         )
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
-    @logged_tool
     async def export_folder(
         folder: str,
         workspace: str,

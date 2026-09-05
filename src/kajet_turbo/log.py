@@ -8,10 +8,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass
-from functools import wraps
 
-from fastmcp.exceptions import ToolError
-from fastmcp.server.dependencies import get_context
 from loguru import logger
 
 from kajet_turbo import identity
@@ -97,9 +94,11 @@ def _json_sink(message) -> None:
         entry["error_type"] = t.__name__ if t else None
         entry["error_msg"] = str(v) if v else None
     # FastMCP's mount() makes every level of a tool's mount chain re-enter call_tool(),
-    # and each level independently logs the same tool-call/argument-validation failure
-    # with no fields (exc_info=False) — so one real failure becomes N identical lines,
-    # one per mount level. Scoped to the "fastmcp." logger namespace specifically (not
+    # and each level independently logs the same failure with no fields (exc_info=False)
+    # — so one real failure becomes N identical lines, one per mount level. For tool
+    # calls specifically, _OwnedByToolDispatch now drops those lines before they reach
+    # this sink at all; this stays as the general defence for every other re-entered
+    # "fastmcp." record. Scoped to that logger namespace specifically (not
     # every error/warning app-wide): our own code has call sites that legitimately log
     # byte-identical content twice in one request by coincidence rather than re-entry
     # (e.g. concurrency.py's slow_sync warning for two separate slow dispatches under
@@ -176,8 +175,31 @@ def setup_logging() -> None:
     # Replace it with our InterceptHandler so FastMCP logs flow through loguru → JSONL.
     fastmcp_log = logging.getLogger("fastmcp")
     fastmcp_log.handlers.clear()
-    fastmcp_log.addHandler(_InterceptHandler())
+    fastmcp_handler = _InterceptHandler()
+    # On the handler, not the logger: child loggers ("fastmcp.server.server") propagate
+    # up to this one, and a logger-level filter only sees records logged on it directly.
+    fastmcp_handler.addFilter(_OwnedByToolDispatch())
+    fastmcp_log.addHandler(fastmcp_handler)
     fastmcp_log.propagate = False
+
+
+class _OwnedByToolDispatch(logging.Filter):
+    """Drop fastmcp's own per-tool-call records — `ToolDispatchMiddleware` owns them.
+
+    Not merely tidiness. `Error calling tool 'x'` duplicates the middleware's record
+    for the same failure, and since the middleware converts `SERVICE_ERRORS` above the
+    tool body rather than under it, fastmcp now reaches that line through its
+    `except Exception` branch and attaches a full traceback to what is ordinary tool
+    feedback ("note not found"). `Invalid arguments for tool 'x'` is worse: it formats
+    pydantic's error list, which embeds the rejected `input` — a note body, for
+    `save_note` — into logs that are shipped off-box. Matching on `record.msg` rather
+    than `getMessage()` means that payload is never even rendered.
+    """
+
+    _OWNED = ("Error calling tool ", "Invalid arguments for tool ")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not (isinstance(record.msg, str) and record.msg.startswith(self._OWNED))
 
 
 def _handle_loop_exception(loop: asyncio.AbstractEventLoop, context: dict) -> None:
@@ -208,35 +230,6 @@ def install_loop_exception_handler() -> None:
     asyncio.get_running_loop().set_exception_handler(_handle_loop_exception)
 
 
-# Tools slower than this log at WARNING for easy alerting/profiling. Tune via
-# SLOW_TOOL_MS; set 0 to always log tool completions at INFO.
-_SLOW_TOOL_MS = float(os.getenv("SLOW_TOOL_MS", "2000"))
-
-
-def log_tool_error(tool: str, start: float) -> None:
-    """Shared by logged_tool and ServiceErrorMiddleware (mcp/tooling.py): both need the
-    same live-context session/request_id rebind logged_tool's success path already does
-    below — the FastMCP session task captures middleware contextvars at session-init
-    time, so ambient session_id/request_id are stale by the time either runs unless
-    re-read from the live Context.
-    """
-    try:
-        ctx = get_context()
-    except RuntimeError:
-        ctx = None
-    bind: dict[str, str] = {}
-    if ctx is not None:
-        for key in ("session_id", "request_id"):
-            try:
-                val = getattr(ctx, key)
-            except Exception:
-                continue
-            if val:
-                bind[key] = val
-    with logger.contextualize(**bind):
-        logger.exception(tool, tool=tool, duration_ms=round((time.monotonic() - start) * 1000))
-
-
 def log_permission_denied(
     *,
     action: str,
@@ -264,61 +257,6 @@ def log_permission_denied(
         note_id=note_id,
         workspace=workspace,
     )
-
-
-def logged_tool(fn):
-    @wraps(fn)
-    async def wrapper(*args, **kwargs):
-        # Bind from the live tool context: the FastMCP session task captures the
-        # middleware contextvars at session-init time, so without this, tool logs
-        # would carry the initialize request's ids instead of this call's session.
-        try:
-            ctx = get_context()
-        except RuntimeError:
-            ctx = None
-        bind: dict[str, str] = {}
-        if ctx is not None:
-            for key in ("session_id", "request_id"):
-                try:
-                    val = getattr(ctx, key)
-                except Exception:
-                    continue
-                if val:
-                    bind[key] = val
-        # Late import: mcp.tooling -> repositories.git -> log would cycle at module
-        # level (repositories/git.py imports `logger` from this module). Do not hoist.
-        from kajet_turbo.mcp.tooling import SERVICE_ERRORS
-
-        start = time.monotonic()
-        with logger.contextualize(**bind), perf_span() as span:
-            try:
-                result = await fn(*args, **kwargs)
-                duration_ms = round((time.monotonic() - start) * 1000)
-                level = "warning" if _SLOW_TOOL_MS and duration_ms >= _SLOW_TOOL_MS else "info"
-                extra = dict(span.fields) if span else {}
-                logger.log(
-                    level.upper(), fn.__name__, tool=fn.__name__, duration_ms=duration_ms, **extra
-                )
-                return result
-            except ToolError:
-                # Logged once by ServiceErrorMiddleware (mcp/tooling.py), which sees
-                # every tool call including Depends resolution that never reaches this
-                # wrapper (issue #71).
-                raise
-            except SERVICE_ERRORS as e:
-                # Convert here, not in ServiceErrorMiddleware: fastmcp's own call_tool()
-                # already wraps anything surviving tool._run() into a generic
-                # ToolError(f"Error calling tool {name!r}: {e}") before the middleware's
-                # on_call_tool ever runs (its try/except sits *inside* what call_next()
-                # invokes) - see mcp/tooling.py. This wrapper sits directly around the
-                # raw coroutine, so it's the one seam that still sees the original type.
-                log_tool_error(fn.__name__, start)
-                raise ToolError(str(e)) from e
-            except Exception:
-                log_tool_error(fn.__name__, start)
-                raise
-
-    return wrapper
 
 
 def _http_route_fields(scope) -> dict[str, str]:

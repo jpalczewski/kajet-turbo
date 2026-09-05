@@ -1,19 +1,23 @@
+import os
 import time
 from collections.abc import Sequence
 from typing import Any
 
 from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import ValidationError as FastMCPValidationError
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from mcp.types import ToolAnnotations
+from pydantic import ValidationError as PydanticValidationError
 
 from kajet_turbo.api.schemas.ws import NoteUpdatedEvent, WorkspaceChangedEvent
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import log_tool_error
+from kajet_turbo.log import logger
 from kajet_turbo.mcp.context import (
     McpDependencies,
     current_mcp_dependencies,
     use_mcp_context,
 )
+from kajet_turbo.perf import perf_span
 from kajet_turbo.repositories.git import GitError, use_post_commit_hooks
 from kajet_turbo.services.targets import WorkspaceTarget
 
@@ -50,49 +54,161 @@ def write_tool(
 # One tuple for every notes tool. Catching a member where a given service call
 # cannot raise it is harmless; anything outside the tuple is a programming
 # error and must surface as an internal error, not a polite ToolError.
-#
-# Converted to ToolError inside logged_tool (log.py), not here: fastmcp's own
-# call_tool() already wraps any exception surviving tool._run() into a ToolError
-# before this middleware's on_call_tool ever sees it (its try/except sits *inside*
-# what call_next() invokes — see call_tool(run_middleware=False)'s own core-logic
-# try/except in fastmcp/server/server.py). A middleware-level `except SERVICE_ERRORS`
-# is therefore unreachable; logged_tool sits directly around the raw coroutine and is
-# the one seam that still sees the original exception type.
 SERVICE_ERRORS = (GitError, ValueError, FileNotFoundError, FileExistsError)
 
+# Tools slower than this log at WARNING for easy alerting/profiling. Tune via
+# SLOW_TOOL_MS; set 0 to always log tool completions at INFO.
+_SLOW_TOOL_MS = float(os.getenv("SLOW_TOOL_MS", "2000"))
 
-class ServiceErrorMiddleware(Middleware):
-    """Log a ToolError exactly once at the server boundary.
 
-    Registered once on the root server in build_mcp; applies to all mounted
-    sub-servers. Sees every ToolError regardless of where it originated: raised
-    on purpose by a tool body or by a Depends dependency (e.g. NOTE_TARGET,
-    which resolves before logged_tool's wrapper ever runs), or wrapped by fastmcp
-    around an unexpected exception that logged_tool already logged under its
-    original type.
+def _correlation_ids(context: MiddlewareContext) -> dict[str, str]:
+    """Read the ids off the live Context this call was dispatched with.
+
+    Not the ambient contextvars: the FastMCP session task captures those once at
+    session-init time, so on a persistent session they still carry the initialize
+    request's ids by the time a tool runs (issue #71). `session_id` is absent on
+    stateless requests, which is the normal case since #244 — `request_id` is what
+    correlates a tool call with its HTTP request there.
+    """
+    ctx = context.fastmcp_context
+    if ctx is None:
+        return {}
+    ids: dict[str, str] = {}
+    for key in ("session_id", "request_id"):
+        try:
+            value = getattr(ctx, key)
+        except Exception:
+            continue
+        if value:
+            ids[key] = value
+    return ids
+
+
+def _param_paths(exc: PydanticValidationError) -> list[str]:
+    """The paths pydantic rejected — never the values it rejected.
+
+    A pydantic error renders the offending `input` in full, which on the argument side
+    is whatever the caller sent (a note body, for `save_note`) and on the result side is
+    the note we are about to return. Logs are shipped off-box, so the path is the only
+    part of that detail that may be recorded — at the cost of a traceback we would
+    otherwise keep, which the paths themselves usually replace well enough.
+    """
+    return [".".join(str(part) for part in err["loc"]) for err in exc.errors(include_url=False)]
+
+
+def _rejected_params(exc: BaseException) -> list[str]:
+    """`_param_paths` for a fastmcp ValidationError, which wraps pydantic's as __cause__."""
+    cause = exc.__cause__
+    return _param_paths(cause) if isinstance(cause, PydanticValidationError) else []
+
+
+class ToolDispatchMiddleware(Middleware):
+    """The single logging seam for `tools/call`: exactly one record per call.
+
+    Registered once on the root server in `build_mcp`; applies to every mounted
+    sub-server. It wraps the whole dispatch, so one hook covers dependency
+    resolution, argument validation and the tool body alike — which is precisely
+    what the per-tool logging wrapper it replaced could not do, since a `Depends`
+    default (e.g. `NOTE_TARGET`) resolves before any wrapper around the tool function
+    runs (issue #71).
+
+    It also owns the `SERVICE_ERRORS` -> `ToolError` mapping. fastmcp's core wraps
+    anything surviving `tool._run()` into a generic
+    `ToolError(f"Error calling tool {name!r}: {e}")` *inside* the frame `call_next()`
+    awaits, so the original type is already gone when this hook runs — but that
+    wrapping sets `__cause__`, which still carries the original exception and with it
+    the verbatim message `mcp/CLAUDE.md` promises the calling model.
+
+    `duration_ms` measures the whole dispatch, validation and dependency resolution
+    included, not just the tool body: that is the latency the client actually waits
+    through, and `NOTE_TARGET` resolution does real database work.
     """
 
     def __init__(self, dependencies: McpDependencies | None = None):
         self._dependencies = dependencies
 
     async def on_call_tool(self, context: MiddlewareContext, call_next: CallNext):
+        tool = context.message.name
         start = time.monotonic()
-        try:
-            if self._dependencies is None:
-                return await call_next(context)
-            with (
-                use_mcp_context(self._dependencies),
-                use_post_commit_hooks(self._dependencies.post_commit_hooks),
-            ):
-                return await call_next(context)
-        except ToolError as e:
-            # A ToolError raised on purpose has __cause__ is None. One fastmcp wraps
-            # around a different exception carries that exception as __cause__ and was
-            # already logged by logged_tool — logging it again here would double it
-            # (issue #71).
-            if e.__cause__ is None:
-                log_tool_error(context.message.name, start)
-            raise
+        with logger.contextualize(**_correlation_ids(context)), perf_span() as span:
+            try:
+                result = await self._dispatch(context, call_next)
+            except FastMCPValidationError as exc:
+                # A malformed call, not a failed one: the caller got the schema wrong,
+                # so WARNING, matching what fastmcp itself used to log it at. Also the
+                # one branch that must never log its exception object — the rejected
+                # value rides along inside it.
+                self._log(
+                    tool,
+                    start,
+                    span,
+                    level="WARNING",
+                    error_type="ValidationError",
+                    rejected_params=_rejected_params(exc),
+                )
+                raise
+            except PydanticValidationError as exc:
+                # Not an argument failure — fastmcp converts those — but a model
+                # validating inside the tool, e.g. SavedNoteResult over a result we are
+                # about to return. That is our bug, not the caller's, so ERROR; but the
+                # exception still carries the rejected value, so it is logged the same
+                # payload-free way.
+                self._log(
+                    tool,
+                    start,
+                    span,
+                    error_type="PydanticValidationError",
+                    rejected_params=_param_paths(exc),
+                )
+                raise
+            except ToolError as exc:
+                cause = exc.__cause__
+                if isinstance(cause, SERVICE_ERRORS):
+                    self._log(tool, start, span, exception=cause)
+                    raise ToolError(str(cause)) from cause
+                # `cause is None` for a ToolError raised on purpose, by a tool body or
+                # by a dependency; otherwise it is an unexpected exception fastmcp
+                # wrapped, and its own type is the informative one to record.
+                self._log(tool, start, span, exception=cause or exc)
+                raise
+            except Exception as exc:
+                self._log(tool, start, span, exception=exc)
+                raise
+            duration_ms = _elapsed_ms(start)
+            level = "WARNING" if _SLOW_TOOL_MS and duration_ms >= _SLOW_TOOL_MS else "INFO"
+            logger.log(level, tool, tool=tool, duration_ms=duration_ms, **_span_fields(span))
+            return result
+
+    async def _dispatch(self, context: MiddlewareContext, call_next: CallNext):
+        if self._dependencies is None:
+            return await call_next(context)
+        with (
+            use_mcp_context(self._dependencies),
+            use_post_commit_hooks(self._dependencies.post_commit_hooks),
+        ):
+            return await call_next(context)
+
+    @staticmethod
+    def _log(
+        tool: str,
+        start: float,
+        span,
+        *,
+        exception: BaseException | None = None,
+        level: str = "ERROR",
+        **fields,
+    ):
+        logger.opt(exception=exception).log(
+            level, tool, tool=tool, duration_ms=_elapsed_ms(start), **_span_fields(span), **fields
+        )
+
+
+def _elapsed_ms(start: float) -> int:
+    return round((time.monotonic() - start) * 1000)
+
+
+def _span_fields(span) -> dict[str, object]:
+    return dict(span.fields) if span else {}
 
 
 async def publish_workspace_changed(ws: WorkspaceTarget) -> None:
