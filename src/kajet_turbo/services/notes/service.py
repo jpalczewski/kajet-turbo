@@ -1798,8 +1798,8 @@ class NoteService:
     ) -> dict | None:
         return self._link_service.links(note_id, owner_id, include_meta, include_cross_workspace)
 
-    def graph(self, ws_name: str, owner_id: str) -> dict:
-        return self._link_service.graph(ws_name, owner_id)
+    def graph(self, ws_name: str, owner_id: str, include_tags: bool = False) -> dict:
+        return self._link_service.graph(ws_name, owner_id, include_tags)
 
     def neighborhood(
         self,
@@ -1808,9 +1808,10 @@ class NoteService:
         owner_id: str,
         depth: int = 2,
         include_cross_workspace: bool = False,
+        include_tags: bool = False,
     ) -> dict | None:
         return self._link_service.neighborhood(
-            note_id, ws_name, owner_id, depth, include_cross_workspace
+            note_id, ws_name, owner_id, depth, include_cross_workspace, include_tags
         )
 
     def link_resolver(self, ws_name: str, owner_id: str, source_folder: str = "") -> LinkResolver:

@@ -264,6 +264,7 @@ def inproc_search_phase(tmp: Path) -> dict:
     link_service = NoteLinkService(
         note_repo,
         link_repo,
+        tag_repo,
         dangling_repo=None,
         link_validation_enabled=None,
         jobs=job_repo,

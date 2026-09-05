@@ -25,15 +25,17 @@ def build_graph(
     @srv.tool(**read_tool(tags={"notes", "links", "graph"}))
     async def get_workspace_graph(
         workspace: str,
+        include_tags: bool = False,
         target: WorkspaceTarget = WORKSPACE_TARGET,
     ) -> GraphResult:
         """Returns the whole given workspace's note-link graph: every note as a node
         (including notes with no links), every resolved wikilink as an edge, and
         broken/dangling links when this workspace has link validation disabled.
         dangling_links is null when validation is on (nothing to track) or empty when
-        validation is off and every link currently resolves.
+        validation is off and every link currently resolves. Set include_tags=true to add
+        tag hubs, note-to-tag edges, and child-tag-to-parent-tag hierarchy edges.
         workspace: the workspace name to build the graph for."""
-        result = await run_sync(note_service.graph, target.name, target.owner_id)
+        result = await run_sync(note_service.graph, target.name, target.owner_id, include_tags)
         return GraphResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "links", "graph"}))
@@ -49,12 +51,14 @@ def build_graph(
             ),
         ] = 2,
         include_cross_workspace: bool = False,
+        include_tags: bool = False,
         target: NoteTarget = NOTE_TARGET,
     ) -> GraphResult:
         """Returns a note's local graph as an induced directed subgraph.
 
         The walk follows incoming and outgoing wikilinks. Set include_cross_workspace=true
         to follow [[note:ID]] links into the caller's other workspaces; it is off by default.
+        Set include_tags=true to add hubs for tags on the returned notes and their ancestors.
         """
         result = require_found(
             await run_sync(
@@ -64,6 +68,7 @@ def build_graph(
                 target.workspace.owner_id,
                 depth,
                 include_cross_workspace,
+                include_tags,
             ),
             note_id,
         )

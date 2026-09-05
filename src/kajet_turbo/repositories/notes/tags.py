@@ -230,6 +230,39 @@ class NoteTagRepository(DbRepository):
             ).all()
             return set(rows)
 
+    def graph_data(
+        self, owner_id: str, workspaces: set[str], note_ids: set[str]
+    ) -> tuple[list[Tag], list[tuple[str, str]]]:
+        """Tag rows and direct ``(note_id, tag_id)`` links for graph nodes.
+
+        The caller selects the graph's resolved notes. Returning all tags in their
+        workspaces lets it follow each assigned tag's parent chain without issuing a
+        query per hierarchy level; the caller keeps only assigned tags and ancestors.
+        """
+        if not workspaces or not note_ids:
+            return [], []
+        with self.timed_session() as session:
+            tags = list(
+                session.exec(
+                    select(Tag).where(
+                        Tag.owner_id == owner_id,
+                        col(Tag.workspace).in_(workspaces),
+                    )
+                ).all()
+            )
+            links = list(
+                session.exec(
+                    select(NoteTag.note_id, NoteTag.tag_id)
+                    .join(Tag, col(Tag.id) == col(NoteTag.tag_id))
+                    .where(
+                        Tag.owner_id == owner_id,
+                        col(Tag.workspace).in_(workspaces),
+                        col(NoteTag.note_id).in_(note_ids),
+                    )
+                ).all()
+            )
+        return tags, [(note_id, tag_id) for note_id, tag_id in links]
+
     def notes_by_tag(
         self,
         workspace: str,

@@ -8,6 +8,8 @@ def test_graph_includes_isolated_notes_as_nodes(service, workspace):
     service.save(workspace_target("u1", "ws", workspace), "Lonely", "no links here", [])
     graph = service.graph("ws", "u1")
     assert [n["title"] for n in graph["nodes"]] == ["Lonely"]
+    assert graph["nodes"][0]["kind"] == "note"
+    assert graph["nodes"][0]["id"] == graph["nodes"][0]["note_id"]
     assert graph["edges"] == []
 
 
@@ -20,6 +22,50 @@ def test_graph_edge_shape(service, workspace):
     assert graph["edges"] == [{"source": source_id, "target": target_id}]
     node_ids = {n["note_id"] for n in graph["nodes"]}
     assert node_ids == {source_id, target_id}
+
+
+def test_graph_adds_tag_hubs_without_pairwise_note_edges(service, workspace):
+    first_id = service.save(
+        workspace_target("u1", "ws", workspace), "First", "", ["work/projects"]
+    )["note_id"]
+    second_id = service.save(
+        workspace_target("u1", "ws", workspace), "Second", "", ["work/projects"]
+    )["note_id"]
+
+    without_tags = service.graph("ws", "u1")
+    graph = service.graph("ws", "u1", include_tags=True)
+    tags = {node["path"]: node for node in graph["nodes"] if node["kind"] == "tag"}
+
+    assert {node["kind"] for node in without_tags["nodes"]} == {"note"}
+    assert without_tags["edges"] == []
+    assert set(tags) == {"work", "work/projects"}
+    project_id = tags["work/projects"]["id"]
+    work_id = tags["work"]["id"]
+    assert {(edge["source"], edge["target"]) for edge in graph["edges"]} == {
+        (first_id, project_id),
+        (second_id, project_id),
+        (project_id, work_id),
+    }
+
+
+def test_neighborhood_tags_are_limited_to_returned_notes(service, workspace):
+    target_id = service.save(
+        workspace_target("u1", "ws", workspace), "Target", "", ["work/projects"]
+    )["note_id"]
+    source_id = service.save(
+        workspace_target("u1", "ws", workspace), "Source", "[[Target]]", ["people"]
+    )["note_id"]
+    service.save(workspace_target("u1", "ws", workspace), "Elsewhere", "", ["secret"])
+
+    graph = service.neighborhood(source_id, "ws", "u1", depth=1, include_tags=True)
+    tags = {node["path"]: node for node in graph["nodes"] if node["kind"] == "tag"}
+
+    assert set(tags) == {"people", "work", "work/projects"}
+    people_id = tags["people"]["id"]
+    project_id = tags["work/projects"]["id"]
+    assert {edge["source"] for edge in graph["edges"] if edge["target"] == people_id} == {source_id}
+    project_sources = {edge["source"] for edge in graph["edges"] if edge["target"] == project_id}
+    assert project_sources == {target_id}
 
 
 def test_graph_dangling_links_none_when_not_tracked(service, workspace):
@@ -60,6 +106,28 @@ def test_graph_cross_workspace_edge_target_included_with_real_workspace(service,
     assert graph["edges"] == [{"source": source_id, "target": target_id}]
     target_node = next(n for n in graph["nodes"] if n["note_id"] == target_id)
     assert target_node["workspace"] == "ws2"
+
+
+def test_graph_tags_keep_cross_workspace_hubs_separate(service, workspace):
+    target_id = service.save(workspace_target("u1", "ws2", workspace), "Target", "", ["work"])[
+        "note_id"
+    ]
+    source_id = service.save(
+        workspace_target("u1", "ws1", workspace), "Source", f"[[note:{target_id}]]", ["work"]
+    )["note_id"]
+
+    graph = service.graph("ws1", "u1", include_tags=True)
+    work_tags = [
+        node for node in graph["nodes"] if node["kind"] == "tag" and node["path"] == "work"
+    ]
+
+    assert {node["workspace"] for node in work_tags} == {"ws1", "ws2"}
+    assert len({node["id"] for node in work_tags}) == 2
+    assert {(edge["source"], edge["target"]) for edge in graph["edges"]} >= {
+        (source_id, target_id),
+        (source_id, next(node["id"] for node in work_tags if node["workspace"] == "ws1")),
+        (target_id, next(node["id"] for node in work_tags if node["workspace"] == "ws2")),
+    }
 
 
 def test_graph_drops_edge_with_unresolved_endpoint(service, workspace):
@@ -112,6 +180,27 @@ def test_neighborhood_cross_workspace_is_opt_in(service, workspace):
         (a_id, x_id),
         (x_id, y_id),
     }
+
+
+def test_neighborhood_includes_cross_workspace_note_tags(service, workspace):
+    target_id = service.save(
+        workspace_target("u1", "ws2", workspace), "Target", "", ["work/projects"]
+    )["note_id"]
+    source_id = service.save(
+        workspace_target("u1", "ws1", workspace), "Source", f"[[note:{target_id}]]", ["people"]
+    )["note_id"]
+
+    graph = service.neighborhood(
+        source_id,
+        "ws1",
+        "u1",
+        depth=1,
+        include_cross_workspace=True,
+        include_tags=True,
+    )
+    tags = {(node["workspace"], node["path"]) for node in graph["nodes"] if node["kind"] == "tag"}
+
+    assert tags == {("ws1", "people"), ("ws2", "work"), ("ws2", "work/projects")}
 
 
 def test_neighborhood_limits_dangling_links_to_neighborhood_sources(database, workspace):

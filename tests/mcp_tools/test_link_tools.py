@@ -240,3 +240,36 @@ async def test_get_note_neighborhood(workspaces_dir, mcp_server):
         )
 
     assert result["edges"] == [{"source": source_id, "target": target_id}]
+
+
+async def test_get_workspace_graph_includes_tag_hubs(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        source_id = json.loads(
+            (
+                await client.call_tool(
+                    "save_note",
+                    {
+                        "workspace": "test-ws",
+                        "title": "Source",
+                        "content": "",
+                        "tags": ["work/projects"],
+                    },
+                )
+            )
+            .content[0]
+            .text
+        )["note_id"]
+        result = json.loads(
+            (
+                await client.call_tool(
+                    "get_workspace_graph", {"workspace": "test-ws", "include_tags": True}
+                )
+            )
+            .content[0]
+            .text
+        )
+
+    tags = {node["path"]: node for node in result["nodes"] if node["kind"] == "tag"}
+    assert {"work", "work/projects"} == set(tags)
+    assert {"source": source_id, "target": tags["work/projects"]["id"]} in result["edges"]

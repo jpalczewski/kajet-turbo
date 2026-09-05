@@ -22,7 +22,7 @@ from kajet_turbo.markdown import (
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.jobs import JobRepository
-from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
+from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository, NoteTagRepository
 from kajet_turbo.services.indexing import reindex_job_entries
 from kajet_turbo.services.notes.staged_change import (
     MAX_BATCH_COMMIT_SIZE,
@@ -106,12 +106,14 @@ class NoteLinkService:
         self,
         crud_repo: NoteRepository,
         link_repo: NoteLinkRepository,
+        tag_repo: NoteTagRepository,
         dangling_repo: DanglingLinkRepository | None,
         link_validation_enabled: Callable[[str, str], bool] | None,
         jobs: JobRepository,
     ):
         self._crud_repo = crud_repo
         self._link_repo = link_repo
+        self._tag_repo = tag_repo
         self._dangling_repo = dangling_repo
         self._link_validation_enabled = link_validation_enabled
         self._jobs = jobs
@@ -279,7 +281,7 @@ class NoteLinkService:
             "outlinks": self.outlinks(note_id, owner_id, include_meta),
         }
 
-    def graph(self, ws_name: str, owner_id: str) -> dict:
+    def graph(self, ws_name: str, owner_id: str, include_tags: bool = False) -> dict:
         """Whole-workspace note-link graph: every note as a node (isolated notes included),
         every note_links edge, and dangling (broken-wikilink) edges when link validation
         is off for this workspace."""
@@ -289,7 +291,9 @@ class NoteLinkService:
         # docstring), but a cross-workspace [[note:ID]] target may not be, so add targets.
         node_ids = {n.note_id for n in self._crud_repo.list_paths(ws_name, owner_id)}
         node_ids.update(t for _, t in edges)
-        return self._build_graph(sorted(node_ids), edges, owner_id, ws_name)
+        return self._build_graph(
+            sorted(node_ids), edges, owner_id, ws_name, include_tags=include_tags
+        )
 
     def neighborhood(
         self,
@@ -298,6 +302,7 @@ class NoteLinkService:
         owner_id: str,
         depth: int = 2,
         include_cross_workspace: bool = False,
+        include_tags: bool = False,
     ) -> dict | None:
         """The directed induced graph within an undirected N-hop radius of ``note_id``."""
         center = self._crud_repo.get(note_id, owner_id=owner_id)
@@ -319,6 +324,7 @@ class NoteLinkService:
             owner_id,
             ws_name,
             dangling_source_ids=node_ids,
+            include_tags=include_tags,
         )
 
     def _build_graph(
@@ -329,11 +335,15 @@ class NoteLinkService:
         ws_name: str,
         *,
         dangling_source_ids: set[str] | None = None,
+        include_tags: bool = False,
     ) -> dict:
         """Shared {nodes, edges, dangling_links} assembly — a future neighborhood query
         (#134) reuses this with a different (node_ids, edges) pair rather than
         reimplementing the conversion."""
         nodes = self._resolve_link_notes(node_ids, owner_id, include_meta=True)
+        for node in nodes:
+            node["id"] = node["note_id"]
+            node["kind"] = "note"
         resolved_ids = {n["note_id"] for n in nodes}
         # Edges pointing at a note that didn't resolve are dropped, not surfaced. This is
         # reachable in practice: clear_workspace_data (service.py) only deletes a deleted
@@ -341,9 +351,14 @@ class NoteLinkService:
         # notes elsewhere that still [[note:ID]]-reference a note that just got wiped —
         # those become permanently dangling. Filtering here, not raising, is deliberate.
         filtered_edges = [(s, t) for s, t in edges if s in resolved_ids and t in resolved_ids]
+        graph_edges = [{"source": s, "target": t} for s, t in sorted(filtered_edges)]
+        if include_tags:
+            tag_nodes, tag_edges = self._graph_tags(nodes, owner_id)
+            nodes.extend(tag_nodes)
+            graph_edges.extend(tag_edges)
         result: dict = {
             "nodes": nodes,
-            "edges": [{"source": s, "target": t} for s, t in sorted(filtered_edges)],
+            "edges": sorted(graph_edges, key=lambda edge: (edge["source"], edge["target"])),
         }
         if self._dangling_repo is not None and not self._links_validated(ws_name, owner_id):
             dangling_rows = self._dangling_repo.list_for_workspace(owner_id, ws_name)
@@ -362,6 +377,46 @@ class NoteLinkService:
         else:
             result["dangling_links"] = None
         return result
+
+    def _graph_tags(self, note_nodes: list[dict], owner_id: str) -> tuple[list[dict], list[dict]]:
+        """Build direct note-tag and child-parent tag edges for resolved graph notes."""
+        note_ids = {node["note_id"] for node in note_nodes}
+        workspaces = {node["workspace"] for node in note_nodes}
+        tags, assignments = self._tag_repo.graph_data(owner_id, workspaces, note_ids)
+        by_id = {tag.id: tag for tag in tags}
+        included_ids = {tag_id for _, tag_id in assignments}
+        pending = list(included_ids)
+        while pending:
+            tag = by_id[pending.pop()]
+            if tag.parent_id is not None and tag.parent_id not in included_ids:
+                included_ids.add(tag.parent_id)
+                pending.append(tag.parent_id)
+
+        def graph_id(tag_id: str) -> str:
+            return f"tag:{tag_id}"
+
+        tag_nodes = [
+            {
+                "id": graph_id(tag.id),
+                "kind": "tag",
+                "path": tag.path,
+                "name": tag.name,
+                "workspace": tag.workspace,
+            }
+            for tag_id in sorted(
+                included_ids, key=lambda item: (by_id[item].workspace, by_id[item].path)
+            )
+            if (tag := by_id[tag_id])
+        ]
+        tag_edges = [
+            {"source": note_id, "target": graph_id(tag_id)} for note_id, tag_id in assignments
+        ]
+        tag_edges.extend(
+            {"source": graph_id(tag.id), "target": graph_id(tag.parent_id)}
+            for tag_id in included_ids
+            if (tag := by_id[tag_id]).parent_id is not None
+        )
+        return tag_nodes, tag_edges
 
     def xws_link_resolver(self, owner_id: str):
         def resolve(note_id: str) -> tuple[str, str] | None:

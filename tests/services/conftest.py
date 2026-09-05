@@ -78,7 +78,7 @@ def build_note_service(
 
     tag_service = NoteTagService(crud_repo, tag_repo)
     link_service = NoteLinkService(
-        crud_repo, link_repo, dangling_repo, link_validation_enabled, jobs
+        crud_repo, link_repo, tag_repo, dangling_repo, link_validation_enabled, jobs
     )
     search_service = NoteSearchService(
         chunk_repo,

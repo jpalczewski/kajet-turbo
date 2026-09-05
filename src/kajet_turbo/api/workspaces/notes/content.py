@@ -198,6 +198,7 @@ def api_note_neighborhood(
     note_id: str,
     depth: Annotated[int, Query(ge=1, le=3)] = 2,
     include_cross_workspace: bool = False,
+    include_tags: bool = False,
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
@@ -208,6 +209,7 @@ def api_note_neighborhood(
         target.workspace.owner_id,
         depth,
         include_cross_workspace,
+        include_tags,
     )
     if result is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
@@ -220,8 +222,11 @@ def api_note_neighborhood(
 )
 def api_note_graph(
     name: str,
+    include_tags: bool = False,
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    return JSONResponse(note_service.graph(workspace.name, owner_id=workspace.owner_id))
+    return JSONResponse(
+        note_service.graph(workspace.name, owner_id=workspace.owner_id, include_tags=include_tags)
+    )

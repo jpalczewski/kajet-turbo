@@ -124,15 +124,31 @@ class NoteLinkItemWithMeta(NoteLinkItem):
 # --- Whole-workspace graph (#133) ---
 
 
-class GraphNode(NoteLinkItemWithMeta):
-    """A note as a node in the workspace link graph, with list metadata attached."""
+class GraphNoteNode(NoteLinkItemWithMeta):
+    """A note node in a workspace graph, with list metadata attached."""
+
+    id: str = Field(description="Graph node id; equal to note_id for note nodes")
+    kind: Literal["note"] = Field(description="Graph node kind")
+
+
+class GraphTagNode(BaseModel):
+    """A workspace-scoped tag hub in a graph."""
+
+    id: str = Field(description="Namespaced graph node id for this tag")
+    kind: Literal["tag"] = Field(description="Graph node kind")
+    path: str = Field(description="Full normalized tag path")
+    name: str = Field(description="Final segment of the tag path")
+    workspace: str = Field(description="Workspace that owns this tag")
+
+
+type GraphNode = GraphNoteNode | GraphTagNode
 
 
 class GraphEdge(BaseModel):
-    """A resolved wikilink edge in the workspace link graph."""
+    """A directed edge between graph node ids."""
 
-    source: str = Field(description="Source note id")
-    target: str = Field(description="Target note id")
+    source: str = Field(description="Source graph node id")
+    target: str = Field(description="Target graph node id")
 
 
 class DanglingLinkItem(BaseModel):

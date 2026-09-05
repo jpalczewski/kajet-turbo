@@ -643,6 +643,18 @@ def test_graph_returns_nodes_and_edges(auth_client):
     assert body["dangling_links"] is None
 
 
+def test_graph_includes_tag_hubs_when_requested(auth_client):
+    client, note_svc, ws_path = auth_client
+    source_id = note_svc.save(_ws(ws_path), "Source", "", ["work/projects"])["note_id"]
+
+    resp = client.get("/api/workspaces/test-ws/notes/graph?include_tags=true")
+
+    assert resp.status_code == 200
+    tags = {node["path"]: node for node in resp.json()["nodes"] if node["kind"] == "tag"}
+    assert {"work", "work/projects"} == set(tags)
+    assert {"source": source_id, "target": tags["work/projects"]["id"]} in resp.json()["edges"]
+
+
 def test_graph_returns_403_when_no_access(no_access_client):
     resp = no_access_client.get("/api/workspaces/test-ws/notes/graph")
     assert resp.status_code == 403
@@ -659,6 +671,10 @@ def test_neighborhood_returns_local_graph_and_validates_depth(auth_client):
 
     invalid = client.get(f"/api/workspaces/test-ws/notes/{source_id}/neighborhood?depth=4")
     assert invalid.status_code == 422
+
+    tagged = client.get(f"/api/workspaces/test-ws/notes/{source_id}/neighborhood?include_tags=true")
+    assert tagged.status_code == 200
+    assert all(node["kind"] == "note" for node in tagged.json()["nodes"])
 
 
 def test_neighborhood_returns_404_for_note_outside_workspace(auth_client):

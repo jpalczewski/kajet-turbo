@@ -232,6 +232,7 @@ def build_resources(config: AppConfig) -> AppResources:
         link_service = NoteLinkService(
             note_repo,
             note_link_repo,
+            note_tag_repo,
             dangling_repo,
             lambda ws, owner: workspace_service.get_settings(owner, ws)["validate_links"],
             job_repo,

@@ -256,19 +256,19 @@ export interface FolderMetaResponse {
 }
 
 /**
- * A resolved wikilink edge in the workspace link graph.
+ * A directed edge between graph node ids.
  */
 export interface GraphEdge {
-  /** Source note id */
+  /** Source graph node id */
   source: string;
-  /** Target note id */
+  /** Target graph node id */
   target: string;
 }
 
 /**
- * A note as a node in the workspace link graph, with list metadata attached.
+ * A note node in a workspace graph, with list metadata attached.
  */
-export interface GraphNode {
+export interface GraphNoteNode {
   /** Note id */
   note_id: string;
   /** Note title */
@@ -279,7 +279,29 @@ export interface GraphNode {
   workspace?: string | null;
   tags?: string[] | null;
   updated_at?: string | null;
+  /** Graph node id; equal to note_id for note nodes */
+  id: string;
+  /** Graph node kind */
+  kind: 'note';
 }
+
+/**
+ * A workspace-scoped tag hub in a graph.
+ */
+export interface GraphTagNode {
+  /** Namespaced graph node id for this tag */
+  id: string;
+  /** Graph node kind */
+  kind: 'tag';
+  /** Full normalized tag path */
+  path: string;
+  /** Final segment of the tag path */
+  name: string;
+  /** Workspace that owns this tag */
+  workspace: string;
+}
+
+export type GraphNode = GraphNoteNode | GraphTagNode;
 
 export interface GraphResponse {
   nodes: GraphNode[];
@@ -633,6 +655,11 @@ export type ApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetParams
  */
 depth?: number;
 include_cross_workspace?: boolean;
+include_tags?: boolean;
+};
+
+export type ApiNoteGraphApiWorkspacesNameNotesGraphGetParams = {
+include_tags?: boolean;
 };
 
 export type apiLoginApiLoginPostResponse200 = {
@@ -2480,20 +2507,29 @@ export type apiNoteGraphApiWorkspacesNameNotesGraphGetResponseError = (apiNoteGr
 
 export type apiNoteGraphApiWorkspacesNameNotesGraphGetResponse = (apiNoteGraphApiWorkspacesNameNotesGraphGetResponseSuccess | apiNoteGraphApiWorkspacesNameNotesGraphGetResponseError)
 
-export const getApiNoteGraphApiWorkspacesNameNotesGraphGetUrl = (name: string,) => {
+export const getApiNoteGraphApiWorkspacesNameNotesGraphGetUrl = (name: string,
+    params?: ApiNoteGraphApiWorkspacesNameNotesGraphGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/workspaces/${name}/notes/graph`
+  return stringifiedParams.length > 0 ? `/api/workspaces/${name}/notes/graph?${stringifiedParams}` : `/api/workspaces/${name}/notes/graph`
 }
 
 /**
  * @summary Api Note Graph
  */
-export const apiNoteGraphApiWorkspacesNameNotesGraphGet = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteGraphApiWorkspacesNameNotesGraphGetResponse> => {
+export const apiNoteGraphApiWorkspacesNameNotesGraphGet = async (name: string,
+    params?: ApiNoteGraphApiWorkspacesNameNotesGraphGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteGraphApiWorkspacesNameNotesGraphGetResponse> => {
 
-  return customFetch<apiNoteGraphApiWorkspacesNameNotesGraphGetResponse>(getApiNoteGraphApiWorkspacesNameNotesGraphGetUrl(name),
+  return customFetch<apiNoteGraphApiWorkspacesNameNotesGraphGetResponse>(getApiNoteGraphApiWorkspacesNameNotesGraphGetUrl(name,params),
   {
     ...options,
     method: 'GET'
