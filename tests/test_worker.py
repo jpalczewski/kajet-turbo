@@ -206,6 +206,44 @@ def test_run_worker_drains_burst_without_waiting_full_poll_interval(database: Da
     assert not t.is_alive()
 
 
+def test_run_worker_tail_wakes_on_completion_not_poll_tick(database: Database):
+    """A burst that drains to fewer runnable jobs than `concurrency` (claim() returns
+    None while jobs are still inflight) must wake as soon as those jobs finish, not
+    sleep a full poll_interval. With poll_interval=5.0 and 2 jobs at concurrency=4,
+    the old loop's floor was one full poll_interval; the fix should drain in well
+    under a second."""
+    repo = JobRepository(database.engine)
+    n = 2
+    lock = threading.Lock()
+    count = 0
+    drained = threading.Event()
+
+    def handler(_payload: dict) -> None:
+        nonlocal count
+        with lock:
+            count += 1
+            if count == n:
+                drained.set()
+
+    for _ in range(n):
+        repo.enqueue("k", {}, now=0.0)
+
+    stop = threading.Event()
+    t = _run_worker_thread(
+        database.engine,
+        registry={"k": handler},
+        poll_interval=5.0,
+        concurrency=4,
+        stop_event=stop,
+    )
+    try:
+        assert drained.wait(timeout=3.0), "tail jobs did not drain quickly"
+    finally:
+        stop.set()
+        t.join(timeout=5.0)
+    assert not t.is_alive()
+
+
 def test_run_worker_idle_backoff_does_not_spin(database: Database, monkeypatch):
     """Guards against regressing back to unconditional looping: an idle worker
     (empty queue) must still back off by poll_interval between claim attempts

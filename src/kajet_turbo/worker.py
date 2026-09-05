@@ -146,14 +146,16 @@ def run_worker(
                     nothing_runnable = True
                     break
                 inflight.add(pool.submit(run_job, repo, job, registry))
-            if nothing_runnable:
+            if nothing_runnable and not inflight:
                 stop_event.wait(poll_interval)
             else:
-                # Pool is saturated and more work may still be queued. Wake as soon
-                # as a slot frees instead of waiting a fixed tick, so throughput
-                # scales with claim/handler cost rather than poll_interval; a run
-                # that never completes within the window still re-checks
-                # stop_event every poll_interval, same shutdown latency as before.
+                # Either the pool is saturated, or it isn't but jobs are still
+                # inflight (burst draining to fewer runnable jobs than concurrency).
+                # Wake as soon as a slot frees instead of waiting a fixed tick, so
+                # throughput scales with claim/handler cost rather than
+                # poll_interval; a run that never completes within the window still
+                # re-checks stop_event every poll_interval, same shutdown latency
+                # as before.
                 wait(inflight, timeout=poll_interval, return_when=FIRST_COMPLETED)
         # Leaving the `with` block waits for in-flight jobs to finish (graceful
         # drain). reset_running_to_pending then re-queues anything a hard kill could
