@@ -16,7 +16,7 @@ def _seed_default_owner(database):
     seed_user(database, "u1")
 
 
-def test_edit_many_applies_all_in_one_commit(service, workspace):
+def test_edit_many_applies_all_in_one_commit(service, read_service, workspace):
     r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     result = service.edit_many(
@@ -28,8 +28,8 @@ def test_edit_many_applies_all_in_one_commit(service, workspace):
     )
     assert result["applied"] is True
     assert [r["note_id"] for r in result["results"]] == [r1["note_id"], r2["note_id"]]
-    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
-    note2 = service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
+    note1 = read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note2 = read_service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
     assert "more" in note1.content
     assert "more" in note2.content
     history = GitRepository(str(workspace)).file_history("First.md")
@@ -37,7 +37,7 @@ def test_edit_many_applies_all_in_one_commit(service, workspace):
     assert history[0]["message"].startswith("note: edit 2 notes")
 
 
-def test_edit_many_all_or_nothing_on_bad_anchor(service, workspace):
+def test_edit_many_all_or_nothing_on_bad_anchor(service, read_service, workspace):
     r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     result = service.edit_many(
@@ -55,7 +55,7 @@ def test_edit_many_all_or_nothing_on_bad_anchor(service, workspace):
     )
     assert result["applied"] is False
     assert result["errors"][0]["index"] == 1
-    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note1 = read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
     assert note1.content == "one"  # nothing written, including the valid first item
 
 
@@ -84,7 +84,7 @@ def test_edit_many_missing_note_rejects_batch(service, workspace):
     assert result["applied"] is False
 
 
-def test_edit_many_applies_destructive_overwrite_with_fresh_sha(service, workspace):
+def test_edit_many_applies_destructive_overwrite_with_fresh_sha(service, read_service, workspace):
     r1 = service.save(workspace_target("u1", "ws", workspace), "First", "existing content\n", [])
     result = service.edit_many(
         workspace_target("u1", "ws", workspace),
@@ -98,7 +98,7 @@ def test_edit_many_applies_destructive_overwrite_with_fresh_sha(service, workspa
         ],
     )
     assert result["applied"] is True
-    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note1 = read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
     assert note1.content == "replaced"
 
 
@@ -121,14 +121,14 @@ def test_edit_many_replace_all_reports_count_per_item(service, workspace):
     assert result["results"][0]["replaced"] == 3
 
 
-def test_edit_many_updates_tags(service, workspace):
+def test_edit_many_updates_tags(service, read_service, workspace):
     r1 = service.save(workspace_target("u1", "ws", workspace), "First", "body\n", ["old"])
     result = service.edit_many(
         workspace_target("u1", "ws", workspace),
         [edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="x", tags=["new"])],
     )
     assert result["applied"] is True
-    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note1 = read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
     assert note1.tags == ["new"]
 
 
@@ -137,7 +137,7 @@ def test_edit_many_empty_batch_raises(service, workspace):
         service.edit_many(workspace_target("u1", "ws", workspace), [])
 
 
-def test_edit_many_git_error_rolls_back_all_files(service, workspace):
+def test_edit_many_git_error_rolls_back_all_files(service, read_service, workspace):
     # Mirrors test_save_many_git_error_rolls_back_all_files: commit_changes failing after
     # files are written must restore every file, not just some.
     from kajet_turbo.repositories.git import GitError
@@ -159,8 +159,8 @@ def test_edit_many_git_error_rolls_back_all_files(service, workspace):
             ],
         )
 
-    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
-    note2 = service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
+    note1 = read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note2 = read_service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
     assert note1.content == "one"
     assert note2.content == "two"
     # #155: rows are updated before the git commit inside one transaction for the batch,
@@ -171,7 +171,9 @@ def test_edit_many_git_error_rolls_back_all_files(service, workspace):
     assert row2.index_generation == 1
 
 
-def test_edit_many_write_failing_partway_rolls_back_and_makes_no_commit(service, workspace):
+def test_edit_many_write_failing_partway_rolls_back_and_makes_no_commit(
+    service, read_service, workspace
+):
     """The literal #104 acceptance test: an OSError from write_note_file itself (not just
     a commit_changes failure after every file already landed) must still leave no file
     written and no commit made — mirrors
@@ -194,14 +196,14 @@ def test_edit_many_write_failing_partway_rolls_back_and_makes_no_commit(service,
             ],
         )
 
-    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
-    note2 = service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
+    note1 = read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note2 = read_service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
     assert note1.content == "one"
     assert note2.content == "two"
     assert _head_sha(workspace, "First.md") == head_before
 
 
-def test_edit_many_db_failure_leaves_files_and_head_untouched(service, workspace):
+def test_edit_many_db_failure_leaves_files_and_head_untouched(service, read_service, workspace):
     """#155: rows are written before the tree, in one transaction for the whole batch, so
     a DB-side failure on any item must abort before the tree or HEAD change for any of
     them — not just the item that failed."""
@@ -223,14 +225,14 @@ def test_edit_many_db_failure_leaves_files_and_head_untouched(service, workspace
             ],
         )
 
-    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
-    note2 = service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
+    note1 = read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note2 = read_service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
     assert note1.content == "one"
     assert note2.content == "two"
     assert _head_sha(workspace, "First.md") == head_before
 
 
-def test_edit_many_stale_sha_rejects_whole_batch(service, workspace):
+def test_edit_many_stale_sha_rejects_whole_batch(service, read_service, workspace):
     r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     stale_sha = _head_sha(workspace, "First.md")
@@ -249,8 +251,8 @@ def test_edit_many_stale_sha_rejects_whole_batch(service, workspace):
 
     assert result["applied"] is False
     assert "current_sha" not in result["errors"][0]
-    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
-    note2 = service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
+    note1 = read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note2 = read_service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
     assert "more" not in note1.content
     assert "more" not in note2.content  # nothing written, including the valid second item
 

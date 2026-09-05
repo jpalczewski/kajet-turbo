@@ -14,6 +14,7 @@ from kajet_turbo.api.schemas import (
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_read_service,
     get_note_service,
     get_required_user,
     resolve_note_target,
@@ -21,7 +22,7 @@ from kajet_turbo.dependencies import (
 )
 from kajet_turbo.errors import NoteError
 from kajet_turbo.markdown import LinkResolver, XwsResolver, render_markdown
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import NoteReadService, NoteService
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 
 _ALLOWED_TAGS = [
@@ -92,8 +93,9 @@ def api_get_note_html(
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
+    note_read_service: NoteReadService = Depends(get_note_read_service),
 ) -> JSONResponse:
-    note = note_service.get_with_content(target)
+    note = note_read_service.get_with_content(target)
     if note is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
     return JSONResponse(
@@ -127,9 +129,9 @@ def api_get_note_markdown(
     note_id: str,
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
-    note_service: NoteService = Depends(get_note_service),
+    note_read_service: NoteReadService = Depends(get_note_read_service),
 ) -> JSONResponse:
-    note = note_service.get_with_content(target)
+    note = note_read_service.get_with_content(target)
     if note is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
     return JSONResponse(
@@ -158,9 +160,9 @@ def api_get_note_chunks(
     note_id: str,
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
-    note_service: NoteService = Depends(get_note_service),
+    note_read_service: NoteReadService = Depends(get_note_read_service),
 ) -> JSONResponse:
-    preview = note_service.preview_chunks(
+    preview = note_read_service.preview_chunks(
         target.note_id,
         owner_id=target.workspace.owner_id,
         ws_path=str(target.workspace.path),

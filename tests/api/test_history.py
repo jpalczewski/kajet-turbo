@@ -66,7 +66,7 @@ def test_restore_note_version_reverts_content(auth_client):
 
     response = client.post(f"/api/workspaces/test-ws/notes/{note_id}/history/{version}/restore")
 
-    current = note_service.get_with_content(_note(workspace, note_id))
+    current = auth_client.note_read_service.get_with_content(_note(workspace, note_id))
     assert response.status_code == 200
     assert current.content == "original"
 

@@ -8,7 +8,7 @@ from tests.services.conftest import note_target, workspace_target
 from tests.services.helpers import head_sha
 
 
-def test_delete_many_applies_all_in_one_commit(service, workspace):
+def test_delete_many_applies_all_in_one_commit(service, read_service, workspace):
     r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     sha1 = head_sha(workspace, "First.md")
@@ -24,13 +24,13 @@ def test_delete_many_applies_all_in_one_commit(service, workspace):
 
     assert result["applied"] is True
     assert [r["note_id"] for r in result["results"]] == [r1["note_id"], r2["note_id"]]
-    assert service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"])) is None
-    assert service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"])) is None
+    assert read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"])) is None
+    assert read_service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"])) is None
     history = GitRepository(str(workspace)).file_history("First.md")
     assert history[0]["message"].startswith("note: delete 2 notes")
 
 
-def test_delete_many_stale_sha_rejects_whole_batch(service, workspace):
+def test_delete_many_stale_sha_rejects_whole_batch(service, read_service, workspace):
     r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     sha1 = head_sha(workspace, "First.md")
@@ -47,11 +47,15 @@ def test_delete_many_stale_sha_rejects_whole_batch(service, workspace):
     assert result["errors"][0]["index"] == 1
     assert "current_sha" not in result["errors"][0]
     # nothing deleted, including the valid first item
-    assert service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"])) is not None
-    assert service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"])) is not None
+    assert (
+        read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"])) is not None
+    )
+    assert (
+        read_service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"])) is not None
+    )
 
 
-def test_delete_many_missing_note_rejects_batch(service, workspace):
+def test_delete_many_missing_note_rejects_batch(service, read_service, workspace):
     r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     sha1 = head_sha(workspace, "First.md")
 
@@ -64,7 +68,9 @@ def test_delete_many_missing_note_rejects_batch(service, workspace):
     )
 
     assert result["applied"] is False
-    assert service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"])) is not None
+    assert (
+        read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"])) is not None
+    )
 
 
 def test_delete_many_rejects_duplicate_note_id(service, workspace):
@@ -83,7 +89,7 @@ def test_delete_many_rejects_duplicate_note_id(service, workspace):
     assert "Duplicate" in result["errors"][0]["error"]
 
 
-def test_delete_many_requires_expected_sha(service, workspace):
+def test_delete_many_requires_expected_sha(service, read_service, workspace):
     r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
 
     result = service.delete_many(
@@ -91,10 +97,12 @@ def test_delete_many_requires_expected_sha(service, workspace):
     )
 
     assert result["applied"] is False
-    assert service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"])) is not None
+    assert (
+        read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"])) is not None
+    )
 
 
-def test_delete_many_accepts_shortened_sha(service, workspace):
+def test_delete_many_accepts_shortened_sha(service, read_service, workspace):
     r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     short_sha = head_sha(workspace, "First.md")[:10]
 
@@ -104,7 +112,7 @@ def test_delete_many_accepts_shortened_sha(service, workspace):
     )
 
     assert result["applied"] is True
-    assert service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"])) is None
+    assert read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"])) is None
 
 
 def test_delete_many_empty_batch_raises(service, workspace):
@@ -112,7 +120,7 @@ def test_delete_many_empty_batch_raises(service, workspace):
         service.delete_many(workspace_target("u1", "ws", workspace), [])
 
 
-def test_delete_many_clears_tags_links_and_index(service, workspace):
+def test_delete_many_clears_tags_links_and_index(service, read_service, workspace):
     r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     r1 = service.save(
         workspace_target("u1", "ws", workspace), "First", "links [[Second]]\n", ["tag-a"]
@@ -125,10 +133,12 @@ def test_delete_many_clears_tags_links_and_index(service, workspace):
 
     assert result["applied"] is True
     assert service.backlinks(r2["note_id"], "u1") == []
-    assert service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"])) is not None
+    assert (
+        read_service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"])) is not None
+    )
 
 
-def test_delete_many_sweeps_orphan_tags_once_for_the_whole_batch(service, workspace):
+def test_delete_many_sweeps_orphan_tags_once_for_the_whole_batch(service, read_service, workspace):
     r1 = service.save(
         workspace_target("u1", "ws", workspace), "First", "one\n", ["shared", "only-first"]
     )
@@ -150,7 +160,9 @@ def test_delete_many_sweeps_orphan_tags_once_for_the_whole_batch(service, worksp
     # "only-first" had no other holder and is gone; "shared" survives via r3.
     assert "only-first" not in paths
     assert "shared" in paths
-    assert service.get_with_content(note_target("u1", "ws", workspace, r3["note_id"])) is not None
+    assert (
+        read_service.get_with_content(note_target("u1", "ws", workspace, r3["note_id"])) is not None
+    )
 
 
 def test_delete_many_calls_sweep_orphan_tags_once_not_per_note(service, workspace, monkeypatch):
@@ -197,7 +209,7 @@ def test_delete_clears_chunks_without_an_indexer(service, workspace):
     assert service._chunk_repo.get_chunks(note_id) == []
 
 
-def test_delete_many_rolls_back_database_teardowns(service, workspace, monkeypatch):
+def test_delete_many_rolls_back_database_teardowns(service, read_service, workspace, monkeypatch):
     r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", ["first"])
     r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", ["second"])
     sha1 = head_sha(workspace, "First.md")
@@ -226,8 +238,12 @@ def test_delete_many_rolls_back_database_teardowns(service, workspace, monkeypat
     assert (workspace / "Second.md").exists()
     assert head_sha(workspace, "First.md") == sha1
     assert head_sha(workspace, "Second.md") == sha2
-    assert service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"])) is not None
-    assert service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"])) is not None
+    assert (
+        read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"])) is not None
+    )
+    assert (
+        read_service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"])) is not None
+    )
 
 
 def test_delete_many_git_failure_rolls_back_database_teardowns(service, workspace):

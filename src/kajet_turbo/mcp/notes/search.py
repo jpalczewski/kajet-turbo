@@ -5,15 +5,10 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.mcp.context import (
-    WORKSPACE_TARGET,
-    require_user_id,
-    require_workspace_access,
-)
-from kajet_turbo.mcp.notes.types import GrepMatch, GrepResult, SearchChunkResult
+from kajet_turbo.mcp.context import require_user_id, require_workspace_access
+from kajet_turbo.mcp.notes.types import SearchChunkResult
 from kajet_turbo.mcp.tooling import read_tool
 from kajet_turbo.services.notes import NoteService
-from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 
 
@@ -76,37 +71,5 @@ def build_search(note_service: NoteService, workspace_service: WorkspaceService)
             tags=tags,
         )
         return [SearchChunkResult.model_validate(r) for r in results]
-
-    @srv.tool(**read_tool(tags={"notes", "search"}))
-    async def grep_notes(
-        pattern: str,
-        workspace: str,
-        folder: Annotated[
-            str | None,
-            Field(description="Restrict to notes in this folder and its subfolders."),
-        ] = None,
-        case_sensitive: bool = False,
-        max_results: int = 100,
-        target: WorkspaceTarget = WORKSPACE_TARGET,
-    ) -> GrepResult:
-        """Literal (not semantic) grep over note content, with line numbers.
-        workspace: the workspace name to search in.
-        Use this instead of search_notes when you need certainty of an exact string match
-        (a rename refactor, checking "is this phrase still somewhere") — search_notes
-        matches by meaning and does not guarantee a literal text hit.
-        Searches the raw note file, including frontmatter (id/title/tags/dates)."""
-        result = await run_sync(
-            note_service.grep,
-            target.name,
-            str(target.path),
-            pattern,
-            folder=folder,
-            case_sensitive=case_sensitive,
-            max_results=max_results,
-        )
-        return GrepResult(
-            matches=[GrepMatch.model_validate(m) for m in result["matches"]],
-            truncated=result["truncated"],
-        )
 
     return srv

@@ -32,7 +32,7 @@ def test_define_collection_adds_and_commits(collections, workspace):
 
 
 def test_define_collection_redefine_reports_affected_without_moving_notes(
-    collections, service, workspace
+    collections, service, read_service, workspace
 ):
     collections.define_collection(
         str(workspace), "ws", "u1", "weekly", "week", "one", "weekly/{year}", "{key}"
@@ -40,7 +40,7 @@ def test_define_collection_redefine_reports_affected_without_moving_notes(
     saved = service.save(
         workspace_target("u1", "ws", workspace), "2026-W23", "content\n", [], folder="weekly/2026"
     )
-    before = service.get_with_content(note_target("u1", "ws", workspace, saved["note_id"]))
+    before = read_service.get_with_content(note_target("u1", "ws", workspace, saved["note_id"]))
 
     result = collections.define_collection(
         str(workspace), "ws", "u1", "weekly", "week", "one", "weekly-v2/{year}", "{key}"
@@ -49,7 +49,7 @@ def test_define_collection_redefine_reports_affected_without_moving_notes(
     assert result["verb"] == "update"
     assert result["affected_count"] == 1
     assert result["dropped"] == [{"folder": "weekly/2026", "title": "2026-W23"}]
-    after = service.get_with_content(note_target("u1", "ws", workspace, saved["note_id"]))
+    after = read_service.get_with_content(note_target("u1", "ws", workspace, saved["note_id"]))
     assert after.folder == before.folder
     assert after.content == before.content
 
@@ -110,7 +110,9 @@ def test_define_collection_redefining_itself_is_not_a_collision(collections, wor
     assert result["verb"] == "update"
 
 
-def test_delete_collection_removes_entry_without_touching_notes(collections, service, workspace):
+def test_delete_collection_removes_entry_without_touching_notes(
+    collections, service, read_service, workspace
+):
     collections.define_collection(
         str(workspace), "ws", "u1", "weekly", "week", "one", "weekly/{year}", "{key}"
     )
@@ -122,7 +124,9 @@ def test_delete_collection_removes_entry_without_touching_notes(collections, ser
 
     assert result == {"name": "weekly", "deleted": True}
     assert "weekly" not in collections.list_collections(str(workspace))
-    still_there = service.get_with_content(note_target("u1", "ws", workspace, saved["note_id"]))
+    still_there = read_service.get_with_content(
+        note_target("u1", "ws", workspace, saved["note_id"])
+    )
     assert still_there.folder == "weekly/2026"
     history = GitRepository(str(workspace)).file_history(".kajet/collections.yaml")
     assert history[0]["message"] == "collections: delete weekly"
@@ -136,7 +140,9 @@ def test_delete_collection_rejects_unknown_name(collections, workspace):
 # --- open_entry (#115) ---------------------------------------------------------
 
 
-def test_open_entry_creates_missing_entry_with_occurred_at(collections, service, workspace):
+def test_open_entry_creates_missing_entry_with_occurred_at(
+    collections, service, read_service, workspace
+):
     collections.define_collection(
         str(workspace), "ws", "u1", "journal", "day", "one", "journal/{year}/{month}", "{date}"
     )
@@ -148,7 +154,7 @@ def test_open_entry_creates_missing_entry_with_occurred_at(collections, service,
     assert result["title"] == "2026-06-15"
     assert result["occurred_at"] == "2026-06-15"
     assert result["period"] is None
-    note = service.get(result["note_id"], "u1")
+    note = read_service.get(result["note_id"], "u1")
     assert note["folder"] == "journal/2026/06"
     assert note["title"] == "2026-06-15"
 

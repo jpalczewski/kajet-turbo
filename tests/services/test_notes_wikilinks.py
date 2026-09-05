@@ -36,9 +36,9 @@ def test_save_with_casefold_wikilink_succeeds(service, workspace):
     assert (workspace / "Source.md").exists()
 
 
-def test_get_note_by_title_stays_exact_after_casefold_flip(service, workspace):
+def test_get_note_by_title_stays_exact_after_casefold_flip(service, read_service, workspace):
     service.save(workspace_target("u1", "ws", workspace), "Plan projektu", "cel", [])
-    note = service.get_with_content_by_title(
+    note = read_service.get_with_content_by_title(
         "plan projektu", None, workspace_target("u1", "ws", workspace)
     )
     assert note is None
@@ -91,7 +91,7 @@ def test_save_wikilink_in_code_is_not_validated(service, workspace):
     assert "note_id" in result
 
 
-def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, workspace):
+def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, read_service, workspace):
     result = service.save(workspace_target("u1", "ws", workspace), "Note", "original", [])
     note_id = result["note_id"]
     sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
@@ -101,7 +101,7 @@ def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, worksp
             expected_sha=sha,
             edit=EditSpec(content="[[Ghost]]"),
         )
-    note = service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert note.content == "original"
 
 
@@ -117,7 +117,7 @@ def test_update_append_mode_validates_after_apply_edit(service, workspace):
         )
 
 
-def test_update_to_valid_wikilink_succeeds(service, workspace):
+def test_update_to_valid_wikilink_succeeds(service, read_service, workspace):
     service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])
     result = service.save(workspace_target("u1", "ws", workspace), "Note", "body", [])
     note_id = result["note_id"]
@@ -127,7 +127,7 @@ def test_update_to_valid_wikilink_succeeds(service, workspace):
         expected_sha=sha,
         edit=EditSpec(content="link [[Target]]"),
     )
-    note = service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert "[[Target]]" in note.content
 
 
@@ -181,14 +181,14 @@ def test_reindex_rebuilds_links(service, workspace):
     assert service._link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_move_rewrites_backlink_path(service, workspace):
+def test_move_rewrites_backlink_path(service, read_service, workspace):
     service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
     sid = service.save(
         workspace_target("u1", "ws", workspace), "Source", "see [[Old/Target|T]]", []
     )["note_id"]
     tid = service._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
     service.move(note_target("u1", "ws", workspace, tid), "New")
-    src = service.get_with_content(note_target("u1", "ws", workspace, sid))
+    src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert "[[New/Target|T]]" in src.content
     assert "[[Old/Target" not in src.content
     # edge still points to the same target note
@@ -243,18 +243,20 @@ def test_move_rewrite_leaves_source_outlinks_and_dangling_unchanged(database, wo
     assert dangling.list_for_workspace("u1", "ws") == dangling_before
 
 
-def test_rename_via_update_rewrites_backlink(service, workspace):
+def test_rename_via_update_rewrites_backlink(service, read_service, workspace):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
     sha = service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
     service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
-    src = service.get_with_content(note_target("u1", "ws", workspace, sid))
+    src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert "[[Renamed]]" in src.content
 
 
-def test_rename_via_update_backlink_rewrite_preserves_source_extras(service, workspace):
+def test_rename_via_update_backlink_rewrite_preserves_source_extras(
+    service, read_service, workspace
+):
     """#105: _rewrite_backlinks used to source tags/dates from the DB row after already
     reading (and discarding) the file — every rename dropped a linking note's custom
     frontmatter keys. It must now come from what was actually read."""
@@ -273,14 +275,14 @@ def test_rename_via_update_backlink_rewrite_preserves_source_extras(service, wor
     sha = service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
     service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
 
-    src = service.get_with_content(note_target("u1", "ws", workspace, sid))
+    src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert "[[Renamed]]" in src.content
     after_meta, _ = read_note_file(src_path)
     assert after_meta.extras == {"aliases": ["Old Source"]}
 
 
 def test_rewrite_backlinks_write_failing_partway_rolls_back_and_makes_no_commit(
-    service, workspace, monkeypatch
+    service, read_service, workspace, monkeypatch
 ):
     """_rewrite_backlinks gained a rollback with #104 (it previously had none at all, and
     committed once per source instead of once for the batch). Pin it: a write failing
@@ -305,8 +307,8 @@ def test_rewrite_backlinks_write_failing_partway_rolls_back_and_makes_no_commit(
         service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
     monkeypatch.setattr(links_module, "write_note_file", real_write)
 
-    src_a = service.get_with_content(note_target("u1", "ws", workspace, sid_a))
-    src_b = service.get_with_content(note_target("u1", "ws", workspace, sid_b))
+    src_a = read_service.get_with_content(note_target("u1", "ws", workspace, sid_a))
+    src_b = read_service.get_with_content(note_target("u1", "ws", workspace, sid_b))
     assert src_a.content == "[[Target]]"
     assert src_b.content == "[[Target]]"
     history_a = service.get_history(note_target("u1", "ws", workspace, sid_a))
@@ -324,7 +326,7 @@ def test_move_rewrite_creates_commit_in_source_history(service, workspace):
     assert any("rewrite wikilink" in h["message"] for h in history)
 
 
-def test_rewrite_backlinks_db_failure_leaves_backlink_untouched(service, workspace):
+def test_rewrite_backlinks_db_failure_leaves_backlink_untouched(service, read_service, workspace):
     """#155: _rewrite_backlinks now writes its row inside one transaction that commits
     last, same as every other write path. A DB-side failure on the backlink-rewrite step
     must not touch the linking note's file or row — and must not undo the rename that
@@ -347,17 +349,19 @@ def test_rewrite_backlinks_db_failure_leaves_backlink_untouched(service, workspa
     ):
         service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
 
-    note = service.get_with_content(note_target("u1", "ws", workspace, tid))
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, tid))
     assert note.title == "Renamed"
 
-    src = service.get_with_content(note_target("u1", "ws", workspace, sid))
+    src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Target]]"
     assert service.get_history(note_target("u1", "ws", workspace, sid))[0]["sha"] == (
         src_sha_before
     )
 
 
-def test_rewrite_backlinks_git_failure_leaves_row_and_move_intact(service, workspace, monkeypatch):
+def test_rewrite_backlinks_git_failure_leaves_row_and_move_intact(
+    service, read_service, workspace, monkeypatch
+):
     """Same shape as the DB-failure case above, but the git commit fails instead: #155's
     row-then-tree ordering applies to git-side failures too, not just DB-side ones."""
     from kajet_turbo.repositories.git import GitError, GitRepository
@@ -377,10 +381,10 @@ def test_rewrite_backlinks_git_failure_leaves_row_and_move_intact(service, works
     with pytest.raises(GitError, match="fail"):
         service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
 
-    note = service.get_with_content(note_target("u1", "ws", workspace, tid))
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, tid))
     assert note.title == "Renamed"
 
-    src = service.get_with_content(note_target("u1", "ws", workspace, sid))
+    src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Target]]"
     assert service.get_history(note_target("u1", "ws", workspace, sid))[0]["sha"] == (
         src_sha_before
@@ -388,7 +392,7 @@ def test_rewrite_backlinks_git_failure_leaves_row_and_move_intact(service, works
 
 
 def test_rewrite_backlinks_chunks_large_batches_logging_note_ids_per_chunk(
-    service, workspace, monkeypatch, capsys
+    service, read_service, workspace, monkeypatch, capsys
 ):
     """#171/#173: above MAX_BATCH_COMMIT_SIZE, _rewrite_backlinks splits into several
     commit_rows_then_tree calls instead of one unbounded batch, each logging its own
@@ -420,7 +424,7 @@ def test_rewrite_backlinks_chunks_large_batches_logging_note_ids_per_chunk(
         logged_ids.update(chunk_ids)
     assert logged_ids == source_ids
     for source_id in source_ids:
-        src = service.get_with_content(note_target("u1", "ws", workspace, source_id))
+        src = read_service.get_with_content(note_target("u1", "ws", workspace, source_id))
         assert src.content == "[[Renamed]]"
 
 
@@ -604,7 +608,7 @@ def test_render_link_index_is_loaded_only_when_first_wikilink_is_rendered(
     assert calls == 1
 
 
-def test_move_keeps_short_backlink_unchanged(service, workspace):
+def test_move_keeps_short_backlink_unchanged(service, read_service, workspace):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")[
         "note_id"
     ]
@@ -612,12 +616,12 @@ def test_move_keeps_short_backlink_unchanged(service, workspace):
         "note_id"
     ]
     service.move(note_target("u1", "ws", workspace, tid), "New")
-    src = service.get_with_content(note_target("u1", "ws", workspace, sid))
+    src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "see [[Target|T]]"
     assert service._link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_rename_rewrites_short_backlink_to_short_new_title(service, workspace):
+def test_rename_rewrites_short_backlink_to_short_new_title(service, read_service, workspace):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Sub")[
         "note_id"
     ]
@@ -626,12 +630,14 @@ def test_rename_rewrites_short_backlink_to_short_new_title(service, workspace):
     ]
     sha = service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
     service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
-    src = service.get_with_content(note_target("u1", "ws", workspace, sid))
+    src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Renamed]]"
     assert service._link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_rename_falls_back_to_full_path_when_short_form_would_be_ambiguous(service, workspace):
+def test_rename_falls_back_to_full_path_when_short_form_would_be_ambiguous(
+    service, read_service, workspace
+):
     # Another "Renamed" at the root would capture a bare [[Renamed]] (exact-root rule), so
     # the rewrite must spell the full path to keep the link on the renamed note.
     service.save(workspace_target("u1", "ws", workspace), "Renamed", "decoy", [])
@@ -643,12 +649,12 @@ def test_rename_falls_back_to_full_path_when_short_form_would_be_ambiguous(servi
     ]
     sha = service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
     service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
-    src = service.get_with_content(note_target("u1", "ws", workspace, sid))
+    src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Sub/Renamed]]"
     assert service._link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_move_rewrites_suffix_backlink_keeping_its_shape(service, workspace):
+def test_move_rewrites_suffix_backlink_keeping_its_shape(service, read_service, workspace):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="A/Old")[
         "note_id"
     ]
@@ -656,11 +662,11 @@ def test_move_rewrites_suffix_backlink_keeping_its_shape(service, workspace):
         "note_id"
     ]
     service.move(note_target("u1", "ws", workspace, tid), "A/New")
-    src = service.get_with_content(note_target("u1", "ws", workspace, sid))
+    src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[New/Target]]"
 
 
-def test_move_folder_rewrites_source_linking_two_moved_notes_once(service, workspace):
+def test_move_folder_rewrites_source_linking_two_moved_notes_once(service, read_service, workspace):
     # One source links two notes in the moved folder: one rewrite commit, both links fixed.
     service.save(workspace_target("u1", "ws", workspace), "A", "a", [], folder="Old/Sub")
     service.save(workspace_target("u1", "ws", workspace), "B", "b", [], folder="Old/Sub")
@@ -669,12 +675,12 @@ def test_move_folder_rewrites_source_linking_two_moved_notes_once(service, works
     )["note_id"]
     before = len(service.get_history(note_target("u1", "ws", workspace, sid)))
     service.move_folder("Old", "New", owner_id="u1", ws_path=str(workspace), workspace="ws")
-    src = service.get_with_content(note_target("u1", "ws", workspace, sid))
+    src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[New/Sub/A]] [[New/Sub/B]]"
     assert len(service.get_history(note_target("u1", "ws", workspace, sid))) == before + 1
 
 
-def test_move_to_root_rewrites_path_backlink_to_bare_title(service, workspace):
+def test_move_to_root_rewrites_path_backlink_to_bare_title(service, read_service, workspace):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")[
         "note_id"
     ]
@@ -682,12 +688,12 @@ def test_move_to_root_rewrites_path_backlink_to_bare_title(service, workspace):
         "note_id"
     ]
     service.move(note_target("u1", "ws", workspace, tid), "")
-    src = service.get_with_content(note_target("u1", "ws", workspace, sid))
+    src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Target|x]]"
     assert service._link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_move_folder_ranks_co_moved_source_from_its_old_folder(service, workspace):
+def test_move_folder_ranks_co_moved_source_from_its_old_folder(service, read_service, workspace):
     # Source sits inside the moved folder and links [[T]], which pre-move meant Old/T (the
     # nearest T). After the move a decoy Dst/Old/Sub/T would win from the source's new
     # folder, so the rewrite must judge the link from where the source *was*.
@@ -700,7 +706,7 @@ def test_move_folder_ranks_co_moved_source_from_its_old_folder(service, workspac
     ]
     assert service._link_service._link_repo.backlinks(tid) == [sid]
     service.move_folder("Old", "Dst/Old", owner_id="u1", ws_path=str(workspace), workspace="ws")
-    src = service.get_with_content(note_target("u1", "ws", workspace, sid))
+    src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Old/T]]"
     assert service._link_service._link_repo.backlinks(tid) == [sid]
 

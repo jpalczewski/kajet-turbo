@@ -8,12 +8,13 @@ from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.api.workspaces.notes._views import enrich_note_items
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_read_service,
     get_note_service,
     get_required_user,
     resolve_workspace_target,
 )
 from kajet_turbo.errors import FolderError
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import NoteReadService, NoteService
 from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.workspace import relative_folder
 
@@ -49,6 +50,7 @@ def api_workspace_contents(
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     note_service: NoteService = Depends(get_note_service),
+    note_read_service: NoteReadService = Depends(get_note_read_service),
     path: str = "",
 ) -> JSONResponse:
     requested_path = _clean_path(path)
@@ -78,13 +80,13 @@ def api_workspace_contents(
             raise HTTPException(status_code=400, detail=FolderError.PATH_INVALID) from None
         if parent.is_dir():
             folder_path = relative_folder(ws_root, parent)
-            note = note_service.get(candidate_note_id, owner_id=user.id)
+            note = note_read_service.get(candidate_note_id, owner_id=user.id)
             if note is not None and note["workspace"] == name and note["folder"] == folder_path:
                 resolution = "note"
                 selected_note_id = candidate_note_id
 
     folders = note_service.list_folders(ws_path)[1:]
-    notes = note_service.list_notes(workspace, folder=folder_path, limit=None)
+    notes = note_read_service.list_notes(workspace, folder=folder_path, limit=None)
     enriched_notes = enrich_note_items(ws_path, notes)
     default_note_id = next(
         (

@@ -18,7 +18,7 @@ def _mv(service, workspace, src, dst):
     return service.move_folder(src, dst, owner_id="u1", ws_path=str(workspace), workspace="ws")
 
 
-def test_move_folder_renames_with_notes(service, workspace):
+def test_move_folder_renames_with_notes(service, read_service, workspace):
     a = service.save(workspace_target("u1", "ws", workspace), "A", "x", [], folder="people")[
         "note_id"
     ]
@@ -30,7 +30,7 @@ def test_move_folder_renames_with_notes(service, workspace):
     assert (workspace / "team" / "A.md").exists()
     assert (workspace / "team" / "B.md").exists()
     assert not (workspace / "people").exists()
-    assert service.get(a, owner_id="u1")["folder"] == "team"
+    assert read_service.get(a, owner_id="u1")["folder"] == "team"
 
 
 def test_move_folder_merges_into_existing(service, workspace):
@@ -114,7 +114,7 @@ def test_move_folder_rejects_case_only_sibling_collision_within_same_move(servic
     assert not (workspace / "b").exists()
 
 
-def test_move_folder_rejects_collision_with_orphan_file_on_disk(service, workspace):
+def test_move_folder_rejects_collision_with_orphan_file_on_disk(service, read_service, workspace):
     """A file with no matching DB row sitting at the destination must still block the
     move — the pre-flight loop only checks DB rows (a disk check there would falsely
     trip on a case-only rename's own not-yet-relocated source), so this is caught only
@@ -130,10 +130,10 @@ def test_move_folder_rejects_collision_with_orphan_file_on_disk(service, workspa
 
     assert (workspace / "b" / "N.md").read_text() == "orphan content\n"
     assert (workspace / "a" / "N.md").exists()
-    assert service.get(note_id, owner_id="u1")["folder"] == "a"
+    assert read_service.get(note_id, owner_id="u1")["folder"] == "a"
 
 
-def test_move_folder_case_only_rename(service, workspace):
+def test_move_folder_case_only_rename(service, read_service, workspace):
     nid = service.save(workspace_target("u1", "ws", workspace), "N", "x", [], folder="Osoby")[
         "note_id"
     ]
@@ -142,12 +142,12 @@ def test_move_folder_case_only_rename(service, workspace):
 
     assert result["moved"] == 1
     assert (workspace / "osoby" / "N.md").exists()
-    assert service.get(nid, owner_id="u1")["folder"] == "osoby"
+    assert read_service.get(nid, owner_id="u1")["folder"] == "osoby"
     folders = service.list_folders(str(workspace))
     assert "osoby" in folders and "Osoby" not in folders
 
 
-def test_move_folder_moves_nested_subfolders(service, workspace):
+def test_move_folder_moves_nested_subfolders(service, read_service, workspace):
     nid = service.save(workspace_target("u1", "ws", workspace), "Deep", "z", [], folder="a/sub")[
         "note_id"
     ]
@@ -156,7 +156,7 @@ def test_move_folder_moves_nested_subfolders(service, workspace):
 
     assert (workspace / "b" / "sub" / "Deep.md").exists()
     assert not (workspace / "a").exists()
-    assert service.get(nid, owner_id="u1")["folder"] == "b/sub"
+    assert read_service.get(nid, owner_id="u1")["folder"] == "b/sub"
 
 
 def test_move_folder_rejects_into_own_subtree(service, workspace):
@@ -224,7 +224,9 @@ def test_prune_empty_folders_removes_orphans_keeps_gitkeep(service, workspace):
     assert "orphan" in result["pruned"]
 
 
-def test_move_folder_db_failure_leaves_git_committed_and_rows_healable(service, workspace):
+def test_move_folder_db_failure_leaves_git_committed_and_rows_healable(
+    service, read_service, workspace
+):
     """#170: move_folder now commits the git tree unconditionally *first* (matching
     pre-#155 behavior), then writes every note's folder-column update in one DB
     transaction of its own — so a DB-side failure on note k rolls back every note's row,
@@ -256,21 +258,23 @@ def test_move_folder_db_failure_leaves_git_committed_and_rows_healable(service, 
     # ends at that commit rather than staying at its pre-move sha.
     assert head_sha(workspace, "people/A.md") != sha_a_before
     # DB rows lag behind the already-committed tree — the healable direction.
-    assert service.get(a, owner_id="u1")["folder"] == "people"
-    assert service.get(b, owner_id="u1")["folder"] == "people"
+    assert read_service.get(a, owner_id="u1")["folder"] == "people"
+    assert read_service.get(b, owner_id="u1")["folder"] == "people"
 
     service.reconcile_paths(
         "ws", owner_id="u1", ws_path=str(workspace), paths=["team/A.md", "team/B.md"]
     )
-    assert service.get(a, owner_id="u1")["folder"] == "team"
-    assert service.get(b, owner_id="u1")["folder"] == "team"
+    assert read_service.get(a, owner_id="u1")["folder"] == "team"
+    assert read_service.get(b, owner_id="u1")["folder"] == "team"
     # The actual #170 symptom: before the fix, a healed row pointed history lookups at a
     # git path with zero commits. Now the move's commit is there to find.
     assert service.get_history(note_target("u1", "ws", workspace, a)) != []
     assert service.get_history(note_target("u1", "ws", workspace, b)) != []
 
 
-def test_move_folder_git_failure_leaves_nothing_committed_or_written(service, workspace):
+def test_move_folder_git_failure_leaves_nothing_committed_or_written(
+    service, read_service, workspace
+):
     """Git now commits before any DB work starts, so a commit_changes failure means the DB
     write phase never begins at all — no repository_operation call, no row change — unlike
     the pre-#170 shape where a DB-write-shaped failure could roll back rows that had
@@ -294,7 +298,7 @@ def test_move_folder_git_failure_leaves_nothing_committed_or_written(service, wo
     update_in_session.assert_not_called()
     assert not (workspace / "people").exists()
     assert (workspace / "team" / "A.md").exists()
-    assert service.get(a, owner_id="u1")["folder"] == "people"
+    assert read_service.get(a, owner_id="u1")["folder"] == "people"
 
 
 def test_move_folder_with_no_notes_logs_nothing(service, workspace, capsys):
@@ -321,7 +325,7 @@ def test_move_folder_with_no_notes_logs_nothing(service, workspace, capsys):
     assert move_ops == []
 
 
-def test_move_folder_refuses_above_max_notes_ceiling(service, workspace, monkeypatch):
+def test_move_folder_refuses_above_max_notes_ceiling(service, read_service, workspace, monkeypatch):
     """#171: an oversized folder move refuses before touching disk — unlike rename_tag/
     _rewrite_backlinks, a folder move has a real workaround (move a subfolder at a time),
     so a hard ceiling is the right shape here, checked before the irreversible temp-dir
@@ -345,11 +349,11 @@ def test_move_folder_refuses_above_max_notes_ceiling(service, workspace, monkeyp
     assert (workspace / "people").exists()
     assert not (workspace / "team").exists()
     for note_id in (a, b, c):
-        assert service.get(note_id, owner_id="u1")["folder"] == "people"
+        assert read_service.get(note_id, owner_id="u1")["folder"] == "people"
 
 
 def test_move_folder_marks_affected_sources_dirty_even_when_backlink_rewrite_fails(
-    database, workspace, monkeypatch
+    database, read_service, workspace, monkeypatch
 ):
     """#171: _rewrite_backlinks now chunks internally, so a failure partway through can
     leave some (or, as pinned here, none) of the linking sources rewritten. mark_and_enqueue
@@ -383,7 +387,9 @@ def test_move_folder_marks_affected_sources_dirty_even_when_backlink_rewrite_fai
     ):
         _mv(service, workspace, "src", "dst")
 
-    assert service.get(tid, owner_id="u1")["folder"] == "dst"  # the move itself landed
+    moved = read_service.get(tid, owner_id="u1")
+    assert moved is not None
+    assert moved["folder"] == "dst"  # the move itself landed
     # affected_sources also includes the moved note itself; what matters here is that the
     # *external* linking sources — the ones rewrite_backlinks failed to fix — are in it too.
     assert source_ids <= set(dirty.list_dirty("u1", "ws"))

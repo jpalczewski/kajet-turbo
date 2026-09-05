@@ -23,15 +23,16 @@ def _note(ws_path, note_id) -> NoteTarget:
 
 @pytest.fixture()
 def svc(tmp_path, database_factory):
-    from tests.services.conftest import build_note_service
+    from tests.services.conftest import build_note_read_service, build_note_service
 
     db = database_factory("stress.db")
     service = build_note_service(db)
-    return service, str(tmp_path / "ws")
+    read_service = build_note_read_service(db)
+    return service, read_service, str(tmp_path / "ws")
 
 
 def test_parallel_save_search_history(svc, tmp_path):
-    service, ws_path = svc
+    service, read_service, ws_path = svc
     Path(ws_path).mkdir()
     GitRepository.init(ws_path)
     seed = service.save(_ws(ws_path), "Seed", "treść początkowa", [])
@@ -66,5 +67,5 @@ def test_parallel_save_search_history(svc, tmp_path):
             f.result()
 
     assert errors == []
-    notes = service.list_notes(_ws(ws_path), limit=100)
+    notes = read_service.list_notes(_ws(ws_path), limit=100)
     assert len(notes) == 21  # seed + 20 parallel saves

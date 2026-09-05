@@ -14,6 +14,7 @@ from kajet_turbo.api.workspaces.notes._views import enrich_note_items
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_read_service,
     get_note_service,
     get_required_user,
     resolve_note_target,
@@ -22,7 +23,7 @@ from kajet_turbo.dependencies import (
 from kajet_turbo.errors import FolderError, NoteError
 from kajet_turbo.markdown import BrokenWikilinkError, EditSpec
 from kajet_turbo.repositories.git import GitError  # exception class, not errors.GitError StrEnum
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import NoteReadService, NoteService
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import InvalidFolderError, TemporalMetadataError, temporal_kwargs
 
@@ -43,6 +44,7 @@ def api_list_notes(
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     note_service: NoteService = Depends(get_note_service),
+    note_read_service: NoteReadService = Depends(get_note_read_service),
     folder: str | None = None,
     tag: str | None = None,
     include_descendants: bool = True,
@@ -52,7 +54,7 @@ def api_list_notes(
             name, user.id, tag, include_descendants=include_descendants
         )
     else:
-        notes = note_service.list_notes(workspace, folder=folder, limit=None)
+        notes = note_read_service.list_notes(workspace, folder=folder, limit=None)
     return JSONResponse({"notes": enrich_note_items(str(workspace.path), notes)})
 
 

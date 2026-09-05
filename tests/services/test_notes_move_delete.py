@@ -12,16 +12,16 @@ from tests.services.conftest import note_target, workspace_target
 from tests.services.helpers import head_sha, make_flaky_db_write
 
 
-def test_move_note_to_existing_folder_preserves_updated_at(service, workspace):
+def test_move_note_to_existing_folder_preserves_updated_at(service, read_service, workspace):
     (workspace / "archive").mkdir()
     note_id = service.save(workspace_target("u1", "ws", workspace), "Move me", "content", [])[
         "note_id"
     ]
-    before = service.get(note_id, owner_id="u1")
+    before = read_service.get(note_id, owner_id="u1")
 
     moved = service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
 
-    after = service.get(note_id, owner_id="u1")
+    after = read_service.get(note_id, owner_id="u1")
     assert moved == {"note_id": note_id, "folder": "archive"}
     assert after["folder"] == "archive"
     assert after["updated_at"] == before["updated_at"]
@@ -50,7 +50,9 @@ def test_move_note_creates_missing_folder_path(service, workspace):
     assert (workspace / "new" / "nested" / "Move me.md").exists()
 
 
-def test_move_note_os_error_on_rename_surfaces_as_git_error(service, workspace, monkeypatch):
+def test_move_note_os_error_on_rename_surfaces_as_git_error(
+    service, read_service, workspace, monkeypatch
+):
     """The filesystem rename inside move()'s StagedChange used to be GitRepository's
     dedicated rename_file(), which normalized any OS-level failure (permissions,
     cross-device link) to GitError. That normalization must survive the move to a
@@ -71,11 +73,11 @@ def test_move_note_os_error_on_rename_surfaces_as_git_error(service, workspace, 
         service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
 
     assert (workspace / "Move me.md").exists()
-    after = service.get(note_id, owner_id="u1")
+    after = read_service.get(note_id, owner_id="u1")
     assert after["folder"] == ""
 
 
-def test_move_note_db_failure_leaves_file_and_row_untouched(service, workspace):
+def test_move_note_db_failure_leaves_file_and_row_untouched(service, read_service, workspace):
     """#155: move() now writes its row before the git commit, inside one transaction
     that commits last — a DB-side failure must abort before either changes."""
     note_id = service.save(workspace_target("u1", "ws", workspace), "Move me", "content", [])[
@@ -93,7 +95,7 @@ def test_move_note_db_failure_leaves_file_and_row_untouched(service, workspace):
     assert (workspace / "Move me.md").exists()
     assert not (workspace / "archive" / "Move me.md").exists()
     assert head_sha(workspace, "Move me.md") == sha_before
-    after = service.get(note_id, owner_id="u1")
+    after = read_service.get(note_id, owner_id="u1")
     assert after["folder"] == ""
 
 
@@ -138,7 +140,7 @@ def test_move_note_rejects_normalization_collision(service, workspace):
     assert dest_content.strip() == "destination"
 
 
-def test_move_note_case_only_folder_rename_succeeds(service, workspace):
+def test_move_note_case_only_folder_rename_succeeds(service, read_service, workspace):
     """#181: moving a note into a folder differing only by case from its current one
     used to raise a false FileExistsError against its own not-yet-moved source on a
     case-insensitive-but-case-preserving filesystem. The fix routes the move through
@@ -152,20 +154,20 @@ def test_move_note_case_only_folder_rename_succeeds(service, workspace):
     service.move(note_target("u1", "ws", workspace, note_id), folder="projekty")
 
     assert (workspace / "projekty" / "N.md").exists()
-    after = service.get(note_id, owner_id="u1")
+    after = read_service.get(note_id, owner_id="u1")
     assert after["folder"] == "projekty"
 
 
-def test_update_folder_only_keeps_path_creation_semantics(service, workspace):
+def test_update_folder_only_keeps_path_creation_semantics(service, read_service, workspace):
     note_id = service.save(workspace_target("u1", "ws", workspace), "Move me", "content", [])[
         "note_id"
     ]
-    before = service.get(note_id, owner_id="u1")
+    before = read_service.get(note_id, owner_id="u1")
     sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
     service.update(note_target("u1", "ws", workspace, note_id), expected_sha=sha, folder="archive")
 
-    after = service.get(note_id, owner_id="u1")
+    after = read_service.get(note_id, owner_id="u1")
     assert after["folder"] == "archive"
     assert after["updated_at"] != before["updated_at"]
     assert (workspace / "archive" / "Move me.md").exists()
@@ -195,7 +197,9 @@ def test_delete_removes_file_from_note_folder(service, workspace):
     assert not (workspace / "trash" / "Delete me.md").exists()
 
 
-def test_delete_rolls_back_database_teardown_and_leaves_file_untouched(service, workspace):
+def test_delete_rolls_back_database_teardown_and_leaves_file_untouched(
+    service, read_service, workspace
+):
     note_id = service.save(workspace_target("u1", "ws", workspace), "Keep me", "content", [])[
         "note_id"
     ]
@@ -213,7 +217,7 @@ def test_delete_rolls_back_database_teardown_and_leaves_file_untouched(service, 
     assert service._crud_repo.get(note_id, owner_id="u1") is not None
     assert (workspace / "Keep me.md").exists()
     assert head_sha(workspace, "Keep me.md") == sha_before
-    assert service.get_with_content(note_target("u1", "ws", workspace, note_id)) is not None
+    assert read_service.get_with_content(note_target("u1", "ws", workspace, note_id)) is not None
 
 
 def test_delete_perf_span_excludes_git_commit_time_from_db_ms(service, workspace, monkeypatch):
@@ -255,11 +259,11 @@ def test_delete_git_failure_rolls_back_database_teardown(service, workspace):
     assert service._crud_repo.get(note_id, owner_id="u1") is not None
 
 
-def test_list_scoped_by_owner(service, workspace):
+def test_list_scoped_by_owner(service, read_service, workspace):
     service.save(workspace_target("u1", "ws", workspace), "Notatka u1", "treść", [])
     service.save(workspace_target("u2", "ws", workspace), "Notatka u2", "treść", [])
-    result_u1 = service.list_notes(workspace_target("u1", "ws", workspace))
-    result_u2 = service.list_notes(workspace_target("u2", "ws", workspace))
+    result_u1 = read_service.list_notes(workspace_target("u1", "ws", workspace))
+    result_u2 = read_service.list_notes(workspace_target("u2", "ws", workspace))
     assert len(result_u1) == 1 and result_u1[0]["title"] == "Notatka u1"
     assert len(result_u2) == 1 and result_u2[0]["title"] == "Notatka u2"
 

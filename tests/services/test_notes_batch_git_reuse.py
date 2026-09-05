@@ -69,11 +69,13 @@ def _saved_notes(service, workspace, count=3):
     return notes
 
 
-def test_get_many_opens_repo_once(service, workspace, repo_open_count):
+def test_get_many_opens_repo_once(service, read_service, workspace, repo_open_count):
     notes = _saved_notes(service, workspace)
     repo_open_count["count"] = 0
 
-    results = service.get_many([note_target("u1", "ws", workspace, n["note_id"]) for n in notes])
+    results = read_service.get_many(
+        [note_target("u1", "ws", workspace, n["note_id"]) for n in notes]
+    )
 
     assert len(results) == len(notes)
     assert repo_open_count["count"] == 1
@@ -105,11 +107,15 @@ def test_delete_many_opens_repo_once(service, workspace, repo_open_count):
     assert repo_open_count["count"] == 1
 
 
-def test_get_many_resolves_shas_in_one_walker_pass(service, workspace, walker_pass_count):
+def test_get_many_resolves_shas_in_one_walker_pass(
+    service, read_service, workspace, walker_pass_count
+):
     notes = _saved_notes(service, workspace)
     walker_pass_count["count"] = 0
 
-    results = service.get_many([note_target("u1", "ws", workspace, n["note_id"]) for n in notes])
+    results = read_service.get_many(
+        [note_target("u1", "ws", workspace, n["note_id"]) for n in notes]
+    )
 
     assert len(results) == len(notes)
     assert walker_pass_count["count"] == 1
@@ -141,12 +147,12 @@ def test_delete_many_resolves_shas_in_one_walker_pass(service, workspace, walker
     assert walker_pass_count["count"] == 1
 
 
-def test_missing_files_do_not_walk_git_history(service, workspace, walker_pass_count):
+def test_missing_files_do_not_walk_git_history(service, read_service, workspace, walker_pass_count):
     notes = _saved_notes(service, workspace, count=1)
     Path(workspace, "Note 0.md").unlink()
     walker_pass_count["count"] = 0
 
-    results = service.get_many([note_target("u1", "ws", workspace, notes[0]["note_id"])])
+    results = read_service.get_many([note_target("u1", "ws", workspace, notes[0]["note_id"])])
 
     assert results == [
         {
@@ -158,7 +164,7 @@ def test_missing_files_do_not_walk_git_history(service, workspace, walker_pass_c
 
 
 def test_update_rename_with_backlink_opens_repo_once_for_the_rename_leg(
-    service, workspace, repo_open_count
+    service, read_service, workspace, repo_open_count
 ):
     """#123: rewrite_backlinks used to open its own second GitRepository even though
     update()'s rename leg already has one open. The staleness check just above the
@@ -181,7 +187,9 @@ def test_update_rename_with_backlink_opens_repo_once_for_the_rename_leg(
     assert repo_open_count["count"] == 2
     assert (
         "[[Renamed]]"
-        in service.get_with_content(note_target("u1", "ws", workspace, source["note_id"])).content
+        in read_service.get_with_content(
+            note_target("u1", "ws", workspace, source["note_id"])
+        ).content
     )
 
 

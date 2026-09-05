@@ -47,7 +47,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
     from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.repositories.notes import NoteChunkRepository as _NoteChunkRepo
     from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
-    from tests.services.conftest import build_note_service
+    from tests.services.conftest import build_note_read_service, build_note_service
 
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
     note_repository = NoteRepository(database.engine)
@@ -66,6 +66,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         database, indexer=indexer, chunk_repo=note_chunk_repository
     )
     note_temporal_service_inst = NoteTemporalService(note_repository)
+    note_read_service = build_note_read_service(database, indexer=indexer)
     workspace_service = WorkspaceService(
         workspace_repository,
         note_repository,
@@ -81,6 +82,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
     resources = SimpleNamespace(
         note_service=note_service_inst,
         note_temporal_service=note_temporal_service_inst,
+        note_read_service=note_read_service,
         workspace_service=workspace_service,
         target_resolver=TargetResolver(note_repository, workspace_service),
         folder_meta_repo=folder_meta_repository,

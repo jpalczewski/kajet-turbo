@@ -150,7 +150,7 @@ def test_get_version_falls_back_to_db_title_for_explicit_null_frontmatter(servic
     assert version["title"] == "Historia"  # DB fallback, not the literal string "None"
 
 
-def test_restore_version_reverts_content(service, workspace):
+def test_restore_version_reverts_content(service, read_service, workspace):
     result = service.save(
         workspace_target("u1", "ws", workspace), "Historia", "treść oryginalna", []
     )
@@ -164,11 +164,11 @@ def test_restore_version_reverts_content(service, workspace):
 
     service.restore_version(note_target("u1", "ws", workspace, note_id), sha_v1)
 
-    current = service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    current = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert current.content == "treść oryginalna"
 
 
-def test_restore_version_reverts_tags_and_extras(service, workspace):
+def test_restore_version_reverts_tags_and_extras(service, read_service, workspace):
     """#105: restoring a version brings back its tags AND custom frontmatter keys, not
     the current state — while id/created_at/title/folder stay put and updated_at bumps."""
     from dataclasses import replace
@@ -199,7 +199,7 @@ def test_restore_version_reverts_tags_and_extras(service, workspace):
 
     service.restore_version(note_target("u1", "ws", workspace, note_id), sha_v1)
 
-    current = service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    current = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert current.content == "treść v1"
     assert current.tags == ["stary"]
     restored_meta, _ = read_note_file(path)
@@ -213,7 +213,7 @@ def test_restore_version_reverts_tags_and_extras(service, workspace):
     assert restored_note.updated_at != original_note.updated_at
 
 
-def test_restore_version_still_works_after_expected_sha_added(service, workspace):
+def test_restore_version_still_works_after_expected_sha_added(service, read_service, workspace):
     note_id = service.save(workspace_target("u1", "ws", workspace), "Historia", "oryginalna", [])[
         "note_id"
     ]
@@ -226,11 +226,13 @@ def test_restore_version_still_works_after_expected_sha_added(service, workspace
 
     service.restore_version(note_target("u1", "ws", workspace, note_id), sha_v1)
 
-    note = service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert note.content == "oryginalna"
 
 
-def test_nested_restore_releases_workspace_before_reindexing(service, workspace, monkeypatch):
+def test_nested_restore_releases_workspace_before_reindexing(
+    service, read_service, workspace, monkeypatch
+):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
 
@@ -269,6 +271,6 @@ def test_nested_restore_releases_workspace_before_reindexing(service, workspace,
             release_index.set()
         restore.result(timeout=5)
 
-    note = service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert note.content == "oryginalna"
     assert note.tags == ["extra"]

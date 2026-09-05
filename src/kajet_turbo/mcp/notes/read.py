@@ -18,6 +18,7 @@ from kajet_turbo.mcp.context import (
 from kajet_turbo.mcp.notes.types import (
     FolderContext,
     FolderExportResult,
+    GrepResult,
     NoteListItem,
     NoteListResponse,
     NoteOutlineResult,
@@ -25,7 +26,7 @@ from kajet_turbo.mcp.notes.types import (
 )
 from kajet_turbo.mcp.tooling import check_batch, read_tool, require_found
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
-from kajet_turbo.services.notes import NoteData, NoteService
+from kajet_turbo.services.notes import NoteData, NoteReadService
 from kajet_turbo.services.targets import (
     NoteTarget,
     TargetFailure,
@@ -34,7 +35,9 @@ from kajet_turbo.services.targets import (
 from kajet_turbo.workspace import normalize_folder
 
 
-def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository) -> FastMCP:
+def build_read(
+    note_read_service: NoteReadService, folder_meta_repo: FolderMetaRepository
+) -> FastMCP:
     srv = FastMCP("notes-read")
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
@@ -81,7 +84,9 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
             if workspace is not None:
                 raise ToolError("workspace only works with title — omit it with note_id.")
             assert target is not None  # OPTIONAL_NOTE_TARGET resolves note_id when it is set
-            return require_found(await run_sync(note_service.get_with_content, target), note_id)
+            return require_found(
+                await run_sync(note_read_service.get_with_content, target), note_id
+            )
         if title is None:
             raise ToolError("Provide note_id or title.")
         if workspace is None:
@@ -89,7 +94,7 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         resolved_workspace = await resolve_workspace_target(workspace, user_id)
         return require_found(
             await run_sync(
-                note_service.get_with_content_by_title,
+                note_read_service.get_with_content_by_title,
                 title,
                 folder,
                 resolved_workspace,
@@ -108,7 +113,7 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         check_batch(note_ids, "note_ids", "note_id")
         resolved = await resolve_notes(user_id, note_ids)
         targets = [r for r in resolved if isinstance(r, NoteTarget)]
-        target_results = await run_sync(note_service.get_many, targets) if targets else []
+        target_results = await run_sync(note_read_service.get_many, targets) if targets else []
         target_iter = iter(target_results)
         output: list[NoteData | NoteReadError] = []
         for r in resolved:
@@ -135,7 +140,7 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         target_heading=...). ambiguous=true means that heading repeats in the
         document, so target_heading won't work (edit_note returns an ambiguity
         error) — use another mode instead (e.g. replace_text)."""
-        result = require_found(await run_sync(note_service.get_outline, target), note_id)
+        result = require_found(await run_sync(note_read_service.get_outline, target), note_id)
         return NoteOutlineResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
@@ -168,7 +173,7 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         folder_context in the response carries instructions for the LLM when they
         are set for the folder."""
         notes = await run_sync(
-            note_service.list_notes,
+            note_read_service.list_notes,
             target,
             tags=tags or None,
             limit=limit,
@@ -201,7 +206,7 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         mid-note); omitted notes come back in omitted. The first note is always
         included in full, even when it alone exceeds max_chars."""
         result = await run_sync(
-            note_service.export_folder,
+            note_read_service.export_folder,
             target.name,
             owner_id=target.owner_id,
             ws_path=str(target.path),
@@ -209,5 +214,34 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
             max_chars=max_chars,
         )
         return FolderExportResult.model_validate(result)
+
+    @srv.tool(**read_tool(tags={"notes", "search"}))
+    async def grep_notes(
+        pattern: str,
+        workspace: str,
+        folder: Annotated[
+            str | None,
+            Field(description="Restrict to notes in this folder and its subfolders."),
+        ] = None,
+        case_sensitive: bool = False,
+        max_results: int = 100,
+        target: WorkspaceTarget = WORKSPACE_TARGET,
+    ) -> GrepResult:
+        """Literal (not semantic) grep over note content, with line numbers.
+        workspace: the workspace name to search in.
+        Use this instead of search_notes when you need certainty of an exact string match
+        (a rename refactor, checking "is this phrase still somewhere") — search_notes
+        matches by meaning and does not guarantee a literal text hit.
+        Searches the raw note file, including frontmatter (id/title/tags/dates)."""
+        result = await run_sync(
+            note_read_service.grep,
+            target.name,
+            str(target.path),
+            pattern,
+            folder=folder,
+            case_sensitive=case_sensitive,
+            max_results=max_results,
+        )
+        return GrepResult.model_validate(result)
 
     return srv

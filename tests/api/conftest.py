@@ -12,6 +12,7 @@ from kajet_turbo.api.workspaces import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_read_service,
     get_note_service,
     get_note_temporal_service,
     get_required_user,
@@ -27,7 +28,7 @@ from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.indexing import NoteIndexer
-from kajet_turbo.services.notes import NoteService, NoteTemporalService
+from kajet_turbo.services.notes import NoteReadService, NoteService, NoteTemporalService
 from kajet_turbo.services.targets import TargetResolver
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -37,6 +38,7 @@ class ApiTestContext:
     client: TestClient
     note_service: NoteService
     workspace: Path
+    note_read_service: NoteReadService
 
     def __iter__(self):
         yield self.client
@@ -72,7 +74,11 @@ def api_client_factory(
 
     def create(*, user_id: str | None = "u1", grant_access: bool = True) -> ApiTestContext:
         from kajet_turbo.repositories.notes import NoteChunkRepository as _NoteChunkRepo
-        from tests.services.conftest import build_note_service, seed_user
+        from tests.services.conftest import (
+            build_note_read_service,
+            build_note_service,
+            seed_user,
+        )
 
         monkeypatch.setenv("WORKSPACES_DIR", str(workspace.parent.parent))
         database = database_factory(f"api-{len(contexts)}.db")
@@ -89,6 +95,7 @@ def api_client_factory(
             database, indexer=note_indexer, chunk_repo=note_chunk_repository
         )
         note_temporal_service = NoteTemporalService(note_repository)
+        note_read_service = build_note_read_service(database, indexer=note_indexer)
         workspace_service = WorkspaceService(
             workspace_repository,
             note_repository,
@@ -108,6 +115,7 @@ def api_client_factory(
         app = build_test_app()
         app.dependency_overrides[get_note_service] = lambda: note_service
         app.dependency_overrides[get_note_temporal_service] = lambda: note_temporal_service
+        app.dependency_overrides[get_note_read_service] = lambda: note_read_service
         app.dependency_overrides[get_workspace_service] = lambda: workspace_service
         app.dependency_overrides[get_target_resolver] = lambda: TargetResolver(
             note_repository, workspace_service
@@ -121,7 +129,7 @@ def api_client_factory(
         client_manager = TestClient(app)
         client = client_manager.__enter__()
         contexts.append((client_manager, None))
-        return ApiTestContext(client, note_service, workspace)
+        return ApiTestContext(client, note_service, workspace, note_read_service)
 
     yield create
 

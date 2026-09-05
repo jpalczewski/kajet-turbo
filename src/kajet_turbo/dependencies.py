@@ -57,6 +57,7 @@ from kajet_turbo.services.jobs import JobService
 from kajet_turbo.services.notes import (
     NoteFolderService,
     NoteLinkService,
+    NoteReadService,
     NoteSearchService,
     NoteService,
     NoteTagService,
@@ -133,6 +134,7 @@ class AppResources:
     job_repo: JobRepository
     note_service: NoteService
     note_temporal_service: NoteTemporalService
+    note_read_service: NoteReadService
     workspace_service: WorkspaceService
     target_resolver: TargetResolver
     collection_service: CollectionService
@@ -265,6 +267,7 @@ def build_resources(config: AppConfig) -> AppResources:
             reconcile_repo=reconcile_repo,
         )
         note_temporal_service = NoteTemporalService(note_repo)
+        note_read_service = NoteReadService(note_repo, note_tag_repo, link_service, indexer=indexer)
         ssh_key_repo = SshKeyRepository(db.engine)
         ssh_key_service = SshKeyService(
             ssh_key_repo, lambda: cipher_for("ssh-key", config.secret_key)
@@ -312,6 +315,7 @@ def build_resources(config: AppConfig) -> AppResources:
             job_repo,
             note_service,
             note_temporal_service,
+            note_read_service,
             workspace_service,
             TargetResolver(note_repo, workspace_service),
             CollectionService(note_repo, note_service),
@@ -377,6 +381,10 @@ def get_note_service(request: Request) -> NoteService:
 
 def get_note_temporal_service(request: Request) -> NoteTemporalService:
     return _resources(request).note_temporal_service
+
+
+def get_note_read_service(request: Request) -> NoteReadService:
+    return _resources(request).note_read_service
 
 
 def get_workspace_service(request: Request) -> WorkspaceService:

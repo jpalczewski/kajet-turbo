@@ -98,7 +98,7 @@ def test_save_rejects_duplicate_title_in_same_folder(service, workspace):
         )
 
 
-def test_save_rejects_normalization_collision_with_existing_note(service, workspace):
+def test_save_rejects_normalization_collision_with_existing_note(service, read_service, workspace):
     """ "A:B" and "A B" both sanitize to "A B.md" — a different title, same file."""
     from kajet_turbo.workspace import read_note_file
 
@@ -109,7 +109,7 @@ def test_save_rejects_normalization_collision_with_existing_note(service, worksp
 
     _, content = read_note_file(str(workspace / "A B.md"))
     assert content.strip() == "first body"
-    note = service.get_with_content(note_target("u1", "ws", workspace, first["note_id"]))
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, first["note_id"]))
     assert note is not None
     assert note.content.strip() == "first body"
 
@@ -174,38 +174,38 @@ def test_save_db_failure_leaves_no_file_and_no_row(service, workspace, monkeypat
     assert service._crud_repo.list_notes("ws", "u1", limit=None) == []
 
 
-def test_get_with_content_returns_note_data(service, workspace):
+def test_get_with_content_returns_note_data(service, read_service, workspace):
     from kajet_turbo.services.notes.types import NoteData
 
     note_id = service.save(workspace_target("u1", "ws", workspace), "Title", "# Content", [])[
         "note_id"
     ]
-    result = service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    result = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert isinstance(result, NoteData)
     assert result.note_id == note_id
     assert result.title == "Title"
     assert result.content == "# Content"
 
 
-def test_get_with_content_returns_none_for_wrong_owner(service, workspace):
+def test_get_with_content_returns_none_for_wrong_owner(service, read_service, workspace):
     result = service.save(workspace_target("u1", "ws", workspace), "Notatka", "treść", [])
     note_id = result["note_id"]
-    assert service.get_with_content(note_target("u2", "ws", workspace, note_id)) is None
+    assert read_service.get_with_content(note_target("u2", "ws", workspace, note_id)) is None
 
 
-def test_get_with_content_returns_content(service, workspace):
+def test_get_with_content_returns_content(service, read_service, workspace):
     result = service.save(workspace_target("u1", "ws", workspace), "Notatka", "moja treść", [])
     note_id = result["note_id"]
-    note = service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert note is not None
     assert note.content == "moja treść"
     assert note.title == "Notatka"
 
 
-def test_get_many_returns_notes_in_order_with_errors_for_missing(service, workspace):
+def test_get_many_returns_notes_in_order_with_errors_for_missing(service, read_service, workspace):
     r1 = service.save(workspace_target("u1", "ws", workspace), "First", "content one", [])
     r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "content two", [])
-    results = service.get_many(
+    results = read_service.get_many(
         [
             note_target("u1", "ws", workspace, r1["note_id"]),
             note_target("u1", "ws", workspace, "does-not-exist"),
@@ -222,34 +222,36 @@ def test_get_many_returns_notes_in_order_with_errors_for_missing(service, worksp
     assert results[2].note_id == r2["note_id"]
 
 
-def test_list_notes_resolves_hierarchical_tags_before_repository_filtering(service, workspace):
+def test_list_notes_resolves_hierarchical_tags_before_repository_filtering(
+    service, read_service, workspace
+):
     service.save(workspace_target("u1", "ws", workspace), "Alpha", "", ["work/projects"])
     service.save(workspace_target("u1", "ws", workspace), "Beta", "", ["life"])
     service.save(workspace_target("u1", "ws", workspace), "Gamma", "", ["work/other"])
 
     target = workspace_target("u1", "ws", workspace)
-    matched = service.list_notes(target, tags=["work"], limit=1, sort="title")
-    exact = service.list_notes(target, tags=["work"], include_descendants=False, limit=None)
-    missing = service.list_notes(target, tags=["missing"], limit=None)
+    matched = read_service.list_notes(target, tags=["work"], limit=1, sort="title")
+    exact = read_service.list_notes(target, tags=["work"], include_descendants=False, limit=None)
+    missing = read_service.list_notes(target, tags=["missing"], limit=None)
 
     assert [note["title"] for note in matched] == ["Alpha"]
     assert exact == []
     assert missing == []
 
 
-def test_get_outline_returns_headings_without_content(service, workspace):
+def test_get_outline_returns_headings_without_content(service, read_service, workspace):
     result = service.save(
         workspace_target("u1", "ws", workspace),
         "Doc",
         "# Doc\n\n## Tasks\n\n- one\n\n## Notes\n\ntext\n",
         [],
     )
-    outline = service.get_outline(note_target("u1", "ws", workspace, result["note_id"]))
+    outline = read_service.get_outline(note_target("u1", "ws", workspace, result["note_id"]))
     assert outline["title"] == "Doc"
     assert [s["heading"] for s in outline["sections"]] == ["Doc", "Tasks", "Notes"]
     assert "content" not in outline
     assert "content" not in outline["sections"][0]
 
 
-def test_get_outline_missing_note_returns_none(service, workspace):
-    assert service.get_outline(note_target("u1", "ws", workspace, "missing")) is None
+def test_get_outline_missing_note_returns_none(read_service, workspace):
+    assert read_service.get_outline(note_target("u1", "ws", workspace, "missing")) is None

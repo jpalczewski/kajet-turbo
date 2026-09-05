@@ -135,7 +135,7 @@ def test_link_item_includes_workspace_field(service, workspace):
     assert backlink["workspace"] == "ws-a"
 
 
-def test_rename_does_not_rewrite_cross_workspace_backlink(service, workspace):
+def test_rename_does_not_rewrite_cross_workspace_backlink(service, read_service, workspace):
     # ws-b note is the target; ws-a note links to it via [[note:ID]] (cross-workspace syntax).
     target_id = service.save(workspace_target("u1", "ws-b", workspace), "Old Title", "content", [])[
         "note_id"
@@ -150,7 +150,7 @@ def test_rename_does_not_rewrite_cross_workspace_backlink(service, workspace):
         note_target("u1", "ws", workspace, target_id), expected_sha=sha, title="New Title"
     )
 
-    source = service.get_with_content(note_target("u1", "ws", workspace, source_id))
+    source = read_service.get_with_content(note_target("u1", "ws", workspace, source_id))
     assert source is not None
     # The cross-workspace link is ID-stable: content must be unchanged.
     assert f"[[note:{target_id}]]" in source.content

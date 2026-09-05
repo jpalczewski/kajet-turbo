@@ -215,13 +215,15 @@ def test_create_note_response_matches_declared_schema(auth_client):
 
 
 def test_create_note_accepts_temporal_metadata(auth_client):
-    client, note_svc, ws_path = auth_client
+    client, _, ws_path = auth_client
     response = client.post(
         "/api/workspaces/test-ws/notes",
         json={"title": "Event", "occurred_at": "2026-03-22"},
     )
     assert response.status_code == 201
-    note = note_svc.get_with_content(_note(ws_path, response.json()["note_id"]))
+    note = auth_client.note_read_service.get_with_content(
+        _note(ws_path, response.json()["note_id"])
+    )
     assert note is not None and note.occurred_at == "2026-03-22"
 
 
@@ -235,14 +237,14 @@ def test_create_note_rejects_malformed_period_with_422_not_409(auth_client):
 
 
 def test_create_note_in_subfolder(auth_client):
-    client, note_svc, ws_path = auth_client
+    client, _, ws_path = auth_client
     resp = client.post(
         "/api/workspaces/test-ws/notes",
         json={"title": "Subfolder Note", "content": "", "folder": "docs"},
     )
     assert resp.status_code == 201
     note_id = resp.json()["note_id"]
-    note = note_svc.get_with_content(_note(ws_path, note_id))
+    note = auth_client.note_read_service.get_with_content(_note(ws_path, note_id))
     assert note is not None
     assert note.folder == "docs"
 
@@ -292,7 +294,7 @@ def test_update_note_content(auth_client):
     )
     assert resp.status_code == 200
     assert resp.json()["note_id"] == note_id
-    updated = note_svc.get_with_content(_note(ws_path, note_id))
+    updated = auth_client.note_read_service.get_with_content(_note(ws_path, note_id))
     assert updated.content == "new content"
 
 
@@ -332,7 +334,7 @@ def test_update_note_explicit_null_occurred_at_leaves_it_unchanged(auth_client):
         json={"title": "Renamed", "occurred_at": None, "expected_sha": sha},
     )
     assert resp.status_code == 200
-    updated = note_svc.get_with_content(_note(ws_path, note_id))
+    updated = auth_client.note_read_service.get_with_content(_note(ws_path, note_id))
     assert updated is not None and updated.occurred_at == "2026-03-22"
 
 
@@ -345,7 +347,7 @@ def test_update_note_title(auth_client):
         json={"title": "New Title", "expected_sha": sha},
     )
     assert resp.status_code == 200
-    updated = note_svc.get(note_id, owner_id="u1")
+    updated = auth_client.note_read_service.get(note_id, owner_id="u1")
     assert updated["title"] == "New Title"
 
 
@@ -440,7 +442,7 @@ def test_delete_note_removes_it(auth_client):
     resp = client.delete(f"/api/workspaces/test-ws/notes/{note_id}")
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
-    assert note_svc.get(note_id, owner_id="u1") is None
+    assert auth_client.note_read_service.get(note_id, owner_id="u1") is None
 
 
 def test_delete_note_not_found_returns_404(auth_client):
@@ -551,7 +553,7 @@ def test_update_note_stale_sha_returns_409(auth_client):
     assert resp.status_code == 409
     assert resp.json()["error"] == "NOTE_STALE_VERSION"
     assert "detail" not in resp.json()
-    updated = note_svc.get_with_content(_note(ws_path, note_id))
+    updated = auth_client.note_read_service.get_with_content(_note(ws_path, note_id))
     assert updated.content == "v2"
 
 
@@ -566,7 +568,7 @@ def test_update_note_missing_expected_sha_returns_409_not_500(auth_client):
 
     assert resp.status_code == 409
     assert resp.json()["error"] == "NOTE_STALE_VERSION"
-    updated = note_svc.get_with_content(_note(ws_path, note_id))
+    updated = auth_client.note_read_service.get_with_content(_note(ws_path, note_id))
     assert updated.content == "v1"
 
 

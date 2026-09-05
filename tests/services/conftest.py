@@ -24,6 +24,7 @@ from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import (
     NoteFolderService,
     NoteLinkService,
+    NoteReadService,
     NoteSearchService,
     NoteService,
     NoteTagService,
@@ -107,6 +108,21 @@ def build_note_service(
     )
 
 
+def build_note_read_service(database: Database, indexer=None) -> NoteReadService:
+    """Construct a NoteReadService reading the same Database as build_note_service.
+
+    NoteLinkService.for_workspace takes a fresh DB snapshot on every call (no
+    per-instance caching), so a separately-constructed NoteLinkService here sees
+    everything a NoteService built against the same Database has already written."""
+    engine = database.engine
+    crud_repo = NoteRepository(engine)
+    tag_repo = NoteTagRepository(engine)
+    link_service = NoteLinkService(
+        crud_repo, NoteLinkRepository(engine), tag_repo, None, None, JobRepository(engine)
+    )
+    return NoteReadService(crud_repo, tag_repo, link_service, indexer=indexer)
+
+
 def build_workspace_service(database: Database) -> WorkspaceService:
     """Construct a fully-wired WorkspaceService from a Database for tests."""
     engine = database.engine
@@ -147,6 +163,11 @@ def temporal_service(service: NoteService) -> NoteTemporalService:
     """Shares `service`'s NoteRepository instance, not a fresh one, so a test that
     patches a method on `service._crud_repo` also affects backfill calls made here."""
     return NoteTemporalService(service._crud_repo)
+
+
+@pytest.fixture
+def read_service(database: Database) -> NoteReadService:
+    return build_note_read_service(database)
 
 
 def workspace_target(owner_id: str, name: str, path) -> WorkspaceTarget:

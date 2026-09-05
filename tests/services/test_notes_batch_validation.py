@@ -78,7 +78,7 @@ def _run(operation: str, service, workspace, items: list[dict]) -> dict:
     ],
 )
 def test_destructive_batches_share_validation_errors(
-    operation, case, items, expected_note_id, index, error, service, workspace
+    operation, case, items, expected_note_id, index, error, service, read_service, workspace
 ):
     saved = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     note_id = saved["note_id"]
@@ -99,7 +99,9 @@ def test_destructive_batches_share_validation_errors(
         ],
     }
     if case != "missing_file":
-        assert service.get_with_content(note_target("u1", "ws", workspace, note_id)) is not None
+        assert (
+            read_service.get_with_content(note_target("u1", "ws", workspace, note_id)) is not None
+        )
 
 
 def test_edit_many_preserves_mixed_validation_error_order(service, workspace):
