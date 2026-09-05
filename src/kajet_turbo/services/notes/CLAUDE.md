@@ -151,5 +151,5 @@ example of how that call gets made and what tips it one way or the other.
 ## Errors
 
 A `ValueError` raised anywhere in this package reaches the calling LLM verbatim —
-`ServiceErrorMiddleware` maps it straight to `ToolError` (see root `CLAUDE.md`). Write the
+`logged_tool` maps it straight to `ToolError` (see root `CLAUDE.md`). Write the
 message in English and name the parameter at fault.

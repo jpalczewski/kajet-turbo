@@ -7,8 +7,9 @@ human. These rules follow from that.
 
 Tool docstrings, `Field(description=...)`, `ToolError` text, and the `ValueError` messages
 raised in `services/notes/` and `markdown/` all reach the calling model verbatim —
-`ServiceErrorMiddleware` (`tooling.py`) maps service errors straight to `ToolError`. Write
-them in English. Older Polish strings are legacy: convert the ones inside a tool you are
+`logged_tool` (`log.py`) maps `SERVICE_ERRORS` (`tooling.py`) straight to `ToolError` at the
+point the raw exception is still visible, before fastmcp's own `call_tool()` can wrap it in
+a generic message. Write them in English. Older Polish strings are legacy: convert the ones inside a tool you are
 already changing, and leave the rest alone rather than opening a translation PR.
 
 An error message is a prompt. Name the parameter at fault and what should have been passed
@@ -45,9 +46,10 @@ they meant.
 - `Middleware.on_call_tool` runs *before* argument validation and can rewrite
   `context.message.arguments`. It is the only place raw wire arguments are visible.
 - `logged_tool` sits *under* `@srv.tool`, so it only ever sees validated Python values. It
-  is for timing and logging, not preprocessing. It does not log `ToolError` — a `Depends`
-  dependency (e.g. `ACTIVE_WORKSPACE`) can raise one before `logged_tool`'s wrapper ever
-  runs, so `ServiceErrorMiddleware` (`tooling.py`) is the single place that logs a
-  `ToolError`, whichever layer raised it.
+  is for timing, logging, and the `SERVICE_ERRORS` → `ToolError` boundary mapping — not
+  argument preprocessing. It does not log `ToolError` — a `Depends` dependency (e.g.
+  `ACTIVE_WORKSPACE`) can raise one before `logged_tool`'s wrapper ever runs, so
+  `ServiceErrorMiddleware` (`tooling.py`) is the single place that logs a `ToolError`,
+  whichever layer raised it.
 
 Never log note titles or bodies — logs are shipped off-box and notes are personal.
