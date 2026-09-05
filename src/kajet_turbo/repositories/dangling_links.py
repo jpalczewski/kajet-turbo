@@ -50,9 +50,7 @@ class DanglingLinkRepository(DbRepository):
         *,
         now: str,
     ) -> None:
-        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
-            delete(DanglingLink).where(col(DanglingLink.source_note_id) == source_note_id)
-        )
+        session.exec(delete(DanglingLink).where(col(DanglingLink.source_note_id) == source_note_id))
         session.add_all(
             [
                 DanglingLink(
@@ -130,16 +128,12 @@ class DanglingLinkRepository(DbRepository):
     def delete(self, row_id: str) -> None:
         with self.operation("delete", row_id=row_id) as operation:
             session = operation.session
-            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
-                delete(DanglingLink).where(col(DanglingLink.id) == row_id)
-            )
+            session.exec(delete(DanglingLink).where(col(DanglingLink.id) == row_id))
             session.commit()
 
     @staticmethod
     def delete_for_source_in_session(session: Session, source_note_id: str) -> None:
-        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
-            delete(DanglingLink).where(col(DanglingLink.source_note_id) == source_note_id)
-        )
+        session.exec(delete(DanglingLink).where(col(DanglingLink.source_note_id) == source_note_id))
 
     def delete_for_workspace(self, owner_id: str, workspace: str) -> None:
         with self.operation(
@@ -151,7 +145,7 @@ class DanglingLinkRepository(DbRepository):
 
     @staticmethod
     def delete_for_workspace_in_session(session: Session, owner_id: str, workspace: str) -> None:
-        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+        session.exec(
             delete(DanglingLink).where(
                 col(DanglingLink.owner_id) == owner_id,
                 col(DanglingLink.workspace) == workspace,

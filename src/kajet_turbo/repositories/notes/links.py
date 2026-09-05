@@ -17,9 +17,7 @@ class NoteLinkRepository(DbRepository):
         owner_id: str,
         target_ids: set[str],
     ) -> None:
-        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
-            delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id)
-        )
+        session.exec(delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id))
         session.add_all(
             [
                 NoteLink(
@@ -61,7 +59,7 @@ class NoteLinkRepository(DbRepository):
             "add_link", source_note_id=source_note_id, target_note_id=target_note_id
         ) as operation:
             session = operation.session
-            session.execute(  # ty: ignore[deprecated] — sqlite INSERT ON CONFLICT requires execute(), not exec()
+            session.exec(
                 sqlite_insert(NoteLink)
                 .values(
                     source_note_id=source_note_id,
@@ -81,19 +79,15 @@ class NoteLinkRepository(DbRepository):
 
     @staticmethod
     def delete_links_from_in_session(session: Session, source_note_id: str) -> None:
-        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
-            delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id)
-        )
+        session.exec(delete(NoteLink).where(col(NoteLink.source_note_id) == source_note_id))
 
     @staticmethod
     def delete_links_to_in_session(session: Session, target_note_id: str) -> None:
-        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
-            delete(NoteLink).where(col(NoteLink.target_note_id) == target_note_id)
-        )
+        session.exec(delete(NoteLink).where(col(NoteLink.target_note_id) == target_note_id))
 
     @staticmethod
     def delete_workspace_links_in_session(session: Session, workspace: str, owner_id: str) -> None:
-        session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+        session.exec(
             delete(NoteLink).where(
                 col(NoteLink.workspace) == workspace,
                 col(NoteLink.owner_id) == owner_id,

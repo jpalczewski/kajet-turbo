@@ -75,31 +75,29 @@ follow-up job repair it. Never patch around a lost CAS by writing anyway.
 whose generation still matches (`link_reconcile.py:75-99`) — so a write that landed while
 the worker ran is not silently acknowledged away.
 
-## `session.execute()` with an inline `ty: ignore` is the house style
+## `session.exec()` types Core statements; only `text()` needs `session.execute()`
 
-SQLModel's `session.exec()` cannot type a Core `delete()`, a `text()` statement, or a SQLite
-`INSERT ... ON CONFLICT`, and ty flags the `execute()` fallback as deprecated. The project's
-answer is `execute()` plus an inline ignore — there are ~110 of them in this package
-(`oauth.py` alone has 42). This is convention, not debt; do the same in new code:
+SQLModel's `session.exec()` has overloads for `Select`, `SelectOfScalar`, and `UpdateBase`
+(Core `delete()`/`update()`/sqlite `insert().on_conflict_do_update()`), so a plain Core
+statement — even a DELETE or a sqlite upsert — types cleanly through `.exec()` with no
+suppression, `.rowcount` included. Comments claiming otherwise (`exec() can't type a DELETE
+statement`, `sqlite upsert needs execute()`) were true of an older SQLModel and are stale
+wherever you still see them (`#141` swept the ones known at the time); fix one on sight
+instead of copying it into new code.
 
-```python
-session.execute(  # ty: ignore[deprecated] - raw SQL
-    text("DELETE FROM sessions WHERE token = :token"), {"token": token}
-)
-```
+The one real gap is `text()` — no `.exec()` overload covers it, since a raw string isn't a
+typed statement. That's genuinely unavoidable for hand-written SQL (SQLite virtual tables
+like FTS5/vec0 can't be ORM-mapped at all — see `chunks.py`'s module docstring) and for
+queries that are deliberately raw for clarity or performance (`jobs.py`'s `_CLAIM_SQL`).
+For those, call `DbRepository._raw_execute(session, stmt, params)` rather than repeating
+`session.execute(...)  # ty: ignore[deprecated] - raw SQL` by hand — one place holds the
+suppression and the `CursorResult` narrowing for `.rowcount`, instead of one per call site.
 
-Reading `.rowcount` off the result needs a second suppression — `# ty:
-ignore[unresolved-attribute] - CursorResult at runtime` (`sessions.py:52`) — or an
-`assert isinstance(result, CursorResult)`, which narrows the type properly and is the
-better choice in new code (`folder_meta.py:127`, `events.py:102`). Both spellings are live.
-
-Reuse one of the reason texts already in the package (`raw SQL`, `DELETE statement`,
-`sqlite INSERT ON CONFLICT requires execute(), not exec()`) rather than inventing a new
-phrasing. Normalize stragglers in code you are already changing; do not open a pass over
-the rest.
-
-`#141` tracks collapsing the ~96 occurrences of this shape into one `DbRepository` helper.
-Once it lands, call that helper instead of repeating the pattern by hand.
+Do not rewrite an existing `text()` query into Core `select()`/`delete()`/`update()` just to
+drop the suppression: the suppression is a type-checker annoyance, not a security or
+correctness gap (parameters are already bound, not interpolated), and hand-rewriting SQL in
+security- or concurrency-sensitive code (`oauth.py`, `jobs.py`'s claim query) risks a subtly
+different generated statement for zero behavioral gain.
 
 ## A returned row must be safe to read after its session closes
 

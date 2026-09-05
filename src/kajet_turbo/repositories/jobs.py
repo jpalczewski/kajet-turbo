@@ -136,14 +136,14 @@ class JobRepository(DbRepository):
                 },
             )
         )
-        session.execute(stmt)  # ty: ignore[deprecated] — sqlite INSERT ON CONFLICT requires execute(), not exec()
-        return session.execute(  # ty: ignore[deprecated] — raw SQL path for DML consistency
+        session.exec(stmt)
+        return session.exec(
             select(Job.id).where(
                 Job.kind == kind,
                 Job.dedup_key == dedup_key,
                 Job.status == "pending",
             )
-        ).scalar_one()
+        ).one()
 
     def enqueue(
         self,

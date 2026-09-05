@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime
 
 from nanoid import generate
-from sqlalchemy import CursorResult, delete
+from sqlalchemy import delete
 from sqlmodel import Session, col, select
 
 from kajet_turbo.markdown import ancestors
@@ -75,7 +75,7 @@ class NoteTagRepository(DbRepository):
                 Tag.workspace == workspace,
                 Tag.owner_id == owner_id,
             )
-            result = session.execute(  # ty: ignore[deprecated] - DELETE statement
+            result = session.exec(
                 delete(Tag).where(
                     col(Tag.workspace) == workspace,
                     col(Tag.owner_id) == owner_id,
@@ -83,7 +83,6 @@ class NoteTagRepository(DbRepository):
                     col(Tag.id).not_in(parents),
                 )
             )
-            assert isinstance(result, CursorResult)
             if result.rowcount == 0:
                 break
 
@@ -121,9 +120,7 @@ class NoteTagRepository(DbRepository):
         """
         if not tagged_by_note:
             return {}
-        session.execute(  # ty: ignore[deprecated] - DELETE statement
-            delete(NoteTag).where(col(NoteTag.note_id).in_(list(tagged_by_note)))
-        )
+        session.exec(delete(NoteTag).where(col(NoteTag.note_id).in_(list(tagged_by_note))))
         tag_ids: dict[str, str] = {}
         for note_id, tagged in tagged_by_note.items():
             for path, source in tagged:
@@ -182,18 +179,14 @@ class NoteTagRepository(DbRepository):
         ``sweep_orphan_tags_in_session`` themselves once after the whole batch, not
         once per note — see its docstring.
         """
-        session.execute(  # ty: ignore[deprecated] - DELETE statement
-            delete(NoteTag).where(col(NoteTag.note_id) == note_id)
-        )
+        session.exec(delete(NoteTag).where(col(NoteTag.note_id) == note_id))
 
     @staticmethod
     def delete_workspace_tags_in_session(session: Session, workspace: str, owner_id: str) -> None:
         """Drop all workspace tag rows in a caller-owned transaction."""
         tag_ids = select(Tag.id).where(Tag.workspace == workspace, Tag.owner_id == owner_id)
-        session.execute(  # ty: ignore[deprecated] - DELETE statement
-            delete(NoteTag).where(col(NoteTag.tag_id).in_(tag_ids))
-        )
-        session.execute(  # ty: ignore[deprecated] - DELETE statement
+        session.exec(delete(NoteTag).where(col(NoteTag.tag_id).in_(tag_ids)))
+        session.exec(
             delete(Tag).where(col(Tag.workspace) == workspace, col(Tag.owner_id) == owner_id)
         )
 

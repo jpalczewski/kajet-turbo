@@ -334,8 +334,8 @@ class NoteRepository(DbRepository):
         stmt = delete(Note).where(col(Note.id) == note_id)
         if owner_id is not None:
             stmt = stmt.where(col(Note.owner_id) == owner_id)
-        result = session.execute(stmt)  # ty: ignore[deprecated] - DELETE statement
-        return result.rowcount  # ty: ignore[unresolved-attribute] - Result has rowcount at runtime
+        result = session.exec(stmt)
+        return result.rowcount
 
     def list_notes(
         self,
