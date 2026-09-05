@@ -722,6 +722,7 @@ dependencies = [
     { name = "dulwich" },
     { name = "fastapi" },
     { name = "fastmcp" },
+    { name = "httpx" },
     { name = "loguru" },
     { name = "markdown-it-py" },
     { name = "nanoid" },
@@ -738,7 +739,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-xdist" },
@@ -756,6 +756,7 @@ requires-dist = [
     { name = "dulwich", specifier = ">=0.21.0" },
     { name = "fastapi", specifier = ">=0.141.0" },
     { name = "fastmcp", specifier = ">=4.0.3" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "markdown-it-py", specifier = ">=3.0" },
     { name = "nanoid", specifier = ">=2.0.0" },
@@ -772,7 +773,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.27" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
