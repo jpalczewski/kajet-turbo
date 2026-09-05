@@ -399,9 +399,7 @@ class NoteChunkRepository(DbRepository):
         session.execute(  # ty: ignore[deprecated] - raw SQL
             text("DELETE FROM notes_fts WHERE note_id = :note_id"), params
         )
-        session.execute(  # ty: ignore[deprecated] - DELETE statement
-            delete(NoteChunk).where(col(NoteChunk.note_id) == note_id)
-        )
+        session.exec(delete(NoteChunk).where(col(NoteChunk.note_id) == note_id))
 
     _CHUNK_SELECT = (
         " c.note_id AS note_id, n.title AS title, n.folder AS folder, n.updated_at AS updated_at,"
@@ -621,7 +619,7 @@ class NoteChunkRepository(DbRepository):
             ),
             params,
         )
-        session.execute(  # ty: ignore[deprecated] - DELETE statement
+        session.exec(
             delete(NoteChunk).where(
                 col(NoteChunk.workspace) == workspace,
                 col(NoteChunk.owner_id) == owner_id,

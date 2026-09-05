@@ -42,7 +42,7 @@ class LinkReconcileRepository(DbRepository):
                         set_={"generation": LinkReconcileDirty.generation + 1},
                     )
                 )
-                session.execute(stmt)  # ty: ignore[deprecated] — sqlite upsert needs execute()
+                session.exec(stmt)
             job_id = self._jobs.enqueue_in_session(
                 session,
                 "reconcile_links",
@@ -92,7 +92,7 @@ class LinkReconcileRepository(DbRepository):
                     )
                     for source_note_id, generation in items[start : start + 400]
                 ]
-                session.execute(  # ty: ignore[deprecated] — exec() can't type DELETE
+                session.exec(
                     delete(LinkReconcileDirty).where(
                         col(LinkReconcileDirty.owner_id) == owner_id,
                         col(LinkReconcileDirty.workspace) == workspace,
@@ -104,13 +104,13 @@ class LinkReconcileRepository(DbRepository):
     def delete_for_workspace(self, owner_id: str, workspace: str) -> None:
         timing = self.timed_session()
         with timing as session:
-            result = session.execute(  # ty: ignore[deprecated] — exec() can't type DELETE
+            result = session.exec(
                 delete(LinkReconcileDirty).where(
                     col(LinkReconcileDirty.owner_id) == owner_id,
                     col(LinkReconcileDirty.workspace) == workspace,
                 )
             )
-            count = result.rowcount  # ty: ignore[unresolved-attribute] — Result carries rowcount at runtime
+            count = result.rowcount
             session.commit()
         self.log_operation(
             "delete_for_workspace",

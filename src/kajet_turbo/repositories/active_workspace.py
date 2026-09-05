@@ -60,7 +60,7 @@ class ActiveWorkspaceRepository(DbRepository):
             "delete_for_workspace", user_id=user_id, workspace=workspace
         ) as operation:
             session = operation.session
-            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+            session.exec(
                 delete(ActiveWorkspace).where(
                     col(ActiveWorkspace.user_id) == user_id,
                     col(ActiveWorkspace.workspace) == workspace,

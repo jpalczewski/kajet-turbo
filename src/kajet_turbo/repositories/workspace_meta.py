@@ -122,7 +122,7 @@ class WorkspaceMetaRepository(DbRepository):
     def delete(self, user_id: str, workspace: str) -> None:
         with self.operation("delete", user_id=user_id, workspace=workspace) as operation:
             session = operation.session
-            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+            session.exec(
                 delete(WorkspaceMeta).where(
                     col(WorkspaceMeta.user_id) == user_id,
                     col(WorkspaceMeta.workspace) == workspace,

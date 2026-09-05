@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from types import TracebackType
 from typing import ClassVar
 
-from sqlalchemy import Engine
+from sqlalchemy import CursorResult, Engine, Executable
 from sqlmodel import Session
 
 from kajet_turbo.log import logger
@@ -114,6 +114,20 @@ class DbRepository:
 
     def timed_session(self) -> TimedSession:
         return TimedSession(self._engine)
+
+    @staticmethod
+    def _raw_execute(
+        session: Session, stmt: Executable, params: dict[str, object] | None = None
+    ) -> CursorResult:
+        """session.exec() can't type a text() statement; centralizes the fallback.
+
+        Static, not bound to a live repository, so the ``_in_session`` staticmethods that
+        take ``session`` as an explicit parameter can call it the same way instance methods
+        do.
+        """
+        result = session.execute(stmt, params)  # ty: ignore[deprecated] - raw SQL
+        assert isinstance(result, CursorResult)
+        return result
 
     def log_operation(
         self, action: str, db_ms: float, *, outcome: str = "success", **fields: object

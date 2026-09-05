@@ -28,7 +28,7 @@ class WorkspaceRepository(DbRepository):
     def revoke_access(self, user_id: str, workspace: str) -> None:
         with self.operation("revoke_access", user_id=user_id, workspace=workspace) as operation:
             session = operation.session
-            session.execute(  # ty: ignore[deprecated] - exec() can't type a DELETE statement
+            session.exec(
                 delete(WorkspaceAccess).where(
                     col(WorkspaceAccess.user_id) == user_id,
                     col(WorkspaceAccess.workspace) == workspace,
