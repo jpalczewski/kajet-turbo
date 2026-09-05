@@ -38,7 +38,6 @@ from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.m
 
 class Database:
     def __init__(self, db_path: str | None = None, *, skip_migrations: bool = False):
-        self.embedding_dim = int(os.getenv("EMBEDDING_DIM", "1536"))
         self.db_path = db_path or os.getenv("DB_PATH", "/data/kajet.db")
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._skip_migrations = skip_migrations
