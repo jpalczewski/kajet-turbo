@@ -12,6 +12,7 @@ where a cross-process nudge would later replace polling; the saturated wait is
 already event-driven — it wakes as soon as a slot frees rather than on a fixed
 tick, so sustained throughput is bounded by claim/handler cost, not poll_interval."""
 
+import contextvars
 import json
 import os
 import signal
@@ -136,7 +137,13 @@ def run_worker(
                 if job is None:
                     nothing_runnable = True
                     break
-                inflight.add(pool.submit(run_job, repo, job, registry))
+                # concurrent.futures does not itself copy the submitting thread's
+                # contextvars into the pool thread (unlike anyio/asyncio); a handler
+                # that opens a GitRepository relies on _CURRENT_HOOKS (repositories/git.py)
+                # to fire auto-push, so the job must run inside the caller's context.
+                inflight.add(
+                    pool.submit(contextvars.copy_context().run, run_job, repo, job, registry)
+                )
             if nothing_runnable and not inflight:
                 stop_event.wait(poll_interval)
             else:

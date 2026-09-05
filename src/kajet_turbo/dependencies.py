@@ -141,22 +141,19 @@ class AppResources:
     _closed: bool = False
 
     async def aclose(self) -> None:
-        """Release every closable resource once; DB cleanup still runs after client failure."""
+        """Release every closable resource once; DB cleanup still runs after client failure.
+
+        A `finally` (not a second try/except) so a `db.close()` failure after the embed
+        client also failed isn't silently dropped — it chains onto the first via
+        `__context__` instead of disappearing.
+        """
         if self._closed:
             return
         self._closed = True
-        error: BaseException | None = None
         try:
             await self.shared_embed_client.aclose()
-        except BaseException as exc:
-            error = exc
-        try:
+        finally:
             self.db.close()
-        except BaseException as exc:
-            if error is None:
-                error = exc
-        if error is not None:
-            raise error
 
 
 def _probe_dim(base_url: str, model: str, api_key: str | None) -> int:

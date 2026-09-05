@@ -608,7 +608,6 @@ async def test_resolve_user_id_refuses_an_expired_bearer_token(monkeypatch):
 def test_logging_middleware_uses_opaque_id_for_session_and_bearer(capsys, monkeypatch):
     from starlette.testclient import TestClient
 
-
     class SessionRepo:
         def get_user(self, token):
             assert token == "session-token"
@@ -643,7 +642,6 @@ def test_logging_middleware_uses_opaque_id_for_session_and_bearer(capsys, monkey
 
 def test_logging_middleware_ignores_identity_lookup_failure(capsys, monkeypatch):
     from starlette.testclient import TestClient
-
 
     class SessionRepo:
         def get_user(self, token):

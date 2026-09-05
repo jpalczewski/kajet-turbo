@@ -15,7 +15,7 @@ from kajet_turbo.mcp.context import (
     current_mcp_dependencies,
     use_mcp_context,
 )
-from kajet_turbo.repositories.git import GitError
+from kajet_turbo.repositories.git import GitError, use_post_commit_hooks
 
 
 def read_tool(*, tags: set[str] | None = None) -> dict[str, Any]:
@@ -80,7 +80,10 @@ class ServiceErrorMiddleware(Middleware):
         try:
             if self._dependencies is None:
                 return await call_next(context)
-            with use_mcp_context(self._dependencies):
+            with (
+                use_mcp_context(self._dependencies),
+                use_post_commit_hooks(self._dependencies.post_commit_hooks),
+            ):
                 return await call_next(context)
         except ToolError as e:
             # A ToolError raised on purpose has __cause__ is None. One fastmcp wraps

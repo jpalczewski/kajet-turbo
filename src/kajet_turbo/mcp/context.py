@@ -14,6 +14,7 @@ from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logger
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.events import EventRepository
+from kajet_turbo.repositories.git import PostCommitHooks
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -39,6 +40,7 @@ class McpDependencies:
     oauth_repo: OAuthRepository
     active_workspace_repo: ActiveWorkspaceRepository
     event_repo: EventRepository
+    post_commit_hooks: PostCommitHooks
 
 
 _current_dependencies: ContextVar[McpDependencies | None] = ContextVar(
@@ -52,8 +54,11 @@ def build_mcp_context(
     oauth_repo: OAuthRepository,
     active_workspace_repo: ActiveWorkspaceRepository,
     event_repo: EventRepository,
+    post_commit_hooks: PostCommitHooks,
 ) -> McpDependencies:
-    return McpDependencies(workspace_service, oauth_repo, active_workspace_repo, event_repo)
+    return McpDependencies(
+        workspace_service, oauth_repo, active_workspace_repo, event_repo, post_commit_hooks
+    )
 
 
 @contextmanager

@@ -114,6 +114,10 @@ async def _worker_lifespan(app: FastAPI):
         yield
     finally:
         stop.set()
+        # Unconditional: run_worker's ThreadPoolExecutor already drains in-flight jobs
+        # before returning, so a timed join would gain nothing but let _app_lifespan
+        # close the engine under a still-running job (see push_handler/git_push, whose
+        # unbounded SSH push is the actual hang risk — bound that, not this join).
         thread.join()
 
 
@@ -251,8 +255,12 @@ def build_mcp_app(config: AppConfig | None = None) -> Any:
 def build_api_app(config: AppConfig | None = None) -> Any:
     """API role: REST /api + SPA. Stateless — scales to any worker count."""
     resources = _assemble(config)
-    app = FastAPI(lifespan=combine_lifespans(_app_lifespan, _logging_lifespan))
-    app.state.resources = resources
+    try:
+        app = FastAPI(lifespan=combine_lifespans(_app_lifespan, _logging_lifespan))
+        app.state.resources = resources
+    except BaseException:
+        resources.db.close()
+        raise
     app.add_exception_handler(HTTPException, _http_exception_handler)  # ty: ignore[invalid-argument-type] — FastAPI accepts narrower exc type at runtime
     app.add_middleware(LoggingMiddleware, resources=resources)
     app.add_middleware(_ResourceHookScope, resources=resources)
@@ -322,57 +330,58 @@ def _cmd_purge_tech_users() -> None:
     from kajet_turbo.db import Database
 
     database = Database()
-    engine = database.engine
-    pattern = f"%{_TECH_USER_DOMAIN}"
+    try:
+        engine = database.engine
+        pattern = f"%{_TECH_USER_DOMAIN}"
 
-    # Must delete child rows first — FKs have no CASCADE.
-    child_tables = [
-        "sessions",
-        "client_authorizations",
-        "active_workspaces",
-        "workspace_access",
-        "workspace_meta",
-        "embedding_profiles",
-        "workspace_remotes",
-        "ssh_keys",
-        "jobs",
-    ]
-    with engine.connect() as conn:
-        ids = [
-            row[0]
-            for row in conn.execute(
-                text("SELECT id FROM users WHERE email LIKE :p"), {"p": pattern}
-            ).fetchall()
+        # Must delete child rows first — FKs have no CASCADE.
+        child_tables = [
+            "sessions",
+            "client_authorizations",
+            "active_workspaces",
+            "workspace_access",
+            "workspace_meta",
+            "embedding_profiles",
+            "workspace_remotes",
+            "ssh_keys",
+            "jobs",
         ]
-        if not ids:
-            print("No technical users found.")
-            return
-        placeholders = ", ".join(f":id{i}" for i in range(len(ids)))
-        params = {f"id{i}": uid for i, uid in enumerate(ids)}
-        for table in child_tables:
+        with engine.connect() as conn:
+            ids = [
+                row[0]
+                for row in conn.execute(
+                    text("SELECT id FROM users WHERE email LIKE :p"), {"p": pattern}
+                ).fetchall()
+            ]
+            if not ids:
+                print("No technical users found.")
+                return
+            placeholders = ", ".join(f":id{i}" for i in range(len(ids)))
+            params = {f"id{i}": uid for i, uid in enumerate(ids)}
+            for table in child_tables:
+                conn.execute(
+                    text(f"DELETE FROM {table} WHERE user_id IN ({placeholders})"),
+                    params,
+                )
             conn.execute(
-                text(f"DELETE FROM {table} WHERE user_id IN ({placeholders})"),
+                text(f"DELETE FROM users WHERE id IN ({placeholders})"),
                 params,
             )
-        conn.execute(
-            text(f"DELETE FROM users WHERE id IN ({placeholders})"),
-            params,
-        )
-        conn.commit()
+            conn.commit()
 
-    import shutil
+        import shutil
 
-    from kajet_turbo.workspace import WORKSPACES_DIR
+        from kajet_turbo.workspace import WORKSPACES_DIR
 
-    ws_base = Path(WORKSPACES_DIR)
-    removed_dirs: list[str] = []
-    for uid in ids:
-        user_dir = ws_base / uid
-        if user_dir.is_dir():
-            shutil.rmtree(user_dir)
-            removed_dirs.append(str(user_dir))
-
-    database.close()
+        ws_base = Path(WORKSPACES_DIR)
+        removed_dirs: list[str] = []
+        for uid in ids:
+            user_dir = ws_base / uid
+            if user_dir.is_dir():
+                shutil.rmtree(user_dir)
+                removed_dirs.append(str(user_dir))
+    finally:
+        database.close()
     print(f"Purged {len(ids)} technical user(s): {', '.join(ids)}")
     if removed_dirs:
         print(f"Removed workspace dirs: {', '.join(removed_dirs)}")

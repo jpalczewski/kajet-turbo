@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
 from key_value.aio.stores.memory import MemoryStore
@@ -100,40 +99,16 @@ the fresh sha. There is no confirm flag; git history (restore_note_version) is t
 """
 
 
-def build_mcp(resources: AppResources | Any, *legacy: object) -> FastMCP:
-    """Build MCP from one application graph.
-
-    The compatibility branch keeps isolated unit fixtures working while they move to
-    AppResources; production callers must pass a single resource graph.
-    """
-    if legacy:
-        note_service = resources
-        (
-            workspace_service,
-            folder_meta_repo,
-            oauth_repo,
-            active_workspace_repo,
-            provider,
-            collection_service,
-        ) = cast(tuple[Any, Any, Any, Any, Any, Any], legacy)
-        from kajet_turbo.repositories.events import EventRepository
-
-        resources = SimpleNamespace(
-            note_service=note_service,
-            workspace_service=workspace_service,
-            folder_meta_repo=folder_meta_repo,
-            oauth_repo=oauth_repo,
-            active_workspace_repo=active_workspace_repo,
-            provider=provider,
-            collection_service=collection_service,
-            event_repo=EventRepository(oauth_repo._engine),
-        )
+def build_mcp(resources: AppResources) -> FastMCP:
+    """Build MCP from one application graph. The single registration site (see
+    src/kajet_turbo/mcp/CLAUDE.md) — callers pass one AppResources, real or test-built."""
     state_store = MemoryStore()
     context = build_mcp_context(
         resources.workspace_service,
         resources.oauth_repo,
         resources.active_workspace_repo,
         resources.event_repo,
+        resources.post_commit_hooks,
     )
     mcp = FastMCP(
         "kajet-turbo",
