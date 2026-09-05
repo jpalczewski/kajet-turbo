@@ -24,9 +24,9 @@ from kajet_turbo.repositories import DbRepository
 
 # vec0 reads a whole block per query regardless of how many of its slots are live, so the
 # block size is the unit of wasted I/O. At 1024 (the vec0 default) a 3072-dim block is
-# 12 MiB and a workspace holding 13 vectors cost as much to scan as one holding 1024 —
-# measured 132 MiB allocated for 33 MiB of live vectors. 64 keeps the tail workspaces
-# proportional without fragmenting the large ones (#37).
+# 12 MiB, so a workspace holding 26 vectors costs as much to scan as one holding 1024 —
+# 120 MiB allocated for 42 MiB of live vectors, measured on production 2026-09-05. 64 keeps
+# the tail workspaces proportional without fragmenting the large ones (#37).
 VEC_CHUNK_SIZE = 64
 
 

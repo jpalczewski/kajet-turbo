@@ -26,6 +26,7 @@ Create Date: 2026-09-05 12:41:07.930212
 """
 
 import hashlib
+import logging
 import re
 from collections.abc import Callable, Sequence
 
@@ -43,6 +44,10 @@ CHUNK_SIZE = 64
 IDENTITY_KEY_CHARS = 16
 
 _VEC_TABLE = re.compile(r"^note_chunks_vec_(\d+)$")
+
+# Alembic's own logger, so a dropped-vector warning lands in the migration output the
+# operator is already reading rather than on a bare stdout nobody looks at.
+log = logging.getLogger("alembic.runtime.migration")
 
 _OLD_COLUMNS = "chunk_rowid, embedding, workspace, owner_id, note_id, chunk_id"
 _NEW_COLUMNS = "chunk_rowid, embedding, workspace, identity, owner_id, note_id, chunk_id"
@@ -132,7 +137,11 @@ def upgrade() -> None:
                 f"SELECT COUNT(*) FROM {temp} WHERE identity = ''"
             ).scalar()
             if orphans:
-                print(f"{table}: dropping {orphans} vector(s) with no resolvable identity")
+                log.warning(
+                    "%s: dropping %d vector(s) with no resolvable index identity",
+                    table,
+                    orphans,
+                )
                 conn.exec_driver_sql(f"DELETE FROM {temp} WHERE identity = ''")
 
         _rebuild(
