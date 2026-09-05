@@ -76,7 +76,7 @@ def _handler(database, *, cfg=None, embedder=None):
 def _stale_note(database) -> NoteChunkRepository:
     _note(database)
     repo = NoteChunkRepository(database.engine)
-    repo.replace_chunks("n1", "ws", "u1", "T", _chunks(), embeddings=None, dim=None)
+    repo.replace_chunks("n1", "ws", "u1", "T", _chunks(), embeddings=None, identity=None)
     return repo
 
 
@@ -155,7 +155,7 @@ def test_handler_superseded_by_concurrent_edit_completes_without_meta(database):
             new = [
                 Chunk(ordinal=0, header_path=["# T"], content="edited", char_start=0, char_end=6)
             ]
-            repo.replace_chunks("n1", "ws", "u1", "T", new, embeddings=None, dim=None)
+            repo.replace_chunks("n1", "ws", "u1", "T", new, embeddings=None, identity=None)
             return await super().embed_documents(texts)
 
     handler, repo2, _cache, _emb = _handler(database, cfg=_cfg(), embedder=_Racer())

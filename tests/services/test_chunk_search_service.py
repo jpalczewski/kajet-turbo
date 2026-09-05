@@ -1,5 +1,6 @@
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
+from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
@@ -86,7 +87,12 @@ def test_search_survives_backend_switch_with_no_vectors_at_new_dim(database, git
     svc.save("u1", "ws", str(ws), "T", "# T\n\nalpha\n", tags=[])
 
     state["cfg"] = EmbedderConfig(
-        backend_id="b2", type="openai", model="m", dim=3, base_url="http://x", api_key="k"
+        backend_id="b2",
+        type="openai",
+        model="m",
+        dim=3,
+        base_url="http://x",
+        api_key="k",
     )
     hits = svc.search("alpha", ["ws"], owner_id="u1")
     assert len(hits) == 1
@@ -169,7 +175,12 @@ def test_search_reflects_deferred_embed_once_attached(database, git_workspace_fa
             return [1.0, 0.0, 0.0]
 
     cfg = EmbedderConfig(
-        backend_id="b", type="openai", model="m", dim=3, base_url="http://x", api_key="k"
+        backend_id="b",
+        type="openai",
+        model="m",
+        dim=3,
+        base_url="http://x",
+        api_key="k",
     )
     svc = build_note_service(
         database,
@@ -185,10 +196,13 @@ def test_search_reflects_deferred_embed_once_attached(database, git_workspace_fa
     # (no-vectors-yet) vector search can find it.
     assert svc.search("banana", ["ws"], owner_id="u1") == []
 
-    chunk_repo.ensure_vec_table(3)
+    # The deferred attach must use the SAME identity the search resolves from cfg —
+    # a vector written under another identity is in a partition search never scans.
+    identity = IndexIdentity.from_config(cfg)
+    chunk_repo.ensure_vec_table(identity)
     rows = chunk_repo.get_chunks(res["note_id"])
     applied = chunk_repo.attach_vectors(
-        res["note_id"], "ws", "u1", 3, {r["id"]: [1.0, 0.0, 0.0] for r in rows}
+        res["note_id"], "ws", "u1", identity, {r["id"]: [1.0, 0.0, 0.0] for r in rows}
     )
     assert applied is True
 
@@ -221,7 +235,12 @@ def _async_service(database, chunk_repo=None, *, query_cache=None):
         jobs=JobRepository(database.engine),
     )
     cfg = EmbedderConfig(
-        backend_id="b", type="openai", model="m", dim=3, base_url="http://x", api_key="k"
+        backend_id="b",
+        type="openai",
+        model="m",
+        dim=3,
+        base_url="http://x",
+        api_key="k",
     )
     emb = _AsyncCountingEmbedder()
 

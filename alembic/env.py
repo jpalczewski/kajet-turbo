@@ -48,6 +48,12 @@ def run_migrations_online() -> None:
         dbapi_conn.enable_load_extension(True)
         sqlite_vec.load(dbapi_conn)
         dbapi_conn.enable_load_extension(False)
+        # Every container runs `upgrade head` on start, so they race for the write lock.
+        # SQLite's default is to fail immediately; a migration that rebuilds a table (the
+        # vec0 rebuild takes seconds on a real corpus) would then crash-loop the containers
+        # that lost the race instead of letting them wait it out. Migrations are startup
+        # work, never a hot path, so a generous timeout costs nothing.
+        dbapi_conn.execute("PRAGMA busy_timeout=120000")
 
     with connectable.connect() as connection:
         context.configure(

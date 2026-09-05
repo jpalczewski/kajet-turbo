@@ -7,6 +7,7 @@ from sqlmodel import Session
 from kajet_turbo.markdown import Chunk
 from kajet_turbo.models import Note
 from kajet_turbo.repositories.notes import NoteChunkRepository
+from tests.helpers import vec_identity
 
 
 def _note(database, note_id="n1", ws="ws", owner="u1"):
@@ -36,7 +37,7 @@ def _chunks():
 def test_replace_chunks_without_embeddings_marks_stale(database):
     _note(database)
     repo = NoteChunkRepository(database.engine)
-    repo.replace_chunks("n1", "ws", "u1", "T", _chunks(), embeddings=None, dim=None)
+    repo.replace_chunks("n1", "ws", "u1", "T", _chunks(), embeddings=None, identity=None)
     rows = repo.get_chunks("n1")
     assert [r["ordinal"] for r in rows] == [0, 1]
     assert rows[0]["content"] == "alpha body"
@@ -50,9 +51,15 @@ def test_replace_chunks_without_embeddings_marks_stale(database):
 def test_replace_chunks_with_embeddings_writes_vectors_and_marks_indexed(database):
     _note(database)
     repo = NoteChunkRepository(database.engine)
-    repo.ensure_vec_table(2)
+    repo.ensure_vec_table(vec_identity(2))
     repo.replace_chunks(
-        "n1", "ws", "u1", "T", _chunks(), embeddings=[[0.1, 0.2], [0.3, 0.4]], dim=2
+        "n1",
+        "ws",
+        "u1",
+        "T",
+        _chunks(),
+        embeddings=[[0.1, 0.2], [0.3, 0.4]],
+        identity=vec_identity(2),
     )
     with Session(database.engine) as session:
         note = session.get(Note, "n1")
@@ -69,9 +76,15 @@ def test_replace_chunks_with_embeddings_writes_vectors_and_marks_indexed(databas
 def test_replace_chunks_replaces_previous(database):
     _note(database)
     repo = NoteChunkRepository(database.engine)
-    repo.ensure_vec_table(2)
+    repo.ensure_vec_table(vec_identity(2))
     repo.replace_chunks(
-        "n1", "ws", "u1", "T", _chunks(), embeddings=[[0.1, 0.2], [0.3, 0.4]], dim=2
+        "n1",
+        "ws",
+        "u1",
+        "T",
+        _chunks(),
+        embeddings=[[0.1, 0.2], [0.3, 0.4]],
+        identity=vec_identity(2),
     )
     repo.replace_chunks(
         "n1",
@@ -80,7 +93,7 @@ def test_replace_chunks_replaces_previous(database):
         "T",
         [Chunk(ordinal=0, header_path=["# T"], content="only", char_start=0, char_end=4)],
         embeddings=[[0.9, 0.9]],
-        dim=2,
+        identity=vec_identity(2),
     )
     rows = repo.get_chunks("n1")
     assert len(rows) == 1 and rows[0]["content"] == "only"
@@ -94,11 +107,17 @@ def test_replace_chunks_replaces_previous(database):
 def test_replace_chunks_empty_clears(database):
     _note(database)
     repo = NoteChunkRepository(database.engine)
-    repo.ensure_vec_table(2)
+    repo.ensure_vec_table(vec_identity(2))
     repo.replace_chunks(
-        "n1", "ws", "u1", "T", _chunks(), embeddings=[[0.1, 0.2], [0.3, 0.4]], dim=2
+        "n1",
+        "ws",
+        "u1",
+        "T",
+        _chunks(),
+        embeddings=[[0.1, 0.2], [0.3, 0.4]],
+        identity=vec_identity(2),
     )
-    repo.replace_chunks("n1", "ws", "u1", "T", [], embeddings=None, dim=None)
+    repo.replace_chunks("n1", "ws", "u1", "T", [], embeddings=None, identity=None)
     assert repo.get_chunks("n1") == []
     with Session(database.engine) as session:
         vec_count = session.execute(  # ty: ignore[deprecated] - raw SQL
@@ -119,7 +138,7 @@ def test_replace_chunks_skips_superseded_revision(database):
         "T",
         original,
         embeddings=None,
-        dim=None,
+        identity=None,
         expected_generation=1,
     )
     with Session(database.engine) as session:
@@ -136,7 +155,7 @@ def test_replace_chunks_skips_superseded_revision(database):
         "T",
         stale,
         embeddings=None,
-        dim=None,
+        identity=None,
         expected_generation=1,
     )
 
@@ -161,7 +180,7 @@ def test_metadata_only_update_does_not_supersede_content_index(database):
         "T",
         [Chunk(ordinal=0, header_path=[], content="current", char_start=0, char_end=7)],
         embeddings=None,
-        dim=None,
+        identity=None,
         expected_generation=1,
     )
 
@@ -172,9 +191,11 @@ def test_metadata_only_update_does_not_supersede_content_index(database):
 def test_replace_chunks_embedding_count_must_match(database):
     _note(database)
     repo = NoteChunkRepository(database.engine)
-    repo.ensure_vec_table(2)
+    repo.ensure_vec_table(vec_identity(2))
     with pytest.raises(ValueError):
-        repo.replace_chunks("n1", "ws", "u1", "T", _chunks(), embeddings=[[0.1, 0.2]], dim=2)
+        repo.replace_chunks(
+            "n1", "ws", "u1", "T", _chunks(), embeddings=[[0.1, 0.2]], identity=vec_identity(2)
+        )
 
 
 def test_replace_chunks_in_session_on_superseded_leaves_caller_session_usable(database):
@@ -185,7 +206,7 @@ def test_replace_chunks_in_session_on_superseded_leaves_caller_session_usable(da
     _note(database, note_id="n2")
     repo = NoteChunkRepository(database.engine)
     original = [Chunk(ordinal=0, header_path=[], content="current", char_start=0, char_end=7)]
-    repo.replace_chunks("n1", "ws", "u1", "T", original, embeddings=None, dim=None)
+    repo.replace_chunks("n1", "ws", "u1", "T", original, embeddings=None, identity=None)
     with Session(database.engine) as session:
         note = session.get(Note, "n1")
         assert note is not None
