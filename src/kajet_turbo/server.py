@@ -1,7 +1,7 @@
 import os
 import re
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -232,21 +232,33 @@ def _assemble(config: AppConfig | None) -> AppResources:
     return build_resources(config or AppConfig.from_env())
 
 
+@contextmanager
+def _assembling(resources: AppResources):
+    """Close resources.db if anything raises while building the ASGI app around it."""
+    try:
+        yield
+    except BaseException:
+        resources.db.close()
+        raise
+
+
+def _wire(app: FastAPI, resources: AppResources) -> None:
+    """Shared per-role wiring: bind resources, logging/hook middleware, health routes."""
+    app.state.resources = resources
+    app.add_middleware(LoggingMiddleware, resources=resources)
+    app.add_middleware(_ResourceHookScope, resources=resources)
+    add_health_routes(app, engine=resources.db.engine)
+
+
 def build_mcp_app(config: AppConfig | None = None) -> Any:
     """MCP role: /mcp + OAuth routes only. Stateful — must run single-process."""
     resources = _assemble(config)
-    try:
+    with _assembling(resources):
         mcp_app = _new_mcp_app(resources)
         app = FastAPI(
             lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan, _logging_lifespan)
         )
-        app.state.resources = resources
-    except BaseException:
-        resources.db.close()
-        raise
-    app.add_middleware(LoggingMiddleware, resources=resources)
-    app.add_middleware(_ResourceHookScope, resources=resources)
-    add_health_routes(app, engine=resources.db.engine)
+    _wire(app, resources)
     app.mount("/mcp", mcp_app)
     _add_oauth_routes(app, resources)
     return _MCPPathFix(app)
@@ -255,16 +267,10 @@ def build_mcp_app(config: AppConfig | None = None) -> Any:
 def build_api_app(config: AppConfig | None = None) -> Any:
     """API role: REST /api + SPA. Stateless — scales to any worker count."""
     resources = _assemble(config)
-    try:
+    with _assembling(resources):
         app = FastAPI(lifespan=combine_lifespans(_app_lifespan, _logging_lifespan))
-        app.state.resources = resources
-    except BaseException:
-        resources.db.close()
-        raise
     app.add_exception_handler(HTTPException, _http_exception_handler)  # ty: ignore[invalid-argument-type] — FastAPI accepts narrower exc type at runtime
-    app.add_middleware(LoggingMiddleware, resources=resources)
-    app.add_middleware(_ResourceHookScope, resources=resources)
-    add_health_routes(app, engine=resources.db.engine)
+    _wire(app, resources)
     app.include_router(api_router)
     _mount_spa(app, resources)
     return app
@@ -273,7 +279,7 @@ def build_api_app(config: AppConfig | None = None) -> Any:
 def build_app(config: AppConfig | None = None) -> Any:
     """Combined role ("all"): MCP + API + SPA in one process (local dev)."""
     resources = _assemble(config)
-    try:
+    with _assembling(resources):
         mcp_app = _new_mcp_app(resources)
         app = FastAPI(
             lifespan=combine_lifespans(
@@ -284,14 +290,8 @@ def build_app(config: AppConfig | None = None) -> Any:
                 _worker_lifespan,
             )
         )
-        app.state.resources = resources
-    except BaseException:
-        resources.db.close()
-        raise
     app.add_exception_handler(HTTPException, _http_exception_handler)  # ty: ignore[invalid-argument-type] — FastAPI accepts narrower exc type at runtime
-    app.add_middleware(LoggingMiddleware, resources=resources)
-    app.add_middleware(_ResourceHookScope, resources=resources)
-    add_health_routes(app, engine=resources.db.engine)
+    _wire(app, resources)
     app.include_router(api_router)
     app.mount("/mcp", mcp_app)
     _add_oauth_routes(app, resources)
