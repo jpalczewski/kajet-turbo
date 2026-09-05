@@ -5,11 +5,15 @@ from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
-from .crud import build_crud
 from .folders import build_folders
 from .graph import build_graph
 from .history import build_history
+from .maintenance import build_maintenance
+from .read import build_read
+from .search import build_search
 from .tags import build_tags
+from .temporal import build_temporal
+from .write import build_write
 
 
 def build_notes(
@@ -20,15 +24,11 @@ def build_notes(
     state_store=None,
 ) -> FastMCP:
     srv = FastMCP("notes", session_state_store=state_store)
-    srv.mount(
-        build_crud(
-            note_service,
-            workspace_service,
-            folder_meta_repo,
-            collection_service,
-            state_store=state_store,
-        )
-    )
+    srv.mount(build_write(note_service, state_store=state_store))
+    srv.mount(build_read(note_service, folder_meta_repo, state_store=state_store))
+    srv.mount(build_search(note_service, workspace_service, state_store=state_store))
+    srv.mount(build_temporal(note_service, collection_service, state_store=state_store))
+    srv.mount(build_maintenance(note_service, state_store=state_store))
     srv.mount(
         build_folders(note_service, workspace_service, folder_meta_repo, state_store=state_store)
     )
