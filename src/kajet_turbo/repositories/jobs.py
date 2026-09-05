@@ -7,12 +7,17 @@ import time
 from dataclasses import dataclass
 
 from nanoid import generate
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, col, select
 
 from kajet_turbo.models import Job
 from kajet_turbo.repositories import DbRepository
+
+# Lower claims first (nice-like convention). Every enqueue site defaults to
+# PRIORITY_DEFAULT unless it opts into PRIORITY_BULK — see #151.
+PRIORITY_DEFAULT = 0
+PRIORITY_BULK = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,12 +34,12 @@ def backoff_seconds(attempts: int, base: float = 2.0, cap: float = 300.0) -> flo
     return min(cap, base * (2 ** (attempts - 1)))
 
 
-# One atomic statement: pick the single most-overdue runnable row and lock it.
-# Eligible = a pending job whose time has come, OR a running job whose worker died
-# (locked_at older than the stale cutoff). SQLite serializes the write, so two
-# workers never claim the same row. Additionally, a job is skipped while another
-# RUNNING job shares its (non-NULL) dedup_key — this serializes same-key work (e.g.
-# one push per workspace at a time) and coalesces a burst into one follow-up.
+# One atomic statement: pick the single most-overdue runnable row, within the highest
+# priority lane, and lock it. Eligible = a pending job whose time has come, OR a running
+# job whose worker died (locked_at older than the stale cutoff). SQLite serializes the
+# write, so two workers never claim the same row. Additionally, a job is skipped while
+# another RUNNING job shares its (non-NULL) dedup_key — this serializes same-key work
+# (e.g. one push per workspace at a time) and coalesces a burst into one follow-up.
 _CLAIM_SQL = text(
     """
     UPDATE jobs
@@ -52,7 +57,7 @@ _CLAIM_SQL = text(
               AND r.dedup_key = j.dedup_key
               AND r.id <> j.id
         )
-        ORDER BY j.next_run_at
+        ORDER BY j.priority, j.next_run_at
         LIMIT 1
     )
     RETURNING *
@@ -73,6 +78,7 @@ class JobRepository(DbRepository):
         user_id: str | None = None,
         max_attempts: int = 5,
         delay: float = 0.0,
+        priority: int = PRIORITY_DEFAULT,
         now: float | None = None,
     ) -> str:
         """Enqueue without committing, for callers that atomically persist related state."""
@@ -92,6 +98,7 @@ class JobRepository(DbRepository):
                     attempts=0,
                     max_attempts=max_attempts,
                     next_run_at=run_at,
+                    priority=priority,
                     created_at=now,
                     updated_at=now,
                 )
@@ -100,7 +107,9 @@ class JobRepository(DbRepository):
 
         # Debounce: one pending job per (kind, dedup_key). On conflict with the
         # partial unique index, re-arm the existing pending row instead of
-        # inserting a duplicate.
+        # inserting a duplicate. The priority never regresses on conflict — a more
+        # urgent duplicate enqueue (e.g. a manual reindex re-arming a pending bulk
+        # row) wins, but a bulk re-enqueue never demotes an already-urgent row.
         stmt = (
             sqlite_insert(Job)
             .values(
@@ -113,13 +122,18 @@ class JobRepository(DbRepository):
                 attempts=0,
                 max_attempts=max_attempts,
                 next_run_at=run_at,
+                priority=priority,
                 created_at=now,
                 updated_at=now,
             )
             .on_conflict_do_update(
                 index_elements=[Job.kind, Job.dedup_key],  # ty: ignore[invalid-argument-type] — SQLAlchemy column descriptors satisfy DDLConstraintColumnRole at runtime; ty infers str|None from the model field annotation
                 index_where=(Job.status == "pending"),  # ty: ignore[invalid-argument-type] — ColumnElement.__eq__ returns ColumnElement[bool], not bool; ty loses the overload
-                set_={"next_run_at": run_at, "updated_at": now},
+                set_={
+                    "next_run_at": run_at,
+                    "priority": func.min(Job.priority, priority),
+                    "updated_at": now,
+                },
             )
         )
         session.execute(stmt)  # ty: ignore[deprecated] — sqlite INSERT ON CONFLICT requires execute(), not exec()
@@ -140,6 +154,7 @@ class JobRepository(DbRepository):
         user_id: str | None = None,
         max_attempts: int = 5,
         delay: float = 0.0,
+        priority: int = PRIORITY_DEFAULT,
         now: float | None = None,
     ) -> str:
         with self.operation(
@@ -154,6 +169,7 @@ class JobRepository(DbRepository):
                 user_id=user_id,
                 max_attempts=max_attempts,
                 delay=delay,
+                priority=priority,
                 now=now,
             )
             session.commit()
@@ -168,6 +184,7 @@ class JobRepository(DbRepository):
         *,
         max_attempts: int = 5,
         delay: float = 0.0,
+        priority: int = PRIORITY_DEFAULT,
         now: float | None = None,
     ) -> list[str]:
         """Enqueue N same-kind jobs without committing, one INSERT/upsert per entry, so a
@@ -183,6 +200,7 @@ class JobRepository(DbRepository):
                 user_id=entry.user_id,
                 max_attempts=max_attempts,
                 delay=delay,
+                priority=priority,
                 now=now,
             )
             for entry in entries
@@ -195,12 +213,19 @@ class JobRepository(DbRepository):
         *,
         max_attempts: int = 5,
         delay: float = 0.0,
+        priority: int = PRIORITY_DEFAULT,
         now: float | None = None,
     ) -> list[str]:
         with self.operation("enqueue_many", kind=kind, count=len(entries)) as operation:
             session = operation.session
             job_ids = self.enqueue_many_in_session(
-                session, kind, entries, max_attempts=max_attempts, delay=delay, now=now
+                session,
+                kind,
+                entries,
+                max_attempts=max_attempts,
+                delay=delay,
+                priority=priority,
+                now=now,
             )
             session.commit()
             operation.report_count(len(job_ids))
@@ -223,7 +248,9 @@ class JobRepository(DbRepository):
             job = Job(**row._mapping)
             operation.outcome = "claimed"
             queue_wait_ms = round(max(0.0, now - job.next_run_at) * 1000)
-            operation.add_fields(job_id=job.id, kind=job.kind, queue_wait_ms=queue_wait_ms)
+            operation.add_fields(
+                job_id=job.id, kind=job.kind, priority=job.priority, queue_wait_ms=queue_wait_ms
+            )
             return job
 
     def complete(self, job_id: str, *, now: float | None = None) -> None:

@@ -367,7 +367,9 @@ class Job(SQLModel, table=True):
     run a handler by ``kind``, and retry with backoff on failure. A partial unique
     index collapses repeated enqueues of the same ``(kind, dedup_key)`` while one is
     still pending (debounce). Timestamps are epoch seconds (float) — the queue does
-    time math (backoff, staleness), not human display."""
+    time math (backoff, staleness), not human display. ``priority`` (lower claims
+    first) breaks the single FIFO into per-kind lanes — see
+    ``repositories.jobs.PRIORITY_DEFAULT``/``PRIORITY_BULK``."""
 
     __tablename__ = "jobs"
     __table_args__ = (
@@ -378,7 +380,7 @@ class Job(SQLModel, table=True):
             unique=True,
             sqlite_where=text("status = 'pending'"),
         ),
-        Index("ix_jobs_claim", "status", "next_run_at"),
+        Index("ix_jobs_claim", "status", "priority", "next_run_at"),
         Index("ix_jobs_user_id", "user_id"),
     )
 
@@ -391,6 +393,7 @@ class Job(SQLModel, table=True):
     attempts: int = Field(default=0)
     max_attempts: int = Field(default=5)
     next_run_at: float = Field(default=0.0)
+    priority: int = Field(default=0)
     locked_by: str | None = Field(default=None, sa_column=Column(Text))
     locked_at: float | None = Field(default=None)
     last_error: str | None = Field(default=None, sa_column=Column(Text))
