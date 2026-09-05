@@ -12,12 +12,17 @@ from kajet_turbo.api.schemas import (
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.api.workspaces.notes._views import enrich_note_items
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
-from kajet_turbo.errors import AuthError, FolderError, NoteError
+from kajet_turbo.dependencies import (
+    get_note_service,
+    get_required_user,
+    resolve_note_target,
+    resolve_workspace_target,
+)
+from kajet_turbo.errors import FolderError, NoteError
 from kajet_turbo.markdown import BrokenWikilinkError, EditSpec
 from kajet_turbo.repositories.git import GitError  # exception class, not errors.GitError StrEnum
 from kajet_turbo.services.notes import NoteService
-from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import InvalidFolderError, TemporalMetadataError, temporal_kwargs
 
 router = APIRouter(
@@ -35,22 +40,19 @@ router = APIRouter(
 def api_list_notes(
     name: str,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     note_service: NoteService = Depends(get_note_service),
     folder: str | None = None,
     tag: str | None = None,
     include_descendants: bool = True,
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-    ws_path = ws_service.workspace_path(user["id"], name)
     if tag is not None:
         notes = note_service.notes_by_tag(
             name, user["id"], tag, include_descendants=include_descendants
         )
     else:
-        notes = note_service.list_notes(name, owner_id=user["id"], folder=folder, limit=None)
-    return JSONResponse({"notes": enrich_note_items(ws_path, notes)})
+        notes = note_service.list_notes(workspace, folder=folder, limit=None)
+    return JSONResponse({"notes": enrich_note_items(str(workspace.path), notes)})
 
 
 @router.post(
@@ -63,11 +65,9 @@ async def api_create_note(
     name: str,
     request: Request,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
     try:
         body = await request.json()
     except Exception:
@@ -80,13 +80,10 @@ async def api_create_note(
     tags = body.get("tags", [])
     if not isinstance(tags, list):
         tags = []
-    ws_path = ws_service.workspace_path(user["id"], name)
     try:
         result = await run_sync(
             note_service.save,
-            user["id"],
-            name,
-            ws_path,
+            workspace,
             title,
             content,
             tags,
@@ -121,11 +118,9 @@ async def api_create_notes_batch(
     name: str,
     request: Request,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
     try:
         body = await request.json()
     except Exception:
@@ -133,9 +128,8 @@ async def api_create_notes_batch(
     notes = body.get("notes")
     if not isinstance(notes, list) or not notes:
         raise HTTPException(status_code=422, detail=NoteError.INVALID_INPUT)
-    ws_path = ws_service.workspace_path(user["id"], name)
     try:
-        results = await run_sync(note_service.save_many, user["id"], name, ws_path, notes)
+        results = await run_sync(note_service.save_many, workspace, notes)
     except GitError as e:
         raise HTTPException(
             status_code=500, detail={"error": str(NoteError.INVALID_INPUT), "detail": str(e)}
@@ -157,11 +151,9 @@ async def api_update_note(
     note_id: str,
     request: Request,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
     try:
         body = await request.json()
     except Exception:
@@ -171,14 +163,11 @@ async def api_update_note(
     tags = body.get("tags")
     folder = body.get("folder")
     expected_sha = body.get("expected_sha")
-    ws_path = ws_service.workspace_path(user["id"], name)
     temporal_args = temporal_kwargs(body.get("occurred_at"), body.get("period"))
     try:
         result = await run_sync(
             note_service.update,
-            note_id,
-            owner_id=user["id"],
-            ws_path=ws_path,
+            target,
             expected_sha=expected_sha,
             title=title,
             edit=EditSpec(content=content),
@@ -229,11 +218,9 @@ async def api_move_note(
     note_id: str,
     request: Request,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
     try:
         body = await request.json()
     except Exception:
@@ -241,14 +228,11 @@ async def api_move_note(
     folder = body.get("folder")
     if not isinstance(folder, str):
         raise HTTPException(status_code=422, detail=FolderError.PATH_REQUIRED)
-    ws_path = ws_service.workspace_path(user["id"], name)
     try:
         result = await run_sync(
             note_service.move,
-            note_id,
-            owner_id=user["id"],
-            ws_path=ws_path,
-            folder=folder,
+            target,
+            folder,
         )
     except InvalidFolderError:
         raise HTTPException(status_code=422, detail=FolderError.INVALID_FOLDER) from None
@@ -272,14 +256,11 @@ async def api_delete_note(
     name: str,
     note_id: str,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-    ws_path = ws_service.workspace_path(user["id"], name)
     try:
-        await run_sync(note_service.delete, note_id, owner_id=user["id"], ws_path=ws_path)
+        await run_sync(note_service.delete, target)
     except ValueError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
     except Exception as e:

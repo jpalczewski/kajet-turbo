@@ -1,11 +1,20 @@
+from __future__ import annotations
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from kajet_turbo.errors import TargetError
 from kajet_turbo.repositories.notes import NoteRepository
-from kajet_turbo.services.workspaces import WorkspaceService
+
+if TYPE_CHECKING:
+    # Deferred: services.workspaces imports services.notes (NoteService), which imports
+    # this module for the NoteTarget/WorkspaceTarget entry-point signatures -- a
+    # module-level import here would cycle back through that partially-initialized
+    # package. Type-only; TargetResolver never constructs a WorkspaceService itself.
+    from kajet_turbo.services.workspaces import WorkspaceService
 
 _MAX_BATCH = 50
 
@@ -28,8 +37,11 @@ class NoteTarget:
     workspace: WorkspaceTarget
 
 
-class _DenialReason(StrEnum):
-    """Internal-only -- never serialized to HTTP/ToolError, only to the audit log."""
+class DenialReason(StrEnum):
+    """Public so an adapter can name a denial reason it detects itself (e.g. the note/
+    URL-workspace mismatch a REST route checks, which the resolver never produces) --
+    but still never serialize a member's value into an HTTP body/ToolError, only into
+    the audit log via log_permission_denied."""
 
     MISSING_ROW = "missing_row"
     WRONG_OWNER = "wrong_owner"
@@ -47,14 +59,14 @@ class _ValidationReason(StrEnum):
     MIXED_WORKSPACES = "mixed_workspaces"
 
 
-type DenialOrValidationReason = _DenialReason | _ValidationReason
+type DenialOrValidationReason = DenialReason | _ValidationReason
 
 
 @dataclass(frozen=True, slots=True)
 class TargetFailure:
     index: int | None
     error: TargetError
-    # Private diagnostic -- callers branch on isinstance(reason, _DenialReason) to
+    # Private diagnostic -- callers branch on isinstance(reason, DenialReason) to
     # decide whether to emit a permission_denied audit record; never surface this
     # value itself in an HTTP body or ToolError message.
     reason: DenialOrValidationReason
@@ -79,7 +91,7 @@ class BatchTargetResolutionError(Exception):
 
 def is_denial(reason: DenialOrValidationReason) -> bool:
     """True when `reason` should be audited as a permission_denied event."""
-    return isinstance(reason, _DenialReason)
+    return isinstance(reason, DenialReason)
 
 
 class TargetResolver:
@@ -94,9 +106,7 @@ class TargetResolver:
     def workspace(self, user_id: str, name: str) -> WorkspaceTarget:
         if not self._workspace_service.has_access(user_id, name):
             raise TargetResolutionError(
-                TargetFailure(
-                    None, TargetError.ACCESS_DENIED, _DenialReason.WORKSPACE_ACCESS_DENIED
-                )
+                TargetFailure(None, TargetError.ACCESS_DENIED, DenialReason.WORKSPACE_ACCESS_DENIED)
             )
         path = Path(self._workspace_service.workspace_path(user_id, name))
         return WorkspaceTarget(owner_id=user_id, name=name, path=path)
@@ -105,11 +115,11 @@ class TargetResolver:
         note = self._note_repo.get(note_id)
         if note is None:
             raise TargetResolutionError(
-                TargetFailure(None, TargetError.NOT_FOUND, _DenialReason.MISSING_ROW)
+                TargetFailure(None, TargetError.NOT_FOUND, DenialReason.MISSING_ROW)
             )
         if note.owner_id != user_id:
             raise TargetResolutionError(
-                TargetFailure(None, TargetError.NOT_FOUND, _DenialReason.WRONG_OWNER)
+                TargetFailure(None, TargetError.NOT_FOUND, DenialReason.WRONG_OWNER)
             )
         try:
             workspace = self.workspace(user_id, note.workspace)
@@ -119,7 +129,7 @@ class TargetResolver:
             # association without an independent access check. Public shape stays
             # NOT_FOUND either way; only the private reason differs.
             raise TargetResolutionError(
-                TargetFailure(None, TargetError.NOT_FOUND, _DenialReason.WORKSPACE_ACCESS_DENIED)
+                TargetFailure(None, TargetError.NOT_FOUND, DenialReason.WORKSPACE_ACCESS_DENIED)
             ) from e
         return NoteTarget(note_id=note_id, workspace=workspace)
 
@@ -142,7 +152,7 @@ class TargetResolver:
                     cached = self.workspace(user_id, note.workspace)
                 except TargetResolutionError:
                     cached = TargetFailure(
-                        index, TargetError.NOT_FOUND, _DenialReason.WORKSPACE_ACCESS_DENIED
+                        index, TargetError.NOT_FOUND, DenialReason.WORKSPACE_ACCESS_DENIED
                     )
                 workspace_cache[note.workspace] = cached
             if isinstance(cached, TargetFailure):
@@ -205,7 +215,7 @@ class TargetResolver:
             workspace = self.workspace(user_id, workspace_name)
         except TargetResolutionError as e:
             raise BatchTargetResolutionError(
-                [TargetFailure(None, TargetError.NOT_FOUND, _DenialReason.WORKSPACE_ACCESS_DENIED)]
+                [TargetFailure(None, TargetError.NOT_FOUND, DenialReason.WORKSPACE_ACCESS_DENIED)]
             ) from e
         resolved = [NoteTarget(note_id=note_id, workspace=workspace) for note_id in note_ids]
         return workspace, resolved
@@ -213,7 +223,7 @@ class TargetResolver:
     def _missing_reason(self, note_id: str, user_id: str) -> DenialOrValidationReason:
         note = self._note_repo.get(note_id)
         if note is None:
-            return _DenialReason.MISSING_ROW
+            return DenialReason.MISSING_ROW
         if note.owner_id != user_id:
-            return _DenialReason.WRONG_OWNER
-        return _DenialReason.WORKSPACE_ACCESS_DENIED
+            return DenialReason.WRONG_OWNER
+        return DenialReason.WORKSPACE_ACCESS_DENIED

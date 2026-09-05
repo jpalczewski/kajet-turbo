@@ -7,6 +7,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from tests.mcp_tools.helpers import call_json, save_and_get_sha
+from tests.services.conftest import workspace_target
 
 
 async def test_save_and_get_note(workspaces_dir, mcp_server):
@@ -51,7 +52,7 @@ async def test_get_notes_bulk_read(workspaces_dir, mcp_server):
         text = result.content[0].text
         assert "First" in text
         assert "Second" in text
-        assert "nie znaleziona" in text
+        assert "Note not found: note_id=bad-id" in text
 
 
 async def test_get_notes_rejects_too_many_ids(workspaces_dir, mcp_server):
@@ -92,8 +93,8 @@ async def test_save_note_reports_ambiguous_wikilink_warning(workspaces_dir, mcp_
     service = mcp_server.note_service
     assert service is not None
     ws_path = str(workspaces_dir / "test-ws")
-    service.save("u1", "test-ws", ws_path, "README", "near", [], folder="Project")
-    service.save("u1", "test-ws", ws_path, "README", "far", [], folder="Archive")
+    service.save(workspace_target("u1", "test-ws", ws_path), "README", "near", [], folder="Project")
+    service.save(workspace_target("u1", "test-ws", ws_path), "README", "far", [], folder="Archive")
 
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
@@ -341,8 +342,16 @@ async def test_get_note_by_title_takes_folder_as_a_path_suffix(workspaces_dir, m
     service = mcp_server.note_service
     assert service is not None
     ws_path = str(workspaces_dir / "test-ws")
-    service.save("u1", "test-ws", ws_path, "README", "backlog", [], folder="Project/backlog")
-    service.save("u1", "test-ws", ws_path, "README", "archive", [], folder="Archive")
+    service.save(
+        workspace_target("u1", "test-ws", ws_path),
+        "README",
+        "backlog",
+        [],
+        folder="Project/backlog",
+    )
+    service.save(
+        workspace_target("u1", "test-ws", ws_path), "README", "archive", [], folder="Archive"
+    )
 
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
@@ -356,8 +365,8 @@ async def test_get_note_by_ambiguous_title_lists_the_candidates(workspaces_dir, 
     service = mcp_server.note_service
     assert service is not None
     ws_path = str(workspaces_dir / "test-ws")
-    service.save("u1", "test-ws", ws_path, "README", "near", [], folder="Project")
-    service.save("u1", "test-ws", ws_path, "README", "far", [], folder="Archive")
+    service.save(workspace_target("u1", "test-ws", ws_path), "README", "near", [], folder="Project")
+    service.save(workspace_target("u1", "test-ws", ws_path), "README", "far", [], folder="Archive")
 
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
@@ -375,8 +384,10 @@ async def test_get_note_by_ambiguous_title_still_errors_when_one_candidate_is_at
     service = mcp_server.note_service
     assert service is not None
     ws_path = str(workspaces_dir / "test-ws")
-    service.save("u1", "test-ws", ws_path, "README", "root", [])
-    service.save("u1", "test-ws", ws_path, "README", "nested", [], folder="Project")
+    service.save(workspace_target("u1", "test-ws", ws_path), "README", "root", [])
+    service.save(
+        workspace_target("u1", "test-ws", ws_path), "README", "nested", [], folder="Project"
+    )
 
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
@@ -390,7 +401,7 @@ async def test_get_note_by_title_case_mismatch_returns_not_found(workspaces_dir,
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         await client.call_tool("save_note", {"title": "Plan projektu", "content": "cel"})
-        with pytest.raises(ToolError, match="nie znaleziona"):
+        with pytest.raises(ToolError, match="Note not found"):
             await client.call_tool("get_note", {"title": "plan projektu"})
 
 
@@ -399,13 +410,13 @@ async def test_get_note_rejects_an_ambiguous_call_shape(workspaces_dir, mcp_serv
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         saved = await call_json(client, "save_note", {"title": "A", "content": "x"})
-        with pytest.raises(ToolError, match="dokładnie jedno"):
+        with pytest.raises(ToolError, match="exactly one of note_id or title"):
             await client.call_tool("get_note", {"note_id": saved["note_id"], "title": "A"})
-        with pytest.raises(ToolError, match="note_id albo title"):
+        with pytest.raises(ToolError, match="Provide note_id or title"):
             await client.call_tool("get_note", {})
-        with pytest.raises(ToolError, match="folder działa tylko z title"):
+        with pytest.raises(ToolError, match="folder only works with title"):
             await client.call_tool("get_note", {"note_id": saved["note_id"], "folder": "x"})
-        with pytest.raises(ToolError, match="nie znaleziona"):
+        with pytest.raises(ToolError, match="Note not found"):
             await client.call_tool("get_note", {"title": "Nie ma takiej"})
 
 

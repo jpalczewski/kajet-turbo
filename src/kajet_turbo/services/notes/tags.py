@@ -12,7 +12,7 @@ from kajet_turbo.markdown import (
 )
 from kajet_turbo.repositories.git import (
     GitRepository,
-    workspace_write_transaction,
+    target_write_transaction,
 )
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.services.notes.staged_change import (
@@ -20,6 +20,7 @@ from kajet_turbo.services.notes.staged_change import (
     commit_rows_then_tree,
 )
 from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
+from kajet_turbo.services.targets import NoteTarget
 from kajet_turbo.workspace import (
     locate_note,
     read_note_file,
@@ -83,12 +84,10 @@ class NoteTagService:
         """Index the note's tags: union of frontmatter (normalized) and inline, frontmatter wins."""
         self._tag_repo.sync_note_tags(note_id, ws_name, owner_id, self.tagged(fm_tags, content))
 
-    @workspace_write_transaction
+    @target_write_transaction
     def _apply_tag_change(
         self,
-        note_id: str,
-        owner_id: str,
-        ws_path: str,
+        target: NoteTarget,
         mutate: Callable[[list[str], str], tuple[list[str], list[str]]],
     ) -> dict:
         """Read the note's frontmatter tags, apply ``mutate`` -> (new_tags, warnings),
@@ -97,12 +96,15 @@ class NoteTagService:
         The file (not the DB column) is the source of truth for the current list, so the
         change is computed against on-disk reality. Content/title are never touched.
         """
+        note_id = target.note_id
+        owner_id = target.workspace.owner_id
+        ws_path = str(target.workspace.path)
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
-            raise ValueError(f"Notatka {note_id} nie znaleziona.")
+            raise ValueError(f"Note not found: note_id={note_id}")
         loc = locate_note(note, ws_path)
         if not loc.file_exists:
-            raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
+            raise FileNotFoundError(f"Note file not found: note_id={note_id}")
         existing_meta, content = read_note_file(loc.filepath)
         current = NoteTagService.normalize_tags(existing_meta.tags)
         new_tags, warnings = mutate(current, content)
@@ -180,7 +182,7 @@ class NoteTagService:
             "changed": changed,
         }
 
-    def add_tags(self, note_id: str, owner_id: str, ws_path: str, tags: list[str]) -> dict:
+    def add_tags(self, target: NoteTarget, tags: list[str]) -> dict:
         """Union ``tags`` into the note's frontmatter list (idempotent, order-preserving)."""
 
         def mutate(current: list[str], content: str) -> tuple[list[str], list[str]]:
@@ -188,9 +190,9 @@ class NoteTagService:
             new_tags = list(dict.fromkeys([*current, *normalized]))
             return new_tags, warnings
 
-        return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
+        return self._apply_tag_change(target, mutate)
 
-    def remove_tags(self, note_id: str, owner_id: str, ws_path: str, tags: list[str]) -> dict:
+    def remove_tags(self, target: NoteTarget, tags: list[str]) -> dict:
         """Remove ``tags`` from the note's frontmatter list (idempotent).
 
         A requested tag that exists only as an inline ``#hashtag`` in the body cannot be
@@ -205,19 +207,17 @@ class NoteTagService:
             for tag in normalized:
                 if tag in inline:
                     warnings.append(
-                        f"{tag}: nadal obecny jako #{tag} w treści — "
-                        "usuń edytując body przez edit_note"
+                        f"{tag}: still present as #{tag} in the body — "
+                        "remove it by editing the body via edit_note"
                     )
             return new_tags, warnings
 
-        return self._apply_tag_change(note_id, owner_id, ws_path, mutate)
+        return self._apply_tag_change(target, mutate)
 
-    @workspace_write_transaction
+    @target_write_transaction
     def set_tags(
         self,
-        note_id: str,
-        owner_id: str,
-        ws_path: str,
+        target: NoteTarget,
         tags: list[str],
         expected_sha: str | None = None,
     ) -> dict:
@@ -226,17 +226,18 @@ class NoteTagService:
         Destructive (may drop tags); gated by expected_sha — proof the caller
         read the current version. ``None`` (REST API) skips the check.
         """
+        note_id = target.note_id
+        owner_id = target.workspace.owner_id
+        ws_path = str(target.workspace.path)
         normalized, warnings = NoteTagService.normalize_with_warnings(tags)
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
-            raise ValueError(f"Notatka {note_id} nie znaleziona.")
+            raise ValueError(f"Note not found: note_id={note_id}")
         loc = locate_note(note, ws_path)
         if not loc.file_exists:
-            raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
+            raise FileNotFoundError(f"Note file not found: note_id={note_id}")
         if expected_sha is not None and not sha_is_fresh(
             current_head_sha(ws_path, loc.relative), expected_sha
         ):
             return stale_payload(note_id)
-        return self._apply_tag_change(
-            note_id, owner_id, ws_path, lambda current, content: (normalized, warnings)
-        )
+        return self._apply_tag_change(target, lambda current, content: (normalized, warnings))

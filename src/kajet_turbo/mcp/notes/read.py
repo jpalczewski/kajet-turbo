@@ -7,7 +7,14 @@ from pydantic import Field
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
 from kajet_turbo.markdown import join_target
-from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
+from kajet_turbo.mcp.context import (
+    ACTIVE_WORKSPACE,
+    NOTE_TARGET,
+    OPTIONAL_NOTE_TARGET,
+    ActiveWorkspace,
+    reauthorize_workspace,
+    resolve_notes,
+)
 from kajet_turbo.mcp.notes.types import (
     FolderContext,
     FolderExportResult,
@@ -19,6 +26,7 @@ from kajet_turbo.mcp.notes.types import (
 from kajet_turbo.mcp.tooling import check_batch, read_tool, require_found
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.services.notes import NoteData, NoteService
+from kajet_turbo.services.targets import NoteTarget, TargetFailure
 from kajet_turbo.workspace import normalize_folder
 
 
@@ -45,6 +53,7 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
             ),
         ] = None,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        target: NoteTarget | None = OPTIONAL_NOTE_TARGET,
     ) -> NoteData:
         """Zwraca notatkę jako obiekt ze wszystkimi polami. Błąd gdy notatka nie istnieje.
         To jedyne źródło pełnej, aktualnej treści notatki — search_notes zwraca tylko
@@ -54,25 +63,20 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         zwraca błąd z listą kandydatów; doprecyzuj folder albo podaj note_id."""
         if note_id is not None:
             if title is not None:
-                raise ToolError("Podaj dokładnie jedno: note_id albo title.")
+                raise ToolError("Provide exactly one of note_id or title.")
             if folder is not None:
-                raise ToolError("folder działa tylko z title — przy note_id go pomiń.")
-            return require_found(
-                await run_sync(
-                    note_service.get_with_content, note_id, owner_id=ws.owner_id, ws_path=ws.path
-                ),
-                note_id,
-            )
+                raise ToolError("folder only works with title — omit it with note_id.")
+            assert target is not None  # OPTIONAL_NOTE_TARGET resolves note_id when it is set
+            return require_found(await run_sync(note_service.get_with_content, target), note_id)
         if title is None:
-            raise ToolError("Podaj note_id albo title.")
+            raise ToolError("Provide note_id or title.")
+        workspace = await reauthorize_workspace(ws)
         return require_found(
             await run_sync(
                 note_service.get_with_content_by_title,
                 title,
                 folder,
-                owner_id=ws.owner_id,
-                ws_name=ws.name,
-                ws_path=ws.path,
+                workspace,
             ),
             join_target(folder or "", title),
         )
@@ -86,16 +90,30 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         """Czyta wiele notatek jednym wywołaniem zamiast N x get_note. Max 50 na raz.
         Nieznalezione id → NoteReadError {note_id, error} zamiast przerwania całości."""
         check_batch(note_ids, "note_ids", "note_id")
-        results = await run_sync(
-            note_service.get_many, note_ids, owner_id=ws.owner_id, ws_path=ws.path
-        )
-        return [r if isinstance(r, NoteData) else NoteReadError.model_validate(r) for r in results]
+        resolved = await resolve_notes(ws.owner_id, note_ids)
+        targets = [r for r in resolved if isinstance(r, NoteTarget)]
+        target_results = await run_sync(note_service.get_many, targets) if targets else []
+        target_iter = iter(target_results)
+        output: list[NoteData | NoteReadError] = []
+        for r in resolved:
+            if isinstance(r, TargetFailure):
+                note_id = note_ids[r.index] if r.index is not None else ""
+                output.append(
+                    NoteReadError(note_id=note_id, error=f"Note not found: note_id={note_id}")
+                )
+            else:
+                item = next(target_iter)
+                output.append(
+                    item if isinstance(item, NoteData) else NoteReadError.model_validate(item)
+                )
+        return output
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
     @logged_tool
     async def get_note_outline(
         note_id: str,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        target: NoteTarget = NOTE_TARGET,
     ) -> NoteOutlineResult:
         """Zwraca strukturę notatki (nagłówki + rozmiary sekcji) bez treści — do
         chirurgicznej edycji bez wciągania całej karty w kontekst. target_heading
@@ -103,12 +121,7 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         target_heading=...). ambiguous=true → ten nagłówek powtarza się w dokumencie,
         target_heading nie zadziała (edit_note zwróci błąd niejednoznaczności) — użyj
         wtedy innego trybu (np. replace_text)."""
-        result = require_found(
-            await run_sync(
-                note_service.get_outline, note_id, owner_id=ws.owner_id, ws_path=ws.path
-            ),
-            note_id,
-        )
+        result = require_found(await run_sync(note_service.get_outline, target), note_id)
         return NoteOutlineResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
@@ -138,10 +151,10 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         Filtr tags używa OR i jest hierarchiczny: podanie 'work' dopasuje też notatki
         otagowane 'work/projects' itd. (dopasowanie po prefiksie segmentów).
         folder_context w odpowiedzi zawiera instructions dla LLM-a, gdy są ustawione dla folderu."""
+        workspace = await reauthorize_workspace(ws)
         notes = await run_sync(
             note_service.list_notes,
-            ws.name,
-            owner_id=ws.owner_id,
+            workspace,
             tags=tags or None,
             limit=limit,
             folder=folder,
@@ -171,11 +184,12 @@ def build_read(note_service: NoteService, folder_meta_repo: FolderMetaRepository
         wywołań get_note. Przy przekroczeniu max_chars ucina na granicy notatki (nigdy
         w środku); pominięte notatki wraca omitted. Pierwsza notatka jest zawsze
         w całości, nawet gdy sama przekracza max_chars."""
+        workspace = await reauthorize_workspace(ws)
         result = await run_sync(
             note_service.export_folder,
-            ws.name,
-            owner_id=ws.owner_id,
-            ws_path=ws.path,
+            workspace.name,
+            owner_id=workspace.owner_id,
+            ws_path=str(workspace.path),
             folder=folder,
             max_chars=max_chars,
         )

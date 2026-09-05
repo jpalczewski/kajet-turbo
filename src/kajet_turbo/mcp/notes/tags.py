@@ -5,7 +5,12 @@ from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
-from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
+from kajet_turbo.mcp.context import (
+    ACTIVE_WORKSPACE,
+    NOTE_TARGET,
+    ActiveWorkspace,
+    reauthorize_workspace,
+)
 from kajet_turbo.mcp.notes.types import (
     StaleVersion,
     TagConflictResult,
@@ -20,6 +25,7 @@ from kajet_turbo.mcp.tooling import (
     write_tool,
 )
 from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.targets import NoteTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 
 
@@ -35,12 +41,13 @@ def build_tags(
         note_id: str,
         tags: list[str],
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        target: NoteTarget = NOTE_TARGET,
     ) -> TagOperationResult:
         """Dodaje tagi do frontmattera notatki (idempotentnie), bez ruszania treści.
         Uwaga: rusza tylko tagi z frontmattera; inline #hashtagi siedzą w treści."""
-        result = await run_sync(note_service.add_tags, note_id, ws.owner_id, ws.path, tags)
+        result = await run_sync(note_service.add_tags, target, tags)
         if result["changed"]:
-            await publish_note_updated(ws, note_id)
+            await publish_note_updated(target.workspace, note_id)
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, idempotent=True))
@@ -49,12 +56,13 @@ def build_tags(
         note_id: str,
         tags: list[str],
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        target: NoteTarget = NOTE_TARGET,
     ) -> TagOperationResult:
         """Usuwa tagi z frontmattera notatki (idempotentnie), bez ruszania treści.
         Tag obecny tylko jako inline #hashtag nie zniknie — wróci jako warning."""
-        result = await run_sync(note_service.remove_tags, note_id, ws.owner_id, ws.path, tags)
+        result = await run_sync(note_service.remove_tags, target, tags)
         if result["changed"]:
-            await publish_note_updated(ws, note_id)
+            await publish_note_updated(target.workspace, note_id)
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, destructive=True))
@@ -71,19 +79,18 @@ def build_tags(
             ),
         ],
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        target: NoteTarget = NOTE_TARGET,
     ) -> TagOperationResult | StaleVersion:
         """Nadpisuje frontmatter tagów notatki podaną listą, bez ruszania treści.
         Destrukcyjne (może usunąć istniejące tagi) — wymaga expected_sha z
         get_note/get_note_history; przy niezgodności zwraca StaleVersion — doczytaj
         notatkę i spróbuj ponownie z nowym sha.
         Sukces: TagOperationResult {note_id, tags, frontmatter_tags, warnings}."""
-        result = await run_sync(
-            note_service.set_tags, note_id, ws.owner_id, ws.path, tags, expected_sha
-        )
+        result = await run_sync(note_service.set_tags, target, tags, expected_sha)
         if result.get("stale_sha"):
             return StaleVersion.model_validate(result)
         if result["changed"]:
-            await publish_note_updated(ws, note_id)
+            await publish_note_updated(target.workspace, note_id)
         return TagOperationResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, idempotent=True))
@@ -111,19 +118,20 @@ def build_tags(
         already-renamed notes already carry the target tag, so retrying needs merge=true too.
         Search indexing (chunks/FTS/embeddings) is deferred to background jobs for every
         note whose body was rewritten."""
+        workspace = await reauthorize_workspace(ws)
         result = await run_sync(
             note_service.rename_tag,
             old,
             new,
-            owner_id=ws.owner_id,
-            ws_name=ws.name,
-            ws_path=ws.path,
+            owner_id=workspace.owner_id,
+            ws_name=workspace.name,
+            ws_path=str(workspace.path),
             merge=merge,
         )
         if result.get("error"):
             return TagConflictResult.model_validate(result)
         if result["renamed"]:
-            await publish_workspace_changed(ws)
+            await publish_workspace_changed(workspace)
         return TagRenameResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "tags"}))
@@ -146,10 +154,11 @@ def build_tags(
         posortowane malejąco po liczbie notatek. Każdy element: {path, name, count}.
         Użyj do rekonesansu istniejących tagów przed tagowaniem — opcjonalnie
         zawężając do folderu."""
+        workspace = await reauthorize_workspace(ws)
         tags_result = await run_sync(
             note_service.tag_counts,
-            ws.name,
-            owner_id=ws.owner_id,
+            workspace.name,
+            owner_id=workspace.owner_id,
             folder=folder,
             include_subfolders=include_subfolders,
         )

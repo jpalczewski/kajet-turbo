@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import httpx
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
 from starlette.requests import Request
 
 from kajet_turbo import identity
@@ -26,7 +26,8 @@ from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbeddingCache
 from kajet_turbo.embedding.client import SharedEmbedderClient
 from kajet_turbo.embedding.resolver import ProfileResolver
-from kajet_turbo.errors import AuthError
+from kajet_turbo.errors import AuthError, NoteError
+from kajet_turbo.log import log_permission_denied
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
@@ -67,6 +68,14 @@ from kajet_turbo.services.push_handler import PushHandler
 from kajet_turbo.services.reconcile_links_handler import ReconcileLinksHandler
 from kajet_turbo.services.reindex_handler import ReindexNoteHandler
 from kajet_turbo.services.ssh_keys import SshKeyService
+from kajet_turbo.services.targets import (
+    DenialReason,
+    NoteTarget,
+    TargetResolutionError,
+    TargetResolver,
+    WorkspaceTarget,
+    is_denial,
+)
 from kajet_turbo.services.workspace_remote import WorkspaceRemoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -125,6 +134,7 @@ class AppResources:
     job_repo: JobRepository
     note_service: NoteService
     workspace_service: WorkspaceService
+    target_resolver: TargetResolver
     collection_service: CollectionService
     embedding_profile_service: EmbeddingProfileService
     ssh_key_service: SshKeyService
@@ -303,6 +313,7 @@ def build_resources(config: AppConfig) -> AppResources:
             job_repo,
             note_service,
             workspace_service,
+            TargetResolver(note_repo, workspace_service),
             CollectionService(note_repo, note_service),
             embedding_profile_service,
             ssh_key_service,
@@ -368,6 +379,10 @@ def get_workspace_service(request: Request) -> WorkspaceService:
     return _resources(request).workspace_service
 
 
+def get_target_resolver(request: Request) -> TargetResolver:
+    return _resources(request).target_resolver
+
+
 def get_user_repo(request: Request) -> UserRepository:
     return _resources(request).user_repo
 
@@ -407,3 +422,60 @@ def get_required_user(request: Request) -> dict:
     if not user:
         raise HTTPException(status_code=401, detail=AuthError.NOT_AUTHENTICATED)
     return user
+
+
+def resolve_workspace_target(
+    name: str,
+    user: dict = Depends(get_required_user),
+    resolver: TargetResolver = Depends(get_target_resolver),
+) -> WorkspaceTarget:
+    try:
+        return resolver.workspace(user["id"], name)
+    except TargetResolutionError as e:
+        if is_denial(e.failure.reason):
+            log_permission_denied(
+                action="workspace.read",
+                resource="workspace",
+                caller_id=user["id"],
+                reason=e.failure.reason,
+                workspace=name,
+            )
+        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED) from e
+
+
+def resolve_note_target(
+    name: str,
+    note_id: str,
+    ws: WorkspaceTarget = Depends(resolve_workspace_target),
+    resolver: TargetResolver = Depends(get_target_resolver),
+    user: dict = Depends(get_required_user),
+) -> NoteTarget:
+    """404 before file access: order is fixed by the contract -- 401 (get_required_user)
+    -> 403 on URL-workspace access (resolve_workspace_target) -> 404 on note not-found-
+    or-not-yours -> 404 on note/URL-workspace mismatch. The mismatch branch is the actual
+    fix for the bug this resolver exists for: a note_id from workspace A must not be
+    reachable through workspace B's URL just because both belong to the same user."""
+    try:
+        target = resolver.note(user["id"], note_id)
+    except TargetResolutionError as e:
+        if is_denial(e.failure.reason):
+            log_permission_denied(
+                action="note.read",
+                resource="note",
+                caller_id=user["id"],
+                reason=e.failure.reason,
+                note_id=note_id,
+                workspace=name,
+            )
+        raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from e
+    if target.workspace.name != ws.name:
+        log_permission_denied(
+            action="note.read",
+            resource="note",
+            caller_id=user["id"],
+            reason=DenialReason.WORKSPACE_MISMATCH,
+            note_id=note_id,
+            workspace=name,
+        )
+        raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
+    return target

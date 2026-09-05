@@ -14,7 +14,7 @@ from kajet_turbo.mcp.collections.types import (
     DeleteCollectionResult,
     OpenEntryResult,
 )
-from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
+from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace, reauthorize_workspace
 from kajet_turbo.mcp.tooling import publish_workspace_changed, read_tool, write_tool
 from kajet_turbo.periods import PeriodKind
 from kajet_turbo.services.collections import CollectionService
@@ -80,11 +80,12 @@ def build_collections(
         (rendering the same folder for some period breaks folder-based collection
         lookup) — the error names the other collection.
         """
+        workspace = await reauthorize_workspace(ws)
         result = await run_sync(
             collection_service.define_collection,
-            ws.path,
-            ws.name,
-            ws.owner_id,
+            str(workspace.path),
+            workspace.name,
+            workspace.owner_id,
             name,
             grain,
             cardinality,
@@ -94,7 +95,7 @@ def build_collections(
             dry_run=dry_run,
         )
         if not result.get("would_write"):
-            await publish_workspace_changed(ws)
+            await publish_workspace_changed(workspace)
         return DefineCollectionResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"collections"}, destructive=False, idempotent=True))
@@ -107,8 +108,9 @@ def build_collections(
         edits the collection's own definition — every note that was a member becomes a
         loose note, no note file is ever touched, moved, or deleted.
         """
-        result = await run_sync(collection_service.delete_collection, ws.path, name)
-        await publish_workspace_changed(ws)
+        workspace = await reauthorize_workspace(ws)
+        result = await run_sync(collection_service.delete_collection, str(workspace.path), name)
+        await publish_workspace_changed(workspace)
         return DeleteCollectionResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"collections"}))
@@ -117,7 +119,8 @@ def build_collections(
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
     ) -> list[CollectionResult]:
         """List every collection defined in the active workspace."""
-        definitions = await run_sync(collection_service.list_collections, ws.path)
+        workspace = await reauthorize_workspace(ws)
+        definitions = await run_sync(collection_service.list_collections, str(workspace.path))
         return [_to_result(name, d) for name, d in definitions.items()]
 
     @srv.tool(**write_tool(tags={"collections"}, destructive=False, idempotent=False))
@@ -148,11 +151,17 @@ def build_collections(
             raise ValueError(
                 f"date must be an ISO calendar date (YYYY-MM-DD), got {date!r}."
             ) from exc
+        workspace = await reauthorize_workspace(ws)
         result = await run_sync(
-            collection_service.open_entry, ws.path, ws.name, ws.owner_id, collection, when
+            collection_service.open_entry,
+            str(workspace.path),
+            workspace.name,
+            workspace.owner_id,
+            collection,
+            when,
         )
         if result["created"]:
-            await publish_workspace_changed(ws)
+            await publish_workspace_changed(workspace)
         return OpenEntryResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"collections"}))
@@ -169,8 +178,13 @@ def build_collections(
         `entries_in(collection=...)`, this takes no period: it returns the whole
         collection's history in one call.
         """
+        workspace = await reauthorize_workspace(ws)
         entries = await run_sync(
-            collection_service.list_entries, ws.path, ws.name, ws.owner_id, collection
+            collection_service.list_entries,
+            str(workspace.path),
+            workspace.name,
+            workspace.owner_id,
+            collection,
         )
         return [NoteListItem.model_validate(n) for n in entries]
 

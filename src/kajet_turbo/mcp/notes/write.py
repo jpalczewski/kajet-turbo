@@ -6,7 +6,13 @@ from pydantic import Field
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
 from kajet_turbo.markdown import EditMode, EditSpec
-from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
+from kajet_turbo.mcp.context import (
+    ACTIVE_WORKSPACE,
+    NOTE_TARGET,
+    ActiveWorkspace,
+    reauthorize_workspace,
+    resolve_notes_in_one_workspace,
+)
 from kajet_turbo.mcp.notes.types import (
     BatchNoteError,
     BatchNoteSuccess,
@@ -29,6 +35,7 @@ from kajet_turbo.mcp.tooling import (
     write_tool,
 )
 from kajet_turbo.services.notes import EditBatchItem, NoteService
+from kajet_turbo.services.targets import NoteTarget
 from kajet_turbo.shared.notes import MovedNoteResult
 from kajet_turbo.workspace import temporal_kwargs
 
@@ -51,11 +58,10 @@ def build_write(note_service: NoteService) -> FastMCP:
         folder: opcjonalna ścieżka np. 'Projekty/Klient A'.
         Uwaga: content powinien zawierać rzeczywiste znaki nowej linii (\\n),
         nie literalne \\\\n."""
+        target = await reauthorize_workspace(ws)
         result = await run_sync(
             note_service.save,
-            ws.owner_id,
-            ws.name,
-            ws.path,
+            target,
             title,
             content,
             tags or [],
@@ -63,7 +69,7 @@ def build_write(note_service: NoteService) -> FastMCP:
             occurred_at=occurred_at,
             period=period,
         )
-        await publish_workspace_changed(ws)
+        await publish_workspace_changed(target)
         return SavedNoteResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
@@ -79,14 +85,13 @@ def build_write(note_service: NoteService) -> FastMCP:
         regardless of order. Search indexing (chunks/FTS/embeddings) is deferred to
         background jobs — a note saved here may not appear in search_notes immediately.
         content needs real newline characters (\\n), not literal \\\\n."""
+        target = await reauthorize_workspace(ws)
         results = await run_sync(
             note_service.save_many,
-            ws.owner_id,
-            ws.name,
-            ws.path,
+            target,
             [n.model_dump() for n in notes],
         )
-        await publish_workspace_changed(ws)
+        await publish_workspace_changed(target)
         return [
             BatchNoteSuccess.model_validate(r)
             if "note_id" in r
@@ -162,6 +167,7 @@ def build_write(note_service: NoteService) -> FastMCP:
             ),
         ] = False,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        target: NoteTarget = NOTE_TARGET,
     ) -> EditNoteSuccess | StaleVersion:
         """Edit a note. By default (mode='overwrite') it replaces the whole body with content;
         the surgical modes change a fragment without rewriting everything.
@@ -175,9 +181,7 @@ def build_write(note_service: NoteService) -> FastMCP:
         with the fresh sha."""
         result = await run_sync(
             note_service.update,
-            note_id,
-            owner_id=ws.owner_id,
-            ws_path=ws.path,
+            target,
             expected_sha=expected_sha,
             title=title,
             tags=tags,
@@ -197,7 +201,7 @@ def build_write(note_service: NoteService) -> FastMCP:
         )
         if result.get("stale_sha"):
             return StaleVersion.model_validate(result)
-        await publish_note_updated(ws, result["note_id"])
+        await publish_note_updated(target.workspace, result["note_id"])
         return EditNoteSuccess.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
@@ -220,11 +224,10 @@ def build_write(note_service: NoteService) -> FastMCP:
         note's search_notes results may lag briefly behind this call.
         Max 50 edits per call."""
         check_batch(edits, "edits", "edycji")
+        workspace, _ = await resolve_notes_in_one_workspace(ws.owner_id, [e.note_id for e in edits])
         result = await run_sync(
             note_service.edit_many,
-            ws.owner_id,
-            ws.name,
-            ws.path,
+            workspace,
             [
                 EditBatchItem(
                     note_id=e.note_id,
@@ -240,7 +243,7 @@ def build_write(note_service: NoteService) -> FastMCP:
         )
         if not result.get("applied"):
             return EditNotesRejected.model_validate(result)
-        await publish_workspace_changed(ws)
+        await publish_workspace_changed(workspace)
         return EditNotesApplied.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
@@ -249,17 +252,16 @@ def build_write(note_service: NoteService) -> FastMCP:
         note_id: str,
         folder: str,
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        target: NoteTarget = NOTE_TARGET,
     ) -> MovedNoteResult:
         """Przenosi notatkę do folderu w aktywnym workspace, tworząc brakującą ścieżkę.
         folder: pełna ścieżka folderu lub pusty string dla root."""
         result = await run_sync(
             note_service.move,
-            note_id,
-            owner_id=ws.owner_id,
-            ws_path=ws.path,
-            folder=folder,
+            target,
+            folder,
         )
-        await publish_workspace_changed(ws)
+        await publish_workspace_changed(target.workspace)
         return MovedNoteResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
@@ -274,20 +276,19 @@ def build_write(note_service: NoteService) -> FastMCP:
             ),
         ],
         ws: ActiveWorkspace = ACTIVE_WORKSPACE,
+        target: NoteTarget = NOTE_TARGET,
     ) -> DeletedNoteResult | StaleVersion:
         """Usuwa notatkę. Błąd gdy notatka nie istnieje. Wymaga expected_sha z
         get_note/get_note_history; przy niezgodności zwraca StaleVersion — doczytaj
         aktualną wersję i spróbuj ponownie z nowym sha."""
         result = await run_sync(
             note_service.delete,
-            note_id,
-            owner_id=ws.owner_id,
-            ws_path=ws.path,
+            target,
             expected_sha=expected_sha,
         )
         if result.get("stale_sha"):
             return StaleVersion.model_validate(result)
-        await publish_workspace_changed(ws)
+        await publish_workspace_changed(target.workspace)
         return DeletedNoteResult(note_id=note_id)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
@@ -304,16 +305,17 @@ def build_write(note_service: NoteService) -> FastMCP:
         before deleting. On a mismatch, call get_note_history to read the current version
         and retry. Max 50 deletes per call."""
         check_batch(deletes, "deletes", "usunięć")
+        workspace, _ = await resolve_notes_in_one_workspace(
+            ws.owner_id, [d.note_id for d in deletes]
+        )
         result = await run_sync(
             note_service.delete_many,
-            ws.owner_id,
-            ws.name,
-            ws.path,
+            workspace,
             [d.model_dump() for d in deletes],
         )
         if not result.get("applied"):
             return DeleteNotesRejected.model_validate(result)
-        await publish_workspace_changed(ws)
+        await publish_workspace_changed(workspace)
         return DeleteNotesApplied.model_validate(result)
 
     return srv

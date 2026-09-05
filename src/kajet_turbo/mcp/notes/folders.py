@@ -5,7 +5,7 @@ from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logged_tool
-from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace
+from kajet_turbo.mcp.context import ACTIVE_WORKSPACE, ActiveWorkspace, reauthorize_workspace
 from kajet_turbo.mcp.notes.types import (
     ConflictItem,
     FolderConflictResult,
@@ -36,10 +36,13 @@ def build_folders(
         """Zwraca istniejące foldery aktywnego workspace z ich opisami.
         Pusty string w path oznacza katalog główny workspace.
         description jest pusty gdy folder nie ma ustawionych metadanych."""
-        paths = await run_sync(note_service.list_folders, ws.path)
+        workspace = await reauthorize_workspace(ws)
+        paths = await run_sync(note_service.list_folders, str(workspace.path))
         if not paths:
             return []
-        meta_map = await run_sync(folder_meta_repo.get_many, ws.owner_id, ws.name, paths)
+        meta_map = await run_sync(
+            folder_meta_repo.get_many, workspace.owner_id, workspace.name, paths
+        )
         return [
             FolderInfo(path=p, description=meta_map[p].description if p in meta_map else "")
             for p in paths
@@ -73,36 +76,38 @@ def build_folders(
         description: krótki opis co zawiera folder.
         instructions: instrukcje dla LLM-a wyświetlane przy list_notes dla tego folderu.
         Pominięcie parametru zachowuje istniejącą wartość."""
+        workspace = await reauthorize_workspace(ws)
         path = normalize_folder(folder)
         await run_sync(
             folder_meta_repo.set,
-            ws.owner_id,
-            ws.name,
+            workspace.owner_id,
+            workspace.name,
             path,
             description=description,
             instructions=instructions,
         )
-        meta = await run_sync(folder_meta_repo.get, ws.owner_id, ws.name, path)
+        meta = await run_sync(folder_meta_repo.get, workspace.owner_id, workspace.name, path)
         assert meta is not None
         return FolderContext.model_validate(meta)
 
     async def _move_folder(
         src: str, dst: str, ws: ActiveWorkspace
     ) -> MovedFolderResult | FolderConflictResult:
+        workspace = await reauthorize_workspace(ws)
         result = await run_sync(
             note_service.move_folder,
             src,
             dst,
-            owner_id=ws.owner_id,
-            ws_path=ws.path,
-            workspace=ws.name,
+            owner_id=workspace.owner_id,
+            ws_path=str(workspace.path),
+            workspace=workspace.name,
         )
         if "conflicts" in result:
             return FolderConflictResult(
                 error=result["error"],
                 conflicts=[ConflictItem.model_validate(c) for c in result["conflicts"]],
             )
-        await publish_workspace_changed(ws)
+        await publish_workspace_changed(workspace)
         return MovedFolderResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "folders"}))
@@ -139,8 +144,9 @@ def build_folders(
     ) -> PrunedFoldersResult:
         """Usuwa puste katalogi (osierocone po przenoszeniu notatek).
         Foldery z .gitkeep są zachowane."""
-        result = await run_sync(note_service.prune_empty_folders, ws.path)
-        await publish_workspace_changed(ws)
+        workspace = await reauthorize_workspace(ws)
+        result = await run_sync(note_service.prune_empty_folders, str(workspace.path))
+        await publish_workspace_changed(workspace)
         return PrunedFoldersResult.model_validate(result)
 
     return srv

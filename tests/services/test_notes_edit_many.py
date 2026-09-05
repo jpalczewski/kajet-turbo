@@ -6,7 +6,7 @@ import pytest
 
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.services.notes import service as service_module
-from tests.services.conftest import seed_user
+from tests.services.conftest import note_target, seed_user, workspace_target
 from tests.services.helpers import edit_item, make_flaky_db_write, make_flaky_write
 
 
@@ -17,12 +17,10 @@ def _seed_default_owner(database):
 
 
 def test_edit_many_applies_all_in_one_commit(service, workspace):
-    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
-    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
+    r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     result = service.edit_many(
-        "u1",
-        "ws",
-        str(workspace),
+        workspace_target("u1", "ws", workspace),
         [
             edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="more"),
             edit_item(r2["note_id"], _head_sha(workspace, "Second.md"), content="more"),
@@ -30,8 +28,8 @@ def test_edit_many_applies_all_in_one_commit(service, workspace):
     )
     assert result["applied"] is True
     assert [r["note_id"] for r in result["results"]] == [r1["note_id"], r2["note_id"]]
-    note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
-    note2 = service.get_with_content(r2["note_id"], "u1", str(workspace))
+    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note2 = service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
     assert "more" in note1.content
     assert "more" in note2.content
     history = GitRepository(str(workspace)).file_history("First.md")
@@ -40,12 +38,10 @@ def test_edit_many_applies_all_in_one_commit(service, workspace):
 
 
 def test_edit_many_all_or_nothing_on_bad_anchor(service, workspace):
-    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
-    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
+    r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     result = service.edit_many(
-        "u1",
-        "ws",
-        str(workspace),
+        workspace_target("u1", "ws", workspace),
         [
             edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="more"),
             edit_item(
@@ -59,31 +55,27 @@ def test_edit_many_all_or_nothing_on_bad_anchor(service, workspace):
     )
     assert result["applied"] is False
     assert result["errors"][0]["index"] == 1
-    note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
+    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
     assert note1.content == "one"  # nothing written, including the valid first item
 
 
 def test_edit_many_rejects_duplicate_note_id(service, workspace):
-    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     result = service.edit_many(
-        "u1",
-        "ws",
-        str(workspace),
+        workspace_target("u1", "ws", workspace),
         [
             edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="a"),
             edit_item(r1["note_id"], content="b"),
         ],
     )
     assert result["applied"] is False
-    assert "Duplikat" in result["errors"][0]["error"]
+    assert "Duplicate" in result["errors"][0]["error"]
 
 
 def test_edit_many_missing_note_rejects_batch(service, workspace):
-    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     result = service.edit_many(
-        "u1",
-        "ws",
-        str(workspace),
+        workspace_target("u1", "ws", workspace),
         [
             edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="x"),
             edit_item("does-not-exist", content="y"),
@@ -93,11 +85,9 @@ def test_edit_many_missing_note_rejects_batch(service, workspace):
 
 
 def test_edit_many_applies_destructive_overwrite_with_fresh_sha(service, workspace):
-    r1 = service.save("u1", "ws", str(workspace), "First", "existing content\n", [])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "existing content\n", [])
     result = service.edit_many(
-        "u1",
-        "ws",
-        str(workspace),
+        workspace_target("u1", "ws", workspace),
         [
             edit_item(
                 r1["note_id"],
@@ -108,16 +98,14 @@ def test_edit_many_applies_destructive_overwrite_with_fresh_sha(service, workspa
         ],
     )
     assert result["applied"] is True
-    note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
+    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
     assert note1.content == "replaced"
 
 
 def test_edit_many_replace_all_reports_count_per_item(service, workspace):
-    r1 = service.save("u1", "ws", str(workspace), "First", "foo foo foo\n", [])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "foo foo foo\n", [])
     result = service.edit_many(
-        "u1",
-        "ws",
-        str(workspace),
+        workspace_target("u1", "ws", workspace),
         [
             edit_item(
                 r1["note_id"],
@@ -134,21 +122,19 @@ def test_edit_many_replace_all_reports_count_per_item(service, workspace):
 
 
 def test_edit_many_updates_tags(service, workspace):
-    r1 = service.save("u1", "ws", str(workspace), "First", "body\n", ["old"])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "body\n", ["old"])
     result = service.edit_many(
-        "u1",
-        "ws",
-        str(workspace),
+        workspace_target("u1", "ws", workspace),
         [edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="x", tags=["new"])],
     )
     assert result["applied"] is True
-    note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
+    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
     assert note1.tags == ["new"]
 
 
 def test_edit_many_empty_batch_raises(service, workspace):
     with pytest.raises(ValueError):
-        service.edit_many("u1", "ws", str(workspace), [])
+        service.edit_many(workspace_target("u1", "ws", workspace), [])
 
 
 def test_edit_many_git_error_rolls_back_all_files(service, workspace):
@@ -156,8 +142,8 @@ def test_edit_many_git_error_rolls_back_all_files(service, workspace):
     # files are written must restore every file, not just some.
     from kajet_turbo.repositories.git import GitError
 
-    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
-    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
+    r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     with (
         patch(
             "kajet_turbo.repositories.git.GitRepository.commit_changes",
@@ -166,17 +152,15 @@ def test_edit_many_git_error_rolls_back_all_files(service, workspace):
         pytest.raises(GitError),
     ):
         service.edit_many(
-            "u1",
-            "ws",
-            str(workspace),
+            workspace_target("u1", "ws", workspace),
             [
                 edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="more"),
                 edit_item(r2["note_id"], _head_sha(workspace, "Second.md"), content="more"),
             ],
         )
 
-    note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
-    note2 = service.get_with_content(r2["note_id"], "u1", str(workspace))
+    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note2 = service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
     assert note1.content == "one"
     assert note2.content == "two"
     # #155: rows are updated before the git commit inside one transaction for the batch,
@@ -192,8 +176,8 @@ def test_edit_many_write_failing_partway_rolls_back_and_makes_no_commit(service,
     a commit_changes failure after every file already landed) must still leave no file
     written and no commit made — mirrors
     test_rename_tag_restores_every_touched_file_when_a_write_fails."""
-    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
-    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
+    r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     head_before = _head_sha(workspace, "First.md")
 
     flaky_write = make_flaky_write(service_module.write_note_file)
@@ -203,17 +187,15 @@ def test_edit_many_write_failing_partway_rolls_back_and_makes_no_commit(service,
         pytest.raises(OSError, match="disk full"),
     ):
         service.edit_many(
-            "u1",
-            "ws",
-            str(workspace),
+            workspace_target("u1", "ws", workspace),
             [
                 edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="more"),
                 edit_item(r2["note_id"], _head_sha(workspace, "Second.md"), content="more"),
             ],
         )
 
-    note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
-    note2 = service.get_with_content(r2["note_id"], "u1", str(workspace))
+    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note2 = service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
     assert note1.content == "one"
     assert note2.content == "two"
     assert _head_sha(workspace, "First.md") == head_before
@@ -223,8 +205,8 @@ def test_edit_many_db_failure_leaves_files_and_head_untouched(service, workspace
     """#155: rows are written before the tree, in one transaction for the whole batch, so
     a DB-side failure on any item must abort before the tree or HEAD change for any of
     them — not just the item that failed."""
-    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
-    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
+    r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     head_before = _head_sha(workspace, "First.md")
 
     flaky_update = make_flaky_db_write(service._crud_repo.update_in_session, fail_on_call=2)
@@ -234,37 +216,31 @@ def test_edit_many_db_failure_leaves_files_and_head_untouched(service, workspace
         pytest.raises(RuntimeError, match="db exploded"),
     ):
         service.edit_many(
-            "u1",
-            "ws",
-            str(workspace),
+            workspace_target("u1", "ws", workspace),
             [
                 edit_item(r1["note_id"], _head_sha(workspace, "First.md"), content="more"),
                 edit_item(r2["note_id"], _head_sha(workspace, "Second.md"), content="more"),
             ],
         )
 
-    note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
-    note2 = service.get_with_content(r2["note_id"], "u1", str(workspace))
+    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note2 = service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
     assert note1.content == "one"
     assert note2.content == "two"
     assert _head_sha(workspace, "First.md") == head_before
 
 
 def test_edit_many_stale_sha_rejects_whole_batch(service, workspace):
-    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
-    r2 = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
+    r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     stale_sha = _head_sha(workspace, "First.md")
     service.edit_many(
-        "u1",
-        "ws",
-        str(workspace),
+        workspace_target("u1", "ws", workspace),
         [edit_item(r1["note_id"], stale_sha, content="bump")],
     )
 
     result = service.edit_many(
-        "u1",
-        "ws",
-        str(workspace),
+        workspace_target("u1", "ws", workspace),
         [
             edit_item(r1["note_id"], stale_sha, content="more"),
             edit_item(r2["note_id"], _head_sha(workspace, "Second.md"), content="more"),
@@ -273,22 +249,20 @@ def test_edit_many_stale_sha_rejects_whole_batch(service, workspace):
 
     assert result["applied"] is False
     assert "current_sha" not in result["errors"][0]
-    note1 = service.get_with_content(r1["note_id"], "u1", str(workspace))
-    note2 = service.get_with_content(r2["note_id"], "u1", str(workspace))
+    note1 = service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note2 = service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
     assert "more" not in note1.content
     assert "more" not in note2.content  # nothing written, including the valid second item
 
 
 def test_edit_many_requires_expected_sha(service, workspace):
-    r1 = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     result = service.edit_many(
-        "u1",
-        "ws",
-        str(workspace),
+        workspace_target("u1", "ws", workspace),
         [edit_item(r1["note_id"], content="more")],
     )
     assert result["applied"] is False
-    assert "wymagany" in result["errors"][0]["error"]
+    assert "required" in result["errors"][0]["error"]
 
 
 def _head_sha(workspace, relative_path):
