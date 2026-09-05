@@ -437,6 +437,51 @@ class NoteChunkRepository(DbRepository):
         " c.header_path AS header_path, c.content AS content"
     )
 
+    _FTS_SEARCH_SQL = (
+        "WITH hits AS MATERIALIZED ("
+        "  SELECT chunk_id, bm25(notes_fts) AS rank"
+        "  FROM notes_fts WHERE notes_fts MATCH :q AND workspace = :ws"
+        ")"
+        f" SELECT h.chunk_id AS chunk_id,{_CHUNK_SELECT},"
+        " h.rank AS rank"
+        " FROM hits h"
+        " JOIN note_chunks c ON c.id = h.chunk_id"
+        " JOIN notes n ON n.id = c.note_id"
+        " WHERE n.owner_id = :o"
+        " ORDER BY h.rank LIMIT :limit"
+    )
+
+    # Both search legs materialize their MATCH before joining. Without the CTE — or with a
+    # plain (non-MATERIALIZED) one, which SQLite is free to flatten — the planner drives the
+    # join from `notes` and scans it in full: measured on production, the vector leg went
+    # 17 ms of actual KNN to 333 ms, and the lexical leg built an AUTOMATIC COVERING INDEX
+    # on every call. Materializing first costs nothing and pins the join order (#264).
+    #
+    # The owner predicate stays on `notes` in both, because that is the authoritative
+    # record of who owns a note. The vector leg repeats it inside the CTE, where vec0 can
+    # apply it as a metadata filter — a pre-filter for speed, not the check that matters.
+    # The lexical leg cannot: `notes_fts` has no owner column, which is also why its LIMIT
+    # has to stay outside the CTE. Workspace names are not unique across owners, so
+    # limiting before the owner filter would let one owner's chunks consume another's slots.
+
+    @staticmethod
+    def _vec_search_sql(dim: int) -> str:
+        return (
+            "WITH hits AS MATERIALIZED ("
+            "  SELECT chunk_id, distance"
+            f"  FROM note_chunks_vec_{dim}"
+            "  WHERE embedding MATCH :emb AND k = :k AND workspace = :ws"
+            "   AND identity = :ident AND owner_id = :o"
+            ")"
+            f" SELECT h.chunk_id AS chunk_id,{NoteChunkRepository._CHUNK_SELECT},"
+            " h.distance AS distance"
+            " FROM hits h"
+            " JOIN note_chunks c ON c.id = h.chunk_id"
+            " JOIN notes n ON n.id = c.note_id"
+            " WHERE n.owner_id = :o"
+            " ORDER BY h.distance"
+        )
+
     @staticmethod
     def _chunk_row(m, score):
         return {
@@ -458,15 +503,7 @@ class NoteChunkRepository(DbRepository):
         try:
             with self.timed_session() as session, timed("fts_ms"):
                 rows = session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text(
-                        f"SELECT f.chunk_id AS chunk_id,{self._CHUNK_SELECT},"
-                        " bm25(notes_fts) AS rank"
-                        " FROM notes_fts f"
-                        " JOIN note_chunks c ON c.id = f.chunk_id"
-                        " JOIN notes n ON n.id = c.note_id"
-                        " WHERE notes_fts MATCH :q AND f.workspace = :ws AND n.owner_id = :o"
-                        " ORDER BY rank LIMIT :limit"
-                    ),
+                    text(self._FTS_SEARCH_SQL),
                     {"q": match, "ws": workspace, "o": owner_id, "limit": limit},
                 ).fetchall()
         except Exception as e:
@@ -488,16 +525,7 @@ class NoteChunkRepository(DbRepository):
         try:
             with self.timed_session() as session, timed("vec_ms"):
                 rows = session.execute(  # ty: ignore[deprecated] - raw SQL
-                    text(
-                        f"SELECT v.chunk_id AS chunk_id,{self._CHUNK_SELECT},"
-                        " v.distance AS distance"
-                        f" FROM note_chunks_vec_{_validated_dim(identity.dim)} v"
-                        " JOIN note_chunks c ON c.id = v.chunk_id"
-                        " JOIN notes n ON n.id = c.note_id"
-                        " WHERE v.embedding MATCH :emb AND k = :k AND v.workspace = :ws"
-                        "  AND v.identity = :ident AND n.owner_id = :o"
-                        " ORDER BY v.distance"
-                    ),
+                    text(self._vec_search_sql(_validated_dim(identity.dim))),
                     {
                         "emb": embedding,
                         "k": k,
