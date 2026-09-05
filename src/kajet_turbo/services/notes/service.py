@@ -55,6 +55,7 @@ from kajet_turbo.services.notes.paths import (
     note_path_conflict,
     path_conflict_key,
 )
+from kajet_turbo.services.notes.persistence import NoteTeardown, new_note_row
 from kajet_turbo.services.notes.search import NoteSearchService
 from kajet_turbo.services.notes.staged_change import (
     MAX_BATCH_COMMIT_SIZE,
@@ -206,35 +207,6 @@ def _reconciled_temporal(pf: _PresentFile, existing: Note) -> tuple[str | None, 
     )
 
 
-def _new_note_row(
-    *,
-    note_id: str,
-    workspace: str,
-    owner_id: str,
-    title: str,
-    folder: str,
-    tags: list[str],
-    created_at: str,
-    updated_at: str,
-    occurred_at: str | None,
-    period: str | None,
-) -> Note:
-    """Build a ``Note`` row for ``insert_in_session`` — the shape shared by ``save()``,
-    ``save_many()``, and ``reconcile_paths()``'s adoption path."""
-    return Note(
-        id=note_id,
-        workspace=workspace,
-        owner_id=owner_id,
-        title=title,
-        folder=folder,
-        tags=json.dumps(tags),
-        created_at=created_at,
-        updated_at=updated_at,
-        occurred_at=occurred_at,
-        period=period,
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class _AdoptionCandidate:
     """An on-disk file with no ``id`` in frontmatter, found during a reconcile scan."""
@@ -363,6 +335,7 @@ class NoteService:
         self._folder_service = folder_service
         self._indexer = indexer
         self._reconcile_repo = reconcile_repo
+        self._teardown = NoteTeardown(tag_repo, chunk_repo, crud_repo, link_repo, link_service)
 
     def _locate(self, note_id: str, owner_id: str, ws_path: str) -> LocatedNote | None:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
@@ -454,15 +427,6 @@ class NoteService:
             expected_generation=expected_generation,
         )
 
-    def _teardown_note(self, session: Session, note: Note) -> None:
-        """Remove every DB artifact of ``note`` inside the caller's transaction."""
-        self._tag_repo.delete_note_tags_in_session(session, note.id, note.workspace, note.owner_id)
-        self._chunk_repo.delete_chunks(note.id, session)
-        self._crud_repo.delete_in_session(session, note.id, owner_id=note.owner_id)
-        self._link_repo.delete_links_from_in_session(session, note.id)
-        self._link_repo.delete_links_to_in_session(session, note.id)
-        self._link_service.delete_dangling_for_source_in_session(session, note.id)
-
     @workspace_write_transaction
     def save(
         self,
@@ -507,7 +471,7 @@ class NoteService:
         def write_row(session: Session) -> None:
             self._crud_repo.insert_in_session(
                 session,
-                _new_note_row(
+                new_note_row(
                     note_id=note_id,
                     workspace=ws_name,
                     owner_id=user_id,
@@ -683,7 +647,7 @@ class NoteService:
             for s in valid:
                 self._crud_repo.insert_in_session(
                     session,
-                    _new_note_row(
+                    new_note_row(
                         note_id=s["note_id"],
                         workspace=ws_name,
                         owner_id=user_id,
@@ -1377,7 +1341,7 @@ class NoteService:
             ) as operation,
             operation.session.begin(),
         ):
-            self._teardown_note(operation.session, note)
+            self._teardown.note_in_session(operation.session, note)
             self._tag_repo.sweep_orphan_tags_in_session(
                 operation.session, note.workspace, note.owner_id
             )
@@ -1454,7 +1418,7 @@ class NoteService:
             operation.session.begin(),
         ):
             for p in prepared:
-                self._teardown_note(operation.session, p.loc.note)
+                self._teardown.note_in_session(operation.session, p.loc.note)
             self._tag_repo.sweep_orphan_tags_in_session(operation.session, ws_name, user_id)
             # perf: keep this commit's wall time out of db_ms, see perf.excluded_from.
             with perf.excluded_from("db_ms"):
@@ -1639,19 +1603,12 @@ class NoteService:
         notes, and links. Used by workspace deletion. NOT used by reconcile/reindex
         (see reconcile_paths) — a wipe-then-rebuild has no window where the deletion
         safety valve could measure anything, and a crash mid-run loses every row."""
-        # FK ordering: chunks must be deleted before notes (note_chunks.note_id FK).
         with self._crud_repo.operation(
             "clear_workspace_data", workspace=ws_name, owner_id=owner_id
         ) as operation:
             session = operation.session
             with session.begin():
-                self._tag_repo.delete_workspace_tags_in_session(session, ws_name, owner_id)
-                self._chunk_repo.delete_for_workspace_in_session(ws_name, owner_id, session)
-                self._crud_repo.delete_for_workspace_in_session(ws_name, owner_id, session)
-                self._link_repo.delete_workspace_links_in_session(session, ws_name, owner_id)
-                self._link_service.delete_dangling_for_workspace_in_session(
-                    session, ws_name, owner_id
-                )
+                self._teardown.workspace_in_session(session, ws_name, owner_id)
         logger.info("workspace_data_cleared", ws=ws_name, owner_id=owner_id)
 
     @workspace_write_transaction
@@ -1660,8 +1617,9 @@ class NoteService:
     ) -> ReconcileReport:
         """Re-derive DB rows from disk for exactly the given workspace-relative paths.
 
-        A missing file (in scope, no id found there) removes its row via ``_teardown_note``;
-        a new id inserts one; drifted folder/title/tags/created_at updates it. No wipe:
+        A missing file (in scope, no id found there) removes its row via
+        ``NoteTeardown.note_in_session``; a new id inserts one; drifted
+        folder/title/tags/created_at updates it. No wipe:
         reconciling every path in scope IS the rebuild, which is what makes the deletion
         safety valve below meaningful (there's nothing to measure a wipe's blast radius
         against).
@@ -1847,14 +1805,14 @@ class NoteService:
         ):
             session = operation.session
             for note in missing_notes:
-                self._teardown_note(session, note)
+                self._teardown.note_in_session(session, note)
             if missing_notes:
                 self._tag_repo.sweep_orphan_tags_in_session(session, ws_name, owner_id)
             for note_id in inserted:
                 pf = present[note_id]
                 self._crud_repo.insert_in_session(
                     session,
-                    _new_note_row(
+                    new_note_row(
                         note_id=note_id,
                         workspace=ws_name,
                         owner_id=owner_id,
