@@ -291,12 +291,44 @@ class NoteLinkService:
         node_ids.update(t for _, t in edges)
         return self._build_graph(sorted(node_ids), edges, owner_id, ws_name)
 
+    def neighborhood(
+        self,
+        note_id: str,
+        ws_name: str,
+        owner_id: str,
+        depth: int = 2,
+        include_cross_workspace: bool = False,
+    ) -> dict | None:
+        """The directed induced graph within an undirected N-hop radius of ``note_id``."""
+        center = self._crud_repo.get(note_id, owner_id=owner_id)
+        if center is None or center.workspace != ws_name:
+            return None
+        edges = self._link_repo.neighborhood(
+            note_id,
+            ws_name,
+            owner_id,
+            depth,
+            include_cross_workspace=include_cross_workspace,
+        )
+        node_ids = {note_id}
+        node_ids.update(source for source, _ in edges)
+        node_ids.update(target for _, target in edges)
+        return self._build_graph(
+            sorted(node_ids),
+            edges,
+            owner_id,
+            ws_name,
+            dangling_source_ids=node_ids,
+        )
+
     def _build_graph(
         self,
         node_ids: list[str],
         edges: list[tuple[str, str]],
         owner_id: str,
         ws_name: str,
+        *,
+        dangling_source_ids: set[str] | None = None,
     ) -> dict:
         """Shared {nodes, edges, dangling_links} assembly — a future neighborhood query
         (#134) reuses this with a different (node_ids, edges) pair rather than
@@ -314,13 +346,18 @@ class NoteLinkService:
             "edges": [{"source": s, "target": t} for s, t in sorted(filtered_edges)],
         }
         if self._dangling_repo is not None and not self._links_validated(ws_name, owner_id):
+            dangling_rows = self._dangling_repo.list_for_workspace(owner_id, ws_name)
+            if dangling_source_ids is not None:
+                dangling_rows = [
+                    row for row in dangling_rows if row["source_note_id"] in dangling_source_ids
+                ]
             result["dangling_links"] = [
                 {
                     "source_note_id": row["source_note_id"],
                     "target_folder": row["target_folder"],
                     "target_title": row["target_title"],
                 }
-                for row in self._dangling_repo.list_for_workspace(owner_id, ws_name)
+                for row in dangling_rows
             ]
         else:
             result["dangling_links"] = None

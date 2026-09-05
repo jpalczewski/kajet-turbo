@@ -162,3 +162,26 @@ async def test_get_workspace_graph(workspaces_dir, mcp_server):
     assert {n["title"] for n in result["nodes"]} == {"Target", "Source", "Lonely"}
     assert result["edges"] == [{"source": source_id, "target": target_id}]
     assert result["dangling_links"] is None
+
+
+async def test_get_note_neighborhood(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool("activate_workspace", {"name": "test-ws"})
+        target_id = json.loads(
+            (await client.call_tool("save_note", {"title": "Target", "content": "content"}))
+            .content[0]
+            .text
+        )["note_id"]
+        source_id = json.loads(
+            (await client.call_tool("save_note", {"title": "Source", "content": "[[Target]]"}))
+            .content[0]
+            .text
+        )["note_id"]
+        result = json.loads(
+            (await client.call_tool("get_note_neighborhood", {"note_id": source_id}))
+            .content[0]
+            .text
+        )
+
+    assert result["edges"] == [{"source": source_id, "target": target_id}]
