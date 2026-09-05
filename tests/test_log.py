@@ -2,11 +2,19 @@ import asyncio
 import json
 import threading
 import time
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
 
 from tests.helpers import entries_named, make_logging_app, read_log_entries
+
+
+def _logging_resources(*, session_repo=None, oauth_repo=None):
+    return SimpleNamespace(
+        session_repo=session_repo or SimpleNamespace(get_user=lambda _: None),
+        oauth_repo=oauth_repo or SimpleNamespace(get_access_token=lambda _: None),
+    )
 
 
 def test_json_sink_produces_valid_jsonl(capsys):
@@ -380,7 +388,6 @@ def test_identity_lookup_runs_outside_the_route_perf_span(capsys, monkeypatch):
     perf analysis after a route that touched no database."""
     from starlette.testclient import TestClient
 
-    import kajet_turbo.dependencies as dependencies
     from kajet_turbo.perf import current as perf_current
 
     spans = []
@@ -390,8 +397,8 @@ def test_identity_lookup_runs_outside_the_route_perf_span(capsys, monkeypatch):
             spans.append(perf_current())
             return {"id": "user-123", "email": "user@example.com"}
 
-    monkeypatch.setattr(dependencies, "session_repo", SessionRepo())
-    app = make_logging_app()
+    resources = _logging_resources(session_repo=SessionRepo())
+    app = make_logging_app(resources)
 
     @app.get("/ping")
     def ping():
@@ -459,7 +466,6 @@ def _cookie_request(token: str = "session-token"):
 
 
 async def test_resolve_user_id_uses_run_sync_and_caches_success(monkeypatch):
-    import kajet_turbo.dependencies as dependencies
     from kajet_turbo.log import LoggingMiddleware
 
     main_thread = threading.get_ident()
@@ -474,8 +480,8 @@ async def test_resolve_user_id_uses_run_sync_and_caches_success(monkeypatch):
             assert token == "session-token"
             return {"id": "user-123", "email": "user@example.com"}
 
-    monkeypatch.setattr(dependencies, "session_repo", SessionRepo())
-    middleware = LoggingMiddleware(None)
+    resources = _logging_resources(session_repo=SessionRepo())
+    middleware = LoggingMiddleware(None, resources)
     request = _cookie_request()
 
     assert await middleware._resolve_user_id(request, "req-1") == "user-123"
@@ -486,7 +492,6 @@ async def test_resolve_user_id_uses_run_sync_and_caches_success(monkeypatch):
 async def test_resolve_user_id_caches_a_credential_that_is_nobody(monkeypatch):
     """A stale cookie is sent on every request its browser makes. Without caching the
     failure, each one is a fresh DB roundtrip through the shared limiter."""
-    import kajet_turbo.dependencies as dependencies
     from kajet_turbo.log import LoggingMiddleware
 
     calls = 0
@@ -497,8 +502,8 @@ async def test_resolve_user_id_caches_a_credential_that_is_nobody(monkeypatch):
             calls += 1
             return None
 
-    monkeypatch.setattr(dependencies, "session_repo", SessionRepo())
-    middleware = LoggingMiddleware(None)
+    resources = _logging_resources(session_repo=SessionRepo())
+    middleware = LoggingMiddleware(None, resources)
     request = _cookie_request("stale-token")
 
     assert await middleware._resolve_user_id(request, "req-1") is None
@@ -507,7 +512,6 @@ async def test_resolve_user_id_caches_a_credential_that_is_nobody(monkeypatch):
 
 
 async def test_resolve_user_id_does_not_cache_transient_lookup_failure(monkeypatch):
-    import kajet_turbo.dependencies as dependencies
     from kajet_turbo.log import LoggingMiddleware
 
     calls = 0
@@ -520,8 +524,8 @@ async def test_resolve_user_id_does_not_cache_transient_lookup_failure(monkeypat
                 raise RuntimeError("temporary database failure")
             return {"id": "user-123", "email": "user@example.com"}
 
-    monkeypatch.setattr(dependencies, "session_repo", SessionRepo())
-    middleware = LoggingMiddleware(None)
+    resources = _logging_resources(session_repo=SessionRepo())
+    middleware = LoggingMiddleware(None, resources)
     request = _cookie_request()
 
     assert await middleware._resolve_user_id(request, "req-1") is None
@@ -531,7 +535,6 @@ async def test_resolve_user_id_does_not_cache_transient_lookup_failure(monkeypat
 
 async def test_resolve_user_id_does_not_cache_when_kajet_cache_is_off(monkeypatch):
     monkeypatch.setenv("KAJET_CACHE", "0")
-    import kajet_turbo.dependencies as dependencies
     from kajet_turbo.log import LoggingMiddleware
 
     calls = 0
@@ -542,8 +545,8 @@ async def test_resolve_user_id_does_not_cache_when_kajet_cache_is_off(monkeypatc
             calls += 1
             return {"id": "user-123", "email": "user@example.com"}
 
-    monkeypatch.setattr(dependencies, "session_repo", SessionRepo())
-    middleware = LoggingMiddleware(None)
+    resources = _logging_resources(session_repo=SessionRepo())
+    middleware = LoggingMiddleware(None, resources)
     request = _cookie_request()
 
     assert await middleware._resolve_user_id(request, "req-1") == "user-123"
@@ -554,15 +557,14 @@ async def test_resolve_user_id_does_not_cache_when_kajet_cache_is_off(monkeypatc
 async def test_resolve_user_id_keeps_no_raw_credential_in_the_cache(monkeypatch):
     """Cache keys outlive the request by the whole TTL — a live cookie must not be
     what is sitting in that dict."""
-    import kajet_turbo.dependencies as dependencies
     from kajet_turbo.log import LoggingMiddleware
 
     class SessionRepo:
         def get_user(self, token):
             return {"id": "user-123", "email": "user@example.com"}
 
-    monkeypatch.setattr(dependencies, "session_repo", SessionRepo())
-    middleware = LoggingMiddleware(None)
+    resources = _logging_resources(session_repo=SessionRepo())
+    middleware = LoggingMiddleware(None, resources)
 
     await middleware._resolve_user_id(_cookie_request(), "req-1")
 
@@ -576,7 +578,6 @@ async def test_resolve_user_id_refuses_an_expired_bearer_token(monkeypatch):
     must not tag a log line here — and the client lookup must not even be reached."""
     from starlette.requests import Request
 
-    import kajet_turbo.dependencies as dependencies
     from kajet_turbo.log import LoggingMiddleware
 
     class OAuthRepo:
@@ -587,8 +588,8 @@ async def test_resolve_user_id_refuses_an_expired_bearer_token(monkeypatch):
                 "expires_at": time.time() - 10,
             }
 
-    monkeypatch.setattr(dependencies, "oauth_repo", OAuthRepo())
-    middleware = LoggingMiddleware(None)
+    resources = _logging_resources(oauth_repo=OAuthRepo())
+    middleware = LoggingMiddleware(None, resources)
     request = Request(
         {
             "type": "http",
@@ -607,7 +608,6 @@ async def test_resolve_user_id_refuses_an_expired_bearer_token(monkeypatch):
 def test_logging_middleware_uses_opaque_id_for_session_and_bearer(capsys, monkeypatch):
     from starlette.testclient import TestClient
 
-    import kajet_turbo.dependencies as dependencies
 
     class SessionRepo:
         def get_user(self, token):
@@ -623,9 +623,8 @@ def test_logging_middleware_uses_opaque_id_for_session_and_bearer(capsys, monkey
                 "expires_at": int(time.time()) + 3600,
             }
 
-    monkeypatch.setattr(dependencies, "session_repo", SessionRepo())
-    monkeypatch.setattr(dependencies, "oauth_repo", OAuthRepo())
-    app = make_logging_app()
+    resources = _logging_resources(session_repo=SessionRepo(), oauth_repo=OAuthRepo())
+    app = make_logging_app(resources)
 
     @app.get("/ping")
     def ping():
@@ -645,14 +644,13 @@ def test_logging_middleware_uses_opaque_id_for_session_and_bearer(capsys, monkey
 def test_logging_middleware_ignores_identity_lookup_failure(capsys, monkeypatch):
     from starlette.testclient import TestClient
 
-    import kajet_turbo.dependencies as dependencies
 
     class SessionRepo:
         def get_user(self, token):
             raise RuntimeError("database unavailable")
 
-    monkeypatch.setattr(dependencies, "session_repo", SessionRepo())
-    app = make_logging_app()
+    resources = _logging_resources(session_repo=SessionRepo())
+    app = make_logging_app(resources)
 
     @app.get("/ping")
     def ping():

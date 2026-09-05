@@ -34,7 +34,7 @@ def entries_named(entries: list[dict[str, Any]], msg: str) -> list[dict[str, Any
     return [entry for entry in entries if entry.get("msg") == msg]
 
 
-def make_logging_app():
+def make_logging_app(resources=None):
     """A FastAPI app wrapped in LoggingMiddleware, with logging set up.
 
     Register routes on the result. Imported late so the env block in conftest.py runs
@@ -46,5 +46,5 @@ def make_logging_app():
 
     setup_logging()
     app = FastAPI()
-    app.add_middleware(LoggingMiddleware)
+    app.add_middleware(LoggingMiddleware, resources=resources)
     return app

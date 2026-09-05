@@ -1,7 +1,6 @@
 """add_tag/remove_tag/set_tags/rename_tag happy-path tool coverage."""
 
 import json
-from types import SimpleNamespace
 
 import pytest
 from fastmcp import Client
@@ -114,8 +113,8 @@ async def test_per_note_tag_tools_publish_note_updated_only_on_a_real_change(
     mcp, _ = mcp_server
     published: list[tuple[str, dict]] = []
     monkeypatch.setattr(
-        "kajet_turbo.mcp.tooling.event_repo",
-        SimpleNamespace(publish=lambda owner_id, kind, payload: published.append((kind, payload))),
+        "kajet_turbo.repositories.events.EventRepository.publish",
+        lambda _self, owner_id, kind, payload: published.append((kind, payload)),
     )
     async with Client(mcp) as client:
         await client.call_tool("activate_workspace", {"name": "test-ws"})

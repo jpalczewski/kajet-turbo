@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from fastmcp import Client
@@ -39,12 +39,22 @@ async def _resolve_as(user_id: str) -> str:
     return user_id
 
 
+def _bound(workspace_service, active_workspace_repo=None):
+    return context.use_mcp_context(
+        context.build_mcp_context(
+            workspace_service,
+            cast(Any, SimpleNamespace()),
+            cast(Any, active_workspace_repo or SimpleNamespace(get=lambda *_: None)),
+            cast(Any, SimpleNamespace()),
+        )
+    )
+
+
 async def test_session_state_identity_mismatch_is_cleared(monkeypatch):
     fake = FakeContext({"active_workspace": "notes", "active_user_id": "user-a"})
-    monkeypatch.setattr(context.deps, "workspace_service", WorkspaceService(["notes"]))
     monkeypatch.setattr(context, "require_user_id", lambda: _resolve_as("user-b"))
 
-    with pytest.raises(ToolError, match="identity changed"):
+    with _bound(WorkspaceService(["notes"])), pytest.raises(ToolError, match="identity changed"):
         await context.active_workspace(cast(Context, fake))
 
     assert fake.state == {}
@@ -52,10 +62,10 @@ async def test_session_state_identity_mismatch_is_cleared(monkeypatch):
 
 async def test_session_state_uses_current_matching_identity(monkeypatch):
     fake = FakeContext({"active_workspace": "notes", "active_user_id": "user-a"})
-    monkeypatch.setattr(context.deps, "workspace_service", WorkspaceService(["notes"]))
     monkeypatch.setattr(context, "require_user_id", lambda: _resolve_as("user-a"))
 
-    workspace = await context.active_workspace(cast(Context, fake))
+    with _bound(WorkspaceService(["notes"])):
+        workspace = await context.active_workspace(cast(Context, fake))
 
     assert workspace.owner_id == "user-a"
     assert workspace.path == "/workspaces/user-a/notes"
@@ -63,10 +73,9 @@ async def test_session_state_uses_current_matching_identity(monkeypatch):
 
 async def test_revoked_workspace_grant_clears_session_state(monkeypatch):
     fake = FakeContext({"active_workspace": "notes", "active_user_id": "user-a"})
-    monkeypatch.setattr(context.deps, "workspace_service", WorkspaceService([]))
     monkeypatch.setattr(context, "require_user_id", lambda: _resolve_as("user-a"))
 
-    with pytest.raises(ToolError):
+    with _bound(WorkspaceService([])), pytest.raises(ToolError):
         await context.active_workspace(cast(Context, fake))
 
     assert fake.state == {}
@@ -74,15 +83,12 @@ async def test_revoked_workspace_grant_clears_session_state(monkeypatch):
 
 async def test_db_rehydration_revalidates_workspace_grant(monkeypatch):
     fake = FakeContext({})
-    monkeypatch.setattr(context.deps, "workspace_service", WorkspaceService([]))
-    monkeypatch.setattr(
-        context.deps,
-        "active_workspace_repo",
-        SimpleNamespace(get=lambda user_id, scope, *args: "revoked"),
-    )
     monkeypatch.setattr(context, "require_user_id", lambda: _resolve_as("user-a"))
 
-    with pytest.raises(ToolError):
+    with (
+        _bound(WorkspaceService([]), SimpleNamespace(get=lambda user_id, scope, *args: "revoked")),
+        pytest.raises(ToolError),
+    ):
         await context.active_workspace(cast(Context, fake))
 
     assert fake.state == {}

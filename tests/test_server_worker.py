@@ -10,7 +10,6 @@ from kajet_turbo.models import Job
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.server import _make_sweep_handler, register_job_handlers
-from kajet_turbo.worker import get_handler
 
 
 def test_sweep_handler_purges_old_done_jobs(database: Database):
@@ -28,8 +27,13 @@ def test_sweep_handler_purges_old_done_jobs(database: Database):
     assert len(rearmed) == 1 and rearmed[0].status == "pending"
 
 
-def test_register_job_handlers_covers_all_kinds():
-    register_job_handlers()
+def test_register_job_handlers_covers_all_kinds(database: Database):
+    from kajet_turbo.dependencies import AppConfig, build_resources
+
+    resources = build_resources(
+        AppConfig(db_path=database.db_path, mcp_base_url="http://localhost")
+    )
+    handlers = register_job_handlers(resources)
     for kind in (
         "push_workspace",
         "reconcile_links",
@@ -37,7 +41,8 @@ def test_register_job_handlers_covers_all_kinds():
         "sweep_outbox",
         "embed_note",
     ):
-        assert get_handler(kind) is not None, kind
+        assert handlers[kind] is not None, kind
+    resources.db.close()
 
 
 def test_build_app_runs_inprocess_worker():
@@ -45,21 +50,22 @@ def test_build_app_runs_inprocess_worker():
     # embeddings (and auto-push) would silently never happen without a worker process.
     from starlette.testclient import TestClient
 
-    from kajet_turbo import dependencies
     from kajet_turbo.server import build_app
 
+    app = build_app()
+    resources = app._app.state.resources
     # Handler no-ops for a nonexistent note, so the job completes quietly.
-    job_id = dependencies.job_repo.enqueue(
+    job_id = resources.job_repo.enqueue(
         "embed_note", {"note_id": "missing", "workspace": "w", "owner_id": "u"}
     )
 
     def _status() -> str:
-        with Session(dependencies.db.engine) as session:
+        with Session(resources.db.engine) as session:
             job = session.get(Job, job_id)
             assert job is not None
             return job.status
 
-    with TestClient(build_app()):
+    with TestClient(app):
         deadline = time.time() + 10.0
         while time.time() < deadline and _status() != "done":
             time.sleep(0.05)

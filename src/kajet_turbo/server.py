@@ -14,20 +14,11 @@ from starlette.requests import Request as StarletteRequest
 
 from kajet_turbo.api import api_router
 from kajet_turbo.auth import hash_password
-from kajet_turbo.dependencies import (
-    active_workspace_repo,
-    collection_service,
-    db,
-    folder_meta_repo,
-    note_service,
-    oauth_repo,
-    provider,
-    user_repo,
-    workspace_service,
-)
+from kajet_turbo.dependencies import AppConfig, AppResources, build_resources
 from kajet_turbo.health import add_health_routes
 from kajet_turbo.log import LoggingMiddleware, install_loop_exception_handler, logger, setup_logging
 from kajet_turbo.mcp import build_mcp
+from kajet_turbo.repositories.git import use_post_commit_hooks
 
 _SPA_EXPLORER_PATH = re.compile(r"^workspace/[A-Za-z0-9][A-Za-z0-9_-]{0,49}/notes(?:/.*)?$")
 
@@ -46,41 +37,31 @@ def _make_sweep_handler(event_repo, job_repo):
     return _sweep
 
 
-def register_job_handlers() -> None:
+def register_job_handlers(resources: AppResources) -> dict[str, Any]:
     """Register every job kind the worker can run. Shared by the standalone worker
     role and the combined app's in-process worker thread."""
-    from kajet_turbo.dependencies import (
-        embed_handler,
-        event_repo,
-        push_handler,
-        reconcile_links_handler,
-        reindex_handler,
-    )
-    from kajet_turbo.dependencies import job_repo as _job_repo
-    from kajet_turbo.worker import register_handler
-
-    register_handler("push_workspace", push_handler)
-    register_handler("reconcile_links", reconcile_links_handler)
-    # Drain jobs written before deployment with the new idempotent implementation.
-    register_handler("heal_dangling", reconcile_links_handler)
-    register_handler("sweep_outbox", _make_sweep_handler(event_repo, _job_repo))
-    register_handler("embed_note", embed_handler)
-    register_handler("reindex_note", reindex_handler)
+    handlers = {
+        "push_workspace": resources.push_handler,
+        "reconcile_links": resources.reconcile_links_handler,
+        # Drain jobs written before deployment with the new idempotent implementation.
+        "heal_dangling": resources.reconcile_links_handler,
+        "sweep_outbox": _make_sweep_handler(resources.event_repo, resources.job_repo),
+        "embed_note": resources.embed_handler,
+        "reindex_note": resources.reindex_handler,
+    }
+    return handlers
 
 
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI):
-    admin_email = os.getenv("KAJET_ADMIN_EMAIL")
-    admin_password = os.getenv("KAJET_ADMIN_PASSWORD")
-    if admin_email and admin_password and user_repo.count() == 0:
-        user_repo.create(admin_email, hash_password(admin_password))
+    resources: AppResources = app.state.resources
+    config = resources.config
+    if config.admin_email and config.admin_password and resources.user_repo.count() == 0:
+        resources.user_repo.create(config.admin_email, hash_password(config.admin_password))
     try:
         yield
     finally:
-        from kajet_turbo.dependencies import shared_embed_client
-
-        await shared_embed_client.aclose()
-        db.close()
+        await resources.aclose()
 
 
 @asynccontextmanager
@@ -98,9 +79,7 @@ async def _logging_lifespan(app: FastAPI):
 
 @asynccontextmanager
 async def _sweep_outbox_lifespan(app: FastAPI):
-    from kajet_turbo.dependencies import job_repo as _job_repo
-
-    _job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox")
+    app.state.resources.job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox")
     yield
 
 
@@ -112,16 +91,21 @@ async def _worker_lifespan(app: FastAPI):
 
     from kajet_turbo.worker import run_worker
 
-    register_job_handlers()
+    resources: AppResources = app.state.resources
     stop = threading.Event()
+
+    def run() -> None:
+        with use_post_commit_hooks(resources.post_commit_hooks):
+            run_worker(
+                resources.db.engine,
+                registry=register_job_handlers(resources),
+                poll_interval=resources.config.worker_poll_interval,
+                concurrency=resources.config.worker_concurrency,
+                stop_event=stop,
+            )
+
     thread = threading.Thread(
-        target=run_worker,
-        args=(db.engine,),
-        kwargs={
-            "poll_interval": float(os.getenv("KAJET_WORKER_POLL_INTERVAL", "1")),
-            "concurrency": int(os.getenv("KAJET_WORKER_CONCURRENCY", "4")),
-            "stop_event": stop,
-        },
+        target=run,
         daemon=True,
         name="kajet-inprocess-worker",
     )
@@ -130,7 +114,7 @@ async def _worker_lifespan(app: FastAPI):
         yield
     finally:
         stop.set()
-        thread.join(timeout=10.0)
+        thread.join()
 
 
 def _is_spa_navigation(path: str, scope: dict) -> bool:
@@ -187,6 +171,11 @@ class _MCPPathFix:
     def __init__(self, app: Any) -> None:
         self._app = app
 
+    @property
+    def state(self):
+        """Expose ``state.resources.aclose()`` for an app assembled but never started."""
+        return self._app.state
+
     async def __call__(self, scope, receive, send) -> None:
         if scope.get("type") == "http" and scope.get("path") == "/mcp":
             scope = dict(scope)
@@ -194,24 +183,28 @@ class _MCPPathFix:
         await self._app(scope, receive, send)
 
 
-def _new_mcp_app() -> Any:
-    mcp = build_mcp(
-        note_service,
-        workspace_service,
-        folder_meta_repo,
-        oauth_repo,
-        active_workspace_repo,
-        provider,
-        collection_service,
-    )
+class _ResourceHookScope:
+    """Bind post-commit callbacks to this ASGI app without a process-global list."""
+
+    def __init__(self, app: Any, resources: AppResources) -> None:
+        self._app = app
+        self._resources = resources
+
+    async def __call__(self, scope, receive, send) -> None:
+        with use_post_commit_hooks(self._resources.post_commit_hooks):
+            await self._app(scope, receive, send)
+
+
+def _new_mcp_app(resources: AppResources) -> Any:
+    mcp = build_mcp(resources)
     return mcp.http_app(path="/")
 
 
-def _add_oauth_routes(app: FastAPI) -> None:
+def _add_oauth_routes(app: FastAPI, resources: AppResources) -> None:
     # RFC 8414 / RFC 9728: expose OAuth discovery routes at the origin root.
     # FastMCP generates path-aware well-known URLs for the issuer path (/mcp);
     # without this the SPA catch-all intercepts them and returns HTML.
-    for _route in provider.get_well_known_routes(mcp_path="/"):
+    for _route in resources.provider.get_well_known_routes(mcp_path="/"):
         app.add_route(
             _route.path,
             _route.endpoint,
@@ -219,9 +212,9 @@ def _add_oauth_routes(app: FastAPI) -> None:
         )
 
 
-def _mount_spa(app: FastAPI) -> None:
+def _mount_spa(app: FastAPI, resources: AppResources) -> None:
     dist = Path(__file__).parent.parent.parent / "dist"
-    if os.getenv("KAJET_SERVE_SPA", "1") == "1" and dist.exists():
+    if resources.config.serve_spa and dist.exists():
         app.mount("/", _SPAFiles(str(dist)))
 
 
@@ -231,47 +224,70 @@ async def _http_exception_handler(request: StarletteRequest, exc: HTTPException)
     return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
 
 
-def build_mcp_app() -> Any:
+def _assemble(config: AppConfig | None) -> AppResources:
+    return build_resources(config or AppConfig.from_env())
+
+
+def build_mcp_app(config: AppConfig | None = None) -> Any:
     """MCP role: /mcp + OAuth routes only. Stateful — must run single-process."""
-    mcp_app = _new_mcp_app()
-    app = FastAPI(lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan, _logging_lifespan))
-    app.add_middleware(LoggingMiddleware)
-    add_health_routes(app, engine=db.engine)
+    resources = _assemble(config)
+    try:
+        mcp_app = _new_mcp_app(resources)
+        app = FastAPI(
+            lifespan=combine_lifespans(_app_lifespan, mcp_app.lifespan, _logging_lifespan)
+        )
+        app.state.resources = resources
+    except BaseException:
+        resources.db.close()
+        raise
+    app.add_middleware(LoggingMiddleware, resources=resources)
+    app.add_middleware(_ResourceHookScope, resources=resources)
+    add_health_routes(app, engine=resources.db.engine)
     app.mount("/mcp", mcp_app)
-    _add_oauth_routes(app)
+    _add_oauth_routes(app, resources)
     return _MCPPathFix(app)
 
 
-def build_api_app() -> Any:
+def build_api_app(config: AppConfig | None = None) -> Any:
     """API role: REST /api + SPA. Stateless — scales to any worker count."""
+    resources = _assemble(config)
     app = FastAPI(lifespan=combine_lifespans(_app_lifespan, _logging_lifespan))
+    app.state.resources = resources
     app.add_exception_handler(HTTPException, _http_exception_handler)  # ty: ignore[invalid-argument-type] — FastAPI accepts narrower exc type at runtime
-    app.add_middleware(LoggingMiddleware)
-    add_health_routes(app, engine=db.engine)
+    app.add_middleware(LoggingMiddleware, resources=resources)
+    app.add_middleware(_ResourceHookScope, resources=resources)
+    add_health_routes(app, engine=resources.db.engine)
     app.include_router(api_router)
-    _mount_spa(app)
+    _mount_spa(app, resources)
     return app
 
 
-def build_app() -> Any:
+def build_app(config: AppConfig | None = None) -> Any:
     """Combined role ("all"): MCP + API + SPA in one process (local dev)."""
-    mcp_app = _new_mcp_app()
-    app = FastAPI(
-        lifespan=combine_lifespans(
-            _app_lifespan,
-            mcp_app.lifespan,
-            _logging_lifespan,
-            _sweep_outbox_lifespan,
-            _worker_lifespan,
+    resources = _assemble(config)
+    try:
+        mcp_app = _new_mcp_app(resources)
+        app = FastAPI(
+            lifespan=combine_lifespans(
+                _app_lifespan,
+                mcp_app.lifespan,
+                _logging_lifespan,
+                _sweep_outbox_lifespan,
+                _worker_lifespan,
+            )
         )
-    )
+        app.state.resources = resources
+    except BaseException:
+        resources.db.close()
+        raise
     app.add_exception_handler(HTTPException, _http_exception_handler)  # ty: ignore[invalid-argument-type] — FastAPI accepts narrower exc type at runtime
-    app.add_middleware(LoggingMiddleware)
-    add_health_routes(app, engine=db.engine)
+    app.add_middleware(LoggingMiddleware, resources=resources)
+    app.add_middleware(_ResourceHookScope, resources=resources)
+    add_health_routes(app, engine=resources.db.engine)
     app.include_router(api_router)
     app.mount("/mcp", mcp_app)
-    _add_oauth_routes(app)
-    _mount_spa(app)
+    _add_oauth_routes(app, resources)
+    _mount_spa(app, resources)
     return _MCPPathFix(app)
 
 
@@ -291,7 +307,11 @@ def _cmd_create_user(args: list[str]) -> None:
     parsed = parser.parse_args(args)
 
     password = secrets.token_urlsafe(16)
-    user_repo.create(parsed.email, hash_password(password))
+    resources = build_resources(AppConfig.from_env())
+    try:
+        resources.user_repo.create(parsed.email, hash_password(password))
+    finally:
+        resources.db.close()
     print(f"email:    {parsed.email}")
     print(f"password: {password}")
 
@@ -301,7 +321,8 @@ def _cmd_purge_tech_users() -> None:
 
     from kajet_turbo.db import Database
 
-    engine = Database().engine
+    database = Database()
+    engine = database.engine
     pattern = f"%{_TECH_USER_DOMAIN}"
 
     # Must delete child rows first — FKs have no CASCADE.
@@ -351,6 +372,7 @@ def _cmd_purge_tech_users() -> None:
             shutil.rmtree(user_dir)
             removed_dirs.append(str(user_dir))
 
+    database.close()
     print(f"Purged {len(ids)} technical user(s): {', '.join(ids)}")
     if removed_dirs:
         print(f"Removed workspace dirs: {', '.join(removed_dirs)}")
@@ -372,7 +394,6 @@ def main() -> None:
     port = int(os.getenv("MCP_PORT", "8000"))
     role = os.getenv("KAJET_ROLE", "all")
     if role == "worker":
-        from kajet_turbo.db import Database
         from kajet_turbo.worker import run_worker
 
         # The worker returns before any uvicorn app is built, so it must init logging
@@ -395,16 +416,18 @@ def main() -> None:
             except Exception as e:
                 logger.warning("startup_branch_migration_failed", error=str(e))
 
-        from kajet_turbo.dependencies import job_repo as _job_repo
-
-        register_job_handlers()
-        _job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox")
-        db = Database()
-        run_worker(
-            db.engine,
-            poll_interval=float(os.getenv("KAJET_WORKER_POLL_INTERVAL", "1")),
-            concurrency=int(os.getenv("KAJET_WORKER_CONCURRENCY", "4")),
-        )
+        resources = build_resources(AppConfig.from_env())
+        try:
+            resources.job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox")
+            with use_post_commit_hooks(resources.post_commit_hooks):
+                run_worker(
+                    resources.db.engine,
+                    registry=register_job_handlers(resources),
+                    poll_interval=resources.config.worker_poll_interval,
+                    concurrency=resources.config.worker_concurrency,
+                )
+        finally:
+            resources.db.close()
         return
     if role == "mcp":
         # Hard invariant: stateful MCP sessions live in process memory, so the

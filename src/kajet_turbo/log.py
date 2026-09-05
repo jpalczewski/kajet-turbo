@@ -312,8 +312,9 @@ def _http_route_fields(scope) -> dict[str, str]:
 class LoggingMiddleware:
     """Raw ASGI middleware — safe for SSE/streaming unlike BaseHTTPMiddleware."""
 
-    def __init__(self, app) -> None:
+    def __init__(self, app, resources=None) -> None:
         self._app = app
+        self._resources = resources
         # Best-effort log tagging, never an authz decision — which is why the cache lives
         # here and not in `identity`. Keys are digests, so no live credential is retained;
         # values are opaque user IDs, never email addresses. Honors KAJET_CACHE like every
@@ -384,35 +385,36 @@ class LoggingMiddleware:
 
     async def _cached_user_id(self, kind: str, credential: str, request_id: str) -> str | None:
         if self._user_ids is None:
-            return (await run_sync(_lookup_user_id, kind, credential, request_id)).user_id
+            return (
+                await run_sync(_lookup_user_id, kind, credential, request_id, self._resources)
+            ).user_id
 
         key = (kind, hashlib.sha256(credential.encode()).hexdigest())
         cached = self._user_ids.get(key, _MISS)
         if not isinstance(cached, _Missing):
             return cached.user_id
 
-        lookup = await run_sync(_lookup_user_id, kind, credential, request_id)
+        lookup = await run_sync(_lookup_user_id, kind, credential, request_id, self._resources)
         if lookup.cacheable:
             self._user_ids.put(key, lookup)
         return lookup.user_id
 
 
-def _lookup_user_id(kind: str, credential: str, request_id: str) -> _UserLookup:
+def _lookup_user_id(kind: str, credential: str, request_id: str, resources=None) -> _UserLookup:
     """Repository lookups for log tagging; runs in a worker thread via ``run_sync``.
 
     Never raises — logging must not break a request — but the failure is not silent
     either: a lookup that breaks for every request would otherwise look exactly like
     ordinary anonymous traffic.
     """
-    # Late import, load-bearing twice: at module level `dependencies` would be an import
-    # cycle, and the tests monkeypatch these repo singletons *on* that module. Do not hoist.
-    from kajet_turbo.dependencies import oauth_repo, session_repo
+    if resources is None:
+        return _UserLookup(None)
 
     try:
         if kind == "session":
-            user = identity.resolve_session_user(session_repo, credential)
+            user = identity.resolve_session_user(resources.session_repo, credential)
             return _UserLookup(str(user["id"]) if user else None)
-        return _UserLookup(identity.resolve_bearer_user_id(oauth_repo, credential))
+        return _UserLookup(identity.resolve_bearer_user_id(resources.oauth_repo, credential))
     except Exception as e:
         logger.warning(
             "log_identity_lookup_failed",

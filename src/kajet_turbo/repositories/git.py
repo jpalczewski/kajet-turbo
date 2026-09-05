@@ -7,6 +7,7 @@ import stat
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
@@ -24,22 +25,43 @@ from kajet_turbo.perf import record, timed
 
 COMMITTER = b"Kajet <bot@kajet.app>"
 
-_post_commit_hooks: list[Callable[[str], None]] = []
+
+class PostCommitHooks:
+    """Callbacks owned by one application resource graph."""
+
+    def __init__(self) -> None:
+        self._hooks: list[Callable[[str], None]] = []
+
+    def register(self, fn: Callable[[str], None]) -> None:
+        if fn not in self._hooks:
+            self._hooks.append(fn)
+
+    def fire(self, workspace_path: str) -> None:
+        for hook in self._hooks:
+            try:
+                hook(workspace_path)
+            except Exception as e:
+                logger.warning("post_commit_hook_failed", error=str(e))
 
 
-def register_post_commit_hook(fn: Callable[[str], None]) -> None:
-    """Register a callback fired with the workspace path after each successful
-    commit. Used to enqueue auto-push. Hook exceptions are logged, not propagated —
-    a failing hook must never break the commit."""
-    _post_commit_hooks.append(fn)
+_CURRENT_HOOKS: ContextVar[PostCommitHooks | None] = ContextVar(
+    "kajet_post_commit_hooks", default=None
+)
 
 
-def _fire_post_commit(workspace_path: str) -> None:
-    for hook in _post_commit_hooks:
-        try:
-            hook(workspace_path)
-        except Exception as e:
-            logger.warning("post_commit_hook_failed", error=str(e))
+@contextlib.contextmanager
+def use_post_commit_hooks(hooks: PostCommitHooks):
+    token: Token[PostCommitHooks | None] = _CURRENT_HOOKS.set(hooks)
+    try:
+        yield
+    finally:
+        _CURRENT_HOOKS.reset(token)
+
+
+def _fire_post_commit(workspace_path: str, hooks: PostCommitHooks | None) -> None:
+    if hooks is None:
+        return
+    hooks.fire(workspace_path)
 
 
 def _flat_changes(entry) -> Iterator[TreeChange]:
@@ -73,7 +95,7 @@ _LOCK_STATE = threading.local()
 
 class _TransactionState:
     def __init__(self) -> None:
-        self.post_commit = False
+        self.post_commit_hooks: PostCommitHooks | None = None
         self.post_release: list[Callable[[], None]] = []
 
 
@@ -99,14 +121,14 @@ def _transaction_states() -> dict[str, _TransactionState]:
     return states
 
 
-def _record_post_commit(workspace_path: str) -> None:
+def _record_post_commit(workspace_path: str, hooks: PostCommitHooks | None) -> None:
     """Queue one hook notification for the outermost workspace transaction."""
     state = _transaction_states().get(_lock_key(workspace_path))
     if state is None:
         # Defensive fallback: callers normally record while holding _workspace_lock.
-        _fire_post_commit(workspace_path)
+        _fire_post_commit(workspace_path, hooks)
     else:
-        state.post_commit = True
+        state.post_commit_hooks = hooks
 
 
 def defer_workspace_postprocess(workspace_path: str, callback: Callable[[], None]) -> None:
@@ -180,7 +202,7 @@ def _workspace_lock(workspace_path: str):
     key = _lock_key(workspace_path)
     states = _transaction_states()
     nested = key in states
-    pending_post_commit = False
+    pending_post_commit_hooks: PostCommitHooks | None = None
     post_release: list[Callable[[], None]] = []
     t0 = time.monotonic()
     try:
@@ -200,7 +222,7 @@ def _workspace_lock(workspace_path: str):
                     finally:
                         record("workspace_write_ms", (time.monotonic() - t1) * 1000)
             finally:
-                pending_post_commit = state.post_commit
+                pending_post_commit_hooks = state.post_commit_hooks
                 post_release = state.post_release
                 states.pop(key, None)
     finally:
@@ -208,8 +230,8 @@ def _workspace_lock(workspace_path: str):
             # Run external side effects only after both locks have been released. Multiple
             # commits in one transaction intentionally coalesce into one auto-push enqueue.
             # The hook goes first so a deferred indexing failure cannot suppress auto-push.
-            if pending_post_commit:
-                _fire_post_commit(workspace_path)
+            if pending_post_commit_hooks is not None:
+                _fire_post_commit(workspace_path, pending_post_commit_hooks)
             for callback in post_release:
                 callback()
 
@@ -243,8 +265,9 @@ def workspace_write_transaction[**P, T](fn: Callable[P, T]) -> Callable[P, T]:
 
 
 class GitRepository:
-    def __init__(self, workspace_path: str) -> None:
+    def __init__(self, workspace_path: str, hooks: PostCommitHooks | None = None) -> None:
         self._workspace_path = workspace_path
+        self._hooks = hooks if hooks is not None else _CURRENT_HOOKS.get()
         try:
             # Opened once and reused by the read methods below. Reuse is safe for
             # freshness: dulwich reads refs from disk on each access and discovers
@@ -260,13 +283,13 @@ class GitRepository:
         return self._workspace_path
 
     @classmethod
-    def init(cls, path: str) -> GitRepository:
+    def init(cls, path: str, hooks: PostCommitHooks | None = None) -> GitRepository:
         porcelain.init(path)
         # dulwich defaults HEAD to refs/heads/master; point it at main before the
         # first commit so new workspaces use main (matches the default branch on
         # GitHub/Gitea mirrors). current_branch reads HEAD, so push is unaffected.
         Repo(path).refs.set_symbolic_ref(b"HEAD", b"refs/heads/main")  # ty: ignore[invalid-argument-type] - Literal[bytes] satisfies Ref type
-        return cls(path)
+        return cls(path, hooks)
 
     @contextlib.contextmanager
     def transaction(self) -> Iterator[GitRepository]:
@@ -300,7 +323,7 @@ class GitRepository:
                     author=COMMITTER,
                     committer=COMMITTER,
                 )
-                _record_post_commit(self._workspace_path)
+                _record_post_commit(self._workspace_path, self._hooks)
             except GitError:
                 raise
             except Exception as e:

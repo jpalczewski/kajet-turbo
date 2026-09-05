@@ -1,4 +1,6 @@
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -11,6 +13,7 @@ from kajet_turbo import identity
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logger
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
+from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -30,24 +33,47 @@ class ActiveWorkspace:
     path: str
 
 
-class McpContextDeps:
-    workspace_service: WorkspaceService | None = None
-    oauth_repo: OAuthRepository | None = None
-    active_workspace_repo: ActiveWorkspaceRepository | None = None
+@dataclass(frozen=True, slots=True)
+class McpDependencies:
+    workspace_service: WorkspaceService
+    oauth_repo: OAuthRepository
+    active_workspace_repo: ActiveWorkspaceRepository
+    event_repo: EventRepository
 
 
-deps = McpContextDeps()
+_current_dependencies: ContextVar[McpDependencies | None] = ContextVar(
+    "kajet_mcp_dependencies", default=None
+)
 MCP_CONTEXT = CurrentContext()
 
 
-def configure_mcp_context(
+def build_mcp_context(
     workspace_service: WorkspaceService,
     oauth_repo: OAuthRepository,
     active_workspace_repo: ActiveWorkspaceRepository,
-) -> None:
-    deps.workspace_service = workspace_service
-    deps.oauth_repo = oauth_repo
-    deps.active_workspace_repo = active_workspace_repo
+    event_repo: EventRepository,
+) -> McpDependencies:
+    return McpDependencies(workspace_service, oauth_repo, active_workspace_repo, event_repo)
+
+
+@contextmanager
+def use_mcp_context(dependencies: McpDependencies):
+    token: Token[McpDependencies | None] = _current_dependencies.set(dependencies)
+    try:
+        yield
+    finally:
+        _current_dependencies.reset(token)
+
+
+def _deps() -> McpDependencies:
+    dependencies = _current_dependencies.get()
+    if dependencies is None:
+        raise RuntimeError("MCP dependencies are not bound to this tool invocation")
+    return dependencies
+
+
+def current_mcp_dependencies() -> McpDependencies:
+    return _deps()
 
 
 def _resolve_user() -> str:
@@ -55,11 +81,10 @@ def _resolve_user() -> str:
     token = get_access_token()
     if token is None:
         raise ToolError("Wymagane zalogowanie.")
-    assert deps.oauth_repo is not None
     # Resolve from the token itself. Going through client_authorizations meant "the last
     # user who authorized this client", so a second user's consent re-pointed tokens that
     # were already issued — see identity.resolve_bearer_user_id.
-    user_id = identity.resolve_bearer_user_id(deps.oauth_repo, token.token)
+    user_id = identity.resolve_bearer_user_id(_deps().oauth_repo, token.token)
     if user_id is None:
         logger.warning("mcp_token_without_user", client_id=token.client_id)
         raise ToolError("Wymagane zalogowanie.")
@@ -71,8 +96,7 @@ async def require_user_id() -> str:
 
 
 async def require_workspace_access(name: str, user_id: str) -> list[str]:
-    assert deps.workspace_service is not None
-    available = await run_sync(deps.workspace_service.list_accessible, user_id)
+    available = await run_sync(_deps().workspace_service.list_accessible, user_id)
     if name in available:
         return available
     msg = f"Workspace '{name}' nie istnieje lub brak dostępu."
@@ -96,7 +120,6 @@ async def _validate_active_workspace(ctx: Context, name: str, user_id: str) -> N
 async def _rehydrate_from_db(
     ctx: Context, user_id: str, db_name: str, *, source: str, scope: str
 ) -> ActiveWorkspace:
-    assert deps.workspace_service is not None
     await _validate_active_workspace(ctx, db_name, user_id)
     await ctx.set_state("active_workspace", db_name)
     await ctx.set_state("active_user_id", user_id)
@@ -104,7 +127,7 @@ async def _rehydrate_from_db(
     return ActiveWorkspace(
         owner_id=user_id,
         name=db_name,
-        path=deps.workspace_service.workspace_path(user_id, db_name),
+        path=_deps().workspace_service.workspace_path(user_id, db_name),
     )
 
 
@@ -119,7 +142,6 @@ async def active_workspace(ctx: Context = MCP_CONTEXT) -> ActiveWorkspace:
     opaque RuntimeError("Failed to resolve dependency ...") with the original message
     dropped from str() — see fastmcp/server/dependencies.py.
     """
-    assert deps.workspace_service is not None
     user_id = await require_user_id()
     name = await ctx.get_state("active_workspace")
     if name:
@@ -140,18 +162,17 @@ async def active_workspace(ctx: Context = MCP_CONTEXT) -> ActiveWorkspace:
         return ActiveWorkspace(
             owner_id=user_id,
             name=name,
-            path=deps.workspace_service.workspace_path(user_id, name),
+            path=_deps().workspace_service.workspace_path(user_id, name),
         )
-    assert deps.active_workspace_repo is not None
     scope = active_workspace_scope(ctx)
     if scope is not None:
-        db_name = await run_sync(deps.active_workspace_repo.get, user_id, scope)
+        db_name = await run_sync(_deps().active_workspace_repo.get, user_id, scope)
         if db_name:
             return await _rehydrate_from_db(
                 ctx, user_id, db_name, source="session_db_fallback", scope=scope
             )
 
-    db_name = await run_sync(deps.active_workspace_repo.get, user_id, USER_SCOPE, USER_SCOPE_TTL)
+    db_name = await run_sync(_deps().active_workspace_repo.get, user_id, USER_SCOPE, USER_SCOPE_TTL)
     if db_name:
         return await _rehydrate_from_db(
             ctx, user_id, db_name, source="user_scope_fallback", scope=USER_SCOPE

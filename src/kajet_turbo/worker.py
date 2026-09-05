@@ -32,16 +32,6 @@ from kajet_turbo.repositories.jobs import JobRepository
 Handler = Callable[[dict], None]
 _T = TypeVar("_T")
 
-_HANDLERS: dict[str, Handler] = {}
-
-
-def register_handler(kind: str, handler: Handler) -> None:
-    _HANDLERS[kind] = handler
-
-
-def get_handler(kind: str) -> Handler | None:
-    return _HANDLERS.get(kind)
-
 
 def run_job(repo: JobRepository, job: Job, registry: dict[str, Handler]) -> None:
     """Execute one claimed job. Unknown kind -> terminal fail (a misrouted job must
@@ -126,7 +116,8 @@ def run_worker(
     is None, install SIGTERM/SIGINT handlers (entrypoint use, main thread only);
     when provided, the caller controls shutdown (tests)."""
     worker_id = worker_id or _default_worker_id()
-    registry = _HANDLERS if registry is None else registry
+    if registry is None:
+        raise ValueError("registry is required; worker handlers belong to an application instance")
     repo = JobRepository(engine)
 
     if stop_event is None:

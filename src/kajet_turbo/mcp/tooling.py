@@ -8,9 +8,13 @@ from mcp.types import ToolAnnotations
 
 from kajet_turbo.api.schemas.ws import NoteUpdatedEvent, WorkspaceChangedEvent
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.dependencies import event_repo
 from kajet_turbo.log import log_tool_error
-from kajet_turbo.mcp.context import ActiveWorkspace
+from kajet_turbo.mcp.context import (
+    ActiveWorkspace,
+    McpDependencies,
+    current_mcp_dependencies,
+    use_mcp_context,
+)
 from kajet_turbo.repositories.git import GitError
 
 
@@ -68,10 +72,16 @@ class ServiceErrorMiddleware(Middleware):
     original type.
     """
 
+    def __init__(self, dependencies: McpDependencies | None = None):
+        self._dependencies = dependencies
+
     async def on_call_tool(self, context: MiddlewareContext, call_next: CallNext):
         start = time.monotonic()
         try:
-            return await call_next(context)
+            if self._dependencies is None:
+                return await call_next(context)
+            with use_mcp_context(self._dependencies):
+                return await call_next(context)
         except ToolError as e:
             # A ToolError raised on purpose has __cause__ is None. One fastmcp wraps
             # around a different exception carries that exception as __cause__ and was
@@ -85,7 +95,7 @@ class ServiceErrorMiddleware(Middleware):
 async def publish_workspace_changed(ws: ActiveWorkspace) -> None:
     """Notify the owner's WS clients that workspace contents changed (LLM write)."""
     await run_sync(
-        event_repo.publish,
+        current_mcp_dependencies().event_repo.publish,
         ws.owner_id,
         "workspace_changed",
         WorkspaceChangedEvent(
@@ -97,7 +107,7 @@ async def publish_workspace_changed(ws: ActiveWorkspace) -> None:
 async def publish_note_updated(ws: ActiveWorkspace, note_id: str) -> None:
     """Notify the owner's WS clients that a single note changed in place."""
     await run_sync(
-        event_repo.publish,
+        current_mcp_dependencies().event_repo.publish,
         ws.owner_id,
         "note_updated",
         NoteUpdatedEvent(
