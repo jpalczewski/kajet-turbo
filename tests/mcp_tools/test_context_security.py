@@ -47,6 +47,7 @@ def _bound(workspace_service, active_workspace_repo=None):
             cast(Any, active_workspace_repo or SimpleNamespace(get=lambda *_: None)),
             cast(Any, SimpleNamespace()),
             cast(Any, SimpleNamespace()),
+            cast(Any, SimpleNamespace()),
         )
     )
 

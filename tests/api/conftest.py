@@ -9,7 +9,12 @@ from starlette.testclient import TestClient
 
 from kajet_turbo.api.workspaces import router
 from kajet_turbo.db import Database
-from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
+from kajet_turbo.dependencies import (
+    get_note_service,
+    get_required_user,
+    get_target_resolver,
+    get_workspace_service,
+)
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
@@ -21,6 +26,7 @@ from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.targets import TargetResolver
 from kajet_turbo.services.workspaces import WorkspaceService
 
 
@@ -91,6 +97,9 @@ def api_client_factory(
         app.include_router(router)
         app.dependency_overrides[get_note_service] = lambda: note_service
         app.dependency_overrides[get_workspace_service] = lambda: workspace_service
+        app.dependency_overrides[get_target_resolver] = lambda: TargetResolver(
+            note_repository, workspace_service
+        )
         if user_id is not None:
             _uid = user_id
             app.dependency_overrides[get_required_user] = lambda: {"id": _uid}

@@ -1,6 +1,15 @@
+from pathlib import Path
+
+from kajet_turbo.services.targets import WorkspaceTarget
+
+
+def _ws(ws_path) -> WorkspaceTarget:
+    return WorkspaceTarget(owner_id="u1", name="test-ws", path=Path(ws_path))
+
+
 def test_reindex_endpoint_runs(auth_client):
     client, note_svc, ws_path = auth_client
-    note_svc.save("u1", "test-ws", ws_path, "A", "# A\n\nbody\n", [])
+    note_svc.save(_ws(ws_path), "A", "# A\n\nbody\n", [])
     resp = client.post("/api/workspaces/test-ws/reindex")
     assert resp.status_code == 200
     assert resp.json()["count"] >= 1
@@ -9,11 +18,9 @@ def test_reindex_endpoint_runs(auth_client):
 def test_reindex_endpoint_refuses_mass_deletion(auth_client):
     """A wiped/mismounted workspace dir must surface as 409 NOTE_RECONCILE_REFUSED,
     not a bare 500 — pins the reindex.py `except ValueError` wiring added for #107."""
-    from pathlib import Path
-
     client, note_svc, ws_path = auth_client
     for i in range(10):
-        note_svc.save("u1", "test-ws", ws_path, f"Note {i}", "body", [])
+        note_svc.save(_ws(ws_path), f"Note {i}", "body", [])
     for path in Path(ws_path).glob("*.md"):
         path.unlink()
 

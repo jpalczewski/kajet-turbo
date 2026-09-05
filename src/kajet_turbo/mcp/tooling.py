@@ -10,22 +10,22 @@ from kajet_turbo.api.schemas.ws import NoteUpdatedEvent, WorkspaceChangedEvent
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import log_tool_error
 from kajet_turbo.mcp.context import (
-    ActiveWorkspace,
     McpDependencies,
     current_mcp_dependencies,
     use_mcp_context,
 )
 from kajet_turbo.repositories.git import GitError, use_post_commit_hooks
+from kajet_turbo.services.targets import WorkspaceTarget
 
 
 def read_tool(*, tags: set[str] | None = None) -> dict[str, Any]:
     return {
         "tags": {"read", *(tags or set())},
         "annotations": ToolAnnotations(
-            readOnlyHint=True,
-            destructiveHint=False,
-            idempotentHint=True,
-            openWorldHint=False,
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
         ),
     }
 
@@ -39,10 +39,10 @@ def write_tool(
     return {
         "tags": {"write", *(tags or set())},
         "annotations": ToolAnnotations(
-            readOnlyHint=False,
-            destructiveHint=destructive,
-            idempotentHint=idempotent,
-            openWorldHint=False,
+            read_only_hint=False,
+            destructive_hint=destructive,
+            idempotent_hint=idempotent,
+            open_world_hint=False,
         ),
     }
 
@@ -95,7 +95,7 @@ class ServiceErrorMiddleware(Middleware):
             raise
 
 
-async def publish_workspace_changed(ws: ActiveWorkspace) -> None:
+async def publish_workspace_changed(ws: WorkspaceTarget) -> None:
     """Notify the owner's WS clients that workspace contents changed (LLM write)."""
     await run_sync(
         current_mcp_dependencies().event_repo.publish,
@@ -107,7 +107,7 @@ async def publish_workspace_changed(ws: ActiveWorkspace) -> None:
     )
 
 
-async def publish_note_updated(ws: ActiveWorkspace, note_id: str) -> None:
+async def publish_note_updated(ws: WorkspaceTarget, note_id: str) -> None:
     """Notify the owner's WS clients that a single note changed in place."""
     await run_sync(
         current_mcp_dependencies().event_repo.publish,
@@ -125,12 +125,12 @@ async def publish_note_updated(ws: ActiveWorkspace, note_id: str) -> None:
 
 def check_batch(items: Sequence[object], field: str, unit: str, *, max_items: int = 50) -> None:
     if not items:
-        raise ToolError(f"{field} nie może być puste.")
+        raise ToolError(f"{field} cannot be empty.")
     if len(items) > max_items:
-        raise ToolError(f"Maksymalnie {max_items} {unit} na wywołanie (podano {len(items)}).")
+        raise ToolError(f"At most {max_items} {unit} per call (got {len(items)}).")
 
 
 def require_found[T](result: T | None, note_id: str) -> T:
     if result is None:
-        raise ToolError(f"Notatka {note_id} nie znaleziona.")
+        raise ToolError(f"Note not found: note_id={note_id}")
     return result

@@ -4,18 +4,27 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from datetime import timedelta
 
-from fastmcp.dependencies import CurrentContext, Depends
+from fastmcp.dependencies import CallArgument, CurrentContext, Depends
 from fastmcp.exceptions import ToolError
 from fastmcp.server.context import Context
 from fastmcp.server.dependencies import get_access_token, get_context
 
 from kajet_turbo import identity
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logger
+from kajet_turbo.log import log_permission_denied, logger
 from kajet_turbo.repositories.active_workspace import ActiveWorkspaceRepository
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.git import PostCommitHooks
 from kajet_turbo.repositories.oauth import OAuthRepository
+from kajet_turbo.services.targets import (
+    BatchTargetResolutionError,
+    NoteTarget,
+    TargetFailure,
+    TargetResolutionError,
+    TargetResolver,
+    WorkspaceTarget,
+    is_denial,
+)
 from kajet_turbo.services.workspaces import WorkspaceService
 
 # Global per-user fallback scope (ActiveWorkspaceRepository's default "user" scope).
@@ -41,6 +50,7 @@ class McpDependencies:
     active_workspace_repo: ActiveWorkspaceRepository
     event_repo: EventRepository
     post_commit_hooks: PostCommitHooks
+    target_resolver: TargetResolver
 
 
 _current_dependencies: ContextVar[McpDependencies | None] = ContextVar(
@@ -55,9 +65,15 @@ def build_mcp_context(
     active_workspace_repo: ActiveWorkspaceRepository,
     event_repo: EventRepository,
     post_commit_hooks: PostCommitHooks,
+    target_resolver: TargetResolver,
 ) -> McpDependencies:
     return McpDependencies(
-        workspace_service, oauth_repo, active_workspace_repo, event_repo, post_commit_hooks
+        workspace_service,
+        oauth_repo,
+        active_workspace_repo,
+        event_repo,
+        post_commit_hooks,
+        target_resolver,
     )
 
 
@@ -206,3 +222,122 @@ def _context_session_id(ctx: Context) -> str | None:
 
 
 ACTIVE_WORKSPACE = Depends(active_workspace)
+
+
+async def resolve_note_target(
+    note_id: str = CallArgument(),
+    ws: ActiveWorkspace = CallArgument(),
+) -> NoteTarget:
+    """Bind (this call's own note_id, the already-resolved active workspace's owner_id)
+    to an authorized NoteTarget via the shared resolver (#246) — this is what fixes the
+    ID/path mismatch bug: `ws.path` never reaches the service directly, only what the
+    resolver itself derived for `note_id`.
+
+    Per #246+#248 sequencing: `ws` still comes from ACTIVE_WORKSPACE (external schema
+    unchanged in this phase) — CallArgument reads its already-resolved value, not a
+    literal caller-supplied argument. #248 replaces this with a plain
+    Depends(require_user_id), once activate_workspace/ACTIVE_WORKSPACE are gone.
+
+    Every raise below must be a ToolError, matching active_workspace()'s own docstring
+    warning: a plain exception here is flattened into an opaque RuntimeError by fastmcp's
+    dependency resolution, before logged_tool's error mapping ever sees it.
+    """
+    try:
+        return await run_sync(current_mcp_dependencies().target_resolver.note, ws.owner_id, note_id)
+    except TargetResolutionError as e:
+        if is_denial(e.failure.reason):
+            log_permission_denied(
+                action="note.read",
+                resource="note",
+                caller_id=ws.owner_id,
+                reason=e.failure.reason,
+                note_id=note_id,
+            )
+        raise ToolError(f"Note not found: note_id={note_id}") from e
+
+
+NOTE_TARGET = Depends(resolve_note_target)
+
+
+async def resolve_optional_note_target(
+    note_id: str | None = CallArgument(),
+    ws: ActiveWorkspace = CallArgument(),
+) -> NoteTarget | None:
+    """Like resolve_note_target, but for get_note's note_id-XOR-title addressing: when
+    title is used instead, note_id is None and there is nothing to resolve yet."""
+    if note_id is None:
+        return None
+    return await resolve_note_target(note_id, ws)
+
+
+OPTIONAL_NOTE_TARGET = Depends(resolve_optional_note_target)
+
+
+async def reauthorize_workspace(ws: ActiveWorkspace) -> WorkspaceTarget:
+    """Workspace-scoped tools (save_note, list_notes, export_folder, grep, ...) must not
+    trust `ActiveWorkspace.path` directly -- it is legacy active-workspace state, not a
+    resolver output. Re-derive a WorkspaceTarget from the resolver before calling the
+    (already-migrated) service entry point, same "reauthorize the legacy selection"
+    requirement #246 places on note-addressed tools."""
+    try:
+        return await run_sync(
+            current_mcp_dependencies().target_resolver.workspace, ws.owner_id, ws.name
+        )
+    except TargetResolutionError as e:
+        if is_denial(e.failure.reason):
+            log_permission_denied(
+                action="workspace.read",
+                resource="workspace",
+                caller_id=ws.owner_id,
+                reason=e.failure.reason,
+                workspace=ws.name,
+            )
+        raise ToolError(f"Workspace not accessible: {ws.name}") from e
+
+
+async def resolve_notes_in_one_workspace(
+    user_id: str, note_ids: list[str]
+) -> tuple[WorkspaceTarget, list[NoteTarget]]:
+    """Batch-write prevalidation for edit_notes/delete_notes: every note_id must be
+    well-formed, unique, owned+accessible, and resolve into the same workspace, or the
+    whole batch is rejected before any write -- this is the target half of what each
+    service method's own destructive-item validation used to also do inline.
+
+    The public message names only the public TargetError per index, never the private
+    denial reason (e.g. "not found", never "wrong owner" vs. "missing row")."""
+    try:
+        return await run_sync(
+            current_mcp_dependencies().target_resolver.notes_in_one_workspace, user_id, note_ids
+        )
+    except BatchTargetResolutionError as e:
+        for failure in e.failures:
+            if is_denial(failure.reason):
+                log_permission_denied(
+                    action="note.batch_write",
+                    resource="note",
+                    caller_id=user_id,
+                    reason=failure.reason,
+                    note_id=note_ids[failure.index] if failure.index is not None else None,
+                )
+        details = ", ".join(
+            f"index {f.index}: {f.error.value}" if f.index is not None else f.error.value
+            for f in e.failures
+        )
+        raise ToolError(f"Batch rejected before any write -- {details}") from e
+
+
+async def resolve_notes(user_id: str, note_ids: list[str]) -> list[NoteTarget | TargetFailure]:
+    """Batch-read resolution for get_notes: one result per input, in input order,
+    including repeated ids -- a per-item failure never drops its siblings. Audits each
+    denial individually; never raises."""
+    results = await run_sync(current_mcp_dependencies().target_resolver.notes, user_id, note_ids)
+    for r in results:
+        if isinstance(r, TargetFailure) and is_denial(r.reason):
+            log_permission_denied(
+                action="note.batch_read",
+                resource="note",
+                caller_id=user_id,
+                reason=r.reason,
+                note_id=note_ids[r.index] if r.index is not None else None,
+            )
+    return results

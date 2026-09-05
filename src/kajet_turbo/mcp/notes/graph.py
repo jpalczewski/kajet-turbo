@@ -16,9 +16,8 @@ class GraphResult(GraphBase):
 def build_graph(
     note_service: NoteService,
     workspace_service: WorkspaceService,
-    state_store=None,
 ) -> FastMCP:
-    srv = FastMCP("notes-graph", session_state_store=state_store)
+    srv = FastMCP("notes-graph")
 
     @srv.tool(**read_tool(tags={"notes", "links", "graph"}))
     @logged_tool

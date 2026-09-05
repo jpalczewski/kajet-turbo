@@ -10,12 +10,16 @@ from kajet_turbo.api.schemas import (
     NoteMarkdownResponse,
 )
 from kajet_turbo.api.schemas.errors import ErrorResponse
-from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
-from kajet_turbo.errors import AuthError, NoteError
-from kajet_turbo.log import logger
+from kajet_turbo.dependencies import (
+    get_note_service,
+    get_required_user,
+    resolve_note_target,
+    resolve_workspace_target,
+)
+from kajet_turbo.errors import NoteError
 from kajet_turbo.markdown import LinkResolver, XwsResolver, render_markdown
 from kajet_turbo.services.notes import NoteService
-from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 
 _ALLOWED_TAGS = [
     *bleach.sanitizer.ALLOWED_TAGS,
@@ -83,20 +87,10 @@ def api_get_note_html(
     name: str,
     note_id: str,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        logger.warning(
-            "note_html_access_denied",
-            user_id=user["id"],
-            email=user.get("email"),
-            workspace=name,
-            note_id=note_id,
-        )
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-    ws_path = ws_service.workspace_path(user["id"], name)
-    note = note_service.get_with_content(note_id, owner_id=user["id"], ws_path=ws_path)
+    note = note_service.get_with_content(target)
     if note is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
     return JSONResponse(
@@ -129,13 +123,10 @@ def api_get_note_markdown(
     name: str,
     note_id: str,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-    ws_path = ws_service.workspace_path(user["id"], name)
-    note = note_service.get_with_content(note_id, owner_id=user["id"], ws_path=ws_path)
+    note = note_service.get_with_content(target)
     if note is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
     return JSONResponse(
@@ -163,13 +154,14 @@ def api_get_note_chunks(
     name: str,
     note_id: str,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-    ws_path = ws_service.workspace_path(user["id"], name)
-    preview = note_service.preview_chunks(note_id, owner_id=user["id"], ws_path=ws_path)
+    preview = note_service.preview_chunks(
+        target.note_id,
+        owner_id=target.workspace.owner_id,
+        ws_path=str(target.workspace.path),
+    )
     if preview is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
     return JSONResponse(preview)
@@ -184,12 +176,10 @@ def api_note_links(
     name: str,
     note_id: str,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-    result = note_service.links(note_id, owner_id=user["id"])
+    result = note_service.links(target.note_id, owner_id=target.workspace.owner_id)
     if result is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
     return JSONResponse(result)
@@ -202,9 +192,7 @@ def api_note_links(
 def api_note_graph(
     name: str,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     note_service: NoteService = Depends(get_note_service),
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-    return JSONResponse(note_service.graph(name, owner_id=user["id"]))
+    return JSONResponse(note_service.graph(workspace.name, owner_id=workspace.owner_id))

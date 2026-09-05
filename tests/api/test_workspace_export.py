@@ -7,10 +7,16 @@ from pathlib import Path
 
 import pytest
 
+from kajet_turbo.services.targets import WorkspaceTarget
+
+
+def _ws(ws_path) -> WorkspaceTarget:
+    return WorkspaceTarget(owner_id="u1", name="test-ws", path=Path(ws_path))
+
 
 def _save_export_note(auth_client) -> tuple[Path, bytes]:
     _, note_service, workspace = auth_client
-    note_service.save("u1", "test-ws", workspace, "Export me", "committed content", [])
+    note_service.save(_ws(workspace), "Export me", "committed content", [])
     note_path = Path(workspace) / "Export me.md"
     committed = note_path.read_bytes()
     note_path.write_text("uncommitted content")
@@ -68,8 +74,8 @@ def test_export_empty_workspace_returns_an_empty_archive(auth_client, format):
 
 def test_export_bundle_is_cloneable_with_history(auth_client, tmp_path):
     client, note_service, workspace = auth_client
-    note_service.save("u1", "test-ws", workspace, "First", "one", [])
-    note_service.save("u1", "test-ws", workspace, "Second", "two", [])
+    note_service.save(_ws(workspace), "First", "one", [])
+    note_service.save(_ws(workspace), "Second", "two", [])
 
     response = client.get("/api/workspaces/test-ws/export?format=bundle")
 

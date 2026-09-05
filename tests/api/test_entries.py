@@ -1,9 +1,16 @@
+from pathlib import Path
+
+from kajet_turbo.services.targets import WorkspaceTarget
+
+
+def _ws(ws_path) -> WorkspaceTarget:
+    return WorkspaceTarget(owner_id="u1", name="test-ws", path=Path(ws_path))
+
+
 def test_entries_in_filters_occurred_at_and_folder(auth_client):
     client, service, workspace = auth_client
     wanted = service.save(
-        "u1",
-        "test-ws",
-        workspace,
+        _ws(workspace),
         "Wanted",
         "",
         [],
@@ -11,16 +18,14 @@ def test_entries_in_filters_occurred_at_and_folder(auth_client):
         occurred_at="2026-03-22",
     )
     service.save(
-        "u1",
-        "test-ws",
-        workspace,
+        _ws(workspace),
         "Sibling",
         "",
         [],
         folder="journals-old",
         occurred_at="2026-03-22",
     )
-    service.save("u1", "test-ws", workspace, "Summary", "", [], period="2026-W12")
+    service.save(_ws(workspace), "Summary", "", [], period="2026-W12")
 
     response = client.get(
         "/api/workspaces/test-ws/entries", params={"period": "2026-W12", "folder": "journal"}
@@ -38,10 +43,10 @@ def test_entries_in_rejects_invalid_period(auth_client):
 
 def test_entries_in_matches_period_notes_by_overlap(auth_client):
     client, service, workspace = auth_client
-    week = service.save("u1", "test-ws", workspace, "Week", "", [], period="2026-W12")
-    month = service.save("u1", "test-ws", workspace, "Month", "", [], period="2026-03")
-    year = service.save("u1", "test-ws", workspace, "Year", "", [], period="2026")
-    other_month = service.save("u1", "test-ws", workspace, "Other month", "", [], period="2026-04")
+    week = service.save(_ws(workspace), "Week", "", [], period="2026-W12")
+    month = service.save(_ws(workspace), "Month", "", [], period="2026-03")
+    year = service.save(_ws(workspace), "Year", "", [], period="2026")
+    other_month = service.save(_ws(workspace), "Other month", "", [], period="2026-04")
 
     response = client.get("/api/workspaces/test-ws/entries", params={"period": "2026-03-16"})
 

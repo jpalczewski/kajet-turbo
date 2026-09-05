@@ -7,9 +7,18 @@ from pathlib import Path
 import pytest
 
 from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 
 WS = "stress"
 OWNER = "user-stress"
+
+
+def _ws(ws_path) -> WorkspaceTarget:
+    return WorkspaceTarget(owner_id=OWNER, name=WS, path=Path(ws_path))
+
+
+def _note(ws_path, note_id) -> NoteTarget:
+    return NoteTarget(note_id=note_id, workspace=_ws(ws_path))
 
 
 @pytest.fixture()
@@ -25,13 +34,13 @@ def test_parallel_save_search_history(svc, tmp_path):
     service, ws_path = svc
     Path(ws_path).mkdir()
     GitRepository.init(ws_path)
-    seed = service.save(OWNER, WS, ws_path, "Seed", "treść początkowa", [])
+    seed = service.save(_ws(ws_path), "Seed", "treść początkowa", [])
 
     errors: list[Exception] = []
 
     def save(i: int) -> None:
         try:
-            service.save(OWNER, WS, ws_path, f"Nota {i}", f"treść {i}", ["tag"])
+            service.save(_ws(ws_path), f"Nota {i}", f"treść {i}", ["tag"])
         except Exception as e:
             errors.append(e)
 
@@ -43,7 +52,7 @@ def test_parallel_save_search_history(svc, tmp_path):
 
     def history(i: int) -> None:
         try:
-            service.get_history(seed["note_id"], owner_id=OWNER, ws_path=ws_path)
+            service.get_history(_note(ws_path, seed["note_id"]))
         except Exception as e:
             errors.append(e)
 
@@ -57,5 +66,5 @@ def test_parallel_save_search_history(svc, tmp_path):
             f.result()
 
     assert errors == []
-    notes = service.list_notes(WS, owner_id=OWNER, limit=100)
+    notes = service.list_notes(_ws(ws_path), limit=100)
     assert len(notes) == 21  # seed + 20 parallel saves

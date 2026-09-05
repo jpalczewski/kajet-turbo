@@ -2,11 +2,17 @@ from pathlib import Path
 
 import pytest
 
+from kajet_turbo.services.targets import WorkspaceTarget
+
+
+def _ws(ws_path) -> WorkspaceTarget:
+    return WorkspaceTarget(owner_id="u1", name="test-ws", path=Path(ws_path))
+
 
 def test_contents_root_returns_folders_and_notes(auth_client):
     client, note_service, workspace = auth_client
-    note_service.save("u1", "test-ws", workspace, "Root Note", "content", [])
-    note_service.save("u1", "test-ws", workspace, "Deep Note", "content", [], folder="docs")
+    note_service.save(_ws(workspace), "Root Note", "content", [])
+    note_service.save(_ws(workspace), "Deep Note", "content", [], folder="docs")
 
     response = client.get("/api/workspaces/test-ws/contents")
 
@@ -22,8 +28,8 @@ def test_contents_root_returns_folders_and_notes(auth_client):
 
 def test_contents_subfolder_returns_folder_notes(auth_client):
     client, note_service, workspace = auth_client
-    note_service.save("u1", "test-ws", workspace, "Doc", "content", [], folder="docs")
-    note_service.save("u1", "test-ws", workspace, "Root", "content", [])
+    note_service.save(_ws(workspace), "Doc", "content", [], folder="docs")
+    note_service.save(_ws(workspace), "Root", "content", [])
 
     response = client.get("/api/workspaces/test-ws/contents?path=docs")
 
@@ -36,9 +42,7 @@ def test_contents_subfolder_returns_folder_notes(auth_client):
 
 def test_contents_note_path_resolves_without_404(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save("u1", "test-ws", workspace, "Doc", "content", [], folder="docs")[
-        "note_id"
-    ]
+    note_id = note_service.save(_ws(workspace), "Doc", "content", [], folder="docs")["note_id"]
 
     response = client.get(f"/api/workspaces/test-ws/contents?path=docs/{note_id}")
 
@@ -61,10 +65,8 @@ def test_contents_missing_path_returns_missing_without_404(auth_client):
 
 def test_contents_sets_default_note_for_readme(auth_client):
     client, note_service, workspace = auth_client
-    readme_id = note_service.save("u1", "test-ws", workspace, "README", "intro", [], folder="docs")[
-        "note_id"
-    ]
-    note_service.save("u1", "test-ws", workspace, "Other", "content", [], folder="docs")
+    readme_id = note_service.save(_ws(workspace), "README", "intro", [], folder="docs")["note_id"]
+    note_service.save(_ws(workspace), "Other", "content", [], folder="docs")
 
     response = client.get("/api/workspaces/test-ws/contents?path=docs")
 

@@ -237,6 +237,35 @@ def log_tool_error(tool: str, start: float) -> None:
         logger.exception(tool, tool=tool, duration_ms=round((time.monotonic() - start) * 1000))
 
 
+def log_permission_denied(
+    *,
+    action: str,
+    resource: str,
+    caller_id: str,
+    reason: object,
+    note_id: str | None = None,
+    workspace: str | None = None,
+) -> None:
+    """Shared security-audit seam for the target resolver (#246), pending #262's own
+    SecurityEvent vocabulary — whichever lands first, the other extends/reuses this.
+
+    Call exactly once per denied target resolution, from the adapter (REST route / MCP
+    tool dependency), never from the resolver itself and never a second time by an
+    outer error mapper. `reason` is one of services.targets's private per-module denial
+    enums — never a title, body, or filesystem path.
+    """
+    logger.warning(
+        "permission_denied",
+        category="security",
+        action=action,
+        resource=resource,
+        caller_id=caller_id,
+        reason=str(reason),
+        note_id=note_id,
+        workspace=workspace,
+    )
+
+
 def logged_tool(fn):
     @wraps(fn)
     async def wrapper(*args, **kwargs):

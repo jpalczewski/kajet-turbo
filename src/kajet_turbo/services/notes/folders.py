@@ -7,7 +7,12 @@ from sqlmodel import Session
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import IndexedNote
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
-from kajet_turbo.repositories.git import GitError, GitRepository, workspace_write_transaction
+from kajet_turbo.repositories.git import (
+    GitError,
+    GitRepository,
+    target_write_transaction,
+    workspace_write_transaction,
+)
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.notes.links import NoteLinkService
@@ -21,6 +26,7 @@ from kajet_turbo.services.notes.staged_change import (
     StagedChange,
     commit_rows_then_tree,
 )
+from kajet_turbo.services.targets import NoteTarget
 from kajet_turbo.workspace import (
     InvalidFolderError,
     list_workspace_folders,
@@ -52,11 +58,14 @@ class NoteFolderService:
         self._folder_meta_repo = folder_meta_repo
         self._reconcile_repo = reconcile_repo
 
-    @workspace_write_transaction
-    def move(self, note_id: str, owner_id: str, ws_path: str, folder: str) -> dict:
+    @target_write_transaction
+    def move(self, target: NoteTarget, folder: str) -> dict:
+        note_id = target.note_id
+        owner_id = target.workspace.owner_id
+        ws_path = str(target.workspace.path)
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
-            raise ValueError(f"Notatka {note_id} nie znaleziona.")
+            raise ValueError(f"Note not found: note_id={note_id}")
 
         try:
             new_folder = normalize_folder(folder)
@@ -68,7 +77,7 @@ class NoteFolderService:
         old_path = Path(note_filepath(ws_path, note.folder, note.title))
         new_path = Path(note_filepath(ws_path, new_folder, note.title))
         if not old_path.exists():
-            raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
+            raise FileNotFoundError(f"Note file not found: note_id={note_id}")
 
         workspace_links = self._link_service.for_workspace(note.workspace, owner_id)
         conflict = note_path_conflict(

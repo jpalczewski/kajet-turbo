@@ -3,7 +3,7 @@
 import pytest
 
 from kajet_turbo.markdown import EditSpec
-from tests.services.conftest import seed_user
+from tests.services.conftest import note_target, seed_user, workspace_target
 from tests.services.helpers import build_reindex_handler, drain_reindex_jobs
 
 
@@ -88,18 +88,16 @@ def test_reindex_batches_note_writes_and_tag_sync(
 
 
 def test_get_history_returns_commits(service, workspace):
-    result = service.save("u1", "ws", str(workspace), "Historia", "v1", [])
+    result = service.save(workspace_target("u1", "ws", workspace), "Historia", "v1", [])
     note_id = result["note_id"]
-    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
     service.update(
-        note_id,
-        owner_id="u1",
-        ws_path=str(workspace),
+        note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         edit=EditSpec(content="v2"),
     )
 
-    history = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))
+    history = service.get_history(note_target("u1", "ws", workspace, note_id))
 
     assert len(history) == 2
     assert all("sha" in h and "message" in h and "timestamp" in h for h in history)
@@ -107,22 +105,22 @@ def test_get_history_returns_commits(service, workspace):
 
 def test_get_history_raises_for_unknown_note(service, workspace):
     with pytest.raises(ValueError):
-        service.get_history("nie-ma", owner_id="u1", ws_path=str(workspace))
+        service.get_history(note_target("u1", "ws", workspace, "nie-ma"))
 
 
 def test_get_version_returns_historical_content(service, workspace):
-    result = service.save("u1", "ws", str(workspace), "Historia", "treść oryginalna", [])
+    result = service.save(
+        workspace_target("u1", "ws", workspace), "Historia", "treść oryginalna", []
+    )
     note_id = result["note_id"]
-    sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    sha_v1 = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
     service.update(
-        note_id,
-        owner_id="u1",
-        ws_path=str(workspace),
+        note_target("u1", "ws", workspace, note_id),
         expected_sha=sha_v1,
         edit=EditSpec(content="treść nowa"),
     )
 
-    version = service.get_version(note_id, sha_v1, owner_id="u1", ws_path=str(workspace))
+    version = service.get_version(note_target("u1", "ws", workspace, note_id), sha_v1)
 
     assert version["content"] == "treść oryginalna"
     assert version["note_id"] == note_id
@@ -137,7 +135,7 @@ def test_get_version_falls_back_to_db_title_for_explicit_null_frontmatter(servic
     from kajet_turbo.repositories.git import GitRepository
     from kajet_turbo.workspace import note_filepath
 
-    result = service.save("u1", "ws", str(workspace), "Historia", "treść", [])
+    result = service.save(workspace_target("u1", "ws", workspace), "Historia", "treść", [])
     note_id = result["note_id"]
     path = note_filepath(str(workspace), "", "Historia")
     Path(path).write_text(
@@ -145,28 +143,28 @@ def test_get_version_falls_back_to_db_title_for_explicit_null_frontmatter(servic
     )
     relative = str(Path(path).relative_to(workspace))
     GitRepository(str(workspace)).commit_file(relative, "note: hand-edit null title")
-    sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    version = service.get_version(note_id, sha, owner_id="u1", ws_path=str(workspace))
+    version = service.get_version(note_target("u1", "ws", workspace, note_id), sha)
 
     assert version["title"] == "Historia"  # DB fallback, not the literal string "None"
 
 
 def test_restore_version_reverts_content(service, workspace):
-    result = service.save("u1", "ws", str(workspace), "Historia", "treść oryginalna", [])
+    result = service.save(
+        workspace_target("u1", "ws", workspace), "Historia", "treść oryginalna", []
+    )
     note_id = result["note_id"]
-    sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    sha_v1 = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
     service.update(
-        note_id,
-        owner_id="u1",
-        ws_path=str(workspace),
+        note_target("u1", "ws", workspace, note_id),
         expected_sha=sha_v1,
         edit=EditSpec(content="treść nowa"),
     )
 
-    service.restore_version(note_id, sha_v1, owner_id="u1", ws_path=str(workspace))
+    service.restore_version(note_target("u1", "ws", workspace, note_id), sha_v1)
 
-    current = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    current = service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert current.content == "treść oryginalna"
 
 
@@ -179,7 +177,9 @@ def test_restore_version_reverts_tags_and_extras(service, workspace):
     from kajet_turbo.repositories.git import GitRepository
     from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
 
-    result = service.save("u1", "ws", str(workspace), "Historia", "treść v1", ["stary"])
+    result = service.save(
+        workspace_target("u1", "ws", workspace), "Historia", "treść v1", ["stary"]
+    )
     note_id = result["note_id"]
     original_note = service._crud_repo.get(note_id, owner_id="u1")
 
@@ -188,20 +188,18 @@ def test_restore_version_reverts_tags_and_extras(service, workspace):
     write_note_file(path, replace(meta, extras={"aliases": ["V1"]}), content)
     relative = str(Path(path).relative_to(workspace))
     GitRepository(str(workspace)).commit_file(relative, "note: hand-edit extras for v1")
-    sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    sha_v1 = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
     service.update(
-        note_id,
-        owner_id="u1",
-        ws_path=str(workspace),
+        note_target("u1", "ws", workspace, note_id),
         expected_sha=sha_v1,
         edit=EditSpec(content="treść v2"),
         tags=["nowy"],
     )
 
-    service.restore_version(note_id, sha_v1, owner_id="u1", ws_path=str(workspace))
+    service.restore_version(note_target("u1", "ws", workspace, note_id), sha_v1)
 
-    current = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    current = service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert current.content == "treść v1"
     assert current.tags == ["stary"]
     restored_meta, _ = read_note_file(path)
@@ -216,19 +214,19 @@ def test_restore_version_reverts_tags_and_extras(service, workspace):
 
 
 def test_restore_version_still_works_after_expected_sha_added(service, workspace):
-    note_id = service.save("u1", "ws", str(workspace), "Historia", "oryginalna", [])["note_id"]
-    sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    note_id = service.save(workspace_target("u1", "ws", workspace), "Historia", "oryginalna", [])[
+        "note_id"
+    ]
+    sha_v1 = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
     service.update(
-        note_id,
-        owner_id="u1",
-        ws_path=str(workspace),
+        note_target("u1", "ws", workspace, note_id),
         expected_sha=sha_v1,
         edit=EditSpec(content="nowa"),
     )
 
-    service.restore_version(note_id, sha_v1, owner_id="u1", ws_path=str(workspace))
+    service.restore_version(note_target("u1", "ws", workspace, note_id), sha_v1)
 
-    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    note = service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert note.content == "oryginalna"
 
 
@@ -236,16 +234,16 @@ def test_nested_restore_releases_workspace_before_reindexing(service, workspace,
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
 
-    note_id = service.save("u1", "ws", str(workspace), "Historia", "oryginalna", [])["note_id"]
-    sha_v1 = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    note_id = service.save(workspace_target("u1", "ws", workspace), "Historia", "oryginalna", [])[
+        "note_id"
+    ]
+    sha_v1 = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
     service.update(
-        note_id,
-        owner_id="u1",
-        ws_path=str(workspace),
+        note_target("u1", "ws", workspace, note_id),
         expected_sha=sha_v1,
         edit=EditSpec(content="nowa"),
     )
-    current_sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    current_sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
     index_started = Event()
     release_index = Event()
 
@@ -257,20 +255,20 @@ def test_nested_restore_releases_workspace_before_reindexing(service, workspace,
     with ThreadPoolExecutor(max_workers=2) as pool:
         restore = pool.submit(
             service.restore_version,
-            note_id,
+            note_target("u1", "ws", workspace, note_id),
             sha_v1,
-            owner_id="u1",
-            ws_path=str(workspace),
             expected_sha=current_sha,
         )
         assert index_started.wait(timeout=5)
         try:
-            add = pool.submit(service.add_tags, note_id, "u1", str(workspace), ["extra"])
+            add = pool.submit(
+                service.add_tags, note_target("u1", "ws", workspace, note_id), ["extra"]
+            )
             add.result(timeout=2)
         finally:
             release_index.set()
         restore.result(timeout=5)
 
-    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    note = service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert note.content == "oryginalna"
     assert note.tags == ["extra"]

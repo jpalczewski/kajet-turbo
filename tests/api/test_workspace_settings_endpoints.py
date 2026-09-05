@@ -1,7 +1,10 @@
 """Tests for GET/PATCH /api/workspaces/{name}/settings."""
 
+from pathlib import Path
+
 import pytest
 
+from kajet_turbo.services.targets import WorkspaceTarget
 from tests.api.conftest import ApiTestContext
 
 
@@ -70,9 +73,8 @@ def test_settings_requires_access(other_client, ws_name):
 
 
 def test_temporal_backfill_preview_and_apply(client, ws_name):
-    note_id = client.note_service.save(
-        "u1", ws_name, str(client.workspace), "2026-03-22", "body", []
-    )["note_id"]
+    target = WorkspaceTarget(owner_id="u1", name=ws_name, path=Path(client.workspace))
+    note_id = client.note_service.save(target, "2026-03-22", "body", [])["note_id"]
 
     preview = client.post(f"/api/workspaces/{ws_name}/settings/temporal-backfill/preview")
 

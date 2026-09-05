@@ -6,10 +6,10 @@ from fastapi.responses import JSONResponse
 from kajet_turbo.api.schemas import WorkspaceContentsResponse
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.api.workspaces.notes._views import enrich_note_items
-from kajet_turbo.dependencies import get_note_service, get_required_user, get_workspace_service
-from kajet_turbo.errors import AuthError, FolderError
+from kajet_turbo.dependencies import get_note_service, get_required_user, resolve_workspace_target
+from kajet_turbo.errors import FolderError
 from kajet_turbo.services.notes import NoteService
-from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.workspace import relative_folder
 
 router = APIRouter(
@@ -42,15 +42,12 @@ def _child_folders(folders: list[str], parent: str) -> list[str]:
 def api_workspace_contents(
     name: str,
     user: dict = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     note_service: NoteService = Depends(get_note_service),
     path: str = "",
 ) -> JSONResponse:
-    if not ws_service.has_access(user["id"], name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-
     requested_path = _clean_path(path)
-    ws_path = ws_service.workspace_path(user["id"], name)
+    ws_path = str(workspace.path)
     ws_root = Path(ws_path).resolve()
     try:
         target = (ws_root / requested_path).resolve() if requested_path else ws_root
@@ -82,7 +79,7 @@ def api_workspace_contents(
                 selected_note_id = candidate_note_id
 
     folders = note_service.list_folders(ws_path)[1:]
-    notes = note_service.list_notes(name, owner_id=user["id"], folder=folder_path, limit=None)
+    notes = note_service.list_notes(workspace, folder=folder_path, limit=None)
     enriched_notes = enrich_note_items(ws_path, notes)
     default_note_id = next(
         (

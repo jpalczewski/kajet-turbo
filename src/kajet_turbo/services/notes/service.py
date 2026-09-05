@@ -36,6 +36,7 @@ from kajet_turbo.repositories.git import (
     GitError,
     GitRepository,
     defer_workspace_postprocess,
+    target_write_transaction,
     workspace_write_transaction,
 )
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
@@ -72,6 +73,7 @@ from kajet_turbo.services.notes.staleness import (
 )
 from kajet_turbo.services.notes.tags import NoteTagService
 from kajet_turbo.services.notes.types import EditBatchItem, NoteData
+from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import (
     InvalidFolderError,
     LocatedNote,
@@ -358,26 +360,26 @@ class NoteService:
         seen_ids: set[str] = set()
         for index, (note_id, expected_sha) in enumerate(zip(note_ids, expected_shas, strict=True)):
             if not note_id:
-                yield _BatchValidationError(index, note_id, "note_id jest wymagany.")
+                yield _BatchValidationError(index, note_id, "note_id is required.")
                 continue
             if note_id in seen_ids:
                 yield _BatchValidationError(
-                    index, note_id, f"Duplikat note_id w batchu: '{note_id}'."
+                    index, note_id, f"Duplicate note_id in batch: '{note_id}'."
                 )
                 continue
             seen_ids.add(note_id)
             loc = located.get(note_id)
             if loc is None:
-                yield _BatchValidationError(index, note_id, f"Notatka {note_id} nie znaleziona.")
+                yield _BatchValidationError(index, note_id, f"Note not found: note_id={note_id}")
                 continue
             if not loc.file_exists:
                 yield _BatchValidationError(
-                    index, note_id, f"Plik notatki {note_id} nie znaleziony."
+                    index, note_id, f"Note file not found: note_id={note_id}"
                 )
                 continue
             stripped_sha = expected_sha.strip()
             if not stripped_sha:
-                yield _BatchValidationError(index, note_id, "expected_sha jest wymagany.")
+                yield _BatchValidationError(index, note_id, "expected_sha is required.")
                 continue
             if not sha_is_fresh(loc.head_sha, stripped_sha):
                 yield _BatchValidationError(index, note_id, stale_error(note_id))
@@ -428,12 +430,10 @@ class NoteService:
             expected_generation=expected_generation,
         )
 
-    @workspace_write_transaction
+    @target_write_transaction
     def save(
         self,
-        user_id: str,
-        ws_name: str,
-        ws_path: str,
+        target: WorkspaceTarget,
         title: str,
         content: str,
         tags: list[str],
@@ -441,6 +441,9 @@ class NoteService:
         occurred_at: object = None,
         period: object = None,
     ) -> dict:
+        user_id = target.owner_id
+        ws_name = target.name
+        ws_path = str(target.path)
         folder = normalize_folder(folder)
         occurred_at, period = normalize_temporal_metadata(occurred_at, period)
         tags = NoteTagService.normalize_tags(tags)
@@ -512,12 +515,10 @@ class NoteService:
             "period": period,
         }
 
-    @workspace_write_transaction
+    @target_write_transaction
     def save_many(
         self,
-        user_id: str,
-        ws_name: str,
-        ws_path: str,
+        target: WorkspaceTarget,
         notes: list[dict],
     ) -> list[dict]:
         """Create many notes in one batch: one DB transaction, one git commit, one cache
@@ -528,6 +529,9 @@ class NoteService:
         Raises GitError or OSError if a write or the batch commit fails (every file
         actually written is rolled back first).
         """
+        user_id = target.owner_id
+        ws_name = target.name
+        ws_path = str(target.path)
         results: list[dict | None] = [None] * len(notes)
         now = datetime.now(UTC).isoformat()
 
@@ -722,10 +726,11 @@ class NoteService:
             "period": note.period,
         }
 
-    def get_with_content(self, note_id: str, owner_id: str, ws_path: str) -> NoteData | None:
+    def get_with_content(self, target: NoteTarget) -> NoteData | None:
         """Single-note read. Batch reads go through ``get_many``/``locate_many``
         instead — a shared git walk beats N of these."""
-        loc = self._locate(note_id, owner_id, ws_path)
+        ws_path = str(target.workspace.path)
+        loc = self._locate(target.note_id, target.workspace.owner_id, ws_path)
         if loc is None or not loc.file_exists:
             return None
         return self._note_data(loc, current_head_sha(ws_path, loc.relative))
@@ -769,19 +774,20 @@ class NoteService:
         return match.chosen.note_id
 
     def get_with_content_by_title(
-        self, title: str, folder: str | None, owner_id: str, ws_name: str, ws_path: str
+        self, title: str, folder: str | None, target: WorkspaceTarget
     ) -> NoteData | None:
         """Read a note addressed by its ``(folder, title)`` natural key. See
         ``resolve_note_id`` for the path semantics."""
-        note_id = self.resolve_note_id(title, folder, owner_id, ws_name)
+        note_id = self.resolve_note_id(title, folder, target.owner_id, target.name)
         if note_id is None:
             return None
-        return self.get_with_content(note_id, owner_id, ws_path)
+        return self.get_with_content(NoteTarget(note_id=note_id, workspace=target))
 
-    def get_outline(self, note_id: str, owner_id: str, ws_path: str) -> dict | None:
+    def get_outline(self, target: NoteTarget) -> dict | None:
         """Note structure (headings + section sizes) without content — for picking a
         target_heading before a surgical edit_note call without loading the full body."""
-        note = self._crud_repo.get(note_id, owner_id=owner_id)
+        ws_path = str(target.workspace.path)
+        note = self._crud_repo.get(target.note_id, owner_id=target.workspace.owner_id)
         if note is None:
             return None
         filepath = note_filepath(ws_path, note.folder, note.title)
@@ -845,18 +851,32 @@ class NoteService:
             "omitted": omitted,
         }
 
-    def get_many(self, note_ids: list[str], owner_id: str, ws_path: str) -> list[NoteData | dict]:
+    def get_many(self, targets: list[NoteTarget]) -> list[NoteData | dict]:
         """Read multiple notes in one call. Best-effort per id: a missing note becomes
         {"note_id": ..., "error": ...} instead of failing the whole call. Order-preserving.
-        All head shas come from ONE shared git walk (head_shas_for_paths) instead of a
-        per-note history walk — cost is the deepest note's history, not the sum."""
-        git_repo = GitRepository(ws_path)
-        located = locate_many(self._crud_repo, note_ids, owner_id, ws_path, git_repo)
+        Grouped by workspace so each distinct workspace's git history walk still runs
+        once (head_shas_for_paths) rather than once per note — targets may legitimately
+        span more than one workspace (see TargetResolver.notes)."""
+        by_workspace: dict[str, list[NoteTarget]] = {}
+        for target in targets:
+            by_workspace.setdefault(str(target.workspace.path), []).append(target)
+
+        located: dict[str, LocatedNote] = {}
+        for ws_path, group in by_workspace.items():
+            owner_id = group[0].workspace.owner_id
+            git_repo = GitRepository(ws_path)
+            located.update(
+                locate_many(
+                    self._crud_repo, [t.note_id for t in group], owner_id, ws_path, git_repo
+                )
+            )
+
         results: list[NoteData | dict] = []
-        for note_id in note_ids:
-            loc = located.get(note_id.strip())
+        for target in targets:
+            loc = located.get(target.note_id.strip())
             if loc is None or not loc.file_exists:
-                results.append({"note_id": note_id, "error": f"Notatka {note_id} nie znaleziona."})
+                error = f"Note not found: note_id={target.note_id}"
+                results.append({"note_id": target.note_id, "error": error})
             else:
                 results.append(self._note_data(loc, loc.head_sha))
         return results
@@ -866,7 +886,8 @@ class NoteService:
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
             return None
-        data = self.get_with_content(note_id, owner_id, ws_path)
+        workspace = WorkspaceTarget(owner_id=owner_id, name=note.workspace, path=Path(ws_path))
+        data = self.get_with_content(NoteTarget(note_id=note_id, workspace=workspace))
         if data is None:
             return None
         chunks = self._indexer.preview(note.title, data.content, owner_id) if self._indexer else []
@@ -937,12 +958,10 @@ class NoteService:
         logger.info("notes_grep", ws=ws_name, matches=len(matches), truncated=truncated)
         return {"matches": matches, "truncated": truncated}
 
-    @workspace_write_transaction
+    @target_write_transaction
     def update(
         self,
-        note_id: str,
-        owner_id: str,
-        ws_path: str,
+        target: NoteTarget,
         expected_sha: str,
         title: str | None = None,
         tags: list[str] | None = None,
@@ -954,9 +973,12 @@ class NoteService:
         period: object = _UNCHANGED,
         clear_date_metadata: bool = False,
     ) -> dict:
+        note_id = target.note_id
+        owner_id = target.workspace.owner_id
+        ws_path = str(target.workspace.path)
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
-            raise ValueError(f"Notatka {note_id} nie znaleziona.")
+            raise ValueError(f"Note not found: note_id={note_id}")
         now = datetime.now(UTC).isoformat()
         new_title = title if title is not None else note.title
         try:
@@ -980,7 +1002,7 @@ class NoteService:
         new_rel = str(Path(new_path).relative_to(ws_path))
 
         if not Path(old_path).exists():
-            raise FileNotFoundError(f"Plik notatki {note_id} nie znaleziony.")
+            raise FileNotFoundError(f"Note file not found: note_id={note_id}")
 
         if not sha_is_fresh(current_head_sha(ws_path, old_rel), expected_sha):
             return stale_payload(note_id)
@@ -1124,12 +1146,10 @@ class NoteService:
             "period": new_period,
         }
 
-    @workspace_write_transaction
+    @target_write_transaction
     def edit_many(
         self,
-        user_id: str,
-        ws_name: str,
-        ws_path: str,
+        target: WorkspaceTarget,
         edits: list[EditBatchItem],
     ) -> dict:
         """Apply multiple surgical edits in ONE atomic commit. All-or-nothing at
@@ -1137,9 +1157,18 @@ class NoteService:
         bad anchor/heading) rejects the whole batch — nothing is written. Content + tags
         only; no title/folder changes (a rename needs backlink rewrites across other
         notes, incompatible with one commit_files call — use update() for that).
+
+        `target` identifies the single authorized workspace every edit's note_id must
+        resolve into -- the adapter already prevalidated that via
+        TargetResolver.notes_in_one_workspace before calling this. This method still
+        runs its own note-found/duplicate/sha-freshness checks below independently
+        (defense in depth, not a redundant substitute for that prevalidation).
         """
+        user_id = target.owner_id
+        ws_name = target.name
+        ws_path = str(target.path)
         if not edits:
-            raise ValueError("Batch edycji nie może być pusty.")
+            raise ValueError("Edit batch cannot be empty.")
 
         # One open repo for the whole batch: staleness checks during validation and
         # the single atomic commit afterwards, instead of re-opening per item.
@@ -1316,10 +1345,8 @@ class NoteService:
         logger.info("notes_edited_batch", ws=ws_name, count=len(prepared))
         return {"applied": True, "results": results}
 
-    @workspace_write_transaction
-    def delete(
-        self, note_id: str, owner_id: str, ws_path: str, expected_sha: str | None = None
-    ) -> dict:
+    @target_write_transaction
+    def delete(self, target: NoteTarget, expected_sha: str | None = None) -> dict:
         """Delete a note. expected_sha (MCP callers) must match the note's HEAD
         commit; ``None`` (REST API) skips the check. A missing file (orphaned DB
         row) also skips it — there is no version the caller could have read, and
@@ -1336,9 +1363,12 @@ class NoteService:
         not just the row teardown — see ``delete_many``'s docstring for the batch-sized
         version of this trade-off.
         """
+        note_id = target.note_id
+        owner_id = target.workspace.owner_id
+        ws_path = str(target.workspace.path)
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
-            raise ValueError(f"Notatka {note_id} nie znaleziona.")
+            raise ValueError(f"Note not found: note_id={note_id}")
         filepath = note_filepath(ws_path, note.folder, note.title)
         file_exists = Path(filepath).exists()
         relative = ""
@@ -1370,12 +1400,10 @@ class NoteService:
             self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
         return {"note_id": note_id}
 
-    @workspace_write_transaction
+    @target_write_transaction
     def delete_many(
         self,
-        user_id: str,
-        ws_name: str,
-        ws_path: str,
+        target: WorkspaceTarget,
         deletes: list[dict],
     ) -> dict:
         """Delete multiple notes in one Git commit and one DB transaction.
@@ -1402,8 +1430,11 @@ class NoteService:
         "database is locked". Accepted for this batch size today; #155 tracks the general
         shape (this trade-off applies to every write path it touches, not just deletes).
         """
+        user_id = target.owner_id
+        ws_name = target.name
+        ws_path = str(target.path)
         if not deletes:
-            raise ValueError("Batch usuwania nie może być pusty.")
+            raise ValueError("Delete batch cannot be empty.")
 
         # One open repo for the whole batch: staleness checks during validation and
         # the single atomic commit afterwards, instead of re-opening per item.
@@ -1453,14 +1484,15 @@ class NoteService:
 
     def list_notes(
         self,
-        ws_name: str,
-        owner_id: str,
+        target: WorkspaceTarget,
         tags: list[str] | None = None,
         limit: int | None = 20,
         folder: str | None = None,
         include_descendants: bool = True,
         sort: str = "default",
     ) -> list[dict]:
+        ws_name = target.name
+        owner_id = target.owner_id
         allowed_note_ids: set[str] | None = None
         if tags:
             allowed_note_ids = self._tag_repo.note_ids_for_tags(
@@ -1929,33 +1961,32 @@ class NoteService:
             "count": report.present,
         }
 
-    @workspace_write_transaction
+    @target_write_transaction
     def restore_version(
         self,
-        note_id: str,
+        target: NoteTarget,
         sha: str,
-        owner_id: str,
-        ws_path: str,
         expected_sha: str | None = None,
     ) -> dict:
         """Restore a past version over HEAD. expected_sha (MCP callers) proves the
         caller saw the HEAD it is about to overwrite; ``None`` (REST API) skips it."""
-        version = self._version_service.get_version(note_id, sha, owner_id, ws_path)
+        note_id = target.note_id
+        owner_id = target.workspace.owner_id
+        ws_path = str(target.workspace.path)
+        version = self._version_service.get_version(target, sha)
         note = self._crud_repo.get(note_id, owner_id=owner_id)
         if note is None:
-            raise ValueError(f"Notatka {note_id} nie znaleziona.")
+            raise ValueError(f"Note not found: note_id={note_id}")
         relative = str(Path(note_filepath(ws_path, note.folder, note.title)).relative_to(ws_path))
         current_sha = current_head_sha(ws_path, relative)
         if current_sha is None:
-            raise ValueError(f"Notatka {note_id} nie ma historii commitów.")
+            raise ValueError(f"Note has no commit history: note_id={note_id}")
         if expected_sha is not None and not sha_is_fresh(current_sha, expected_sha):
             return stale_payload(note_id)
         # Restore proves intent by construction: update()'s own staleness check is
         # satisfied with the head sha just read.
         return self.update(
-            note_id,
-            owner_id=owner_id,
-            ws_path=ws_path,
+            target,
             expected_sha=current_sha,
             edit=EditSpec(content=version["content"]),
             tags=version["tags"],
@@ -1999,21 +2030,19 @@ class NoteService:
     def xws_link_resolver(self, owner_id: str):
         return self._link_service.xws_link_resolver(owner_id)
 
-    def add_tags(self, note_id: str, owner_id: str, ws_path: str, tags: list[str]) -> dict:
-        return self._tag_service.add_tags(note_id, owner_id, ws_path, tags)
+    def add_tags(self, target: NoteTarget, tags: list[str]) -> dict:
+        return self._tag_service.add_tags(target, tags)
 
-    def remove_tags(self, note_id: str, owner_id: str, ws_path: str, tags: list[str]) -> dict:
-        return self._tag_service.remove_tags(note_id, owner_id, ws_path, tags)
+    def remove_tags(self, target: NoteTarget, tags: list[str]) -> dict:
+        return self._tag_service.remove_tags(target, tags)
 
     def set_tags(
         self,
-        note_id: str,
-        owner_id: str,
-        ws_path: str,
+        target: NoteTarget,
         tags: list[str],
         expected_sha: str | None = None,
     ) -> dict:
-        return self._tag_service.set_tags(note_id, owner_id, ws_path, tags, expected_sha)
+        return self._tag_service.set_tags(target, tags, expected_sha)
 
     @workspace_write_transaction
     def rename_tag(
@@ -2270,14 +2299,14 @@ class NoteService:
             query, workspaces, owner_id, limit, folder=folder, tags=tags
         )
 
-    def get_history(self, note_id: str, owner_id: str, ws_path: str, limit: int = 50) -> list[dict]:
-        return self._version_service.get_history(note_id, owner_id, ws_path, limit)
+    def get_history(self, target: NoteTarget, limit: int = 50) -> list[dict]:
+        return self._version_service.get_history(target, limit)
 
-    def get_version(self, note_id: str, sha: str, owner_id: str, ws_path: str) -> dict:
-        return self._version_service.get_version(note_id, sha, owner_id, ws_path)
+    def get_version(self, target: NoteTarget, sha: str) -> dict:
+        return self._version_service.get_version(target, sha)
 
-    def move(self, note_id: str, owner_id: str, ws_path: str, folder: str) -> dict:
-        return self._folder_service.move(note_id, owner_id, ws_path, folder)
+    def move(self, target: NoteTarget, folder: str) -> dict:
+        return self._folder_service.move(target, folder)
 
     def move_folder(
         self, src: str, dst: str, *, owner_id: str, ws_path: str, workspace: str

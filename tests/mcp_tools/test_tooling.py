@@ -48,12 +48,12 @@ def test_service_errors_tuple_is_exact():
 
 
 def test_check_batch_rejects_empty():
-    with pytest.raises(ToolError, match=r"note_ids nie może być puste\."):
+    with pytest.raises(ToolError, match=r"note_ids cannot be empty\."):
         check_batch([], "note_ids", "note_id")
 
 
 def test_check_batch_rejects_oversized_with_exact_message():
-    with pytest.raises(ToolError, match=r"Maksymalnie 50 edycji na wywołanie \(podano 51\)\."):
+    with pytest.raises(ToolError, match=r"At most 50 edycji per call \(got 51\)\."):
         check_batch(list(range(51)), "edits", "edycji")
 
 
@@ -66,7 +66,7 @@ def test_require_found_passes_value_through():
 
 
 def test_require_found_raises_on_none():
-    with pytest.raises(ToolError, match=r"Notatka id1 nie znaleziona\."):
+    with pytest.raises(ToolError, match=r"Note not found: note_id=id1"):
         require_found(None, "id1")
 
 

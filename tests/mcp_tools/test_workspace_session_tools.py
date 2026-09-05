@@ -50,6 +50,13 @@ async def test_fresh_authenticated_session_inherits_workspace_within_ttl(
 async def test_two_authenticated_sessions_keep_separate_workspaces(
     workspaces_dir, mcp_server, git_workspace_factory
 ):
+    """Each client session's activate_workspace() call sets its own state without
+    clobbering the other's. get_note(note_id=...) itself no longer depends on which
+    workspace is active at all (#246): TargetResolver.note() resolves a note_id to its
+    own true workspace by ownership alone, so a note from either workspace this user
+    owns is reachable regardless of which one is currently active -- that resolver
+    behavior is what makes it impossible for a mismatched note_id/active-workspace pair
+    to read or write the wrong workspace's files."""
     mcp, _ = mcp_server
     git_workspace_factory("workspaces/u1/drugi-ws")
     mcp_server.workspace_repo.grant_access("u1", "drugi-ws")
@@ -73,10 +80,10 @@ async def test_two_authenticated_sessions_keep_separate_workspaces(
     async with Client(mcp) as client_a_again:
         await client_a_again.call_tool("activate_workspace", {"name": "test-ws"})
         first_note = await client_a_again.call_tool("get_note", {"note_id": first})
-        with pytest.raises(ToolError):
-            await client_a_again.call_tool("get_note", {"note_id": second})
+        second_note = await client_a_again.call_tool("get_note", {"note_id": second})
 
     assert "First" in first_note.content[0].text
+    assert "Second" in second_note.content[0].text
 
 
 async def test_authenticated_session_writes_to_user_scoped_path(workspaces_dir, mcp_server):

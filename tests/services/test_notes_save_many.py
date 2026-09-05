@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from kajet_turbo.services.notes import service as service_module
-from tests.services.conftest import seed_user
+from tests.services.conftest import seed_user, workspace_target
 from tests.services.helpers import make_flaky_db_write, make_flaky_write
 
 
@@ -31,7 +31,7 @@ def test_save_many_happy_path_single_commit(service, workspace):
         {"title": "Batch B", "content": "beta", "tags": ["x"]},
         {"title": "Batch C", "content": "gamma", "folder": "docs"},
     ]
-    results = service.save_many("u1", "ws", str(workspace), notes)
+    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert [r["index"] for r in results] == [0, 1, 2]
     assert all("note_id" in r for r in results)
@@ -42,14 +42,14 @@ def test_save_many_happy_path_single_commit(service, workspace):
 
 
 def test_save_many_best_effort_reports_per_note(service, workspace):
-    service.save("u1", "ws", str(workspace), "Existing", "x", [])
+    service.save(workspace_target("u1", "ws", workspace), "Existing", "x", [])
     notes = [
         {"title": "Fresh One", "content": "a"},
         {"title": "Existing", "content": "dup"},  # collides with DB
         {"title": "", "content": "no title"},  # empty title
         {"title": "Fresh Two", "content": "b"},
     ]
-    results = service.save_many("u1", "ws", str(workspace), notes)
+    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert "note_id" in results[0]
     assert "error" in results[1]
@@ -62,7 +62,7 @@ def test_save_many_intra_batch_duplicate(service, workspace):
         {"title": "Same", "content": "first"},
         {"title": "Same", "content": "second"},  # same (folder, title) within batch
     ]
-    results = service.save_many("u1", "ws", str(workspace), notes)
+    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert "note_id" in results[0]
     assert "error" in results[1]
@@ -70,7 +70,7 @@ def test_save_many_intra_batch_duplicate(service, workspace):
 
 
 def test_save_many_empty_list(service, workspace):
-    assert service.save_many("u1", "ws", str(workspace), []) == []
+    assert service.save_many(workspace_target("u1", "ws", workspace), []) == []
 
 
 def test_save_many_cross_batch_wikilink_order_independent(service, workspace):
@@ -79,7 +79,7 @@ def test_save_many_cross_batch_wikilink_order_independent(service, workspace):
         {"title": "A note", "content": "links to [[B note]]"},
         {"title": "B note", "content": "target"},
     ]
-    results = service.save_many("u1", "ws", str(workspace), notes)
+    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert "note_id" in results[0]
     assert "note_id" in results[1]
@@ -94,7 +94,7 @@ def test_save_many_non_cascading_drop(service, workspace):
         {"title": "A links B", "content": "see [[B broken]]"},
         {"title": "B broken", "content": "see [[Does Not Exist]]"},
     ]
-    results = service.save_many("u1", "ws", str(workspace), notes)
+    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert "note_id" in results[0]  # A still saved
     assert "error" in results[1]  # B dropped for its own broken link
@@ -111,7 +111,7 @@ def test_save_many_git_error_rolls_back_all_files(service, workspace):
         ),
         pytest.raises(GitError),
     ):
-        service.save_many("u1", "ws", str(workspace), notes)
+        service.save_many(workspace_target("u1", "ws", workspace), notes)
 
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
     assert md_files == []
@@ -133,9 +133,7 @@ def test_save_many_write_failing_partway_rolls_back_and_makes_no_commit(service,
         pytest.raises(OSError, match="disk full"),
     ):
         service.save_many(
-            "u1",
-            "ws",
-            str(workspace),
+            workspace_target("u1", "ws", workspace),
             [{"title": "Flaky One", "content": "a"}, {"title": "Flaky Two", "content": "b"}],
         )
 
@@ -156,9 +154,7 @@ def test_save_many_db_failure_leaves_no_files_and_no_commit(service, workspace):
         pytest.raises(RuntimeError, match="db exploded"),
     ):
         service.save_many(
-            "u1",
-            "ws",
-            str(workspace),
+            workspace_target("u1", "ws", workspace),
             [{"title": "DB One", "content": "a"}, {"title": "DB Two", "content": "b"}],
         )
 
@@ -171,7 +167,7 @@ def test_save_many_db_failure_leaves_no_files_and_no_commit(service, workspace):
 def test_save_many_indexes_every_valid_note(service, workspace):
     notes = [{"title": "Idx A", "content": "a"}, {"title": "Idx B", "content": "b"}]
     with patch.object(service._indexer, "index_many") as idx:
-        results = service.save_many("u1", "ws", str(workspace), notes)
+        results = service.save_many(workspace_target("u1", "ws", workspace), notes)
     idx.assert_called_once()
     passed = idx.call_args.args[2]
     assert {n["id"] for n in passed} == {r["note_id"] for r in results}
@@ -183,7 +179,7 @@ def test_save_many_filename_collision_dedup(service, workspace):
         {"title": "A:B", "content": "first"},
         {"title": "A B", "content": "second"},
     ]
-    results = service.save_many("u1", "ws", str(workspace), notes)
+    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert "note_id" in results[0]
     assert "error" in results[1]
@@ -208,13 +204,13 @@ def test_save_many_filename_collision_dedup(service, workspace):
 def test_save_many_item_rejects_collision_with_pre_existing_file(service, workspace):
     """Not just intra-batch: an item colliding with a note saved before this batch,
     outside of it, must also be rejected — the other items in the batch still succeed."""
-    service.save("u1", "ws", str(workspace), "A B", "existing", [])
+    service.save(workspace_target("u1", "ws", workspace), "A B", "existing", [])
     notes = [
         {"title": "A:B", "content": "collides via normalization"},
         {"title": "Fresh", "content": "unrelated"},
     ]
 
-    results = service.save_many("u1", "ws", str(workspace), notes)
+    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert "error" in results[0]
     assert "note_id" in results[1]
