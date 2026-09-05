@@ -46,28 +46,37 @@ def write_tool(
 # One tuple for every notes tool. Catching a member where a given service call
 # cannot raise it is harmless; anything outside the tuple is a programming
 # error and must surface as an internal error, not a polite ToolError.
+#
+# Converted to ToolError inside logged_tool (log.py), not here: fastmcp's own
+# call_tool() already wraps any exception surviving tool._run() into a ToolError
+# before this middleware's on_call_tool ever sees it (its try/except sits *inside*
+# what call_next() invokes — see call_tool(run_middleware=False)'s own core-logic
+# try/except in fastmcp/server/server.py). A middleware-level `except SERVICE_ERRORS`
+# is therefore unreachable; logged_tool sits directly around the raw coroutine and is
+# the one seam that still sees the original exception type.
 SERVICE_ERRORS = (GitError, ValueError, FileNotFoundError, FileExistsError)
 
 
 class ServiceErrorMiddleware(Middleware):
-    """Map domain/service exceptions to ToolError at the server boundary.
+    """Log a ToolError exactly once at the server boundary.
 
     Registered once on the root server in build_mcp; applies to all mounted
-    sub-servers, replacing per-tool try/except blocks.
+    sub-servers. Sees every ToolError regardless of where it originated: raised
+    on purpose by a tool body or by a Depends dependency (e.g. ACTIVE_WORKSPACE,
+    which resolves before logged_tool's wrapper ever runs), or wrapped by fastmcp
+    around an unexpected exception that logged_tool already logged under its
+    original type.
     """
 
     async def on_call_tool(self, context: MiddlewareContext, call_next: CallNext):
         start = time.monotonic()
         try:
             return await call_next(context)
-        except SERVICE_ERRORS as e:
-            raise ToolError(str(e)) from e
         except ToolError as e:
-            # A ToolError fastmcp re-raises unchanged has __cause__ is None (raised on
-            # purpose — by a Depends dependency like ACTIVE_WORKSPACE, or directly in a
-            # tool body). One fastmcp wraps around a different exception carries that
-            # exception as __cause__ and was already logged by logged_tool under its own
-            # type — logging it again here would double it (issue #71).
+            # A ToolError raised on purpose has __cause__ is None. One fastmcp wraps
+            # around a different exception carries that exception as __cause__ and was
+            # already logged by logged_tool — logging it again here would double it
+            # (issue #71).
             if e.__cause__ is None:
                 log_tool_error(context.message.name, start)
             raise

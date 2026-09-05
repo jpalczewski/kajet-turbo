@@ -52,10 +52,6 @@ def build_history(
     ) -> NoteData:
         """Zwraca treść notatki z konkretnego commita git.
         sha: pełny lub skrócony hash commita z get_note_history."""
-        # Narrower than before: only SERVICE_ERRORS (via ServiceErrorMiddleware) become
-        # ToolError now. This deliberately drops the old blanket `except Exception` —
-        # unexpected exceptions surface as internal errors instead of being swallowed
-        # into a polite ToolError.
         version = await run_sync(
             note_service.get_version, note_id, sha, owner_id=ws.owner_id, ws_path=ws.path
         )

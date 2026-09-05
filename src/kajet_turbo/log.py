@@ -255,6 +255,10 @@ def logged_tool(fn):
                     continue
                 if val:
                     bind[key] = val
+        # Late import: mcp.tooling -> repositories.git -> log would cycle at module
+        # level (repositories/git.py imports `logger` from this module). Do not hoist.
+        from kajet_turbo.mcp.tooling import SERVICE_ERRORS
+
         start = time.monotonic()
         with logger.contextualize(**bind), perf_span() as span:
             try:
@@ -271,6 +275,15 @@ def logged_tool(fn):
                 # every tool call including Depends resolution that never reaches this
                 # wrapper (issue #71).
                 raise
+            except SERVICE_ERRORS as e:
+                # Convert here, not in ServiceErrorMiddleware: fastmcp's own call_tool()
+                # already wraps anything surviving tool._run() into a generic
+                # ToolError(f"Error calling tool {name!r}: {e}") before the middleware's
+                # on_call_tool ever runs (its try/except sits *inside* what call_next()
+                # invokes) - see mcp/tooling.py. This wrapper sits directly around the
+                # raw coroutine, so it's the one seam that still sees the original type.
+                log_tool_error(fn.__name__, start)
+                raise ToolError(str(e)) from e
             except Exception:
                 log_tool_error(fn.__name__, start)
                 raise

@@ -110,7 +110,15 @@ async def _rehydrate_from_db(
 
 async def active_workspace(ctx: Context = MCP_CONTEXT) -> ActiveWorkspace:
     """Resolve active workspace: session state, then the session-scoped DB row, then a
-    time-boxed per-user DB row (see USER_SCOPE docstring above)."""
+    time-boxed per-user DB row (see USER_SCOPE docstring above).
+
+    Every raise below must be a ToolError (or another FastMCPError), never a plain
+    exception: fastmcp resolves Depends() params in _resolve_fastmcp_dependencies
+    *before* the wrapped tool coroutine runs, so logged_tool's SERVICE_ERRORS mapping
+    never sees a failure here. A plain exception would instead be flattened into an
+    opaque RuntimeError("Failed to resolve dependency ...") with the original message
+    dropped from str() — see fastmcp/server/dependencies.py.
+    """
     assert deps.workspace_service is not None
     user_id = await require_user_id()
     name = await ctx.get_state("active_workspace")

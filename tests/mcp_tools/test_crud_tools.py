@@ -457,7 +457,11 @@ async def test_edit_note_rejects_a_parameter_from_another_mode(workspaces_dir, m
     """The apply_edit rejection surfaces as a ToolError, with the note left untouched.
 
     The full mode/parameter matrix is covered in tests/markdown/test_note_edit.py — this
-    only proves the wiring, so one case is enough for a fixture this expensive.
+    only proves the wiring, so one case is enough for a fixture this expensive. Asserting
+    the exact message (not a substring) also proves this ValueError reaches the client
+    clean via logged_tool's SERVICE_ERRORS mapping, not wrapped in fastmcp's own generic
+    "Error calling tool 'edit_note': ..." text — through the real mounted build_mcp()
+    stack, not just a unit test of the wrapper in isolation.
     """
     args = {"mode": "replace_text", "old_str": "world", "content": "earth"}
     mcp, _ = mcp_server
@@ -465,8 +469,11 @@ async def test_edit_note_rejects_a_parameter_from_another_mode(workspaces_dir, m
         await client.call_tool("activate_workspace", {"name": "test-ws"})
         note_id, sha = await save_and_get_sha(client, "Strict", "Hello world.")
 
-        with pytest.raises(ToolError, match="does not take content"):
+        with pytest.raises(ToolError) as exc_info:
             await client.call_tool("edit_note", {"note_id": note_id, "expected_sha": sha, **args})
+        assert str(exc_info.value) == (
+            "Mode 'replace_text' does not take content; it takes old_str and new_str."
+        )
 
         assert (await call_json(client, "get_note", {"note_id": note_id}))[
             "content"
