@@ -58,6 +58,94 @@ def test_require_found_raises_on_none():
         require_found(None, "id1")
 
 
+async def test_middleware_logs_tool_error_from_dependency_resolution(capsys):
+    """A ToolError raised while resolving a Depends default (like ACTIVE_WORKSPACE) never
+    enters logged_tool's try/except, since FastMCP resolves it before the wrapped function
+    runs. ServiceErrorMiddleware is the one seam that sees dependency resolution and the
+    tool body alike, so it must log this case itself (issue #71)."""
+    from fastmcp.dependencies import Depends
+
+    from kajet_turbo.log import logger, setup_logging
+    from tests.helpers import entries_named, read_log_entries
+
+    setup_logging()
+
+    def _no_active_workspace() -> str:
+        raise ToolError("Wywołaj activate_workspace() najpierw.")
+
+    root = FastMCP("root")
+    root.add_middleware(ServiceErrorMiddleware())
+
+    @root.tool
+    async def needs_workspace(ws: str = Depends(_no_active_workspace)) -> str:
+        return ws
+
+    with logger.contextualize(request_id="test-req"):
+        async with Client(root) as client:
+            with pytest.raises(ToolError, match="activate_workspace"):
+                await client.call_tool("needs_workspace")
+
+    (entry,) = entries_named(read_log_entries(capsys), "needs_workspace")
+    assert entry["level"] == "error"
+    assert entry["error_type"] == "ToolError"
+    assert "activate_workspace" in entry["error_msg"]
+    assert "duration_ms" in entry
+
+
+async def test_middleware_logs_body_raised_tool_error_exactly_once(capsys):
+    """A ToolError raised directly inside a @logged_tool-wrapped body used to be logged by
+    logged_tool itself; now logged_tool passes it through untouched and the middleware is
+    the sole logger — must still be exactly one line, not two, not zero (issue #71)."""
+    from kajet_turbo.log import logged_tool, logger, setup_logging
+    from tests.helpers import entries_named, read_log_entries
+
+    setup_logging()
+
+    root = FastMCP("root")
+    root.add_middleware(ServiceErrorMiddleware())
+
+    @root.tool
+    @logged_tool
+    async def explode_in_body() -> str:
+        raise ToolError("boom-body")
+
+    with logger.contextualize(request_id="test-req"):
+        async with Client(root) as client:
+            with pytest.raises(ToolError, match="boom-body"):
+                await client.call_tool("explode_in_body")
+
+    entries = entries_named(read_log_entries(capsys), "explode_in_body")
+    assert len(entries) == 1
+    assert entries[0]["error_type"] == "ToolError"
+
+
+async def test_middleware_does_not_double_log_non_tool_error(capsys):
+    """A non-ToolError exception (e.g. RuntimeError) is logged once by logged_tool under
+    its own type; fastmcp then wraps it into a ToolError with __cause__ set on its way out.
+    The middleware must recognize that wrapping and skip logging it again (issue #71)."""
+    from kajet_turbo.log import logged_tool, logger, setup_logging
+    from tests.helpers import entries_named, read_log_entries
+
+    setup_logging()
+
+    root = FastMCP("root")
+    root.add_middleware(ServiceErrorMiddleware())
+
+    @root.tool
+    @logged_tool
+    async def explode_with_runtime_error() -> str:
+        raise RuntimeError("boom-runtime")
+
+    with logger.contextualize(request_id="test-req"):
+        async with Client(root) as client:
+            with pytest.raises(ToolError, match="boom-runtime"):
+                await client.call_tool("explode_with_runtime_error")
+
+    entries = entries_named(read_log_entries(capsys), "explode_with_runtime_error")
+    assert len(entries) == 1
+    assert entries[0]["error_type"] == "RuntimeError"
+
+
 async def test_nested_mount_tool_error_logs_once_not_per_mount_level(capsys):
     """A tool error unwinds through every mount() level it passes through, and each
     level's own call_tool() independently logs "Error calling tool" (fastmcp's

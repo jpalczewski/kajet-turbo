@@ -9,6 +9,7 @@ from mcp.types import ToolAnnotations
 from kajet_turbo.api.schemas.ws import NoteUpdatedEvent, WorkspaceChangedEvent
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import event_repo
+from kajet_turbo.log import log_tool_error
 from kajet_turbo.mcp.context import ActiveWorkspace
 from kajet_turbo.repositories.git import GitError
 
@@ -56,10 +57,20 @@ class ServiceErrorMiddleware(Middleware):
     """
 
     async def on_call_tool(self, context: MiddlewareContext, call_next: CallNext):
+        start = time.monotonic()
         try:
             return await call_next(context)
         except SERVICE_ERRORS as e:
             raise ToolError(str(e)) from e
+        except ToolError as e:
+            # A ToolError fastmcp re-raises unchanged has __cause__ is None (raised on
+            # purpose — by a Depends dependency like ACTIVE_WORKSPACE, or directly in a
+            # tool body). One fastmcp wraps around a different exception carries that
+            # exception as __cause__ and was already logged by logged_tool under its own
+            # type — logging it again here would double it (issue #71).
+            if e.__cause__ is None:
+                log_tool_error(context.message.name, start)
+            raise
 
 
 async def publish_workspace_changed(ws: ActiveWorkspace) -> None:
