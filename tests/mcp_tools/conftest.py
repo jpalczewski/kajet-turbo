@@ -22,6 +22,7 @@ from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.targets import TargetResolver
 from kajet_turbo.services.workspaces import WorkspaceService
 
 if TYPE_CHECKING:
@@ -83,6 +84,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
     resources = SimpleNamespace(
         note_service=note_service_inst,
         workspace_service=workspace_service,
+        target_resolver=TargetResolver(note_repository, workspace_service),
         folder_meta_repo=folder_meta_repository,
         oauth_repo=oauth_repository,
         active_workspace_repo=active_workspace_repository,

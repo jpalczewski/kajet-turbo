@@ -6,12 +6,13 @@ import pytest
 
 from kajet_turbo import perf
 from kajet_turbo.markdown import EditSpec
+from tests.services.conftest import note_target, workspace_target
 from tests.services.helpers import make_flaky_db_write
 
 
 def test_save_perf_span_records_phases(service, workspace):
     with perf.perf_span() as span:
-        service.save("u1", "ws", str(workspace), "Perf", "# Head\n\nbody text", [])
+        service.save(workspace_target("u1", "ws", workspace), "Perf", "# Head\n\nbody text", [])
     # FTS-only test indexer => no embedding HTTP, but git/db/chunk phases are recorded.
     assert span.fields["git_ms"] > 0
     assert span.fields["workspace_write_ms"] >= span.fields["git_ms"]
@@ -26,8 +27,10 @@ def test_older_index_callback_cannot_overwrite_newer_edit(service, workspace, mo
 
     from kajet_turbo.services import indexing as indexing_module
 
-    note_id = service.save("u1", "ws", str(workspace), "Title", "initial body", [])["note_id"]
-    initial_sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+    note_id = service.save(workspace_target("u1", "ws", workspace), "Title", "initial body", [])[
+        "note_id"
+    ]
+    initial_sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
     older_chunking = Event()
     release_older = Event()
     real_chunk_markdown = indexing_module.chunk_markdown
@@ -42,20 +45,16 @@ def test_older_index_callback_cannot_overwrite_newer_edit(service, workspace, mo
     with ThreadPoolExecutor(max_workers=2) as pool:
         older = pool.submit(
             service.update,
-            note_id,
-            owner_id="u1",
-            ws_path=str(workspace),
+            note_target("u1", "ws", workspace, note_id),
             expected_sha=initial_sha,
             edit=EditSpec(content="older edit"),
         )
         assert older_chunking.wait(timeout=5)
-        newer_sha = service.get_history(note_id, owner_id="u1", ws_path=str(workspace))[0]["sha"]
+        newer_sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
         try:
             newer = pool.submit(
                 service.update,
-                note_id,
-                owner_id="u1",
-                ws_path=str(workspace),
+                note_target("u1", "ws", workspace, note_id),
                 expected_sha=newer_sha,
                 edit=EditSpec(content="newer edit"),
             )
@@ -71,7 +70,9 @@ def test_older_index_callback_cannot_overwrite_newer_edit(service, workspace, mo
 
 
 def test_save_creates_file_and_db_record(service, workspace):
-    result = service.save("u1", "ws", str(workspace), "Testowa notatka", "treść", ["python"])
+    result = service.save(
+        workspace_target("u1", "ws", workspace), "Testowa notatka", "treść", ["python"]
+    )
     assert "note_id" in result
     note_id = result["note_id"]
     assert (workspace / "Testowa notatka.md").exists()
@@ -82,31 +83,33 @@ def test_save_creates_file_and_db_record(service, workspace):
 
 
 def test_save_in_root_does_not_create_notes_directory(service, workspace):
-    service.save("u1", "ws", str(workspace), "Root note", "content", [])
+    service.save(workspace_target("u1", "ws", workspace), "Root note", "content", [])
 
     assert (workspace / "Root note.md").exists()
     assert not (workspace / "notes").exists()
 
 
 def test_save_rejects_duplicate_title_in_same_folder(service, workspace):
-    service.save("u1", "ws", str(workspace), "Duplicate", "content", [], folder="docs")
+    service.save(workspace_target("u1", "ws", workspace), "Duplicate", "content", [], folder="docs")
 
     with pytest.raises(FileExistsError):
-        service.save("u1", "ws", str(workspace), "Duplicate", "other", [], folder="docs")
+        service.save(
+            workspace_target("u1", "ws", workspace), "Duplicate", "other", [], folder="docs"
+        )
 
 
 def test_save_rejects_normalization_collision_with_existing_note(service, workspace):
     """ "A:B" and "A B" both sanitize to "A B.md" — a different title, same file."""
     from kajet_turbo.workspace import read_note_file
 
-    first = service.save("u1", "ws", str(workspace), "A B", "first body", [])
+    first = service.save(workspace_target("u1", "ws", workspace), "A B", "first body", [])
 
     with pytest.raises(FileExistsError, match="A B"):
-        service.save("u1", "ws", str(workspace), "A:B", "second body", [])
+        service.save(workspace_target("u1", "ws", workspace), "A:B", "second body", [])
 
     _, content = read_note_file(str(workspace / "A B.md"))
     assert content.strip() == "first body"
-    note = service.get_with_content(first["note_id"], owner_id="u1", ws_path=str(workspace))
+    note = service.get_with_content(note_target("u1", "ws", workspace, first["note_id"]))
     assert note is not None
     assert note.content.strip() == "first body"
 
@@ -116,7 +119,7 @@ def test_save_rejects_collision_with_orphan_file_on_disk(service, workspace):
     (workspace / "A B.md").write_text("orphan content\n")
 
     with pytest.raises(FileExistsError):
-        service.save("u1", "ws", str(workspace), "A B", "new body", [])
+        service.save(workspace_target("u1", "ws", workspace), "A B", "new body", [])
 
     assert (workspace / "A B.md").read_text() == "orphan content\n"
     assert service._crud_repo.get_by_path("ws", "u1", "", "A B") is None
@@ -125,11 +128,11 @@ def test_save_rejects_collision_with_orphan_file_on_disk(service, workspace):
 def test_save_rejects_normalization_collision_with_ghost_row(service, workspace):
     """A DB row whose file was deleted out-of-band must still block a colliding save —
     the check is DB-row-based (note_path_conflict), not Path.exists()-based."""
-    first = service.save("u1", "ws", str(workspace), "A B", "first body", [])
+    first = service.save(workspace_target("u1", "ws", workspace), "A B", "first body", [])
     (workspace / "A B.md").unlink()
 
     with pytest.raises(FileExistsError, match="A B"):
-        service.save("u1", "ws", str(workspace), "A:B", "second body", [])
+        service.save(workspace_target("u1", "ws", workspace), "A:B", "second body", [])
 
     note = service._crud_repo.get(first["note_id"], owner_id="u1")
     assert note is not None
@@ -148,7 +151,7 @@ def test_save_git_error_rolls_back_file(service, workspace):
         ),
         pytest.raises(GitError),
     ):
-        service.save("u1", "ws", str(workspace), "Git fail note", "treść", [])
+        service.save(workspace_target("u1", "ws", workspace), "Git fail note", "treść", [])
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
     assert md_files == []
     # #155: the row insert runs before the git commit inside the same transaction, so a
@@ -164,7 +167,7 @@ def test_save_db_failure_leaves_no_file_and_no_row(service, workspace, monkeypat
     monkeypatch.setattr(service._crud_repo, "insert_in_session", flaky_insert)
 
     with pytest.raises(RuntimeError, match="db exploded"):
-        service.save("u1", "ws", str(workspace), "DB fail note", "treść", [])
+        service.save(workspace_target("u1", "ws", workspace), "DB fail note", "treść", [])
 
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
     assert md_files == []
@@ -174,8 +177,10 @@ def test_save_db_failure_leaves_no_file_and_no_row(service, workspace, monkeypat
 def test_get_with_content_returns_note_data(service, workspace):
     from kajet_turbo.services.notes.types import NoteData
 
-    note_id = service.save("u1", "ws", str(workspace), "Title", "# Content", [])["note_id"]
-    result = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    note_id = service.save(workspace_target("u1", "ws", workspace), "Title", "# Content", [])[
+        "note_id"
+    ]
+    result = service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert isinstance(result, NoteData)
     assert result.note_id == note_id
     assert result.title == "Title"
@@ -183,44 +188,49 @@ def test_get_with_content_returns_note_data(service, workspace):
 
 
 def test_get_with_content_returns_none_for_wrong_owner(service, workspace):
-    result = service.save("u1", "ws", str(workspace), "Notatka", "treść", [])
+    result = service.save(workspace_target("u1", "ws", workspace), "Notatka", "treść", [])
     note_id = result["note_id"]
-    assert service.get_with_content(note_id, owner_id="u2", ws_path=str(workspace)) is None
+    assert service.get_with_content(note_target("u2", "ws", workspace, note_id)) is None
 
 
 def test_get_with_content_returns_content(service, workspace):
-    result = service.save("u1", "ws", str(workspace), "Notatka", "moja treść", [])
+    result = service.save(workspace_target("u1", "ws", workspace), "Notatka", "moja treść", [])
     note_id = result["note_id"]
-    note = service.get_with_content(note_id, owner_id="u1", ws_path=str(workspace))
+    note = service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert note is not None
     assert note.content == "moja treść"
     assert note.title == "Notatka"
 
 
 def test_get_many_returns_notes_in_order_with_errors_for_missing(service, workspace):
-    r1 = service.save("u1", "ws", str(workspace), "First", "content one", [])
-    r2 = service.save("u1", "ws", str(workspace), "Second", "content two", [])
+    r1 = service.save(workspace_target("u1", "ws", workspace), "First", "content one", [])
+    r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "content two", [])
     results = service.get_many(
-        [r1["note_id"], "does-not-exist", r2["note_id"]], owner_id="u1", ws_path=str(workspace)
+        [
+            note_target("u1", "ws", workspace, r1["note_id"]),
+            note_target("u1", "ws", workspace, "does-not-exist"),
+            note_target("u1", "ws", workspace, r2["note_id"]),
+        ]
     )
     assert len(results) == 3
     assert results[0].note_id == r1["note_id"]
     assert results[0].content == "content one"
     assert results[1] == {
         "note_id": "does-not-exist",
-        "error": "Notatka does-not-exist nie znaleziona.",
+        "error": "Note not found: note_id=does-not-exist",
     }
     assert results[2].note_id == r2["note_id"]
 
 
 def test_list_notes_resolves_hierarchical_tags_before_repository_filtering(service, workspace):
-    service.save("u1", "ws", str(workspace), "Alpha", "", ["work/projects"])
-    service.save("u1", "ws", str(workspace), "Beta", "", ["life"])
-    service.save("u1", "ws", str(workspace), "Gamma", "", ["work/other"])
+    service.save(workspace_target("u1", "ws", workspace), "Alpha", "", ["work/projects"])
+    service.save(workspace_target("u1", "ws", workspace), "Beta", "", ["life"])
+    service.save(workspace_target("u1", "ws", workspace), "Gamma", "", ["work/other"])
 
-    matched = service.list_notes("ws", "u1", tags=["work"], limit=1, sort="title")
-    exact = service.list_notes("ws", "u1", tags=["work"], include_descendants=False, limit=None)
-    missing = service.list_notes("ws", "u1", tags=["missing"], limit=None)
+    target = workspace_target("u1", "ws", workspace)
+    matched = service.list_notes(target, tags=["work"], limit=1, sort="title")
+    exact = service.list_notes(target, tags=["work"], include_descendants=False, limit=None)
+    missing = service.list_notes(target, tags=["missing"], limit=None)
 
     assert [note["title"] for note in matched] == ["Alpha"]
     assert exact == []
@@ -229,9 +239,12 @@ def test_list_notes_resolves_hierarchical_tags_before_repository_filtering(servi
 
 def test_get_outline_returns_headings_without_content(service, workspace):
     result = service.save(
-        "u1", "ws", str(workspace), "Doc", "# Doc\n\n## Tasks\n\n- one\n\n## Notes\n\ntext\n", []
+        workspace_target("u1", "ws", workspace),
+        "Doc",
+        "# Doc\n\n## Tasks\n\n- one\n\n## Notes\n\ntext\n",
+        [],
     )
-    outline = service.get_outline(result["note_id"], owner_id="u1", ws_path=str(workspace))
+    outline = service.get_outline(note_target("u1", "ws", workspace, result["note_id"]))
     assert outline["title"] == "Doc"
     assert [s["heading"] for s in outline["sections"]] == ["Doc", "Tasks", "Notes"]
     assert "content" not in outline
@@ -239,4 +252,4 @@ def test_get_outline_returns_headings_without_content(service, workspace):
 
 
 def test_get_outline_missing_note_returns_none(service, workspace):
-    assert service.get_outline("missing", owner_id="u1", ws_path=str(workspace)) is None
+    assert service.get_outline(note_target("u1", "ws", workspace, "missing")) is None

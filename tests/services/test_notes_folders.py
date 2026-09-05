@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.services.conftest import seed_user
+from tests.services.conftest import note_target, seed_user, workspace_target
 from tests.services.helpers import head_sha, make_flaky_db_write
 
 
@@ -19,8 +19,10 @@ def _mv(service, workspace, src, dst):
 
 
 def test_move_folder_renames_with_notes(service, workspace):
-    a = service.save("u1", "ws", str(workspace), "A", "x", [], folder="people")["note_id"]
-    service.save("u1", "ws", str(workspace), "B", "y", [], folder="people")
+    a = service.save(workspace_target("u1", "ws", workspace), "A", "x", [], folder="people")[
+        "note_id"
+    ]
+    service.save(workspace_target("u1", "ws", workspace), "B", "y", [], folder="people")
 
     result = _mv(service, workspace, "people", "team")
 
@@ -32,8 +34,8 @@ def test_move_folder_renames_with_notes(service, workspace):
 
 
 def test_move_folder_merges_into_existing(service, workspace):
-    service.save("u1", "ws", str(workspace), "X", "x", [], folder="a")
-    service.save("u1", "ws", str(workspace), "Y", "y", [], folder="b")
+    service.save(workspace_target("u1", "ws", workspace), "X", "x", [], folder="a")
+    service.save(workspace_target("u1", "ws", workspace), "Y", "y", [], folder="b")
 
     result = _mv(service, workspace, "a", "b")
 
@@ -44,8 +46,8 @@ def test_move_folder_merges_into_existing(service, workspace):
 
 
 def test_move_folder_collision_aborts_atomically(service, workspace):
-    service.save("u1", "ws", str(workspace), "Same", "source", [], folder="a")
-    service.save("u1", "ws", str(workspace), "Same", "destination", [], folder="b")
+    service.save(workspace_target("u1", "ws", workspace), "Same", "source", [], folder="a")
+    service.save(workspace_target("u1", "ws", workspace), "Same", "destination", [], folder="b")
 
     result = _mv(service, workspace, "a", "b")
 
@@ -59,9 +61,9 @@ def test_move_folder_rejects_normalization_collision_atomically(service, workspa
     """ "A:B" in "a" would land on "A B.md" in "b", already used by "A B". A third,
     non-colliding note in "a" must also NOT move — proves the pre-flight conflict loop
     catches this before any rename() happens, not mid-walk."""
-    service.save("u1", "ws", str(workspace), "A:B", "source", [], folder="a")
-    service.save("u1", "ws", str(workspace), "A B", "destination", [], folder="b")
-    service.save("u1", "ws", str(workspace), "Innocent", "bystander", [], folder="a")
+    service.save(workspace_target("u1", "ws", workspace), "A:B", "source", [], folder="a")
+    service.save(workspace_target("u1", "ws", workspace), "A B", "destination", [], folder="b")
+    service.save(workspace_target("u1", "ws", workspace), "Innocent", "bystander", [], folder="a")
 
     result = _mv(service, workspace, "a", "b")
 
@@ -117,7 +119,9 @@ def test_move_folder_rejects_collision_with_orphan_file_on_disk(service, workspa
     move — the pre-flight loop only checks DB rows (a disk check there would falsely
     trip on a case-only rename's own not-yet-relocated source), so this is caught only
     once the source is safely out of the way, right before the note would land there."""
-    note_id = service.save("u1", "ws", str(workspace), "N", "x", [], folder="a")["note_id"]
+    note_id = service.save(workspace_target("u1", "ws", workspace), "N", "x", [], folder="a")[
+        "note_id"
+    ]
     (workspace / "b").mkdir()
     (workspace / "b" / "N.md").write_text("orphan content\n")
 
@@ -130,7 +134,9 @@ def test_move_folder_rejects_collision_with_orphan_file_on_disk(service, workspa
 
 
 def test_move_folder_case_only_rename(service, workspace):
-    nid = service.save("u1", "ws", str(workspace), "N", "x", [], folder="Osoby")["note_id"]
+    nid = service.save(workspace_target("u1", "ws", workspace), "N", "x", [], folder="Osoby")[
+        "note_id"
+    ]
 
     result = _mv(service, workspace, "Osoby", "osoby")
 
@@ -142,7 +148,9 @@ def test_move_folder_case_only_rename(service, workspace):
 
 
 def test_move_folder_moves_nested_subfolders(service, workspace):
-    nid = service.save("u1", "ws", str(workspace), "Deep", "z", [], folder="a/sub")["note_id"]
+    nid = service.save(workspace_target("u1", "ws", workspace), "Deep", "z", [], folder="a/sub")[
+        "note_id"
+    ]
 
     _mv(service, workspace, "a", "b")
 
@@ -152,15 +160,15 @@ def test_move_folder_moves_nested_subfolders(service, workspace):
 
 
 def test_move_folder_rejects_into_own_subtree(service, workspace):
-    service.save("u1", "ws", str(workspace), "N", "x", [], folder="a")
+    service.save(workspace_target("u1", "ws", workspace), "N", "x", [], folder="a")
 
     with pytest.raises(ValueError):
         _mv(service, workspace, "a", "a/b")
 
 
 def test_move_folder_rewrites_external_backlink(service, workspace):
-    service.save("u1", "ws", str(workspace), "Target", "content", [], folder="src")
-    service.save("u1", "ws", str(workspace), "Linker", "see [[src/Target]]", [])
+    service.save(workspace_target("u1", "ws", workspace), "Target", "content", [], folder="src")
+    service.save(workspace_target("u1", "ws", workspace), "Linker", "see [[src/Target]]", [])
 
     _mv(service, workspace, "src", "dst")
 
@@ -171,8 +179,8 @@ def test_move_folder_rewrites_external_backlink(service, workspace):
 
 def test_move_folder_rewrites_intra_folder_link(service, workspace):
     # X links to Y, both in the moved folder — the link must follow the move.
-    service.save("u1", "ws", str(workspace), "Y", "target", [], folder="a")
-    service.save("u1", "ws", str(workspace), "X", "see [[a/Y]]", [], folder="a")
+    service.save(workspace_target("u1", "ws", workspace), "Y", "target", [], folder="a")
+    service.save(workspace_target("u1", "ws", workspace), "X", "see [[a/Y]]", [], folder="a")
 
     _mv(service, workspace, "a", "b")
 
@@ -182,9 +190,11 @@ def test_move_folder_rewrites_intra_folder_link(service, workspace):
 
 
 def test_move_note_prunes_empty_parents(service, workspace):
-    nid = service.save("u1", "ws", str(workspace), "N", "x", [], folder="deep/nested")["note_id"]
+    nid = service.save(workspace_target("u1", "ws", workspace), "N", "x", [], folder="deep/nested")[
+        "note_id"
+    ]
 
-    service.move(nid, owner_id="u1", ws_path=str(workspace), folder="")
+    service.move(note_target("u1", "ws", workspace, nid), folder="")
 
     assert (workspace / "N.md").exists()
     assert not (workspace / "deep").exists()
@@ -193,9 +203,11 @@ def test_move_note_prunes_empty_parents(service, workspace):
 def test_move_note_keeps_gitkeep_folder(service, workspace):
     (workspace / "keep").mkdir()
     (workspace / "keep" / ".gitkeep").touch()
-    nid = service.save("u1", "ws", str(workspace), "N", "x", [], folder="keep")["note_id"]
+    nid = service.save(workspace_target("u1", "ws", workspace), "N", "x", [], folder="keep")[
+        "note_id"
+    ]
 
-    service.move(nid, owner_id="u1", ws_path=str(workspace), folder="")
+    service.move(note_target("u1", "ws", workspace, nid), folder="")
 
     assert (workspace / "keep").exists()
 
@@ -221,8 +233,12 @@ def test_move_folder_db_failure_leaves_git_committed_and_rows_healable(service, 
     This restores the self-healing direction: rows lag behind an already-correct tree,
     which is exactly what reconcile_paths heals, and history for the note's new path is
     real (not empty, which was the actual observable symptom of the pre-fix bug)."""
-    a = service.save("u1", "ws", str(workspace), "A", "x", [], folder="people")["note_id"]
-    b = service.save("u1", "ws", str(workspace), "B", "y", [], folder="people")["note_id"]
+    a = service.save(workspace_target("u1", "ws", workspace), "A", "x", [], folder="people")[
+        "note_id"
+    ]
+    b = service.save(workspace_target("u1", "ws", workspace), "B", "y", [], folder="people")[
+        "note_id"
+    ]
     sha_a_before = head_sha(workspace, "people/A.md")
 
     flaky_update = make_flaky_db_write(service._crud_repo.update_in_session, fail_on_call=2)
@@ -250,8 +266,8 @@ def test_move_folder_db_failure_leaves_git_committed_and_rows_healable(service, 
     assert service.get(b, owner_id="u1")["folder"] == "team"
     # The actual #170 symptom: before the fix, a healed row pointed history lookups at a
     # git path with zero commits. Now the move's commit is there to find.
-    assert service.get_history(a, owner_id="u1", ws_path=str(workspace)) != []
-    assert service.get_history(b, owner_id="u1", ws_path=str(workspace)) != []
+    assert service.get_history(note_target("u1", "ws", workspace, a)) != []
+    assert service.get_history(note_target("u1", "ws", workspace, b)) != []
 
 
 def test_move_folder_git_failure_leaves_nothing_committed_or_written(service, workspace):
@@ -264,7 +280,9 @@ def test_move_folder_git_failure_leaves_nothing_committed_or_written(service, wo
     CLAUDE.md`'s #155 section documents."""
     from kajet_turbo.repositories.git import GitError, GitRepository
 
-    a = service.save("u1", "ws", str(workspace), "A", "x", [], folder="people")["note_id"]
+    a = service.save(workspace_target("u1", "ws", workspace), "A", "x", [], folder="people")[
+        "note_id"
+    ]
 
     with (
         patch.object(GitRepository, "commit_changes", side_effect=GitError("fail")),
@@ -311,9 +329,15 @@ def test_move_folder_refuses_above_max_notes_ceiling(service, workspace, monkeyp
     import kajet_turbo.services.notes.folders as folders_module
 
     monkeypatch.setattr(folders_module, "_MOVE_FOLDER_MAX_NOTES", 2)
-    a = service.save("u1", "ws", str(workspace), "A", "x", [], folder="people")["note_id"]
-    b = service.save("u1", "ws", str(workspace), "B", "y", [], folder="people")["note_id"]
-    c = service.save("u1", "ws", str(workspace), "C", "z", [], folder="people")["note_id"]
+    a = service.save(workspace_target("u1", "ws", workspace), "A", "x", [], folder="people")[
+        "note_id"
+    ]
+    b = service.save(workspace_target("u1", "ws", workspace), "B", "y", [], folder="people")[
+        "note_id"
+    ]
+    c = service.save(workspace_target("u1", "ws", workspace), "C", "z", [], folder="people")[
+        "note_id"
+    ]
 
     with pytest.raises(ValueError, match=r"people.*3 notes.*2"):
         _mv(service, workspace, "people", "team")
@@ -337,9 +361,13 @@ def test_move_folder_marks_affected_sources_dirty_even_when_backlink_rewrite_fai
     from tests.services.helpers import build_reconcile_wiring
 
     service, _jobs, dirty, _dangling, _handler = build_reconcile_wiring(database, workspace)
-    tid = service.save("u1", "ws", str(workspace), "Target", "t", [], folder="src")["note_id"]
+    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="src")[
+        "note_id"
+    ]
     source_ids = {
-        service.save("u1", "ws", str(workspace), f"Source {i}", "[[src/Target]]", [])["note_id"]
+        service.save(workspace_target("u1", "ws", workspace), f"Source {i}", "[[src/Target]]", [])[
+            "note_id"
+        ]
         for i in range(3)
     }
 

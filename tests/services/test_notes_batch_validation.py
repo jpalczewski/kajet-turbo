@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from kajet_turbo.repositories.git import GitRepository
+from tests.services.conftest import note_target, workspace_target
 from tests.services.helpers import edit_item
 
 
@@ -18,8 +19,8 @@ def _run(operation: str, service, workspace, items: list[dict]) -> dict:
             edit_item(item.get("note_id", ""), item.get("expected_sha", ""), content="x")
             for item in items
         ]
-        return service.edit_many("u1", "ws", str(workspace), edits)
-    return service.delete_many("u1", "ws", str(workspace), items)
+        return service.edit_many(workspace_target("u1", "ws", workspace), edits)
+    return service.delete_many(workspace_target("u1", "ws", workspace), items)
 
 
 @pytest.mark.parametrize("operation", ["edit", "delete"])
@@ -31,7 +32,7 @@ def _run(operation: str, service, workspace, items: list[dict]) -> dict:
             lambda note_id, sha: [{"note_id": "", "expected_sha": sha}],
             "",
             0,
-            "note_id jest wymagany.",
+            "note_id is required.",
         ),
         (
             "duplicate",
@@ -41,21 +42,21 @@ def _run(operation: str, service, workspace, items: list[dict]) -> dict:
             ],
             "{note_id}",
             1,
-            "Duplikat note_id w batchu: '{note_id}'.",
+            "Duplicate note_id in batch: '{note_id}'.",
         ),
         (
             "missing_note",
             lambda note_id, sha: [{"note_id": "does-not-exist", "expected_sha": sha}],
             "does-not-exist",
             0,
-            "Notatka does-not-exist nie znaleziona.",
+            "Note not found: note_id=does-not-exist",
         ),
         (
             "missing_sha",
             lambda note_id, sha: [{"note_id": note_id}],
             "{note_id}",
             0,
-            "expected_sha jest wymagany.",
+            "expected_sha is required.",
         ),
         (
             "stale_sha",
@@ -72,14 +73,14 @@ def _run(operation: str, service, workspace, items: list[dict]) -> dict:
             lambda note_id, sha: [{"note_id": note_id, "expected_sha": sha}],
             "{note_id}",
             0,
-            "Plik notatki {note_id} nie znaleziony.",
+            "Note file not found: note_id={note_id}",
         ),
     ],
 )
 def test_destructive_batches_share_validation_errors(
     operation, case, items, expected_note_id, index, error, service, workspace
 ):
-    saved = service.save("u1", "ws", str(workspace), "First", "one\n", [])
+    saved = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     note_id = saved["note_id"]
     sha = _head_sha(workspace, "First.md")
     if case == "missing_file":
@@ -98,17 +99,15 @@ def test_destructive_batches_share_validation_errors(
         ],
     }
     if case != "missing_file":
-        assert service.get_with_content(note_id, "u1", str(workspace)) is not None
+        assert service.get_with_content(note_target("u1", "ws", workspace, note_id)) is not None
 
 
 def test_edit_many_preserves_mixed_validation_error_order(service, workspace):
-    first = service.save("u1", "ws", str(workspace), "First", "one\n", [])
-    second = service.save("u1", "ws", str(workspace), "Second", "two\n", [])
+    first = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
+    second = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
 
     result = service.edit_many(
-        "u1",
-        "ws",
-        str(workspace),
+        workspace_target("u1", "ws", workspace),
         [
             edit_item(
                 first["note_id"],

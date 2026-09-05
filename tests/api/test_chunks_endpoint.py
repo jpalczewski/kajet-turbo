@@ -1,8 +1,15 @@
+from pathlib import Path
+
+from kajet_turbo.services.targets import WorkspaceTarget
+
+
+def _target(ws_path) -> WorkspaceTarget:
+    return WorkspaceTarget(owner_id="u1", name="test-ws", path=Path(ws_path))
+
+
 def test_get_note_chunks_returns_preview(auth_client):
     client, note_svc, ws_path = auth_client
-    res = note_svc.save(
-        "u1", "test-ws", ws_path, "Recipes", "# Recipes\n\n## Soup\n\ntomato soup\n", []
-    )
+    res = note_svc.save(_target(ws_path), "Recipes", "# Recipes\n\n## Soup\n\ntomato soup\n", [])
     note_id = res["note_id"]
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/chunks")
     assert resp.status_code == 200

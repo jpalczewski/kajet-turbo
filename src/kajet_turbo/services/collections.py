@@ -32,6 +32,7 @@ from kajet_turbo.periods import Period, PeriodKind
 from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.notes import NoteRepository, note_to_list_item
 from kajet_turbo.services.notes.service import NoteService
+from kajet_turbo.services.targets import WorkspaceTarget
 
 
 def _write_collections_file(ws_path: str, definitions: dict[str, CollectionDefinition]) -> None:
@@ -272,9 +273,7 @@ class CollectionService:
         if payload is None:
             occurred_at, period = _temporal_for(definition.grain, when)
             result = self._note_service.save(
-                owner_id,
-                ws_name,
-                ws_path,
+                WorkspaceTarget(owner_id=owner_id, name=ws_name, path=Path(ws_path)),
                 title,
                 "",
                 [],

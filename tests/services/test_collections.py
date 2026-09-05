@@ -6,6 +6,7 @@ import pytest
 
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.services.collections import CollectionService
+from tests.services.conftest import note_target, workspace_target
 
 
 @pytest.fixture
@@ -37,9 +38,9 @@ def test_define_collection_redefine_reports_affected_without_moving_notes(
         str(workspace), "ws", "u1", "weekly", "week", "one", "weekly/{year}", "{key}"
     )
     saved = service.save(
-        "u1", "ws", str(workspace), "2026-W23", "content\n", [], folder="weekly/2026"
+        workspace_target("u1", "ws", workspace), "2026-W23", "content\n", [], folder="weekly/2026"
     )
-    before = service.get_with_content(saved["note_id"], "u1", str(workspace))
+    before = service.get_with_content(note_target("u1", "ws", workspace, saved["note_id"]))
 
     result = collections.define_collection(
         str(workspace), "ws", "u1", "weekly", "week", "one", "weekly-v2/{year}", "{key}"
@@ -48,7 +49,7 @@ def test_define_collection_redefine_reports_affected_without_moving_notes(
     assert result["verb"] == "update"
     assert result["affected_count"] == 1
     assert result["dropped"] == [{"folder": "weekly/2026", "title": "2026-W23"}]
-    after = service.get_with_content(saved["note_id"], "u1", str(workspace))
+    after = service.get_with_content(note_target("u1", "ws", workspace, saved["note_id"]))
     assert after.folder == before.folder
     assert after.content == before.content
 
@@ -114,14 +115,14 @@ def test_delete_collection_removes_entry_without_touching_notes(collections, ser
         str(workspace), "ws", "u1", "weekly", "week", "one", "weekly/{year}", "{key}"
     )
     saved = service.save(
-        "u1", "ws", str(workspace), "2026-W23", "content\n", [], folder="weekly/2026"
+        workspace_target("u1", "ws", workspace), "2026-W23", "content\n", [], folder="weekly/2026"
     )
 
     result = collections.delete_collection(str(workspace), "weekly")
 
     assert result == {"name": "weekly", "deleted": True}
     assert "weekly" not in collections.list_collections(str(workspace))
-    still_there = service.get_with_content(saved["note_id"], "u1", str(workspace))
+    still_there = service.get_with_content(note_target("u1", "ws", workspace, saved["note_id"]))
     assert still_there.folder == "weekly/2026"
     history = GitRepository(str(workspace)).file_history(".kajet/collections.yaml")
     assert history[0]["message"] == "collections: delete weekly"
@@ -228,7 +229,9 @@ def test_open_entry_many_cardinality_skips_gap_never_reuses_ordinal(
     when = date(2026, 6, 15)
     # A note that already occupies ordinal 3, created outside open_entry entirely —
     # _next_ordinal must still see it and skip past it, not just count its own writes.
-    service.save("u1", "ws", str(workspace), "2026-06-15 3", "", [], folder="sessions/2026/06")
+    service.save(
+        workspace_target("u1", "ws", workspace), "2026-06-15 3", "", [], folder="sessions/2026/06"
+    )
 
     result = collections.open_entry(str(workspace), "ws", "u1", "sessions", when)
 
@@ -292,7 +295,9 @@ def test_list_entries_excludes_non_member_note_in_same_folder(collections, servi
         str(workspace), "ws", "u1", "journal", "day", "one", "journal/{year}/{month}", "{date}"
     )
     member = collections.open_entry(str(workspace), "ws", "u1", "journal", date(2026, 6, 15))
-    service.save("u1", "ws", str(workspace), "Not a date", "", [], folder="journal/2026/06")
+    service.save(
+        workspace_target("u1", "ws", workspace), "Not a date", "", [], folder="journal/2026/06"
+    )
 
     entries = collections.list_entries(str(workspace), "ws", "u1", "journal")
 
