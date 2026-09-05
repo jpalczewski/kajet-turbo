@@ -33,9 +33,8 @@ def _to_result(name: str, definition: CollectionDefinition) -> CollectionResult:
 def build_collections(
     collection_service: CollectionService,
     workspace_service: WorkspaceService,
-    state_store=None,
 ) -> FastMCP:
-    srv = FastMCP("collections", session_state_store=state_store)
+    srv = FastMCP("collections")
 
     @srv.tool(**write_tool(tags={"collections"}, idempotent=False))
     @logged_tool

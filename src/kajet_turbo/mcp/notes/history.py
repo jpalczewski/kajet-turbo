@@ -21,9 +21,8 @@ from kajet_turbo.shared.notes import HistoryEntry
 def build_history(
     note_service: NoteService,
     workspace_service: WorkspaceService,
-    state_store=None,
 ) -> FastMCP:
-    srv = FastMCP("notes-history", session_state_store=state_store)
+    srv = FastMCP("notes-history")
 
     @srv.tool(**read_tool(tags={"notes", "history"}))
     @logged_tool

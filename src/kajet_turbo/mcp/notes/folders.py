@@ -25,9 +25,8 @@ def build_folders(
     note_service: NoteService,
     workspace_service: WorkspaceService,
     folder_meta_repo: FolderMetaRepository,
-    state_store=None,
 ) -> FastMCP:
-    srv = FastMCP("notes-folders", session_state_store=state_store)
+    srv = FastMCP("notes-folders")
 
     @srv.tool(**read_tool(tags={"notes", "folders"}))
     @logged_tool

@@ -18,9 +18,8 @@ from .types import WorkspaceInfo, WorkspaceMessageResult, WorkspacesResult, Work
 def build_meta(
     workspace_service: WorkspaceService,
     active_workspace_repo: ActiveWorkspaceRepository,
-    state_store=None,
 ) -> FastMCP:
-    srv = FastMCP("workspaces-meta", session_state_store=state_store)
+    srv = FastMCP("workspaces-meta")
 
     @srv.tool(**read_tool(tags={"workspace", "metadata"}))
     @logged_tool

@@ -33,8 +33,8 @@ from kajet_turbo.shared.notes import MovedNoteResult
 from kajet_turbo.workspace import temporal_kwargs
 
 
-def build_write(note_service: NoteService, state_store=None) -> FastMCP:
-    srv = FastMCP("notes-write", session_state_store=state_store)
+def build_write(note_service: NoteService) -> FastMCP:
+    srv = FastMCP("notes-write")
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
     @logged_tool

@@ -12,10 +12,8 @@ from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.notes import NoteService
 
 
-def build_temporal(
-    note_service: NoteService, collection_service: CollectionService, state_store=None
-) -> FastMCP:
-    srv = FastMCP("notes-temporal", session_state_store=state_store)
+def build_temporal(note_service: NoteService, collection_service: CollectionService) -> FastMCP:
+    srv = FastMCP("notes-temporal")
 
     @srv.tool(**read_tool(tags={"notes", "crud"}))
     @logged_tool

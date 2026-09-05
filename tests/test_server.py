@@ -100,6 +100,52 @@ def test_role_apps_expose_health_routes():
         assert "/readyz" in paths
 
 
+def test_mcp_app_get_returns_405_not_a_stream():
+    """stateless_http=True (#244) drops the legacy GET/SSE stream route — the mounted
+    /mcp app must advertise only POST/DELETE, never fall back to a 200 SSE response."""
+    with TestClient(build_mcp_app()) as client:
+        response = client.get("/mcp/")
+    assert response.status_code == 405
+    allowed = {m.strip() for m in response.headers["allow"].split(",")}
+    assert allowed == {"POST", "DELETE"}
+
+
+def test_stateless_http_tolerates_an_unknown_mcp_session_id():
+    """A stale/unknown Mcp-Session-Id must not be rejected as session-not-found under
+    stateless_http=True — the whole point of the flag is that no server-side session
+    state exists to look the id up against. Exercised against a bare FastMCP instance
+    built the same way as server.py::_new_mcp_app, so this isolates the transport
+    behavior from this project's own OAuth/identity wiring."""
+    from fastmcp import FastMCP
+
+    srv = FastMCP("stateless-probe")
+
+    @srv.tool
+    def ping() -> str:
+        return "pong"
+
+    app = srv.http_app(path="/", stateless_http=True)
+    with TestClient(app) as client:
+        response = client.post(
+            "/",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2026-07-28",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0"},
+                },
+            },
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Mcp-Session-Id": "totally-unknown-session-id-from-a-different-server",
+            },
+        )
+    assert response.status_code == 200
+
+
 def test_healthz_returns_ok_without_cache(database):
     app = FastAPI()
     add_health_routes(app, engine=database.engine)

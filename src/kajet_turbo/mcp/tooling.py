@@ -22,10 +22,10 @@ def read_tool(*, tags: set[str] | None = None) -> dict[str, Any]:
     return {
         "tags": {"read", *(tags or set())},
         "annotations": ToolAnnotations(
-            readOnlyHint=True,
-            destructiveHint=False,
-            idempotentHint=True,
-            openWorldHint=False,
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
         ),
     }
 
@@ -39,10 +39,10 @@ def write_tool(
     return {
         "tags": {"write", *(tags or set())},
         "annotations": ToolAnnotations(
-            readOnlyHint=False,
-            destructiveHint=destructive,
-            idempotentHint=idempotent,
-            openWorldHint=False,
+            read_only_hint=False,
+            destructive_hint=destructive,
+            idempotent_hint=idempotent,
+            open_world_hint=False,
         ),
     }
 

@@ -21,18 +21,15 @@ def build_notes(
     workspace_service: WorkspaceService,
     folder_meta_repo: FolderMetaRepository,
     collection_service: CollectionService,
-    state_store=None,
 ) -> FastMCP:
-    srv = FastMCP("notes", session_state_store=state_store)
-    srv.mount(build_write(note_service, state_store=state_store))
-    srv.mount(build_read(note_service, folder_meta_repo, state_store=state_store))
-    srv.mount(build_search(note_service, workspace_service, state_store=state_store))
-    srv.mount(build_temporal(note_service, collection_service, state_store=state_store))
-    srv.mount(build_maintenance(note_service, state_store=state_store))
-    srv.mount(
-        build_folders(note_service, workspace_service, folder_meta_repo, state_store=state_store)
-    )
-    srv.mount(build_tags(note_service, workspace_service, state_store=state_store))
-    srv.mount(build_history(note_service, workspace_service, state_store=state_store))
-    srv.mount(build_graph(note_service, workspace_service, state_store=state_store))
+    srv = FastMCP("notes")
+    srv.mount(build_write(note_service))
+    srv.mount(build_read(note_service, folder_meta_repo))
+    srv.mount(build_search(note_service, workspace_service))
+    srv.mount(build_temporal(note_service, collection_service))
+    srv.mount(build_maintenance(note_service))
+    srv.mount(build_folders(note_service, workspace_service, folder_meta_repo))
+    srv.mount(build_tags(note_service, workspace_service))
+    srv.mount(build_history(note_service, workspace_service))
+    srv.mount(build_graph(note_service, workspace_service))
     return srv

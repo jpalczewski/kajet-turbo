@@ -26,9 +26,8 @@ from kajet_turbo.services.workspaces import WorkspaceService
 def build_tags(
     note_service: NoteService,
     workspace_service: WorkspaceService,
-    state_store=None,
 ) -> FastMCP:
-    srv = FastMCP("notes-tags", session_state_store=state_store)
+    srv = FastMCP("notes-tags")
 
     @srv.tool(**write_tool(tags={"notes", "tags"}, idempotent=True))
     @logged_tool

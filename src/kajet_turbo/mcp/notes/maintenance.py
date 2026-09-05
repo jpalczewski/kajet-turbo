@@ -8,8 +8,8 @@ from kajet_turbo.services.notes import NoteService
 from kajet_turbo.shared.notes import ReindexResult
 
 
-def build_maintenance(note_service: NoteService, state_store=None) -> FastMCP:
-    srv = FastMCP("notes-maintenance", session_state_store=state_store)
+def build_maintenance(note_service: NoteService) -> FastMCP:
+    srv = FastMCP("notes-maintenance")
 
     @srv.tool(**write_tool(tags={"notes", "index"}, idempotent=True))
     @logged_tool

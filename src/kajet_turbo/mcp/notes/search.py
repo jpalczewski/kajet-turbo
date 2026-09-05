@@ -20,10 +20,8 @@ from kajet_turbo.services.notes import NoteService
 from kajet_turbo.services.workspaces import WorkspaceService
 
 
-def build_search(
-    note_service: NoteService, workspace_service: WorkspaceService, state_store=None
-) -> FastMCP:
-    srv = FastMCP("notes-search", session_state_store=state_store)
+def build_search(note_service: NoteService, workspace_service: WorkspaceService) -> FastMCP:
+    srv = FastMCP("notes-search")
 
     @srv.tool(**read_tool(tags={"notes", "search"}))
     @logged_tool

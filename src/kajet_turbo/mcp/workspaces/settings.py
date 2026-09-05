@@ -16,8 +16,8 @@ from .types import (
 )
 
 
-def build_settings(workspace_service: WorkspaceService, state_store=None) -> FastMCP:
-    srv = FastMCP("workspaces-settings", session_state_store=state_store)
+def build_settings(workspace_service: WorkspaceService) -> FastMCP:
+    srv = FastMCP("workspaces-settings")
 
     @srv.tool(**read_tool(tags={"workspace", "settings"}))
     @logged_tool

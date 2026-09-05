@@ -201,7 +201,7 @@ class _ResourceHookScope:
 
 def _new_mcp_app(resources: AppResources) -> Any:
     mcp = build_mcp(resources)
-    return mcp.http_app(path="/")
+    return mcp.http_app(path="/", stateless_http=True)
 
 
 def _add_oauth_routes(app: FastAPI, resources: AppResources) -> None:
@@ -251,7 +251,8 @@ def _wire(app: FastAPI, resources: AppResources) -> None:
 
 
 def build_mcp_app(config: AppConfig | None = None) -> Any:
-    """MCP role: /mcp + OAuth routes only. Stateful — must run single-process."""
+    """MCP role: /mcp + OAuth routes only. Stateless transport (#244); still pinned to
+    one process pending #250's validated multi-worker rollout."""
     resources = _assemble(config)
     with _assembling(resources):
         mcp_app = _new_mcp_app(resources)
@@ -439,8 +440,9 @@ def main() -> None:
             resources.db.close()
         return
     if role == "mcp":
-        # Hard invariant: stateful MCP sessions live in process memory, so the
-        # MCP role MUST be single-process regardless of any env. This is the fix.
+        # /mcp is served stateless_http=True (#244), so the single-process constraint
+        # this used to encode is gone; still pinned to 1 pending #250's validated
+        # multi-worker rollout for this role.
         factory, workers = "kajet_turbo.server:build_mcp_app", 1
     elif role == "api":
         factory = "kajet_turbo.server:build_api_app"
