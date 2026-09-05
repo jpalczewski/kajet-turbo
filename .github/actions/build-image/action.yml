@@ -31,7 +31,11 @@ runs:
       shell: bash
       env:
         REVISION: ${{ inputs.revision }}
-      run: echo "created=$(git show -s --format=%cI "$REVISION")" >> "$GITHUB_OUTPUT"
+      run: |
+        echo "created=$(git show -s --format=%cI "$REVISION")" >> "$GITHUB_OUTPUT"
+        # Busts the apt-get/apk upgrade layers (see Dockerfile) so a stale GHA cache
+        # entry can't freeze OS package versions indefinitely — at most a day old.
+        echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
 
     - name: Build and load final image
       uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
@@ -40,6 +44,8 @@ runs:
         target: ${{ inputs.target }}
         platforms: ${{ inputs.platform }}
         tags: ${{ inputs.image-ref }}
+        build-args: |
+          OS_PKG_CACHE_BUST=${{ steps.metadata.outputs.date }}
         labels: |
           org.opencontainers.image.source=https://github.com/${{ github.repository }}
           org.opencontainers.image.revision=${{ inputs.revision }}
