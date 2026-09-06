@@ -200,6 +200,28 @@ class NoteTag(SQLModel, table=True):
     __table_args__ = (Index("ix_note_tags_tag", "tag_id"),)
 
 
+class NoteShareLink(SQLModel, table=True):
+    """An opaque, revocable capability token granting read access to one note.
+
+    The token itself is the primary key, mirroring UserSession, so lookup is a single
+    indexed get with no separate id. Revocation is soft (``revoked_at``) so history
+    survives, mirroring WorkspaceRemote's ``enabled`` toggle rather than hard-delete."""
+
+    __tablename__ = "note_share_links"
+
+    token: str = Field(primary_key=True)
+    note_id: str = Field(sa_column=Column(Text, ForeignKey("notes.id"), nullable=False))
+    workspace: str
+    owner_id: str = Field(sa_column=Column(Text, ForeignKey("users.id"), nullable=False))
+    created_at: str
+    revoked_at: str | None = Field(default=None)
+
+    __table_args__ = (
+        Index("ix_note_share_links_note", "note_id"),
+        Index("ix_note_share_links_owner", "owner_id"),
+    )
+
+
 class OAuthRegisteredClient(SQLModel, table=True):
     __tablename__ = "oauth_registered_clients"
 

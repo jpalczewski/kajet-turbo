@@ -3,6 +3,8 @@ workspace). The DB is the source of truth for push configuration and status."""
 
 from datetime import UTC, datetime
 
+from sqlmodel import Session
+
 from kajet_turbo.models import WorkspaceRemote
 from kajet_turbo.repositories import DbRepository
 
@@ -58,15 +60,14 @@ class WorkspaceRemoteRepository(DbRepository):
             return row
 
     def delete(self, user_id: str, workspace: str) -> bool:
-        with self.operation("delete", user_id=user_id, workspace=workspace) as operation:
-            session = operation.session
-            row = session.get(WorkspaceRemote, (user_id, workspace))
-            if row is None:
-                operation.suppress_log()
-                return False
-            session.delete(row)
-            session.commit()
-            return True
+        return self._mutate_or_none(
+            "delete",
+            WorkspaceRemote,
+            (user_id, workspace),
+            lambda session, row: session.delete(row),
+            user_id=user_id,
+            workspace=workspace,
+        )
 
     def mark_dirty(self, user_id: str, workspace: str, *, now: str | None = None) -> None:
         self._patch("mark_dirty", user_id, workspace, dirty_at=now or _now())
@@ -80,13 +81,16 @@ class WorkspaceRemoteRepository(DbRepository):
         self._patch("mark_failed", user_id, workspace, last_error=error)
 
     def _patch(self, action: str, user_id: str, workspace: str, **fields) -> None:
-        with self.operation(action, user_id=user_id, workspace=workspace) as operation:
-            session = operation.session
-            row = session.get(WorkspaceRemote, (user_id, workspace))
-            if row is None:
-                operation.suppress_log()
-                return
+        def apply(session: Session, row: WorkspaceRemote) -> None:
             for k, v in fields.items():
                 setattr(row, k, v)
             session.add(row)
-            session.commit()
+
+        self._mutate_or_none(
+            action,
+            WorkspaceRemote,
+            (user_id, workspace),
+            apply,
+            user_id=user_id,
+            workspace=workspace,
+        )

@@ -1,9 +1,9 @@
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from dataclasses import dataclass, field
 from types import TracebackType
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from sqlalchemy import CursorResult, Engine, Executable
 from sqlmodel import Session
@@ -197,3 +197,31 @@ class DbRepository:
                 db_ms=timing.db_ms,
                 fields=operation.fields,
             )
+
+    def _mutate_or_none(
+        self,
+        action: str,
+        model: type,
+        pk: object,
+        mutate: Callable[[Session, Any], None],
+        *,
+        guard: Callable[[Any], bool] | None = None,
+        **log_fields: object,
+    ) -> bool:
+        """Fetch ``model`` by ``pk`` and apply ``mutate`` to it, or no-op if missing.
+
+        Shared skeleton behind delete/revoke/patch: ``session.get`` -> ``None`` (or
+        ``guard(row)`` returning ``False``, e.g. an ownership check) -> ``suppress_log()``
+        + return ``False`` -> ``mutate(session, row)`` -> commit -> ``True``. ``mutate``
+        receives the session too, since a delete needs ``session.delete(row)`` while a
+        patch just mutates attributes on ``row``.
+        """
+        with self.operation(action, **log_fields) as operation:
+            session = operation.session
+            row = session.get(model, pk)
+            if row is None or (guard is not None and not guard(row)):
+                operation.suppress_log()
+                return False
+            mutate(session, row)
+            session.commit()
+            return True

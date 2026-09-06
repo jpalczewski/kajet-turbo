@@ -67,12 +67,12 @@ class SshKeyRepository(DbRepository):
             return key
 
     def delete(self, user_id: str, key_id: str) -> bool:
-        with self.operation("delete", user_id=user_id, key_id=key_id) as operation:
-            session = operation.session
-            key = session.get(SshKey, key_id)
-            if key is None or key.user_id != user_id:
-                operation.suppress_log()
-                return False
-            session.delete(key)
-            session.commit()
-            return True
+        return self._mutate_or_none(
+            "delete",
+            SshKey,
+            key_id,
+            lambda session, key: session.delete(key),
+            guard=lambda key: key.user_id == user_id,
+            user_id=user_id,
+            key_id=key_id,
+        )
