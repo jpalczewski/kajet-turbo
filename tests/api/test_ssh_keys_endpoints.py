@@ -74,10 +74,14 @@ def test_unknown_algorithm_returns_422(database, monkeypatch):
 
 
 def test_blank_name_returns_422(database, monkeypatch):
+    # Both an empty string and a whitespace-only string are "no name given" and must get
+    # the same code -- name has no `min_length` precisely so "" doesn't take a different
+    # path (generic INVALID_INPUT via min_length) than "   " (the field_validator below).
     client = _app(database, monkeypatch)
-    r = client.post("/api/me/ssh-keys", json={"name": "   ", "algorithm": "ed25519"})
-    assert r.status_code == 422
-    assert r.json()["error"] == "SSH_KEY_NAME_REQUIRED"
+    for name in ("", "   "):
+        r = client.post("/api/me/ssh-keys", json={"name": name, "algorithm": "ed25519"})
+        assert r.status_code == 422
+        assert r.json()["error"] == "SSH_KEY_NAME_REQUIRED"
 
 
 def test_missing_fields_returns_422(database, monkeypatch):

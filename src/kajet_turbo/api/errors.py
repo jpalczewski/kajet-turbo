@@ -10,8 +10,9 @@ raises a typed error (#253/#254).
 
 `_request_validation_handler` also carries a small `PydanticCustomError` type -> legacy
 error code table, so a handful of request models (`CreateNoteRequest.title`,
-`CreateFolderRequest.path`, `MoveNoteRequest.folder`) can move validation into Pydantic
-without changing the machine-readable code the frontend already keys UI copy off of.
+`CreateFolderRequest.path`, `MoveNoteRequest.folder`, `CreateSshKeyRequest.name`) can move
+validation into Pydantic without changing the machine-readable code the frontend already
+keys UI copy off of.
 """
 
 from __future__ import annotations

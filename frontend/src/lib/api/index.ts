@@ -148,7 +148,6 @@ export const CreateSshKeyRequestAlgorithm = {
 } as const;
 
 export interface CreateSshKeyRequest {
-  /** @minLength 1 */
   name: string;
   algorithm: CreateSshKeyRequestAlgorithm;
 }
