@@ -377,6 +377,9 @@ class Job(SQLModel, table=True):
     next_run_at: float = Field(default=0.0)
     priority: int = Field(default=0)
     locked_by: str | None = Field(default=None, sa_column=Column(Text))
+    # Set at claim time and periodically refreshed by the holding worker's lease-renewal
+    # heartbeat while the handler is still running (JobRepository.renew_claim) — not a
+    # one-shot claim timestamp. This is what claim()'s stale-reclaim check ages against.
     locked_at: float | None = Field(default=None)
     last_error: str | None = Field(default=None, sa_column=Column(Text))
     created_at: float

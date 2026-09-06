@@ -96,6 +96,7 @@ class AppConfig:
     admin_password: str | None = None
     worker_poll_interval: float = 1.0
     worker_concurrency: int = 4
+    worker_stale_after: float = 300.0
     serve_spa: bool = True
 
     @classmethod
@@ -113,6 +114,7 @@ class AppConfig:
             admin_password=os.getenv("KAJET_ADMIN_PASSWORD"),
             worker_poll_interval=float(os.getenv("KAJET_WORKER_POLL_INTERVAL", "1")),
             worker_concurrency=int(os.getenv("KAJET_WORKER_CONCURRENCY", "4")),
+            worker_stale_after=float(os.getenv("KAJET_WORKER_STALE_AFTER", "300")),
             serve_spa=os.getenv("KAJET_SERVE_SPA", "1") == "1",
         )
 

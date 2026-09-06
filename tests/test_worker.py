@@ -11,15 +11,27 @@ from kajet_turbo.worker import Handler, run_job, run_worker
 from tests.helpers import entries_named, read_log_entries
 
 
-def _run_worker_thread(engine, *, registry, poll_interval, concurrency, stop_event):
+def _run_worker_thread(
+    engine,
+    *,
+    registry,
+    poll_interval,
+    concurrency,
+    stop_event,
+    worker_id="test-worker",
+    stale_after=300.0,
+    renew_interval=None,
+):
     t = threading.Thread(
         target=run_worker,
         args=(engine,),
         kwargs={
-            "worker_id": "test-worker",
+            "worker_id": worker_id,
             "registry": registry,
             "poll_interval": poll_interval,
             "concurrency": concurrency,
+            "stale_after": stale_after,
+            "renew_interval": renew_interval,
             "stop_event": stop_event,
         },
     )
@@ -168,6 +180,106 @@ def test_run_worker_graceful_drains_inflight(database: Database):
     assert not t.is_alive()
     # graceful drain waited for the in-flight job -> it completed, none left running
     assert _get_required(database.engine, job_id).status == "done"
+
+
+def test_run_worker_renews_lease_for_long_running_job(database: Database):
+    """Regression test for the double-execution race: a job whose handler runs longer
+    than stale_after must not be reclaimed and re-run by another live worker."""
+    repo = JobRepository(database.engine)
+    started = threading.Event()
+    release = threading.Event()
+    lock = threading.Lock()
+    starts = 0
+
+    def slow(_payload):
+        nonlocal starts
+        with lock:
+            starts += 1
+        started.set()
+        release.wait(timeout=10.0)
+
+    repo.enqueue("k", {}, now=0.0)
+    stop_a = threading.Event()
+    stop_b = threading.Event()
+    t_a = _run_worker_thread(
+        database.engine,
+        registry={"k": slow},
+        poll_interval=0.02,
+        concurrency=1,
+        stop_event=stop_a,
+        worker_id="worker-a",
+        stale_after=1.0,
+        renew_interval=0.1,
+    )
+    t_b = _run_worker_thread(
+        database.engine,
+        registry={"k": slow},
+        poll_interval=0.02,
+        concurrency=1,
+        stop_event=stop_b,
+        worker_id="worker-b",
+        stale_after=1.0,
+        renew_interval=0.1,
+    )
+    try:
+        assert started.wait(timeout=5.0), "job did not start"
+        # Comfortably longer than stale_after (~25 renewal ticks), and probed
+        # repeatedly rather than once, so a late double-claim isn't missed.
+        deadline = time.monotonic() + 2.5
+        while time.monotonic() < deadline:
+            with lock:
+                assert starts == 1, "job was claimed a second time while still running"
+            time.sleep(0.1)
+    finally:
+        release.set()
+        stop_a.set()
+        stop_b.set()
+        t_a.join(timeout=5.0)
+        t_b.join(timeout=5.0)
+    assert not t_a.is_alive()
+    assert not t_b.is_alive()
+    with lock:
+        assert starts == 1
+
+
+def test_run_worker_renews_through_graceful_drain(database: Database):
+    """The lease-renewal thread must keep ticking during the graceful drain window,
+    after stop_event is set but before the in-flight job actually finishes — that
+    window is exactly where the main poll loop stops iterating."""
+    repo = JobRepository(database.engine)
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocker(_payload):
+        started.set()
+        release.wait(timeout=10.0)
+
+    repo.enqueue("k", {}, now=0.0)
+    stop = threading.Event()
+    t = _run_worker_thread(
+        database.engine,
+        registry={"k": blocker},
+        poll_interval=0.02,
+        concurrency=1,
+        stop_event=stop,
+        worker_id="worker-a",
+        stale_after=0.5,
+        renew_interval=0.05,
+    )
+    try:
+        assert started.wait(timeout=5.0), "job did not start"
+        stop.set()  # begin graceful shutdown -- main loop stops iterating now
+        prober = JobRepository(database.engine)
+        deadline = time.monotonic() + 1.5  # several stale_after windows
+        while time.monotonic() < deadline:
+            assert prober.claim("prober", stale_after=0.5) is None, (
+                "job was reclaimable during drain -- heartbeat stopped ticking"
+            )
+            time.sleep(0.1)
+    finally:
+        release.set()
+        t.join(timeout=5.0)
+    assert not t.is_alive()
 
 
 def test_run_worker_drains_burst_without_waiting_full_poll_interval(database: Database):

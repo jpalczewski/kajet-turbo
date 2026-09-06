@@ -253,6 +253,29 @@ class JobRepository(DbRepository):
             )
             return job
 
+    def renew_claim(self, worker_id: str, *, now: float | None = None) -> int:
+        """Refresh locked_at for every row this worker currently holds `running`, so the
+        stale-reclaim window in `claim()` keeps resetting while a handler is still
+        legitimately executing. Blanket by worker, not by job id — every terminal
+        transition (complete -> done, fail -> pending/failed, reclaim by another worker
+        -> different locked_by) drops a row out of this predicate on its own, so no
+        per-job bookkeeping is needed by callers."""
+        now = time.time() if now is None else now
+        with self.operation("renew_claim", worker_id=worker_id) as operation:
+            session = operation.session
+            result = self._raw_execute(
+                session,
+                text(
+                    "UPDATE jobs SET locked_at=:now, updated_at=:now "
+                    "WHERE status='running' AND locked_by=:worker"
+                ),
+                {"now": now, "worker": worker_id},
+            )
+            session.commit()
+            count = result.rowcount
+            operation.report_count(count)
+            return count
+
     def complete(self, job_id: str, *, now: float | None = None) -> None:
         now = time.time() if now is None else now
         with self.operation("complete", job_id=job_id) as operation:

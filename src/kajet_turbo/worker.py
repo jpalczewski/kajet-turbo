@@ -4,13 +4,18 @@ A synchronous poll loop claims runnable jobs and runs their handlers on a thread
 pool — no asyncio. On free-threaded Python the pool threads run truly in parallel,
 which suits the heterogeneous I/O-bound jobs (git push, embedding HTTP). The DB is
 the queue; this process only reads it to claim and writes lifecycle transitions
-via JobRepository. There are two wait points: an idle backoff
+via JobRepository. There are two wait points in the main loop: an idle backoff
 (``stop_event.wait(poll_interval)``), taken when a claim attempt finds nothing
 runnable, and a saturated wait (``futures.wait(..., return_when=FIRST_COMPLETED)``),
 taken when the pool is full and more work may still be queued. The idle backoff is
 where a cross-process nudge would later replace polling; the saturated wait is
 already event-driven — it wakes as soon as a slot frees rather than on a fixed
-tick, so sustained throughput is bounded by claim/handler cost, not poll_interval."""
+tick, so sustained throughput is bounded by claim/handler cost, not poll_interval.
+
+A third, independent thread renews this worker's claims (``_renew_leases``) so
+``claim()``'s stale-reclaim window ages against real liveness rather than
+time-since-claim — see its docstring for why this cannot live inside the main loop
+above."""
 
 import contextvars
 import json
@@ -103,6 +108,25 @@ def _default_worker_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
 
+def _renew_leases(
+    repo: JobRepository, worker_id: str, interval: float, stop: threading.Event
+) -> None:
+    """Heartbeat loop: keeps this worker's running rows fresh so claim()'s
+    stale-reclaim check never fires on a job that is still legitimately executing.
+    Runs on its own thread, independent of the main claim/dispatch loop, so it keeps
+    ticking through the graceful-drain window after ``stop_event`` is set — that loop
+    stops iterating the moment shutdown begins, but ThreadPoolExecutor's ``__exit__``
+    can still block on in-flight jobs for however long the runtime's SIGTERM grace
+    period allows, and that duration is not something this process controls. A
+    transient failure (e.g. a busy-timeout) must not end the heartbeat for the rest of
+    the process's life, hence the per-tick catch."""
+    while not stop.wait(interval):
+        try:
+            repo.renew_claim(worker_id)
+        except Exception:
+            logger.warning("renew_claim_failed", worker_id=worker_id, exc_info=True)
+
+
 def run_worker(
     engine: Engine,
     *,
@@ -111,14 +135,25 @@ def run_worker(
     poll_interval: float = 1.0,
     concurrency: int = 4,
     stale_after: float = 300.0,
+    renew_interval: float | None = None,
     stop_event: threading.Event | None = None,
 ) -> None:
     """Run the claim/dispatch loop until ``stop_event`` is set. When ``stop_event``
     is None, install SIGTERM/SIGINT handlers (entrypoint use, main thread only);
-    when provided, the caller controls shutdown (tests)."""
+    when provided, the caller controls shutdown (tests).
+
+    ``renew_interval`` defaults to ``stale_after / 3`` — comfortably smaller than the
+    staleness window so at least two renewal ticks can be missed before a job a
+    worker still legitimately holds would go stale."""
     worker_id = worker_id or _default_worker_id()
     if registry is None:
         raise ValueError("registry is required; worker handlers belong to an application instance")
+    if renew_interval is None:
+        renew_interval = stale_after / 3
+    if renew_interval <= 0:
+        raise ValueError("renew_interval must be positive")
+    if renew_interval >= stale_after:
+        raise ValueError("renew_interval must be smaller than stale_after")
     repo = JobRepository(engine)
 
     if stop_event is None:
@@ -127,36 +162,49 @@ def run_worker(
             signal.signal(sig, lambda *_: stop_event.set())
 
     logger.info("worker_start", worker_id=worker_id, concurrency=concurrency)
-    inflight: set[Future] = set()
-    with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        while not stop_event.is_set():
-            inflight = {f for f in inflight if not f.done()}
-            nothing_runnable = False
-            while len(inflight) < concurrency:
-                job = repo.claim(worker_id, stale_after=stale_after)
-                if job is None:
-                    nothing_runnable = True
-                    break
-                # concurrent.futures does not itself copy the submitting thread's
-                # contextvars into the pool thread (unlike anyio/asyncio); a handler
-                # that opens a GitRepository relies on _CURRENT_HOOKS (repositories/git.py)
-                # to fire auto-push, so the job must run inside the caller's context.
-                inflight.add(
-                    pool.submit(contextvars.copy_context().run, run_job, repo, job, registry)
-                )
-            if nothing_runnable and not inflight:
-                stop_event.wait(poll_interval)
-            else:
-                # Either the pool is saturated, or it isn't but jobs are still
-                # inflight (burst draining to fewer runnable jobs than concurrency).
-                # Wake as soon as a slot frees instead of waiting a fixed tick, so
-                # throughput scales with claim/handler cost rather than
-                # poll_interval; a run that never completes within the window still
-                # re-checks stop_event every poll_interval, same shutdown latency
-                # as before.
-                wait(inflight, timeout=poll_interval, return_when=FIRST_COMPLETED)
-        # Leaving the `with` block waits for in-flight jobs to finish (graceful
-        # drain). reset_running_to_pending then re-queues anything a hard kill could
-        # have left running; after a clean drain it finds nothing.
+    renew_stop = threading.Event()
+    renew_thread = threading.Thread(
+        target=_renew_leases,
+        args=(repo, worker_id, renew_interval, renew_stop),
+        name=f"renew-{worker_id}",
+        daemon=True,
+    )
+    renew_thread.start()
+    try:
+        inflight: set[Future] = set()
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            while not stop_event.is_set():
+                inflight = {f for f in inflight if not f.done()}
+                nothing_runnable = False
+                while len(inflight) < concurrency:
+                    job = repo.claim(worker_id, stale_after=stale_after)
+                    if job is None:
+                        nothing_runnable = True
+                        break
+                    # concurrent.futures does not itself copy the submitting thread's
+                    # contextvars into the pool thread (unlike anyio/asyncio); a handler
+                    # that opens a GitRepository relies on _CURRENT_HOOKS (repositories/git.py)
+                    # to fire auto-push, so the job must run inside the caller's context.
+                    inflight.add(
+                        pool.submit(contextvars.copy_context().run, run_job, repo, job, registry)
+                    )
+                if nothing_runnable and not inflight:
+                    stop_event.wait(poll_interval)
+                else:
+                    # Either the pool is saturated, or it isn't but jobs are still
+                    # inflight (burst draining to fewer runnable jobs than concurrency).
+                    # Wake as soon as a slot frees instead of waiting a fixed tick, so
+                    # throughput scales with claim/handler cost rather than
+                    # poll_interval; a run that never completes within the window still
+                    # re-checks stop_event every poll_interval, same shutdown latency
+                    # as before.
+                    wait(inflight, timeout=poll_interval, return_when=FIRST_COMPLETED)
+            # Leaving the `with` block waits for in-flight jobs to finish (graceful
+            # drain) — the renewal thread is still running at this point, see above.
+    finally:
+        renew_stop.set()
+        renew_thread.join(timeout=poll_interval * 2)
+    # reset_running_to_pending re-queues anything a hard kill could have left
+    # running; after a clean drain it finds nothing.
     reset = repo.reset_running_to_pending(worker_id)
     logger.info("worker_stop", worker_id=worker_id, reset=reset)

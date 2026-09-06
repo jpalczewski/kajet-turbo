@@ -93,6 +93,7 @@ def _run_job_worker(resources: AppResources, *, stop_event: Any = None) -> None:
             registry=register_job_handlers(resources),
             poll_interval=resources.config.worker_poll_interval,
             concurrency=resources.config.worker_concurrency,
+            stale_after=resources.config.worker_stale_after,
             stop_event=stop_event,
         )
 

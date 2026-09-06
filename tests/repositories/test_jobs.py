@@ -195,6 +195,49 @@ def test_claim_reclaims_stale_running_job(database: Database):
     assert _get_required(database.engine, job_id).locked_by == "worker-b"
 
 
+def test_renew_claim_resets_stale_window(database: Database):
+    repo = JobRepository(database.engine)
+    job_id = repo.enqueue("k", {}, now=1000.0)
+    repo.claim("worker-a", now=1000.0)  # locked_at=1000
+    renewed = repo.renew_claim("worker-a", now=1200.0)  # locked_at=1200
+    assert renewed == 1
+    # without the renewal this would be stale (1000 < 1450-300=1150); with it, it isn't
+    # (1200 is not < 1450-300=1150 either, but check the boundary explicitly below)
+    assert repo.claim("worker-b", now=1450.0, stale_after=300.0) is None
+    # now stale relative to the renewed timestamp: 1200 < 1550-300=1250
+    reclaimed = repo.claim("worker-b", now=1550.0, stale_after=300.0)
+    assert reclaimed is not None and reclaimed.id == job_id
+
+
+def test_renew_claim_only_touches_own_running_rows(database: Database):
+    repo = JobRepository(database.engine)
+    ids = [repo.enqueue("k", {}, now=1000.0, dedup_key=key) for key in ("a", "b", "p")]
+
+    claimed_a = repo.claim("worker-a", now=1000.0)
+    claimed_b = repo.claim("worker-b", now=1000.0)
+    assert claimed_a is not None and claimed_b is not None
+    # whichever row wasn't claimed stays pending -- determined by elimination, not
+    # insertion order, since claim() ties on (priority, next_run_at) here
+    pending_id = next(i for i in ids if i not in (claimed_a.id, claimed_b.id))
+
+    renewed = repo.renew_claim("worker-a", now=1200.0)
+    assert renewed == 1
+
+    assert _get_required(database.engine, claimed_a.id).locked_at == 1200.0
+    # worker-b's own row, and the still-pending row, are untouched
+    assert _get_required(database.engine, claimed_b.id).locked_at == 1000.0
+    assert _get_required(database.engine, pending_id).locked_at is None
+
+
+def test_renew_claim_idle_returns_zero(database: Database, capsys):
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    repo = JobRepository(database.engine)
+    assert repo.renew_claim("worker-a", now=1000.0) == 0
+    assert entries_named(read_log_entries(capsys), "repository_operation") == []
+
+
 def test_claim_no_double_claim_under_concurrency(database: Database):
     repo = JobRepository(database.engine)
     repo.enqueue("k", {}, now=1000.0)

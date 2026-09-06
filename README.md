@@ -112,6 +112,7 @@ MCP_BASE_URL=http://localhost:8000 kajet-turbo
 | `KAJET_ROLE` | `all` | Process role: `all` (MCP+API+SPA in one — dev), `mcp` (`/mcp` + OAuth only, N workers), `api` (REST `/api` + SPA, N workers) |
 | `MCP_WORKERS` | `1` | Worker count for roles `mcp` and `all` |
 | `API_WORKERS` | `2` | Worker count for role `api` |
+| `KAJET_WORKER_STALE_AFTER` | `300` | Seconds since a claimed job's last lease renewal before another worker may reclaim it (role `worker`/`all`) |
 
 Production topology (`docker-compose.yml`): ingress (Caddy) + `kajet-api`
 (stateless, N workers) + `kajet-mcp` (stateless, N workers via `MCP_WORKERS`).
