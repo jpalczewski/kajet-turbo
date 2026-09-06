@@ -86,9 +86,8 @@ def test_blank_name_returns_422(database, monkeypatch):
 
 def test_missing_fields_returns_422(database, monkeypatch):
     # Regression: a missing "name" must fall back to generic INVALID_INPUT, not
-    # SSH_KEY_NAME_REQUIRED -- "name" is too generic a field name to key globally in
-    # api/errors.py's _REQUIRED_FIELD_CODES (embedding profiles and workspaces also have
-    # a required "name" field).
+    # SSH_KEY_NAME_REQUIRED -- CreateSshKeyRequest.legacy_error_codes (api/errors.py)
+    # deliberately doesn't declare "name"; only the "algorithm" field does.
     client = _app(database, monkeypatch)
     r = client.post("/api/me/ssh-keys", json={})
     assert r.status_code == 422

@@ -12,20 +12,26 @@ raises a typed error (#253/#254).
 error code table, so a handful of request models (`CreateNoteRequest.title`,
 `CreateFolderRequest.path`, `MoveNoteRequest.folder`, `CreateSshKeyRequest.name`) can move
 validation into Pydantic without changing the machine-readable code the frontend already
-keys UI copy off of.
+keys UI copy off of. A field-level failure Pydantic raises itself (missing key, wrong
+type, bad enum value) instead of a custom validator is mapped via each request model's own
+`legacy_error_codes` (`api/schemas/base.py::RequestModel`) rather than one bare-field-name
+table shared by every model in the app -- see #341.
 """
 
 from __future__ import annotations
 
+from typing import get_args, get_origin
+
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from starlette.requests import Request
 
 from kajet_turbo.errors import (
+    ErrorCode,
     FolderError,
     NoteError,
-    PreferencesError,
     RequestError,
     SshKeyError,
     WorkspaceError,
@@ -45,60 +51,75 @@ async def _http_exception_handler(request: Request, exc: HTTPException) -> JSONR
 
 # Pydantic error "type" -> legacy error code, for validators (schemas/notes/crud.py,
 # schemas/ssh_keys.py, schemas/workspaces/meta.py) whose old hand-rolled 422s the frontend
-# still keys UI copy off of (grep frontend/src/lib/api before removing an entry here).
-# Everything else falls back to RequestError.INVALID_INPUT.
+# still keys UI copy off of (grep frontend/src/lib/api before removing an entry here). This
+# table is keyed by the validator's own custom `type` string, not a bare field name, so it
+# carries no cross-model collision risk the way a by-field-name table would -- each type
+# string is already unique to the validator that raises it. Everything else falls back to
+# RequestError.INVALID_INPUT.
 _CUSTOM_ERROR_TYPES: dict[str, NoteError | FolderError | SshKeyError | WorkspaceError] = {
     "note_title_required": NoteError.TITLE_REQUIRED,
     "folder_path_required": FolderError.PATH_REQUIRED,
     "folder_path_invalid": FolderError.PATH_INVALID,
     "ssh_key_name_required": SshKeyError.NAME_REQUIRED,
     "workspace_name_required": WorkspaceError.NAME_REQUIRED,
-    # CreateWorkspaceRequest/UpdateWorkspaceRequest's "folder" field is unrelated to
-    # MoveNoteRequest's "folder" below (grouping path vs. move target) and genuinely
-    # optional -- routing its wrong-type case through a model-specific validator type here,
-    # instead of _REQUIRED_FIELD_CODES's bare "folder" key, keeps the two fields from
-    # colliding on one global by-field-name code (see schemas/workspaces/meta.py's
-    # _reject_wrong_type_folder).
-    "workspace_folder_invalid": WorkspaceError.INVALID_INPUT,
 }
-# CreateNoteRequest.title and CreateFolderRequest.path are required fields (min_length=1 /
-# no default), so OpenAPI advertises them correctly as non-optional -- but that means a
-# *missing* key never reaches the field_validator that raises the custom types above
-# (pydantic doesn't run a validator against an absent required field). Map FastAPI's own
-# missing/wrong-type errors for these fields back to the same legacy codes by field name
-# instead. MoveNoteRequest.folder shares the "folder" entry: "" is itself a legitimate
-# value there (move to root), so only a genuinely missing/wrong-type key hits this table --
-# an empty string still reaches the route and NoteFolderService.move as a real value.
-# CreateSshKeyRequest.algorithm is a Literal, not a required string, so a missing key hits
-# the same "missing" branch and a present-but-invalid value hits "literal_error" instead.
-# "algorithm" is unique to that one model across api/schemas/ (verified by grep), so a bare
-# field-name key is safe here the same way "title"/"path"/"folder" are below -- unlike
-# "name" (CreateEmbeddingProfileRequest, workspace create, ...), which is too generic to
-# key by field name alone and stays out of this table. A *present but blank* ssh key name
-# still gets its own code via the "ssh_key_name_required" custom type below, which is
-# inherently model-specific because it's a distinct validator error type, not a bare
-# field name.
-_REQUIRED_FIELD_CODES: dict[str, NoteError | FolderError | SshKeyError | PreferencesError] = {
-    "title": NoteError.TITLE_REQUIRED,
-    "path": FolderError.PATH_REQUIRED,
-    "folder": FolderError.PATH_REQUIRED,
-    "algorithm": SshKeyError.INVALID_ALGORITHM,
-    "timezone": PreferencesError.INVALID_INPUT,
-    # "name" deliberately not keyed here -- it's too common a field name across the app's
-    # request models (see tests/api/test_error_handlers.py's own unrelated probe body) to
-    # map safely at this global-by-field-name scope. CreateWorkspaceRequest instead raises
-    # WORKSPACE_NAME_REQUIRED itself via a "before"-mode model_validator (see
-    # api/schemas/workspaces/meta.py::_require_name_present) that both a missing "name" key
-    # and an explicit blank one hit, surfacing as the "workspace_name_required" custom type
-    # above instead of the generic "missing" one this table maps.
-}
-_REQUIRED_ERROR_TYPES = {"missing", "string_type", "string_too_short", "literal_error"}
-# UpdatePreferencesRequest.locale is typed as the closed `Locale` enum, so an unsupported
-# value fails Pydantic's own "enum" check before the route runs -- map it back to the
-# pre-existing PREFERENCES_INVALID_INPUT code the frontend already keys off of.
-_ENUM_FIELD_CODES: dict[str, PreferencesError] = {
-    "locale": PreferencesError.INVALID_INPUT,
-}
+# A field-level failure Pydantic raises itself -- a missing required key, a wrong-type
+# value, an invalid Literal/enum choice -- never reaches a field_validator (pydantic
+# doesn't run one against an absent/mistyped field), so it can't raise one of the custom
+# types above. These all resolve through each owning request model's own
+# `legacy_error_codes` (RequestModel, api/schemas/base.py) instead of one shared
+# by-field-name table, so a new field named "title"/"path"/"folder"/... on an unrelated
+# model can never silently inherit another model's code (#341).
+_FIELD_ERROR_TYPES = {"missing", "string_type", "string_too_short", "literal_error", "enum"}
+
+
+def _body_model(request: Request) -> type[BaseModel] | None:
+    """The single Pydantic body model FastAPI bound this route's request to, if any --
+    resolved from the matched route's dependant rather than the (untyped) parsed body, so
+    it reflects the declared schema even when validation itself failed."""
+    route = request.scope.get("route")
+    dependant = getattr(route, "dependant", None)
+    if dependant is None:
+        return None
+    body_params = dependant.body_params
+    if len(body_params) != 1:
+        return None
+    annotation = body_params[0].field_info.annotation
+    return (
+        annotation if isinstance(annotation, type) and issubclass(annotation, BaseModel) else None
+    )
+
+
+def _unwrap_model(annotation: object) -> type[BaseModel] | None:
+    """Digs a nested request model out of a field annotation like `list[Model]` or
+    `Model | None`, so a batch body's per-item error can resolve to the item model's own
+    `legacy_error_codes` instead of the batch wrapper's."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    for arg in get_args(annotation) if get_origin(annotation) is not None else ():
+        if (nested := _unwrap_model(arg)) is not None:
+            return nested
+    return None
+
+
+def _resolve_legacy_code(root: type[BaseModel] | None, loc: tuple[object, ...]) -> ErrorCode | None:
+    """Walks `loc` (a RequestValidationError entry's location, e.g.
+    `("body", "notes", 0, "title")`) from the request's body model down to whichever
+    model actually owns the failing field, then looks the field up in that model's
+    `legacy_error_codes` -- not the root model's, so a batch item's field resolves to the
+    item model, not the wrapper list field."""
+    if root is None or not loc or loc[0] != "body":
+        return None
+    parts = [part for part in loc[1:] if not isinstance(part, int)]
+    if not parts:
+        return None
+    current = root
+    for part in parts[:-1]:
+        fields = current.model_fields
+        if part not in fields or (nested := _unwrap_model(fields[part].annotation)) is None:
+            return None
+        current = nested
+    return getattr(current, "legacy_error_codes", {}).get(parts[-1])
 
 
 async def _request_validation_handler(
@@ -114,13 +135,10 @@ async def _request_validation_handler(
     msg = first.get("msg", "Invalid request body")
     detail = f"{loc_str}: {msg}" if loc_str else msg
     error_type = first.get("type", "")
-    field = str(loc[-1]) if loc else ""
-    code: NoteError | FolderError | RequestError | SshKeyError | PreferencesError | WorkspaceError
-    if error_type in _REQUIRED_ERROR_TYPES and field in _REQUIRED_FIELD_CODES:
-        code = _REQUIRED_FIELD_CODES[field]
-    elif error_type == "enum" and field in _ENUM_FIELD_CODES:
-        code = _ENUM_FIELD_CODES[field]
-    else:
+    code: ErrorCode | None = None
+    if error_type in _FIELD_ERROR_TYPES:
+        code = _resolve_legacy_code(_body_model(request), loc)
+    if code is None:
         code = _CUSTOM_ERROR_TYPES.get(error_type, RequestError.INVALID_INPUT)
     return JSONResponse(
         status_code=status_code,

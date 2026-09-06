@@ -1,9 +1,11 @@
 import re
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_core import PydanticCustomError
 
+from kajet_turbo.api.schemas.base import RequestModel
+from kajet_turbo.errors import ErrorCode, FolderError, NoteError
 from kajet_turbo.shared.notes import (
     FolderContext,
     MovedNoteResult,
@@ -19,7 +21,8 @@ _FOLDER_PATH_RE = re.compile(r"^[a-zA-Z0-9._-][a-zA-Z0-9._\-/]*$")
 def _require_title(v: str) -> str:
     """Shared by CreateNoteRequest and its batch items -- rejects a *present but blank*
     title. A missing title key never reaches this validator (required, no default) and
-    is mapped back to NOTE_TITLE_REQUIRED by api/errors.py's required-field table instead."""
+    is mapped back to NOTE_TITLE_REQUIRED by CreateNoteRequest.legacy_error_codes
+    (api/errors.py) instead."""
     stripped = v.strip()
     if not stripped:
         raise PydanticCustomError("note_title_required", "Title is required")
@@ -38,11 +41,17 @@ class EntriesInResponse(BaseModel):
     notes: list[NoteItem]
 
 
-class CreateNoteRequest(BaseModel):
+class CreateNoteRequest(RequestModel):
     # REST policy: unknown fields are dropped rather than rejected (MCP's ToolInput
     # keeps extra="forbid" -- an LLM caller benefits from a hard error on a typo, a REST
     # client tolerating an extra field does not).
     model_config = ConfigDict(extra="ignore")
+
+    # "title" has no default, so OpenAPI advertises it correctly as required -- but that
+    # means a *missing* key never reaches _require_title (pydantic doesn't run a field
+    # validator against an absent required field). legacy_error_codes maps FastAPI's own
+    # missing/wrong-type error for this field back to the same legacy code instead.
+    legacy_error_codes: ClassVar[dict[str, ErrorCode]] = {"title": NoteError.TITLE_REQUIRED}
 
     title: str = Field(min_length=1, description="Note title; unique within (workspace, folder)")
     content: str = ""
@@ -82,7 +91,12 @@ class UpdateNoteResponse(BaseModel):
     temporal_warnings: list[TemporalWarning] = Field(default_factory=list)
 
 
-class MoveNoteRequest(BaseModel):
+class MoveNoteRequest(RequestModel):
+    # "" is itself a legitimate value here (move to root); only a genuinely missing/
+    # wrong-type key hits legacy_error_codes -- an empty string still reaches the route
+    # and NoteFolderService.move as a real value.
+    legacy_error_codes: ClassVar[dict[str, ErrorCode]] = {"folder": FolderError.PATH_REQUIRED}
+
     folder: str
 
 
@@ -135,7 +149,12 @@ class TagsResponse(BaseModel):
     tags: list[TagNode]
 
 
-class CreateFolderRequest(BaseModel):
+class CreateFolderRequest(RequestModel):
+    # "path" is required (no default), so a missing key never reaches _validate_path
+    # below -- legacy_error_codes maps FastAPI's own missing/wrong-type error for this
+    # field back to the same legacy code the validator raises for a present-but-blank one.
+    legacy_error_codes: ClassVar[dict[str, ErrorCode]] = {"path": FolderError.PATH_REQUIRED}
+
     path: str
 
     @field_validator("path")

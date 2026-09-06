@@ -110,8 +110,8 @@ checked during #254's auth-family pass -- it's already `async def` and awaits it
 CRUD on `/api/workspaces` and `/api/workspaces/{name}`. `POST /api/workspaces` takes a
 typed `CreateWorkspaceRequest` (`name` required/non-blank; unlike `CreateNoteRequest.title`,
 a *missing* `name` key is caught by a `model_validator(mode="before")` rather than left to
-api/errors.py's global by-field-name `_REQUIRED_FIELD_CODES` table -- `name` is too common a
-field name across the app's request models to key that table on safely, as
+`RequestModel.legacy_error_codes` (api/errors.py/api/schemas/base.py, #341) -- `name` is too
+common a field name across the app's request models to key by bare name safely, as
 `tests/api/test_error_handlers.py`'s unrelated generic probe body demonstrated;
 `description`/`folder`/`tags` optional); it has no `resolve_workspace_target` dependency
 since it doesn't address an existing workspace yet.

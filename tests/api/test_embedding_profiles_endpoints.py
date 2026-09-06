@@ -149,8 +149,8 @@ def test_create_probe_failure_is_400(database, monkeypatch):
 
 def test_create_missing_required_field_is_422(database, monkeypatch):
     # Regression: a missing "base_url"/"model" must fall back to generic INVALID_INPUT --
-    # "name" (shared with CreateSshKeyRequest, workspace create, ...) is deliberately kept
-    # out of api/errors.py's _REQUIRED_FIELD_CODES table for this reason.
+    # CreateEmbeddingProfileRequest declares no legacy_error_codes (api/errors.py), so it
+    # never had a hand-rolled code for the frontend to key off of here.
     client, _ = _app(database, monkeypatch)
     r = client.post("/api/me/embedding-profiles", json={"name": "x"})
     assert r.status_code == 422

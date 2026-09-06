@@ -491,9 +491,9 @@ def test_move_note_missing_folder_key_returns_422(auth_client):
 def test_move_note_wrong_type_folder_returns_422(auth_client):
     # Pins MoveNoteRequest.folder's wrong-type case to FOLDER_PATH_REQUIRED, distinct from
     # api/schemas/workspaces/meta.py's CreateWorkspaceRequest/UpdateWorkspaceRequest.folder
-    # (an unrelated, optional field) so a future change to api/errors.py's global
-    # by-field-name table can't silently collapse the two "folder" fields onto one code
-    # again without breaking a test.
+    # (an unrelated, optional field with its own legacy_error_codes entry) -- each model's
+    # own table (RequestModel.legacy_error_codes, api/errors.py) keeps the two "folder"
+    # fields from ever colliding on one code, unlike the pre-#341 global by-field-name table.
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save(_ws(ws_path), "Move me", "c", [])["note_id"]
 

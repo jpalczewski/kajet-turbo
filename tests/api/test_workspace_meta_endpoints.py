@@ -72,9 +72,9 @@ def test_patch_wrong_type_422(auth_client):
 def test_patch_wrong_type_folder_is_workspace_invalid_input(auth_client):
     # UpdateWorkspaceRequest.folder is optional (unlike MoveNoteRequest's required,
     # same-named field) -- a wrong-type value must not 422 with the misleading
-    # FOLDER_PATH_REQUIRED ("path is required") code that field name maps to for notes/move.
-    # A dedicated before-mode validator (schemas/workspaces/meta.py) raises a
-    # model-specific custom error type instead of colliding with that global mapping.
+    # FOLDER_PATH_REQUIRED ("path is required") code MoveNoteRequest maps that field name
+    # to. UpdateWorkspaceRequest's own legacy_error_codes entry (schemas/workspaces/meta.py)
+    # resolves this model's "folder" independently, so the two can never collide.
     r = auth_client.patch("/api/workspaces/test-ws", json={"folder": 123})
     assert r.status_code == 422
     assert r.json()["error"] == "WORKSPACE_INVALID_INPUT"

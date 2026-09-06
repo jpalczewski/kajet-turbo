@@ -101,11 +101,19 @@ with a distinct `type`, and `api/errors.py`'s `_request_validation_handler` maps
 back to the code. `CreateNoteRequest.title` and `CreateFolderRequest.path` do this for a
 *present but blank* value. A required field's key can be missing outright though, and
 Pydantic never runs a field validator against an absent required field -- that case
-(`type="missing"`, plus `"string_type"`/`"string_too_short"` for a present-but-wrong-shape
-value) is mapped by field name instead, via `_request_validation_handler`'s
-`_REQUIRED_FIELD_CODES` table. Check `frontend/src/lib/api/errors.ts` before adding a new
-entry to either table, and before deleting one if a field's validation moves from a route
-into a schema.
+(`type="missing"`, plus `"string_type"`/`"string_too_short"`/`"literal_error"`/`"enum"` for a
+present-but-wrong-shape value) is mapped by the request model itself instead: declare
+`legacy_error_codes: ClassVar[dict[str, ErrorCode]] = {"field": SomeError.CODE}` on a
+`RequestModel` subclass (`api/schemas/base.py`; see `CreateNoteRequest`/`MoveNoteRequest`/
+`CreateFolderRequest`/`CreateSshKeyRequest`/`UpdatePreferencesRequest`). Every model owns
+only its own fields' codes, so a new field named `title`/`path`/`folder`/... on an unrelated
+model can never silently inherit another model's code the way one shared by-field-name table
+could (#341) -- `RequestModel` also rejects at class-definition time a `legacy_error_codes`
+key that isn't one of the model's own fields. For a nested body (a batch's `list[ItemModel]`
+field), `_request_validation_handler` resolves the code from the *item* model, not the
+wrapper. Check `frontend/src/lib/api/errors.ts` before adding a new entry to either
+`legacy_error_codes` or `_CUSTOM_ERROR_TYPES`, and before deleting one if a field's
+validation moves from a route into a schema.
 
 ## PATCH field-presence semantics
 
