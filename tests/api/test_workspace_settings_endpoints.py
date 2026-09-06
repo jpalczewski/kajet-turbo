@@ -4,8 +4,17 @@ from pathlib import Path
 
 import pytest
 
+from kajet_turbo import workspace_settings as ws_settings
+from kajet_turbo.api.schemas import UpdateWorkspaceSettingsValues
 from kajet_turbo.services.targets import WorkspaceTarget
 from tests.api.conftest import ApiTestContext
+
+
+def test_update_settings_values_model_covers_every_registry_key():
+    # Guards against a new setting being added to REGISTRY without a matching field on
+    # UpdateWorkspaceSettingsValues -- without this, extra="forbid" would silently 422 any
+    # attempt to PATCH the new setting over REST, with nothing else failing to say so.
+    assert set(UpdateWorkspaceSettingsValues.model_fields) == set(ws_settings.REGISTRY)
 
 
 @pytest.fixture

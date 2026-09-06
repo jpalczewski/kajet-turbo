@@ -104,6 +104,14 @@ def test_create_workspace_blank_name_422(auth_client):
     assert r.json()["error"] == "WORKSPACE_NAME_REQUIRED"
 
 
+def test_create_workspace_null_name_422(auth_client):
+    # str(None).strip() would be the non-blank string "None" -- covers the model_validator
+    # branch that distinguishes an explicit JSON null from a present, non-empty value.
+    r = auth_client.post("/api/workspaces", json={"name": None})
+    assert r.status_code == 422
+    assert r.json()["error"] == "WORKSPACE_NAME_REQUIRED"
+
+
 def test_create_workspace_duplicate_409(auth_client):
     r = auth_client.post("/api/workspaces", json={"name": "test-ws"})
     assert r.status_code == 409

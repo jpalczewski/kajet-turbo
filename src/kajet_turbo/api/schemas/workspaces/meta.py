@@ -13,7 +13,12 @@ def _require_name_present(data: object) -> object:
     across the app's request models (see tests/api/test_error_handlers.py's own unrelated
     probe body, which broke when "name" was added there) to map safely at that scope,
     unlike CreateNoteRequest.title/CreateFolderRequest.path."""
-    if isinstance(data, dict) and not str(data.get("name", "")).strip():
+    if not isinstance(data, dict):
+        return data
+    name = data.get("name")
+    # `name is None` covers both a missing key and an explicit JSON `null` -- str(None)
+    # would otherwise stringify to "None" and slip past the blank check below.
+    if name is None or (isinstance(name, str) and not name.strip()):
         raise PydanticCustomError("workspace_name_required", "Name is required")
     return data
 

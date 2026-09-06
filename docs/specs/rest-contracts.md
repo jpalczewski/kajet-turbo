@@ -118,8 +118,11 @@ since it doesn't address an existing workspace yet.
 `PATCH /api/workspaces/{name}` and `DELETE /api/workspaces/{name}` both use
 `Depends(resolve_workspace_target)` instead of a hand-rolled `has_access` call. `PATCH`
 takes `UpdateWorkspaceRequest` and applies it via `body.model_dump(exclude_unset=True)` --
-real field-presence semantics, replacing the old "set if the right type, ignore otherwise"
-`isinstance` guards. Behavior change: a wrong-typed key the client did send (e.g.
+`exclude_unset` is Pydantic's own `model_fields_set`-based mechanism (it dumps only the
+fields present in `__pydantic_fields_set__`), so this *is* the field-presence semantics the
+issue asks for, not an approximation of it -- real field-presence semantics, replacing the
+old "set if the right type, ignore otherwise" `isinstance` guards. Behavior change: a
+wrong-typed key the client did send (e.g.
 `tags: "x"` instead of a list) now 422s instead of being silently dropped; an omitted key
 or an explicit `null` are still both a no-op, matching `set_meta`'s existing
 COALESCE-based "None leaves the column unchanged" contract.
