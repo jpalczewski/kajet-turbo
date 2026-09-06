@@ -6,9 +6,12 @@
 # Coolify) targets the lowest exposed port (80) in production, while local dev
 # hits 8000. Both are plain HTTP (TLS is terminated upstream).
 #
-# MCP is stateful and single-process (kajet-mcp); everything else is the
-# stateless API + SPA (kajet-api). Caddy streams text/event-stream responses by
-# default, which the MCP StreamableHTTP transport relies on.
+# Both upstreams are stateless and multi-process: /mcp is stateless_http
+# (#244) and role mcp scales via MCP_WORKERS (#250) just as role api does via
+# API_WORKERS. The split below is about path ownership, not statefulness —
+# kajet-mcp owns the MCP protocol and OAuth paths, kajet-api owns REST — while
+# the SPA is served straight off disk here. Caddy streams text/event-stream
+# responses by default, which the MCP StreamableHTTP transport relies on.
 :80, :8000 {
 	@mcp path /mcp /mcp/* /authorize* /token* /register* /revoke* /.well-known/*
 	@api path /api /api/* /healthz /readyz
