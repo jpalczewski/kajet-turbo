@@ -135,6 +135,7 @@ class AppResources:
     note_service: NoteService
     note_tag_service: NoteTagService
     note_link_service: NoteLinkService
+    note_folder_service: NoteFolderService
     note_temporal_service: NoteTemporalService
     note_read_service: NoteReadService
     note_reconcile_service: NoteReconcileService
@@ -274,7 +275,6 @@ def build_resources(config: AppConfig) -> AppResources:
             tag_service,
             link_service,
             NoteVersionService(note_repo),
-            folder_service,
             indexer=indexer,
             reconcile_repo=reconcile_repo,
         )
@@ -328,6 +328,7 @@ def build_resources(config: AppConfig) -> AppResources:
             note_service,
             tag_service,
             link_service,
+            folder_service,
             note_temporal_service,
             note_read_service,
             note_reconcile_service,
@@ -405,6 +406,10 @@ def get_note_tag_service(request: Request) -> NoteTagService:
 
 def get_note_link_service(request: Request) -> NoteLinkService:
     return _resources(request).note_link_service
+
+
+def get_note_folder_service(request: Request) -> NoteFolderService:
+    return _resources(request).note_folder_service
 
 
 def get_note_temporal_service(request: Request) -> NoteTemporalService:

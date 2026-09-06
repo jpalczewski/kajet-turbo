@@ -123,6 +123,26 @@ def build_note_reconcile_service_from(service):
     )
 
 
+def build_note_folder_service_from(service):
+    """A NoteFolderService sharing every repo/collaborator instance a NoteService already
+    holds — mirrors production wiring (dependencies.py builds both from the same repo set),
+    so a test that patches one of `service`'s repo instances (the #155/#170 ordering tests
+    patch `update_in_session` and assert it is *not* called) still intercepts the folder
+    move made here; a separately constructed folder service would pass those negatives
+    vacuously.
+
+    Left without a FolderMetaRepository, matching what the note builder wired internally
+    before #229 — so `move_folder`'s folder-meta `rename_paths` step stays unexercised.
+    That is a known coverage gap carried over from the delegate era, not a contract."""
+    from kajet_turbo.services.notes import NoteFolderService
+
+    return NoteFolderService(
+        service._crud_repo,
+        service._link_service,
+        reconcile_repo=service._reconcile_repo,
+    )
+
+
 def build_reconcile_wiring(database, base: Path):
     """A NoteService wired with a real LinkReconcileRepository + DanglingLinkRepository,
     plus the ReconcileLinksHandler that can drain the jobs it enqueues — for tests that

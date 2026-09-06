@@ -4,7 +4,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.mcp.context import WORKSPACE_TARGET
+from kajet_turbo.mcp.context import NOTE_TARGET, WORKSPACE_TARGET
 from kajet_turbo.mcp.notes.types import (
     ConflictItem,
     FolderConflictResult,
@@ -15,14 +15,15 @@ from kajet_turbo.mcp.notes.types import (
 )
 from kajet_turbo.mcp.tooling import publish_workspace_changed, read_tool, write_tool
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
-from kajet_turbo.services.notes import NoteService
-from kajet_turbo.services.targets import WorkspaceTarget
+from kajet_turbo.services.notes import NoteFolderService
+from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.shared.notes import MovedNoteResult
 from kajet_turbo.workspace import normalize_folder
 
 
 def build_folders(
-    note_service: NoteService,
+    folder_service: NoteFolderService,
     workspace_service: WorkspaceService,
     folder_meta_repo: FolderMetaRepository,
 ) -> FastMCP:
@@ -37,7 +38,7 @@ def build_folders(
         An empty path means the workspace root; description is empty when a folder has no
         metadata set.
         workspace: the workspace name to list folders in."""
-        paths = await run_sync(note_service.list_folders, str(target.path))
+        paths = await run_sync(folder_service.list_folders, str(target.path))
         if not paths:
             return []
         meta_map = await run_sync(folder_meta_repo.get_many, target.owner_id, target.name, paths)
@@ -88,11 +89,30 @@ def build_folders(
         assert meta is not None
         return FolderContext.model_validate(meta)
 
+    # Tags stay "crud", not "folders": moving one note is a note-level write, and the
+    # advertised surface must not shift just because the adapter now sits next to the
+    # service that owns the operation.
+    @srv.tool(**write_tool(tags={"notes", "crud"}))
+    async def move_note(
+        note_id: str,
+        folder: str,
+        target: NoteTarget = NOTE_TARGET,
+    ) -> MovedNoteResult:
+        """Moves a note to a folder in its own workspace, creating the path if missing.
+        folder: full folder path, or an empty string for root."""
+        result = await run_sync(
+            folder_service.move,
+            target,
+            folder,
+        )
+        await publish_workspace_changed(target.workspace)
+        return MovedNoteResult.model_validate(result)
+
     async def _move_folder(
         src: str, dst: str, target: WorkspaceTarget
     ) -> MovedFolderResult | FolderConflictResult:
         result = await run_sync(
-            note_service.move_folder,
+            folder_service.move_folder,
             src,
             dst,
             owner_id=target.owner_id,
@@ -144,7 +164,7 @@ def build_folders(
         """Removes empty directories (orphaned after moving notes). Folders containing
         .gitkeep are kept.
         workspace: the workspace name to prune."""
-        result = await run_sync(note_service.prune_empty_folders, str(target.path))
+        result = await run_sync(folder_service.prune_empty_folders, str(target.path))
         await publish_workspace_changed(target)
         return PrunedFoldersResult.model_validate(result)
 

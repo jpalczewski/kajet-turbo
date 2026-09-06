@@ -193,23 +193,23 @@ def test_update_rename_with_backlink_opens_repo_once_for_the_rename_leg(
     )
 
 
-def test_move_opens_repo_once(service, workspace, repo_open_count):
+def test_move_opens_repo_once(service, folder_service, workspace, repo_open_count):
     target = service.save(workspace_target("u1", "ws", workspace), "Target", "body\n", [])
     service.save(workspace_target("u1", "ws", workspace), "Source", "links [[Target]]\n", [])
     repo_open_count["count"] = 0
 
-    result = service.move(note_target("u1", "ws", workspace, target["note_id"]), "moved")
+    result = folder_service.move(note_target("u1", "ws", workspace, target["note_id"]), "moved")
 
     assert result["folder"] == "moved"
     assert repo_open_count["count"] == 1
 
 
-def test_move_folder_opens_repo_once(service, workspace, repo_open_count):
+def test_move_folder_opens_repo_once(service, folder_service, workspace, repo_open_count):
     service.save(workspace_target("u1", "ws", workspace), "A", "body\n", [], folder="src")
     service.save(workspace_target("u1", "ws", workspace), "B", "links [[A]]\n", [], folder="src")
     repo_open_count["count"] = 0
 
-    result = service.move_folder(
+    result = folder_service.move_folder(
         "src", "dst", owner_id="u1", ws_path=str(workspace), workspace="ws"
     )
 

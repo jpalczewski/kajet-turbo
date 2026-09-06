@@ -3,6 +3,7 @@ from fastmcp import FastMCP
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.notes import (
+    NoteFolderService,
     NoteLinkService,
     NoteReadService,
     NoteReconcileService,
@@ -28,6 +29,7 @@ def build_notes(
     note_service: NoteService,
     note_tag_service: NoteTagService,
     note_link_service: NoteLinkService,
+    note_folder_service: NoteFolderService,
     note_temporal_service: NoteTemporalService,
     note_read_service: NoteReadService,
     note_reconcile_service: NoteReconcileService,
@@ -42,7 +44,7 @@ def build_notes(
     srv.mount(build_search(note_search_service, workspace_service))
     srv.mount(build_temporal(note_temporal_service, collection_service))
     srv.mount(build_maintenance(note_reconcile_service))
-    srv.mount(build_folders(note_service, workspace_service, folder_meta_repo))
+    srv.mount(build_folders(note_folder_service, workspace_service, folder_meta_repo))
     srv.mount(build_tags(note_tag_service, workspace_service))
     srv.mount(build_history(note_service, note_link_service, workspace_service))
     srv.mount(build_graph(note_link_service, workspace_service))

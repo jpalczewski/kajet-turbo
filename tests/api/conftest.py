@@ -12,6 +12,7 @@ from kajet_turbo.api.workspaces import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_folder_service,
     get_note_link_service,
     get_note_read_service,
     get_note_reconcile_service,
@@ -32,6 +33,7 @@ from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import (
+    NoteFolderService,
     NoteLinkService,
     NoteReadService,
     NoteReconcileService,
@@ -115,6 +117,7 @@ def api_client_factory(
             None,
             JobRepository(database.engine),
         )
+        note_folder_service = NoteFolderService(note_repository, note_link_service)
         note_temporal_service = NoteTemporalService(note_repository)
         note_read_service = build_note_read_service(database, indexer=note_indexer)
         note_reconcile_service = NoteReconcileService(
@@ -146,6 +149,7 @@ def api_client_factory(
         app.dependency_overrides[get_note_reconcile_service] = lambda: note_reconcile_service
         app.dependency_overrides[get_note_tag_service] = lambda: note_tag_service
         app.dependency_overrides[get_note_link_service] = lambda: note_link_service
+        app.dependency_overrides[get_note_folder_service] = lambda: note_folder_service
         app.dependency_overrides[get_note_temporal_service] = lambda: note_temporal_service
         app.dependency_overrides[get_note_read_service] = lambda: note_read_service
         app.dependency_overrides[get_workspace_service] = lambda: workspace_service

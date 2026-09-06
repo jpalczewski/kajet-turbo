@@ -21,6 +21,7 @@ from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import (
+    NoteFolderService,
     NoteLinkService,
     NoteReconcileService,
     NoteService,
@@ -100,6 +101,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         indexer=indexer,
     )
     note_search_service = build_note_search_service(database, chunk_repo=note_chunk_repository)
+    note_folder_service_inst = NoteFolderService(note_repository, note_link_service_inst)
     workspace_service = WorkspaceService(
         workspace_repository,
         note_repository,
@@ -116,6 +118,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         note_service=note_service_inst,
         note_tag_service=note_tag_service_inst,
         note_link_service=note_link_service_inst,
+        note_folder_service=note_folder_service_inst,
         note_temporal_service=note_temporal_service_inst,
         note_read_service=note_read_service,
         note_reconcile_service=note_reconcile_service_inst,

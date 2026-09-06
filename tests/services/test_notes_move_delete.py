@@ -12,14 +12,16 @@ from tests.services.conftest import note_target, workspace_target
 from tests.services.helpers import head_sha, make_flaky_db_write
 
 
-def test_move_note_to_existing_folder_preserves_updated_at(service, read_service, workspace):
+def test_move_note_to_existing_folder_preserves_updated_at(
+    service, folder_service, read_service, workspace
+):
     (workspace / "archive").mkdir()
     note_id = service.save(workspace_target("u1", "ws", workspace), "Move me", "content", [])[
         "note_id"
     ]
     before = read_service.get(note_id, owner_id="u1")
 
-    moved = service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
+    moved = folder_service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
 
     after = read_service.get(note_id, owner_id="u1")
     assert moved == {"note_id": note_id, "folder": "archive"}
@@ -29,29 +31,29 @@ def test_move_note_to_existing_folder_preserves_updated_at(service, read_service
     assert (workspace / "archive" / "Move me.md").exists()
 
 
-def test_move_note_to_root(service, workspace):
+def test_move_note_to_root(service, folder_service, workspace):
     note_id = service.save(
         workspace_target("u1", "ws", workspace), "Move me", "content", [], folder="docs"
     )["note_id"]
 
-    service.move(note_target("u1", "ws", workspace, note_id), folder="")
+    folder_service.move(note_target("u1", "ws", workspace, note_id), folder="")
 
     assert (workspace / "Move me.md").exists()
     assert not (workspace / "docs" / "Move me.md").exists()
 
 
-def test_move_note_creates_missing_folder_path(service, workspace):
+def test_move_note_creates_missing_folder_path(service, folder_service, workspace):
     note_id = service.save(workspace_target("u1", "ws", workspace), "Move me", "content", [])[
         "note_id"
     ]
 
-    service.move(note_target("u1", "ws", workspace, note_id), folder="new/nested")
+    folder_service.move(note_target("u1", "ws", workspace, note_id), folder="new/nested")
 
     assert (workspace / "new" / "nested" / "Move me.md").exists()
 
 
 def test_move_note_os_error_on_rename_surfaces_as_git_error(
-    service, read_service, workspace, monkeypatch
+    service, folder_service, read_service, workspace, monkeypatch
 ):
     """The filesystem rename inside move()'s StagedChange used to be GitRepository's
     dedicated rename_file(), which normalized any OS-level failure (permissions,
@@ -70,14 +72,16 @@ def test_move_note_os_error_on_rename_surfaces_as_git_error(
     monkeypatch.setattr(Path, "rename", flaky_rename)
 
     with pytest.raises(GitError, match="permission denied"):
-        service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
+        folder_service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
 
     assert (workspace / "Move me.md").exists()
     after = read_service.get(note_id, owner_id="u1")
     assert after["folder"] == ""
 
 
-def test_move_note_db_failure_leaves_file_and_row_untouched(service, read_service, workspace):
+def test_move_note_db_failure_leaves_file_and_row_untouched(
+    service, folder_service, read_service, workspace
+):
     """#155: move() now writes its row before the git commit, inside one transaction
     that commits last — a DB-side failure must abort before either changes."""
     note_id = service.save(workspace_target("u1", "ws", workspace), "Move me", "content", [])[
@@ -90,7 +94,7 @@ def test_move_note_db_failure_leaves_file_and_row_untouched(service, read_servic
         patch.object(service._crud_repo, "update_in_session", flaky_update),
         pytest.raises(RuntimeError, match="db exploded"),
     ):
-        service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
+        folder_service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
 
     assert (workspace / "Move me.md").exists()
     assert not (workspace / "archive" / "Move me.md").exists()
@@ -99,7 +103,7 @@ def test_move_note_db_failure_leaves_file_and_row_untouched(service, read_servic
     assert after["folder"] == ""
 
 
-def test_move_note_rejects_destination_collision(service, workspace):
+def test_move_note_rejects_destination_collision(service, folder_service, workspace):
     (workspace / "archive").mkdir()
     note_id = service.save(workspace_target("u1", "ws", workspace), "Same", "source", [])["note_id"]
     service.save(
@@ -107,21 +111,21 @@ def test_move_note_rejects_destination_collision(service, workspace):
     )
 
     with pytest.raises(FileExistsError):
-        service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
+        folder_service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
 
 
-def test_move_note_rejects_unindexed_destination_file(service, workspace):
+def test_move_note_rejects_unindexed_destination_file(service, folder_service, workspace):
     (workspace / "archive").mkdir()
     (workspace / "archive" / "Same.md").write_text("external")
     note_id = service.save(workspace_target("u1", "ws", workspace), "Same", "source", [])["note_id"]
 
     with pytest.raises(FileExistsError):
-        service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
+        folder_service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
 
     assert (workspace / "archive" / "Same.md").read_text() == "external"
 
 
-def test_move_note_rejects_normalization_collision(service, workspace):
+def test_move_note_rejects_normalization_collision(service, folder_service, workspace):
     """ "A:B" moved into "archive" would land on "A B.md", already used by "A B"."""
     (workspace / "archive").mkdir()
     note_id = service.save(workspace_target("u1", "ws", workspace), "A:B", "source", [])["note_id"]
@@ -130,7 +134,7 @@ def test_move_note_rejects_normalization_collision(service, workspace):
     )
 
     with pytest.raises(FileExistsError, match="A B"):
-        service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
+        folder_service.move(note_target("u1", "ws", workspace, note_id), folder="archive")
 
     from kajet_turbo.workspace import read_note_file
 
@@ -140,7 +144,9 @@ def test_move_note_rejects_normalization_collision(service, workspace):
     assert dest_content.strip() == "destination"
 
 
-def test_move_note_case_only_folder_rename_succeeds(service, read_service, workspace):
+def test_move_note_case_only_folder_rename_succeeds(
+    service, folder_service, read_service, workspace
+):
     """#181: moving a note into a folder differing only by case from its current one
     used to raise a false FileExistsError against its own not-yet-moved source on a
     case-insensitive-but-case-preserving filesystem. The fix routes the move through
@@ -151,7 +157,7 @@ def test_move_note_case_only_folder_rename_succeeds(service, read_service, works
         workspace_target("u1", "ws", workspace), "N", "content", [], folder="Projekty"
     )["note_id"]
 
-    service.move(note_target("u1", "ws", workspace, note_id), folder="projekty")
+    folder_service.move(note_target("u1", "ws", workspace, note_id), folder="projekty")
 
     assert (workspace / "projekty" / "N.md").exists()
     after = read_service.get(note_id, owner_id="u1")
@@ -173,11 +179,11 @@ def test_update_folder_only_keeps_path_creation_semantics(service, read_service,
     assert (workspace / "archive" / "Move me.md").exists()
 
 
-def test_list_folders_reads_visible_directories_from_disk(service, workspace):
+def test_list_folders_reads_visible_directories_from_disk(folder_service, workspace):
     (workspace / "docs" / "empty").mkdir(parents=True)
     (workspace / ".hidden").mkdir()
 
-    assert service.list_folders(str(workspace)) == ["", "docs", "docs/empty"]
+    assert folder_service.list_folders(str(workspace)) == ["", "docs", "docs/empty"]
 
 
 def test_delete_raises_for_wrong_owner(service, workspace):

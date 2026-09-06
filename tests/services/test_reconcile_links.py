@@ -5,8 +5,16 @@ from kajet_turbo.markdown import EditSpec
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
-from tests.services.conftest import note_target, seed_user, workspace_target
-from tests.services.helpers import build_reconcile_wiring, edit_item
+from tests.services.conftest import (
+    note_target,
+    seed_user,
+    workspace_target,
+)
+from tests.services.helpers import (
+    build_note_folder_service_from,
+    build_reconcile_wiring,
+    edit_item,
+)
 
 
 def test_target_creation_marks_only_dangling_source_and_reconciles(database, git_workspace_factory):
@@ -194,6 +202,7 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
     service, _links, _jobs, dirty, _dangling, handler = build_reconcile_wiring(
         database, ws.parent.parent
     )
+    folder_service = build_note_folder_service_from(service)
     target_id = service.save(workspace_target("u1", "ws", ws), "Target", "body", [], folder="Old")[
         "note_id"
     ]
@@ -223,12 +232,14 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
     assert set(dirty.list_dirty("u1", "ws")) == {source_id, target_id}
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
 
-    one_snapshot(lambda: service.move(target_target, "Mid"))
+    one_snapshot(lambda: folder_service.move(target_target, "Mid"))
     assert set(dirty.list_dirty("u1", "ws")) == {source_id, target_id}
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
 
     one_snapshot(
-        lambda: service.move_folder("Mid", "New", owner_id="u1", ws_path=str(ws), workspace="ws")
+        lambda: folder_service.move_folder(
+            "Mid", "New", owner_id="u1", ws_path=str(ws), workspace="ws"
+        )
     )
     assert set(dirty.list_dirty("u1", "ws")) == {source_id, target_id}
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})

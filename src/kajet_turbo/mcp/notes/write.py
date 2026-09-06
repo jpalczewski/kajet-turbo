@@ -35,7 +35,6 @@ from kajet_turbo.mcp.tooling import (
 )
 from kajet_turbo.services.notes import EditBatchItem, NoteService
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
-from kajet_turbo.shared.notes import MovedNoteResult
 from kajet_turbo.workspace import temporal_kwargs
 
 
@@ -240,22 +239,6 @@ def build_write(note_service: NoteService) -> FastMCP:
             return EditNotesRejected.model_validate(result)
         await publish_workspace_changed(workspace)
         return EditNotesApplied.model_validate(result)
-
-    @srv.tool(**write_tool(tags={"notes", "crud"}))
-    async def move_note(
-        note_id: str,
-        folder: str,
-        target: NoteTarget = NOTE_TARGET,
-    ) -> MovedNoteResult:
-        """Moves a note to a folder in its own workspace, creating the path if missing.
-        folder: full folder path, or an empty string for root."""
-        result = await run_sync(
-            note_service.move,
-            target,
-            folder,
-        )
-        await publish_workspace_changed(target.workspace)
-        return MovedNoteResult.model_validate(result)
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
     async def delete_note(

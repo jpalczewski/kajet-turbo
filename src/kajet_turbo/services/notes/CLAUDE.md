@@ -13,10 +13,10 @@ does not belong in this package even if it operates on notes.
 here used to be exposed: REST and MCP call `NoteTemporalService.entries_in`/
 `temporal_backfill_preview`/`apply_temporal_backfill` directly — `NoteService` carries no
 delegating wrappers for this domain at all (#224). Its constructor takes only `NoteRepository`,
-same as `NoteVersionService`. `NoteTagService` (#306), `NoteLinkService` (#307), and
-`NoteSearchService` (#230) have since moved to the same direct-call shape, each removing its
-one-line delegate methods from `NoteService`. Only `NoteFolderService` and `NoteVersionService`
-are still reached exclusively through delegate methods on `NoteService`.
+same as `NoteVersionService`. `NoteTagService` (#306), `NoteLinkService` (#307),
+`NoteSearchService` (#230), and `NoteFolderService` (#229) have since moved to the same
+direct-call shape, each removing its one-line delegate methods from `NoteService`. Only
+`NoteVersionService` is still reached exclusively through delegate methods on `NoteService`.
 
 ## Note-body writes go through `staged_workspace_change`
 

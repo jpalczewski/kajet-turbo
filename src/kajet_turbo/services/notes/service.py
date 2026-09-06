@@ -31,7 +31,6 @@ from kajet_turbo.repositories.notes import (
     NoteRepository,
     NoteTagRepository,
 )
-from kajet_turbo.services.notes.folders import NoteFolderService
 from kajet_turbo.services.notes.history import NoteVersionService
 from kajet_turbo.services.notes.links import NoteLinkService, wikilink_warnings
 from kajet_turbo.services.notes.locator import locate_many
@@ -145,7 +144,6 @@ class NoteService:
         tag_service: NoteTagService,
         link_service: NoteLinkService,
         version_service: NoteVersionService,
-        folder_service: NoteFolderService,
         indexer=None,
         reconcile_repo: LinkReconcileRepository | None = None,
     ) -> None:
@@ -156,7 +154,6 @@ class NoteService:
         self._tag_service = tag_service
         self._link_service = link_service
         self._version_service = version_service
-        self._folder_service = folder_service
         self._indexer = indexer
         self._reconcile_repo = reconcile_repo
         self._teardown = NoteTeardown(tag_repo, chunk_repo, crud_repo, link_repo, link_service)
@@ -1066,22 +1063,3 @@ class NoteService:
 
     def get_version(self, target: NoteTarget, sha: str) -> dict:
         return self._version_service.get_version(target, sha)
-
-    def create_folder(self, target: WorkspaceTarget, path: str) -> str:
-        return self._folder_service.create_folder(target, path)
-
-    def move(self, target: NoteTarget, folder: str) -> dict:
-        return self._folder_service.move(target, folder)
-
-    def move_folder(
-        self, src: str, dst: str, *, owner_id: str, ws_path: str, workspace: str
-    ) -> dict:
-        return self._folder_service.move_folder(
-            src, dst, owner_id=owner_id, ws_path=ws_path, workspace=workspace
-        )
-
-    def prune_empty_folders(self, ws_path: str) -> dict:
-        return self._folder_service.prune_empty_folders(ws_path)
-
-    def list_folders(self, ws_path: str) -> list[str]:
-        return self._folder_service.list_folders(ws_path)

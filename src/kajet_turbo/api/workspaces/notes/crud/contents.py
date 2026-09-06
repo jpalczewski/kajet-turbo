@@ -8,13 +8,13 @@ from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.api.workspaces.notes._views import enrich_note_items
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_folder_service,
     get_note_read_service,
-    get_note_service,
     get_required_user,
     resolve_workspace_target,
 )
 from kajet_turbo.errors import FolderError
-from kajet_turbo.services.notes import NoteReadService, NoteService
+from kajet_turbo.services.notes import NoteFolderService, NoteReadService
 from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.workspace import relative_folder
 
@@ -49,7 +49,7 @@ def api_workspace_contents(
     name: str,
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
-    note_service: NoteService = Depends(get_note_service),
+    folder_service: NoteFolderService = Depends(get_note_folder_service),
     note_read_service: NoteReadService = Depends(get_note_read_service),
     path: str = "",
 ) -> JSONResponse:
@@ -85,7 +85,7 @@ def api_workspace_contents(
                 resolution = "note"
                 selected_note_id = candidate_note_id
 
-    folders = note_service.list_folders(ws_path)[1:]
+    folders = folder_service.list_folders(ws_path)[1:]
     notes = note_read_service.list_notes(workspace, folder=folder_path, limit=None)
     enriched_notes = enrich_note_items(ws_path, notes)
     default_note_id = next(

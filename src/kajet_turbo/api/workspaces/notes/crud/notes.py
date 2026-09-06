@@ -18,6 +18,7 @@ from kajet_turbo.api.workspaces.notes._views import enrich_note_items
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_folder_service,
     get_note_read_service,
     get_note_service,
     get_note_tag_service,
@@ -27,7 +28,12 @@ from kajet_turbo.dependencies import (
 )
 from kajet_turbo.errors import NoteError
 from kajet_turbo.markdown import BrokenWikilinkError, EditSpec
-from kajet_turbo.services.notes import NoteReadService, NoteService, NoteTagService
+from kajet_turbo.services.notes import (
+    NoteFolderService,
+    NoteReadService,
+    NoteService,
+    NoteTagService,
+)
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import InvalidFolderError, TemporalMetadataError, temporal_kwargs
 
@@ -181,10 +187,10 @@ async def api_move_note(
     body: MoveNoteRequest,
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
-    note_service: NoteService = Depends(get_note_service),
+    folder_service: NoteFolderService = Depends(get_note_folder_service),
 ) -> MoveNoteResponse:
     try:
-        result = await run_sync(note_service.move, target, body.folder)
+        result = await run_sync(folder_service.move, target, body.folder)
     except InvalidFolderError:
         raise
     except FileExistsError:

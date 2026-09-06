@@ -50,7 +50,7 @@ _CUSTOM_ERROR_TYPES: dict[str, NoteError | FolderError] = {
 # missing/wrong-type errors for these fields back to the same legacy codes by field name
 # instead. MoveNoteRequest.folder shares the "folder" entry: "" is itself a legitimate
 # value there (move to root), so only a genuinely missing/wrong-type key hits this table --
-# an empty string still reaches the route and note_service.move as a real value.
+# an empty string still reaches the route and NoteFolderService.move as a real value.
 _REQUIRED_FIELD_CODES: dict[str, NoteError | FolderError] = {
     "title": NoteError.TITLE_REQUIRED,
     "path": FolderError.PATH_REQUIRED,

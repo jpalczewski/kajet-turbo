@@ -129,8 +129,8 @@ like the original hand-rolled `body.get(...)` call this migration replaced.
 
 ## Move filesystem/git work into the service
 
-`api_create_folder` calls `note_service.create_folder(workspace, body.path)`, which delegates
-to `NoteFolderService.create_folder` (`services/notes/folders.py`) -- the `.gitkeep`
+`api_create_folder` calls `NoteFolderService.create_folder(workspace, body.path)`
+(`services/notes/folders.py`, injected via `get_note_folder_service`) -- the `.gitkeep`
 marker-file write and git commit used to live in the route (`_create_folder_marker`). A
 route function should be orchestration only: parse (via the typed body), authorize (via a
 target dependency), call one service method, map the result. Any file/git-touching logic

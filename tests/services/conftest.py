@@ -95,7 +95,6 @@ def build_note_wiring(
             crud_repo, link_repo, tag_repo, dangling_repo, link_validation_enabled, jobs
         )
     version_service = NoteVersionService(crud_repo)
-    folder_service = NoteFolderService(crud_repo, link_service, reconcile_repo=reconcile_repo)
 
     return NoteWiring(
         service=NoteService(
@@ -106,7 +105,6 @@ def build_note_wiring(
             tag_service,
             link_service,
             version_service,
-            folder_service,
             indexer=indexer,
             reconcile_repo=reconcile_repo,
         ),
@@ -249,6 +247,16 @@ def reconcile_service(service: NoteService):
 def tag_service(service: NoteService) -> NoteTagService:
     """The concrete tag boundary paired with the note writer in service tests."""
     return service._tag_service
+
+
+@pytest.fixture
+def folder_service(service: NoteService) -> NoteFolderService:
+    """A NoteFolderService sharing every repo/collaborator instance the `service` fixture
+    already holds (see build_note_folder_service_from) — so a test that patches a method on
+    `service._crud_repo` also intercepts the folder move made here."""
+    from tests.services.helpers import build_note_folder_service_from
+
+    return build_note_folder_service_from(service)
 
 
 @pytest.fixture

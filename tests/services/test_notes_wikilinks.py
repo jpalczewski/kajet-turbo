@@ -5,8 +5,13 @@ from unittest.mock import patch
 import pytest
 
 from kajet_turbo.markdown import BrokenWikilinkError, EditSpec, IndexedNote, render_markdown
-from tests.services.conftest import note_target, seed_user, workspace_target
+from tests.services.conftest import (
+    note_target,
+    seed_user,
+    workspace_target,
+)
 from tests.services.helpers import (
+    build_note_folder_service_from,
     corrupt_temporal_field,
     make_flaky_db_write,
     make_flaky_write,
@@ -183,13 +188,15 @@ def test_reindex_rebuilds_links(service, reconcile_service, link_service, worksp
     assert link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_move_rewrites_backlink_path(service, link_service, read_service, workspace):
+def test_move_rewrites_backlink_path(
+    service, folder_service, link_service, read_service, workspace
+):
     service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
     sid = service.save(
         workspace_target("u1", "ws", workspace), "Source", "see [[Old/Target|T]]", []
     )["note_id"]
     tid = service._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
-    service.move(note_target("u1", "ws", workspace, tid), "New")
+    folder_service.move(note_target("u1", "ws", workspace, tid), "New")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert "[[New/Target|T]]" in src.content
     assert "[[Old/Target" not in src.content
@@ -198,7 +205,7 @@ def test_move_rewrites_backlink_path(service, link_service, read_service, worksp
 
 
 def test_move_rewrite_enqueues_one_reindex_note_job_per_rewritten_source(
-    service, workspace, database
+    service, folder_service, workspace, database
 ):
     """#89 acceptance criterion: rewrite_backlinks's search-reindex gap is closed by
     enqueuing a reindex_note job per rewritten source, in the same transaction as the row
@@ -216,7 +223,7 @@ def test_move_rewrite_enqueues_one_reindex_note_job_per_rewritten_source(
     )["note_id"]
     tid = service._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
 
-    service.move(note_target("u1", "ws", workspace, tid), "New")
+    folder_service.move(note_target("u1", "ws", workspace, tid), "New")
 
     jobs = JobRepository(database.engine).list_jobs("u1", kind="reindex_note", status="pending")
     note_ids = {json.loads(j.payload)["note_id"] for j in jobs}
@@ -232,6 +239,7 @@ def test_move_rewrite_leaves_source_outlinks_and_dangling_unchanged(
     svc, _links, dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
+    svc_folders = build_note_folder_service_from(svc)
     svc.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
     svc.save(workspace_target("u1", "ws", workspace), "Ghost link", "irrelevant", [])
     sid = svc.save(
@@ -241,7 +249,7 @@ def test_move_rewrite_leaves_source_outlinks_and_dangling_unchanged(
     outlinks_before = sorted(link_service._link_repo.outlinks(sid))
     dangling_before = dangling.list_for_workspace("u1", "ws")
 
-    svc.move(note_target("u1", "ws", workspace, tid), "New")
+    svc_folders.move(note_target("u1", "ws", workspace, tid), "New")
 
     assert sorted(link_service._link_repo.outlinks(sid)) == outlinks_before
     assert dangling.list_for_workspace("u1", "ws") == dangling_before
@@ -319,13 +327,13 @@ def test_rewrite_backlinks_write_failing_partway_rolls_back_and_makes_no_commit(
     assert not any("rewrite wikilink" in h["message"] for h in history_a)
 
 
-def test_move_rewrite_creates_commit_in_source_history(service, workspace):
+def test_move_rewrite_creates_commit_in_source_history(service, folder_service, workspace):
     service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Old/Target]]", [])[
         "note_id"
     ]
     tid = service._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
-    service.move(note_target("u1", "ws", workspace, tid), "New")
+    folder_service.move(note_target("u1", "ws", workspace, tid), "New")
     history = service.get_history(note_target("u1", "ws", workspace, sid))
     assert any("rewrite wikilink" in h["message"] for h in history)
 
@@ -618,14 +626,16 @@ def test_render_link_index_is_loaded_only_when_first_wikilink_is_rendered(
     assert calls == 1
 
 
-def test_move_keeps_short_backlink_unchanged(service, link_service, read_service, workspace):
+def test_move_keeps_short_backlink_unchanged(
+    service, folder_service, link_service, read_service, workspace
+):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")[
         "note_id"
     ]
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "see [[Target|T]]", [])[
         "note_id"
     ]
-    service.move(note_target("u1", "ws", workspace, tid), "New")
+    folder_service.move(note_target("u1", "ws", workspace, tid), "New")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "see [[Target|T]]"
     assert link_service._link_repo.backlinks(tid) == [sid]
@@ -666,19 +676,23 @@ def test_rename_falls_back_to_full_path_when_short_form_would_be_ambiguous(
     assert link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_move_rewrites_suffix_backlink_keeping_its_shape(service, read_service, workspace):
+def test_move_rewrites_suffix_backlink_keeping_its_shape(
+    service, folder_service, read_service, workspace
+):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="A/Old")[
         "note_id"
     ]
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Old/Target]]", [])[
         "note_id"
     ]
-    service.move(note_target("u1", "ws", workspace, tid), "A/New")
+    folder_service.move(note_target("u1", "ws", workspace, tid), "A/New")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[New/Target]]"
 
 
-def test_move_folder_rewrites_source_linking_two_moved_notes_once(service, read_service, workspace):
+def test_move_folder_rewrites_source_linking_two_moved_notes_once(
+    service, folder_service, read_service, workspace
+):
     # One source links two notes in the moved folder: one rewrite commit, both links fixed.
     service.save(workspace_target("u1", "ws", workspace), "A", "a", [], folder="Old/Sub")
     service.save(workspace_target("u1", "ws", workspace), "B", "b", [], folder="Old/Sub")
@@ -686,14 +700,14 @@ def test_move_folder_rewrites_source_linking_two_moved_notes_once(service, read_
         workspace_target("u1", "ws", workspace), "Source", "[[Old/Sub/A]] [[Old/Sub/B]]", []
     )["note_id"]
     before = len(service.get_history(note_target("u1", "ws", workspace, sid)))
-    service.move_folder("Old", "New", owner_id="u1", ws_path=str(workspace), workspace="ws")
+    folder_service.move_folder("Old", "New", owner_id="u1", ws_path=str(workspace), workspace="ws")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[New/Sub/A]] [[New/Sub/B]]"
     assert len(service.get_history(note_target("u1", "ws", workspace, sid))) == before + 1
 
 
 def test_move_to_root_rewrites_path_backlink_to_bare_title(
-    service, link_service, read_service, workspace
+    service, folder_service, link_service, read_service, workspace
 ):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")[
         "note_id"
@@ -701,14 +715,14 @@ def test_move_to_root_rewrites_path_backlink_to_bare_title(
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Old/Target|x]]", [])[
         "note_id"
     ]
-    service.move(note_target("u1", "ws", workspace, tid), "")
+    folder_service.move(note_target("u1", "ws", workspace, tid), "")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Target|x]]"
     assert link_service._link_repo.backlinks(tid) == [sid]
 
 
 def test_move_folder_ranks_co_moved_source_from_its_old_folder(
-    service, link_service, read_service, workspace
+    service, folder_service, link_service, read_service, workspace
 ):
     # Source sits inside the moved folder and links [[T]], which pre-move meant Old/T (the
     # nearest T). After the move a decoy Dst/Old/Sub/T would win from the source's new
@@ -721,7 +735,9 @@ def test_move_folder_ranks_co_moved_source_from_its_old_folder(
         "note_id"
     ]
     assert link_service._link_repo.backlinks(tid) == [sid]
-    service.move_folder("Old", "Dst/Old", owner_id="u1", ws_path=str(workspace), workspace="ws")
+    folder_service.move_folder(
+        "Old", "Dst/Old", owner_id="u1", ws_path=str(workspace), workspace="ws"
+    )
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Old/T]]"
     assert link_service._link_repo.backlinks(tid) == [sid]

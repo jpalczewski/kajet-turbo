@@ -11,12 +11,12 @@ from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
     CurrentUser,
     get_folder_meta_repo,
-    get_note_service,
+    get_note_folder_service,
     get_required_user,
     resolve_workspace_target,
 )
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import NoteFolderService
 from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.workspace import normalize_folder
 
@@ -38,9 +38,9 @@ async def api_create_folder(
     body: CreateFolderRequest,
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
-    note_service: NoteService = Depends(get_note_service),
+    folder_service: NoteFolderService = Depends(get_note_folder_service),
 ) -> CreateFolderResponse:
-    path = await run_sync(note_service.create_folder, workspace, body.path)
+    path = await run_sync(folder_service.create_folder, workspace, body.path)
     return CreateFolderResponse(path=path)
 
 
