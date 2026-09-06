@@ -176,6 +176,10 @@ embedding-profile create/update are correctly offloaded via `run_sync` already (
 keygen is CPU-bound; the embedding probe uses `asyncio.run()` internally and would deadlock
 inline on the route's own loop). The private key never leaves `SshKeyService._view`, and
 `api_key` is never included in a `ValueError` message, so neither reaches an error response.
+Every route, including the `GET` list routes, constructs its declared `response_model`
+directly (`SshKeysResponse`/`EmbeddingProfilesResponse` wrapping a list of
+`SshKeyItem`/`EmbeddingProfileItem`) instead of returning a raw `JSONResponse` — the same
+defense-in-depth filtering the `POST`/`PUT` routes already relied on now also covers list.
 
 ### Preferences — `api/preferences.py`
 
@@ -188,7 +192,9 @@ Pydantic before the route runs; `api/errors.py`'s `_request_validation_handler` 
 `"enum"` failure on the `locale` field back to the pre-existing `PREFERENCES_INVALID_INPUT`
 code so the client-visible contract is unchanged. `timezone` stays a plain `str` field --
 `is_valid_timezone` needs the live IANA database, not a fixed enum -- so an unknown timezone
-still 422s via the service's `ValueError`.
+still 422s via the service's `ValueError`. `GET` returns the `PreferencesService`'s typed
+`UserPreferences` directly (the service already builds that model in `_view`), so there is
+no raw `JSONResponse` here either.
 
 ### Jobs — `api/jobs.py`
 

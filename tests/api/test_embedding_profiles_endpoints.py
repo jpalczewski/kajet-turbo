@@ -75,6 +75,49 @@ def test_list_requires_auth(database, monkeypatch):
     assert client.get("/api/me/embedding-profiles").status_code == 401
 
 
+def test_create_update_activate_delete_require_auth(database, monkeypatch):
+    # Per-route 401 coverage (tests/api/test_notes.py convention): each mutating route
+    # needs its own check, not just the list route.
+    client, _ = _app(database, monkeypatch, user_id=None)
+    assert (
+        client.post(
+            "/api/me/embedding-profiles",
+            json={"name": "A", "base_url": "http://a/v1", "model": "m"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.put(
+            "/api/me/embedding-profiles/nope",
+            json={"name": "A", "base_url": "http://a/v1", "model": "m"},
+        ).status_code
+        == 401
+    )
+    assert client.post("/api/me/embedding-profiles/nope/activate").status_code == 401
+    assert client.delete("/api/me/embedding-profiles/nope").status_code == 401
+
+
+def test_list_response_matches_response_model(database, monkeypatch):
+    # Regression: GET must return the typed EmbeddingProfilesResponse/EmbeddingProfileItem
+    # shape exactly (was previously a raw JSONResponse bypassing response_model filtering).
+    client, _ = _app(database, monkeypatch)
+    client.post(
+        "/api/me/embedding-profiles",
+        json={"name": "A", "base_url": "http://a/v1", "model": "m", "api_key": "sk-x"},
+    )
+    listed = client.get("/api/me/embedding-profiles").json()
+    assert set(listed.keys()) == {"profiles"}
+    assert set(listed["profiles"][0].keys()) == {
+        "id",
+        "name",
+        "base_url",
+        "model",
+        "dim",
+        "is_active",
+        "has_key",
+    }
+
+
 def test_create_list_activate_flow(database, monkeypatch):
     client, _ = _app(database, monkeypatch, probe_dim=1024)
     r = client.post(
@@ -112,6 +155,17 @@ def test_create_missing_required_field_is_422(database, monkeypatch):
     r = client.post("/api/me/embedding-profiles", json={"name": "x"})
     assert r.status_code == 422
     assert r.json()["error"] == "INVALID_INPUT"
+
+
+def test_activate_success_returns_ok(database, monkeypatch):
+    client, _ = _app(database, monkeypatch)
+    pid = client.post(
+        "/api/me/embedding-profiles",
+        json={"name": "A", "base_url": "http://a/v1", "model": "m", "api_key": "k"},
+    ).json()["id"]
+    r = client.post(f"/api/me/embedding-profiles/{pid}/activate")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
 
 
 def test_activate_unknown_is_404(database, monkeypatch):

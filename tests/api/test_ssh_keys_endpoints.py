@@ -121,8 +121,26 @@ def test_create_response_never_contains_private_key_material(database, monkeypat
     assert "PRIVATE" not in bad.text
 
 
+def test_list_response_matches_response_model(database, monkeypatch):
+    # Regression: GET must return the typed SshKeysResponse/SshKeyItem shape exactly
+    # (was previously a raw JSONResponse bypassing response_model validation/filtering).
+    client = _app(database, monkeypatch)
+    client.post("/api/me/ssh-keys", json={"name": "laptop", "algorithm": "ed25519"})
+    listed = client.get("/api/me/ssh-keys").json()
+    assert set(listed.keys()) == {"keys"}
+    assert set(listed["keys"][0].keys()) == {
+        "id",
+        "name",
+        "algorithm",
+        "fingerprint",
+        "public_key",
+        "created_at",
+    }
+
+
 def test_requires_login(database, monkeypatch):
     client = _app(database, monkeypatch, user_id=None)
     assert client.get("/api/me/ssh-keys").status_code == 401
     r = client.post("/api/me/ssh-keys", json={"name": "x", "algorithm": "ed25519"})
     assert r.status_code == 401
+    assert client.delete("/api/me/ssh-keys/does-not-matter").status_code == 401

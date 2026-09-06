@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import (
     CreateEmbeddingProfileRequest,
@@ -22,8 +21,10 @@ router = APIRouter()
 def api_list_embedding_profiles(
     user: CurrentUser = Depends(get_required_user),
     svc: EmbeddingProfileService = Depends(get_embedding_profile_service),
-) -> JSONResponse:
-    return JSONResponse({"profiles": svc.list_profiles(user.id)})
+) -> EmbeddingProfilesResponse:
+    return EmbeddingProfilesResponse(
+        profiles=[EmbeddingProfileItem(**item) for item in svc.list_profiles(user.id)]
+    )
 
 
 @router.post(

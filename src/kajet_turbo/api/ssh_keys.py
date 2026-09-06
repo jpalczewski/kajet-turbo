@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import CreateSshKeyRequest, OkResponse, SshKeyItem, SshKeysResponse
 from kajet_turbo.api.schemas.errors import ErrorResponse
@@ -16,8 +15,8 @@ router = APIRouter()
 def api_list_ssh_keys(
     user: CurrentUser = Depends(get_required_user),
     svc: SshKeyService = Depends(get_ssh_key_service),
-) -> JSONResponse:
-    return JSONResponse({"keys": svc.list_keys(user.id)})
+) -> SshKeysResponse:
+    return SshKeysResponse(keys=[SshKeyItem(**item) for item in svc.list_keys(user.id)])
 
 
 @router.post(

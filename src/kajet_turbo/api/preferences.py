@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import UpdatePreferencesRequest, UserPreferences
 from kajet_turbo.api.schemas.errors import ErrorResponse
@@ -15,8 +14,8 @@ router = APIRouter(responses={401: {"model": ErrorResponse}})
 def api_get_preferences(
     user: CurrentUser = Depends(get_required_user),
     svc: PreferencesService = Depends(get_preferences_service),
-) -> JSONResponse:
-    return JSONResponse(svc.get_preferences(user.id).model_dump())
+) -> UserPreferences:
+    return svc.get_preferences(user.id)
 
 
 @router.patch(
