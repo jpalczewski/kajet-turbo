@@ -23,6 +23,11 @@ def other_client(api_client_factory) -> ApiTestContext:
     return api_client_factory(user_id="u2", grant_access=False)
 
 
+@pytest.fixture
+def anon_client(api_client_factory) -> ApiTestContext:
+    return api_client_factory(user_id=None)
+
+
 def test_get_settings_returns_definitions_and_defaults(client, ws_name):
     res = client.get(f"/api/workspaces/{ws_name}/settings")
     assert res.status_code == 200
@@ -70,6 +75,34 @@ def test_patch_settings_rejects_wrong_type(client, ws_name):
 def test_settings_requires_access(other_client, ws_name):
     # A client authenticated as a different user without access.
     assert other_client.get(f"/api/workspaces/{ws_name}/settings").status_code == 403
+
+
+def test_get_settings_requires_auth_401(anon_client, ws_name):
+    assert anon_client.get(f"/api/workspaces/{ws_name}/settings").status_code == 401
+
+
+def test_patch_settings_requires_auth_401(anon_client, ws_name):
+    r = anon_client.patch(
+        f"/api/workspaces/{ws_name}/settings", json={"values": {"validate_links": False}}
+    )
+    assert r.status_code == 401
+
+
+def test_patch_settings_no_access_403(other_client, ws_name):
+    r = other_client.patch(
+        f"/api/workspaces/{ws_name}/settings", json={"values": {"validate_links": False}}
+    )
+    assert r.status_code == 403
+
+
+def test_patch_settings_omitted_key_is_a_no_op(client, ws_name):
+    client.patch(f"/api/workspaces/{ws_name}/settings", json={"values": {"validate_links": False}})
+    res = client.patch(f"/api/workspaces/{ws_name}/settings", json={"values": {}})
+    assert res.status_code == 200
+    # validate_links stays False -- an empty `values` dict changes nothing, matching the
+    # pre-#254 per-key iteration's behavior for a key the client didn't mention.
+    assert res.json()["values"]["validate_links"] is False
+    assert res.json()["values"]["include_in_search_all"] is True
 
 
 def test_temporal_backfill_preview_and_apply(client, ws_name):

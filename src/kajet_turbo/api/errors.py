@@ -22,7 +22,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
-from kajet_turbo.errors import FolderError, NoteError, PreferencesError, RequestError, SshKeyError
+from kajet_turbo.errors import (
+    FolderError,
+    NoteError,
+    PreferencesError,
+    RequestError,
+    SshKeyError,
+    WorkspaceError,
+)
 from kajet_turbo.errors import GitError as GitErrorCode
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import BrokenWikilinkError
@@ -37,14 +44,15 @@ async def _http_exception_handler(request: Request, exc: HTTPException) -> JSONR
 
 
 # Pydantic error "type" -> legacy error code, for validators (schemas/notes/crud.py,
-# schemas/ssh_keys.py) whose old hand-rolled 422s the frontend still keys UI copy off of
-# (grep frontend/src/lib/api before removing an entry here). Everything else falls back to
-# RequestError.INVALID_INPUT.
-_CUSTOM_ERROR_TYPES: dict[str, NoteError | FolderError | SshKeyError] = {
+# schemas/ssh_keys.py, schemas/workspaces/meta.py) whose old hand-rolled 422s the frontend
+# still keys UI copy off of (grep frontend/src/lib/api before removing an entry here).
+# Everything else falls back to RequestError.INVALID_INPUT.
+_CUSTOM_ERROR_TYPES: dict[str, NoteError | FolderError | SshKeyError | WorkspaceError] = {
     "note_title_required": NoteError.TITLE_REQUIRED,
     "folder_path_required": FolderError.PATH_REQUIRED,
     "folder_path_invalid": FolderError.PATH_INVALID,
     "ssh_key_name_required": SshKeyError.NAME_REQUIRED,
+    "workspace_name_required": WorkspaceError.NAME_REQUIRED,
 }
 # CreateNoteRequest.title and CreateFolderRequest.path are required fields (min_length=1 /
 # no default), so OpenAPI advertises them correctly as non-optional -- but that means a
@@ -68,6 +76,13 @@ _REQUIRED_FIELD_CODES: dict[str, NoteError | FolderError | SshKeyError] = {
     "path": FolderError.PATH_REQUIRED,
     "folder": FolderError.PATH_REQUIRED,
     "algorithm": SshKeyError.INVALID_ALGORITHM,
+    # "name" deliberately not keyed here -- it's too common a field name across the app's
+    # request models (see tests/api/test_error_handlers.py's own unrelated probe body) to
+    # map safely at this global-by-field-name scope. CreateWorkspaceRequest instead raises
+    # WORKSPACE_NAME_REQUIRED itself via a "before"-mode model_validator (see
+    # api/schemas/workspaces/meta.py::_require_name_present) that both a missing "name" key
+    # and an explicit blank one hit, surfacing as the "workspace_name_required" custom type
+    # above instead of the generic "missing" one this table maps.
 }
 _REQUIRED_ERROR_TYPES = {"missing", "string_type", "string_too_short", "literal_error"}
 # UpdatePreferencesRequest.locale is typed as the closed `Locale` enum, so an unsupported
@@ -92,7 +107,7 @@ async def _request_validation_handler(
     detail = f"{loc_str}: {msg}" if loc_str else msg
     error_type = first.get("type", "")
     field = str(loc[-1]) if loc else ""
-    code: NoteError | FolderError | RequestError | SshKeyError | PreferencesError
+    code: NoteError | FolderError | RequestError | SshKeyError | PreferencesError | WorkspaceError
     if error_type in _REQUIRED_ERROR_TYPES and field in _REQUIRED_FIELD_CODES:
         code = _REQUIRED_FIELD_CODES[field]
     elif error_type == "enum" and field in _ENUM_FIELD_CODES:

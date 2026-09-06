@@ -1,16 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException
 
 from kajet_turbo.api.schemas import (
+    CreateWorkspaceRequest,
     CreateWorkspaceResponse,
     DeleteWorkspaceResponse,
+    UpdateWorkspaceRequest,
     UpdateWorkspaceResponse,
     WorkspacesListResponse,
 )
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.dependencies import CurrentUser, get_required_user, get_workspace_service
-from kajet_turbo.errors import AuthError, WorkspaceError
+from kajet_turbo.dependencies import (
+    CurrentUser,
+    get_required_user,
+    get_workspace_service,
+    resolve_workspace_target,
+)
+from kajet_turbo.errors import WorkspaceError
+from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 
 router = APIRouter(
@@ -25,8 +32,8 @@ router = APIRouter(
 def api_list_workspaces(
     user: CurrentUser = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
-) -> JSONResponse:
-    return JSONResponse({"workspaces": ws_service.list_with_details(user.id)})
+) -> WorkspacesListResponse:
+    return WorkspacesListResponse(workspaces=ws_service.list_with_details(user.id))
 
 
 @router.post(
@@ -36,38 +43,30 @@ def api_list_workspaces(
     responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 async def api_create_workspace(
-    request: Request,
+    body: CreateWorkspaceRequest,
     user: CurrentUser = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
-) -> JSONResponse:
+) -> CreateWorkspaceResponse:
+    # No resolve_workspace_target here -- this route creates a name, it doesn't address
+    # an existing one, so there is nothing to authorize against yet.
     try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail=WorkspaceError.INVALID_INPUT) from None
-    name = str(body.get("name", "")).strip()
-    if not name:
-        raise HTTPException(status_code=422, detail=WorkspaceError.NAME_REQUIRED)
-    description = str(body.get("description", "")).strip()
-    folder = body.get("folder")
-    tags = body.get("tags")
-    try:
-        await run_sync(ws_service.create, name, user.id, description=description)
+        await run_sync(ws_service.create, body.name, user.id, description=body.description)
     except FileExistsError:
         raise HTTPException(status_code=409, detail=WorkspaceError.ALREADY_EXISTS) from None
     except ValueError:
         raise HTTPException(status_code=422, detail=WorkspaceError.INVALID_INPUT) from None
-    if folder is not None or tags is not None:
+    if body.folder is not None or body.tags is not None:
         try:
             await run_sync(
                 ws_service.set_meta,
                 user.id,
-                name,
-                folder=folder if isinstance(folder, str) else None,
-                tags=tags if isinstance(tags, list) else None,
+                body.name,
+                folder=body.folder,
+                tags=body.tags,
             )
         except ValueError:
             raise HTTPException(status_code=422, detail=WorkspaceError.INVALID_INPUT) from None
-    return JSONResponse({"name": name}, status_code=201)
+    return CreateWorkspaceResponse(name=body.name)
 
 
 @router.patch(
@@ -77,31 +76,23 @@ async def api_create_workspace(
 )
 async def api_update_workspace(
     name: str,
-    request: Request,
+    body: UpdateWorkspaceRequest,
     user: CurrentUser = Depends(get_required_user),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     ws_service: WorkspaceService = Depends(get_workspace_service),
-) -> JSONResponse:
-    if not await run_sync(ws_service.has_access, user.id, name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
+) -> UpdateWorkspaceResponse:
+    # exclude_unset() -> only keys the client actually sent reach set_meta(); an omitted
+    # key and an explicit null both end up None here, and set_meta's repo layer already
+    # treats None as "leave this column unchanged" (COALESCE), so this reproduces the same
+    # "explicit null clears nothing" contract UpdateNoteRequest documents for title/content/
+    # folder/tags -- unlike before #254, a *wrong-typed* key (e.g. tags as a string) now
+    # 422s instead of being silently dropped by an isinstance guard.
+    updates = body.model_dump(exclude_unset=True)
     try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail=WorkspaceError.INVALID_INPUT) from None
-    description = body.get("description")
-    folder = body.get("folder")
-    tags = body.get("tags")
-    try:
-        result = await run_sync(
-            ws_service.set_meta,
-            user.id,
-            name,
-            description=description if isinstance(description, str) else None,
-            folder=folder if isinstance(folder, str) else None,
-            tags=tags if isinstance(tags, list) else None,
-        )
+        result = await run_sync(ws_service.set_meta, user.id, name, **updates)
     except ValueError:
         raise HTTPException(status_code=422, detail=WorkspaceError.INVALID_INPUT) from None
-    return JSONResponse({"name": name, **result})
+    return UpdateWorkspaceResponse(name=name, **result)
 
 
 @router.delete(
@@ -111,9 +102,8 @@ async def api_update_workspace(
 async def api_delete_workspace(
     name: str,
     user: CurrentUser = Depends(get_required_user),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     ws_service: WorkspaceService = Depends(get_workspace_service),
-) -> JSONResponse:
-    if not await run_sync(ws_service.has_access, user.id, name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
+) -> DeleteWorkspaceResponse:
     await run_sync(ws_service.delete, user.id, name)
-    return JSONResponse({"name": name})
+    return DeleteWorkspaceResponse(name=name)

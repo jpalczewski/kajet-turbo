@@ -25,9 +25,10 @@ once a family is migrated — it goes stale the moment code changes.
     activates route-by-route as #253/#254 adopt typed bodies.
   - `InvalidFolderError`, `BrokenWikilinkError`, `TemporalMetadataError`,
     `repositories.git.GitError` → consistent domain codes at the app level. Existing local
-    `except` blocks for these same exceptions in `notes.py`/`folders.py`/`export.py`/
-    `history.py` still shadow the global handler (a local `except` always wins) — remove
-    those local blocks when migrating each route, don't do it as a separate pass.
+    `except` blocks for these same exceptions in `notes.py`/`folders.py`/`history.py` still
+    shadow the global handler (a local `except` always wins) — remove those local blocks
+    when migrating each route, don't do it as a separate pass. `export.py`'s local
+    `except GitError` was removed in #254.
   - Any other `Exception` → 500 `{"error": "internal_error"}` plus a `logger.error`
     diagnostic line carrying `request_id` (now exposed via `request.state.request_id`,
     set by `LoggingMiddleware` in `src/kajet_turbo/log.py`) and `exc_type`; no request
@@ -104,25 +105,52 @@ checked during #254's auth-family pass -- it's already `async def` and awaits it
 | `POST /api/consent` | typed `ConsentRequest{pending_id: str}` | missing key → 422 `RequestError.INVALID_INPUT`; a present-but-invalid `pending_id` reaches `provider.complete_authorization` and raises there | 400 `AuthError.PENDING_EXPIRED`, 200 | |
 | `GET /api/pending` | query param `id` | — | 404 `AuthError.PENDING_EXPIRED` (reused: same "unknown/expired pending_id" condition as `/api/consent`), 200 | **no auth dependency** — intentional; exempt from the typed-body migration (no body, protocol-adjacent) |
 
-### Workspaces meta — `api/workspaces/workspace_meta.py`
+### Workspaces meta — `api/workspaces/workspace_meta.py` (migrated, #254)
 
-CRUD on `/api/workspaces` and `/api/workspaces/{name}`. All bodies hand-parsed; `PATCH`
-treats an explicit key as "set if the right type, ignore otherwise" (`isinstance` guards),
-not true PATCH field-presence semantics. `has_access` checks already went through
-`run_sync` before this phase.
+CRUD on `/api/workspaces` and `/api/workspaces/{name}`. `POST /api/workspaces` takes a
+typed `CreateWorkspaceRequest` (`name` required/non-blank; unlike `CreateNoteRequest.title`,
+a *missing* `name` key is caught by a `model_validator(mode="before")` rather than left to
+api/errors.py's global by-field-name `_REQUIRED_FIELD_CODES` table -- `name` is too common a
+field name across the app's request models to key that table on safely, as
+`tests/api/test_error_handlers.py`'s unrelated generic probe body demonstrated;
+`description`/`folder`/`tags` optional); it has no `resolve_workspace_target` dependency
+since it doesn't address an existing workspace yet.
+`PATCH /api/workspaces/{name}` and `DELETE /api/workspaces/{name}` both use
+`Depends(resolve_workspace_target)` instead of a hand-rolled `has_access` call. `PATCH`
+takes `UpdateWorkspaceRequest` and applies it via `body.model_dump(exclude_unset=True)` --
+real field-presence semantics, replacing the old "set if the right type, ignore otherwise"
+`isinstance` guards. Behavior change: a wrong-typed key the client did send (e.g.
+`tags: "x"` instead of a list) now 422s instead of being silently dropped; an omitted key
+or an explicit `null` are still both a no-op, matching `set_meta`'s existing
+COALESCE-based "None leaves the column unchanged" contract.
 
-### Workspace settings — `api/workspaces/workspace_settings.py`
+### Workspace settings — `api/workspaces/workspace_settings.py` (migrated, #254)
 
-Settings `GET`/`PATCH`, temporal-backfill `preview`/`apply`. `PATCH` iterates
-`body["values"]` and 422s on non-dict; per-key `ValueError` from `set_setting` also 422s.
-`apply_temporal_backfill` is the one route here on a typed Pydantic body
-(`ApplyTemporalBackfillRequest`) already — a preview of the R2/R3 target shape.
+Settings `GET`/`PATCH`, temporal-backfill `preview`/`apply` — all four now use
+`Depends(resolve_workspace_target)`, and the two temporal-backfill routes take
+`str(workspace.path)` instead of a separate `ws_service.workspace_path(...)` call.
+`PATCH`'s body is `UpdateWorkspaceSettingsRequest{values: UpdateWorkspaceSettingsValues}`,
+one optional `StrictBool` field per `workspace_settings.REGISTRY` key; only keys present in
+`body.values.model_dump(exclude_unset=True)` are applied, matching the previous
+per-key-in-`values`-dict behavior. Unlike the rest of this family's REST bodies,
+`UpdateWorkspaceSettingsValues` sets `extra="forbid"` (an unknown setting key still 422s,
+as before) and uses `StrictBool` rather than `bool` (a JSON string like `"yes"` still 422s
+rather than being coerced) -- both preserve pre-#254 behavior that a plain `dict` body
+happened to give for free. `apply_temporal_backfill` was already on a typed Pydantic body
+(`ApplyTemporalBackfillRequest`) before this phase and is unchanged apart from the target
+dependency.
 
-### Export — `api/workspaces/export.py`
+### Export — `api/workspaces/export.py` (migrated, #254)
 
 Single `GET .../export?format=`, returns `FileResponse` (zip/tar.zst/bundle) with a
-`BackgroundTasks` cleanup callback. Correctly kept outside the JSON envelope per the
-epic's own carve-out for file responses.
+`BackgroundTasks` cleanup callback. Explicitly exempt from `response_model` / the JSON
+envelope per the epic's own carve-out for file responses; `format` stays a plain
+`Literal[...]` query param (FastAPI already 422s an unknown value, so it gets no separate
+request model). Gained `Depends(resolve_workspace_target)` for access-check parity with the
+other two files in this family, replacing a direct `ws_service.has_access` call and a
+separate `ws_service.workspace_path(...)` call. The local `except GitError` that used to
+shadow `api/errors.py`'s global handler (and leaked `str(e)` into the 500 body) was removed
+rather than migrated, per the "Shared infrastructure" note on `GitError` shadowing above.
 
 ### Notes CRUD — `api/workspaces/notes/crud/{notes,folders,contents,entries,tags,reindex}.py`
 
@@ -216,10 +244,10 @@ the `CurrentUser` migration. Still returns a raw `dict`.
 ## Manual `request.json()` sites (R2/R3 backlog for typed bodies)
 
 None migrated in #247 — this enumerates the full blast radius for later phases. `auth.py`,
-`oauth.py`, `workspace_remote.py`, `ssh_keys.py`, `embedding.py`, and `preferences.py` were
-all migrated in #254 and are removed from this list; `api_pending_info` never had a body.
+`oauth.py`, `workspace_remote.py`, `ssh_keys.py`, `embedding.py`, `preferences.py`,
+`workspace_settings.py`, and `workspace_meta.py` were all migrated in #254 and are removed
+from this list; `api_pending_info` never had a body. Only the notes CRUD family remains:
 
-`workspace_settings.py:53`, `workspace_meta.py:44,85`,
 `notes/crud/notes.py:72,125,158,225`, `notes/crud/folders.py:63`.
 
 ## Frontend callers

@@ -3,6 +3,11 @@ def test_delete_no_access_403(no_access_client):
     assert r.status_code == 403
 
 
+def test_delete_requires_auth_401(anon_client):
+    r = anon_client.delete("/api/workspaces/test-ws")
+    assert r.status_code == 401
+
+
 def test_delete_removes_workspace_from_list_and_directory(auth_client):
     r = auth_client.delete("/api/workspaces/test-ws")
     assert r.status_code == 200

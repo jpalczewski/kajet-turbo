@@ -11,8 +11,9 @@
     apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatch as patchSettings,
     type SettingDefinition,
     type TemporalBackfillPreviewResponse,
+    type UpdateWorkspaceSettingsValues,
   } from '$lib/api';
-  import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
+  import { apiErrorMessage } from '$lib/api/mutate';
   import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
   import { workspaceExportUrl, workspacesPath } from '$lib/routes';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
@@ -94,7 +95,9 @@
     values[key] = !prev;
     settingsError = '';
     try {
-      const res = await patchSettings(slug, jsonBody({ values: { [key]: values[key] } }));
+      const patch: UpdateWorkspaceSettingsValues = {};
+      patch[key as keyof UpdateWorkspaceSettingsValues] = values[key] as boolean;
+      const res = await patchSettings(slug, { values: patch });
       if (res.status === 200) {
         values = res.data.values;
       } else {

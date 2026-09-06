@@ -2,7 +2,7 @@
   import { invalidate } from '$app/navigation';
   import { page } from '$app/state';
   import { apiUpdateWorkspaceApiWorkspacesNamePatch } from '$lib/api';
-  import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
+  import { apiErrorMessage } from '$lib/api/mutate';
   import { notesPath } from '$lib/routes';
   import { formatUnixDate } from '$lib/utils/format';
   import { groupWorkspaces } from '$lib/utils/groupWorkspaces';
@@ -42,14 +42,11 @@
       .map((t) => t.trim())
       .filter(Boolean);
     try {
-      await apiUpdateWorkspaceApiWorkspacesNamePatch(
-        name,
-        jsonBody({
-          description: editDesc[name] ?? '',
-          folder: editFolder[name] ?? '',
-          tags,
-        }),
-      );
+      await apiUpdateWorkspaceApiWorkspacesNamePatch(name, {
+        description: editDesc[name] ?? '',
+        folder: editFolder[name] ?? '',
+        tags,
+      });
       editing[name] = false;
       await invalidate('app:workspaces');
     } catch (e) {

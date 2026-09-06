@@ -118,13 +118,6 @@ export interface ConsentResponse {
   redirect_uri: string;
 }
 
-export interface CreateEmbeddingProfileRequest {
-  name: string;
-  base_url: string;
-  model: string;
-  api_key?: string | null;
-}
-
 export interface CreateFolderRequest {
   path: string;
 }
@@ -138,18 +131,16 @@ export interface CreateNoteResponse {
   warnings?: WikilinkWarning[];
 }
 
-export type CreateSshKeyRequestAlgorithm = typeof CreateSshKeyRequestAlgorithm[keyof typeof CreateSshKeyRequestAlgorithm];
-
-
-export const CreateSshKeyRequestAlgorithm = {
-  ed25519: 'ed25519',
-  'ecdsa-p256': 'ecdsa-p256',
-  'rsa-4096': 'rsa-4096',
-} as const;
-
-export interface CreateSshKeyRequest {
+export interface CreateWorkspaceRequest {
+  /**
+     * Workspace name; unique per owner
+     * @minLength 1
+     */
   name: string;
-  algorithm: CreateSshKeyRequestAlgorithm;
+  description?: string;
+  /** Folder path for grouping this workspace in the picker */
+  folder?: string | null;
+  tags?: string[] | null;
 }
 
 export interface CreateWorkspaceResponse {
@@ -175,14 +166,6 @@ export interface DeleteNoteResponse {
 export interface DeleteWorkspaceResponse {
   name: string;
 }
-
-export type EmbeddingProfileError = typeof EmbeddingProfileError[keyof typeof EmbeddingProfileError];
-
-
-export const EmbeddingProfileError = {
-  EMBEDDING_PROFILE_NOT_FOUND: 'EMBEDDING_PROFILE_NOT_FOUND',
-  EMBEDDING_PROFILE_PROBE_FAILED: 'EMBEDDING_PROFILE_PROBE_FAILED',
-} as const;
 
 export interface EmbeddingProfileItem {
   id: string;
@@ -292,17 +275,7 @@ export const TargetError = {
   TARGET_MIXED_WORKSPACES: 'TARGET_MIXED_WORKSPACES',
 } as const;
 
-export type SshKeyError = typeof SshKeyError[keyof typeof SshKeyError];
-
-
-export const SshKeyError = {
-  SSH_KEY_NAME_REQUIRED: 'SSH_KEY_NAME_REQUIRED',
-  SSH_KEY_NAME_TAKEN: 'SSH_KEY_NAME_TAKEN',
-  SSH_KEY_INVALID_ALGORITHM: 'SSH_KEY_INVALID_ALGORITHM',
-  SSH_KEY_NOT_FOUND: 'SSH_KEY_NOT_FOUND',
-} as const;
-
-export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,...PreferencesError,...RequestError,...TargetError,...SshKeyError,...EmbeddingProfileError,} as const
+export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,...PreferencesError,...RequestError,...TargetError,} as const
 export type ErrorCode = typeof ErrorCode[keyof typeof ErrorCode];
 
 export interface ErrorResponse {
@@ -599,13 +572,6 @@ export interface TemporalWarning {
   field: TemporalWarningField;
 }
 
-export interface UpdateEmbeddingProfileRequest {
-  name: string;
-  base_url: string;
-  model: string;
-  api_key?: string | null;
-}
-
 export interface UpdateFolderMetaRequest {
   /** What this folder is for; empty string clears the field */
   description: string;
@@ -631,9 +597,10 @@ export interface UpdateNoteResponse {
   temporal_warnings?: TemporalWarning[];
 }
 
-export interface UpdatePreferencesRequest {
-  timezone?: string | null;
-  locale?: Locale | null;
+export interface UpdateWorkspaceRequest {
+  description?: string | null;
+  folder?: string | null;
+  tags?: string[] | null;
 }
 
 export interface UpdateWorkspaceResponse {
@@ -641,6 +608,24 @@ export interface UpdateWorkspaceResponse {
   description: string;
   folder: string;
   tags: string[];
+}
+
+/**
+ * One optional field per `kajet_turbo.workspace_settings.REGISTRY` key -- add a field
+ * here whenever a setting is added there. `extra="forbid"` turns an unknown setting key
+ * into a 422 instead of the silent no-op a plain dict would give it (this is the one
+ * REST body in the family that deliberately opts out of the extra="ignore" default --
+ * a setting key is a small, enumerable, versioned set, not a client-tolerant surface).
+ * `StrictBool` (not `bool`) so a JSON string like "yes" 422s instead of being coerced --
+ * matching `workspace_settings._check_type`'s exact-bool check.
+ */
+export interface UpdateWorkspaceSettingsValues {
+  include_in_search_all?: boolean | null;
+  validate_links?: boolean | null;
+}
+
+export interface UpdateWorkspaceSettingsRequest {
+  values: UpdateWorkspaceSettingsValues;
 }
 
 export type UpdateWorkspaceSettingsResponseValues = { [key: string]: unknown };
@@ -1078,14 +1063,20 @@ export const getApiCreateWorkspaceApiWorkspacesPostUrl = () => {
 /**
  * @summary Api Create Workspace
  */
-export const apiCreateWorkspaceApiWorkspacesPost = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiCreateWorkspaceApiWorkspacesPostResponse> => {
+export const apiCreateWorkspaceApiWorkspacesPost = async (createWorkspaceRequest: CreateWorkspaceRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateWorkspaceApiWorkspacesPostResponse> => {
 
-  return customFetch<apiCreateWorkspaceApiWorkspacesPostResponse>(getApiCreateWorkspaceApiWorkspacesPostUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<apiCreateWorkspaceApiWorkspacesPostResponse>(getApiCreateWorkspaceApiWorkspacesPostUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(createWorkspaceRequest)
   }
 );}
 
@@ -1131,14 +1122,21 @@ export const getApiUpdateWorkspaceApiWorkspacesNamePatchUrl = (name: string,) =>
 /**
  * @summary Api Update Workspace
  */
-export const apiUpdateWorkspaceApiWorkspacesNamePatch = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateWorkspaceApiWorkspacesNamePatchResponse> => {
+export const apiUpdateWorkspaceApiWorkspacesNamePatch = async (name: string,
+    updateWorkspaceRequest: UpdateWorkspaceRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateWorkspaceApiWorkspacesNamePatchResponse> => {
 
-  return customFetch<apiUpdateWorkspaceApiWorkspacesNamePatchResponse>(getApiUpdateWorkspaceApiWorkspacesNamePatchUrl(name),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<apiUpdateWorkspaceApiWorkspacesNamePatchResponse>(getApiUpdateWorkspaceApiWorkspacesNamePatchUrl(name),
   {
     ...options,
-    method: 'PATCH'
-
-
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(updateWorkspaceRequest)
   }
 );}
 
@@ -1290,14 +1288,21 @@ export const getApiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchUrl = (n
 /**
  * @summary Api Update Workspace Settings
  */
-export const apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatch = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse> => {
+export const apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatch = async (name: string,
+    updateWorkspaceSettingsRequest: UpdateWorkspaceSettingsRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse> => {
 
-  return customFetch<apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse>(getApiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchUrl(name),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse>(getApiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchUrl(name),
   {
     ...options,
-    method: 'PATCH'
-
-
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(updateWorkspaceSettingsRequest)
   }
 );}
 
@@ -2887,29 +2892,17 @@ export const apiListEmbeddingProfilesApiMeEmbeddingProfilesGet = async ( options
 
 
 
-export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse201 = {
-  data: EmbeddingProfileItem
-  status: 201
+export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse200 = {
+  data: unknown
+  status: 200
 }
 
-export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse400 = {
-  data: ErrorResponse
-  status: 400
-}
-
-export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse422 = {
-  data: ErrorResponse
-  status: 422
-}
-
-export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse201) & {
+export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse200) & {
   headers: Headers;
 };
-export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseError = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse400 | apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse422) & {
-  headers: Headers;
-};
+;
 
-export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess | apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseError)
+export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess)
 
 export const getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl = () => {
 
@@ -2922,49 +2915,33 @@ export const getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl = () => {
 /**
  * @summary Api Create Embedding Profile
  */
-export const apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost = async (createEmbeddingProfileRequest: CreateEmbeddingProfileRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse> => {
+export const apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse> => {
 
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customFetch<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse>(getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl(),
+  return customFetch<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse>(getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl(),
   {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(createEmbeddingProfileRequest)
+    method: 'POST'
+
+
   }
 );}
 
 
 
 export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse200 = {
-  data: EmbeddingProfileItem
+  data: unknown
   status: 200
 }
 
-export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse400 = {
-  data: ErrorResponse
-  status: 400
-}
-
-export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse404 = {
-  data: ErrorResponse
-  status: 404
-}
-
 export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse422 = {
-  data: ErrorResponse
+  data: HTTPValidationError
   status: 422
 }
 
 export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseSuccess = (apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse200) & {
   headers: Headers;
 };
-export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseError = (apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse400 | apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse404 | apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse422) & {
+export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseError = (apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse422) & {
   headers: Headers;
 };
 
@@ -2981,28 +2958,21 @@ export const getApiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutUrl =
 /**
  * @summary Api Update Embedding Profile
  */
-export const apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPut = async (profileId: string,
-    updateEmbeddingProfileRequest: UpdateEmbeddingProfileRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse> => {
+export const apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPut = async (profileId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse> => {
 
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customFetch<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse>(getApiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutUrl(profileId),
+  return customFetch<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse>(getApiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutUrl(profileId),
   {
     ...options,
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(updateEmbeddingProfileRequest)
+    method: 'PUT'
+
+
   }
 );}
 
 
 
 export type apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponse200 = {
-  data: OkResponse
+  data: unknown
   status: 200
 }
 
@@ -3045,13 +3015,8 @@ export const apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDelete = as
 
 
 export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse200 = {
-  data: OkResponse
+  data: unknown
   status: 200
-}
-
-export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse404 = {
-  data: ErrorResponse
-  status: 404
 }
 
 export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse422 = {
@@ -3062,7 +3027,7 @@ export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePo
 export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseSuccess = (apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse200) & {
   headers: Headers;
 };
-export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseError = (apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse404 | apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse422) & {
+export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseError = (apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse422) & {
   headers: Headers;
 };
 
@@ -3128,29 +3093,17 @@ export const apiListSshKeysApiMeSshKeysGet = async ( options?: Parameters<typeof
 
 
 
-export type apiCreateSshKeyApiMeSshKeysPostResponse201 = {
-  data: SshKeyItem
-  status: 201
+export type apiCreateSshKeyApiMeSshKeysPostResponse200 = {
+  data: unknown
+  status: 200
 }
 
-export type apiCreateSshKeyApiMeSshKeysPostResponse409 = {
-  data: ErrorResponse
-  status: 409
-}
-
-export type apiCreateSshKeyApiMeSshKeysPostResponse422 = {
-  data: ErrorResponse
-  status: 422
-}
-
-export type apiCreateSshKeyApiMeSshKeysPostResponseSuccess = (apiCreateSshKeyApiMeSshKeysPostResponse201) & {
+export type apiCreateSshKeyApiMeSshKeysPostResponseSuccess = (apiCreateSshKeyApiMeSshKeysPostResponse200) & {
   headers: Headers;
 };
-export type apiCreateSshKeyApiMeSshKeysPostResponseError = (apiCreateSshKeyApiMeSshKeysPostResponse409 | apiCreateSshKeyApiMeSshKeysPostResponse422) & {
-  headers: Headers;
-};
+;
 
-export type apiCreateSshKeyApiMeSshKeysPostResponse = (apiCreateSshKeyApiMeSshKeysPostResponseSuccess | apiCreateSshKeyApiMeSshKeysPostResponseError)
+export type apiCreateSshKeyApiMeSshKeysPostResponse = (apiCreateSshKeyApiMeSshKeysPostResponseSuccess)
 
 export const getApiCreateSshKeyApiMeSshKeysPostUrl = () => {
 
@@ -3163,33 +3116,22 @@ export const getApiCreateSshKeyApiMeSshKeysPostUrl = () => {
 /**
  * @summary Api Create Ssh Key
  */
-export const apiCreateSshKeyApiMeSshKeysPost = async (createSshKeyRequest: CreateSshKeyRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateSshKeyApiMeSshKeysPostResponse> => {
+export const apiCreateSshKeyApiMeSshKeysPost = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiCreateSshKeyApiMeSshKeysPostResponse> => {
 
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customFetch<apiCreateSshKeyApiMeSshKeysPostResponse>(getApiCreateSshKeyApiMeSshKeysPostUrl(),
+  return customFetch<apiCreateSshKeyApiMeSshKeysPostResponse>(getApiCreateSshKeyApiMeSshKeysPostUrl(),
   {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(createSshKeyRequest)
+    method: 'POST'
+
+
   }
 );}
 
 
 
 export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse200 = {
-  data: OkResponse
+  data: unknown
   status: 200
-}
-
-export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse404 = {
-  data: ErrorResponse
-  status: 404
 }
 
 export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse422 = {
@@ -3200,7 +3142,7 @@ export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse422 = {
 export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseSuccess = (apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse200) & {
   headers: Headers;
 };
-export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseError = (apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse404 | apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse422) & {
+export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseError = (apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse422) & {
   headers: Headers;
 };
 
@@ -3308,20 +3250,14 @@ export const getApiUpdatePreferencesApiMePreferencesPatchUrl = () => {
 /**
  * @summary Api Update Preferences
  */
-export const apiUpdatePreferencesApiMePreferencesPatch = async (updatePreferencesRequest: UpdatePreferencesRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdatePreferencesApiMePreferencesPatchResponse> => {
+export const apiUpdatePreferencesApiMePreferencesPatch = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiUpdatePreferencesApiMePreferencesPatchResponse> => {
 
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customFetch<apiUpdatePreferencesApiMePreferencesPatchResponse>(getApiUpdatePreferencesApiMePreferencesPatchUrl(),
+  return customFetch<apiUpdatePreferencesApiMePreferencesPatchResponse>(getApiUpdatePreferencesApiMePreferencesPatchUrl(),
   {
     ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(updatePreferencesRequest)
+    method: 'PATCH'
+
+
   }
 );}
 

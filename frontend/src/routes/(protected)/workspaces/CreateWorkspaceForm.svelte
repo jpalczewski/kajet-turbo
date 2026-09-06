@@ -1,7 +1,6 @@
 <script lang="ts">
   import { invalidate } from '$app/navigation';
   import { apiCreateWorkspaceApiWorkspacesPost } from '$lib/api';
-  import { jsonBody } from '$lib/api/mutate';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
 
   let name = $state('');
@@ -13,9 +12,10 @@
     const trimmed = name.trim();
     if (!trimmed) return;
     await action.run(async () => {
-      await apiCreateWorkspaceApiWorkspacesPost(
-        jsonBody({ name: trimmed, description: description.trim() || undefined }),
-      );
+      await apiCreateWorkspaceApiWorkspacesPost({
+        name: trimmed,
+        description: description.trim(),
+      });
       name = '';
       description = '';
       await invalidate('app:workspaces');

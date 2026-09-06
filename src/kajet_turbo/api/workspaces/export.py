@@ -1,15 +1,13 @@
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import FileResponse
 
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.dependencies import CurrentUser, get_required_user, get_workspace_service
-from kajet_turbo.errors import AuthError
-from kajet_turbo.repositories.git import GitError
+from kajet_turbo.dependencies import CurrentUser, get_required_user, resolve_workspace_target
+from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.services.workspace_export import WorkspaceExportService
-from kajet_turbo.services.workspaces import WorkspaceService
 
 router = APIRouter(
     responses={
@@ -28,14 +26,12 @@ async def api_export_workspace(
     background_tasks: BackgroundTasks,
     format: Literal["zip", "tar.zst", "bundle"] = "zip",
     user: CurrentUser = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
 ) -> FileResponse:
-    if not await run_sync(ws_service.has_access, user.id, name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-    try:
-        ws_path = ws_service.workspace_path(user.id, name)
-        export = await run_sync(_exports.create, name, ws_path, format)
-    except GitError as e:
-        raise HTTPException(status_code=500, detail={"error": "GIT_ERROR", "detail": str(e)}) from e
+    # Exempt from response_model / the JSON envelope (#254) -- this is a file download, not
+    # JSON. A local `except GitError` used to live here and shadow api/errors.py's global
+    # GitError handler with a version that leaked str(e) into the 500 body; removed rather
+    # than migrated, per rest-contracts.md's "Known inconsistencies" note for this file.
+    export = await run_sync(_exports.create, name, str(workspace.path), format)
     background_tasks.add_task(export.path.unlink, missing_ok=True)
     return FileResponse(export.path, media_type=export.media_type, filename=export.filename)

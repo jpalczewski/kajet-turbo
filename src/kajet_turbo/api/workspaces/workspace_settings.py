@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException
 
 from kajet_turbo import workspace_settings as ws_settings
 from kajet_turbo.api.schemas import (
     ApplyTemporalBackfillRequest,
     ApplyTemporalBackfillResponse,
+    SettingDefinition,
     TemporalBackfillPreviewResponse,
+    UpdateWorkspaceSettingsRequest,
     UpdateWorkspaceSettingsResponse,
     WorkspaceSettingsResponse,
 )
@@ -16,9 +17,11 @@ from kajet_turbo.dependencies import (
     get_note_temporal_service,
     get_required_user,
     get_workspace_service,
+    resolve_workspace_target,
 )
-from kajet_turbo.errors import AuthError, WorkspaceError
+from kajet_turbo.errors import WorkspaceError
 from kajet_turbo.services.notes import NoteTemporalService
+from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 
 router = APIRouter(
@@ -33,12 +36,14 @@ router = APIRouter(
 async def api_get_workspace_settings(
     name: str,
     user: CurrentUser = Depends(get_required_user),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     ws_service: WorkspaceService = Depends(get_workspace_service),
-) -> JSONResponse:
-    if not await run_sync(ws_service.has_access, user.id, name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
+) -> WorkspaceSettingsResponse:
     values = await run_sync(ws_service.get_settings, user.id, name)
-    return JSONResponse({"definitions": ws_settings.definitions(), "values": values})
+    return WorkspaceSettingsResponse(
+        definitions=[SettingDefinition(**d) for d in ws_settings.definitions()],
+        values=values,
+    )
 
 
 @router.patch(
@@ -48,28 +53,27 @@ async def api_get_workspace_settings(
 )
 async def api_update_workspace_settings(
     name: str,
-    request: Request,
+    body: UpdateWorkspaceSettingsRequest,
     user: CurrentUser = Depends(get_required_user),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     ws_service: WorkspaceService = Depends(get_workspace_service),
-) -> JSONResponse:
-    if not await run_sync(ws_service.has_access, user.id, name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail=WorkspaceError.INVALID_INPUT) from None
-    values = body.get("values")
-    if not isinstance(values, dict):
-        raise HTTPException(status_code=422, detail=WorkspaceError.INVALID_INPUT)
+) -> UpdateWorkspaceSettingsResponse:
+    # exclude_unset() -> only the setting keys the client actually sent are applied; a
+    # setting the client didn't mention keeps its current value instead of being reset by
+    # a default. UpdateWorkspaceSettingsValues.model_config's extra="forbid" already
+    # rejected an unknown key and StrictBool already rejected a wrong-typed value before
+    # this route ever runs, so set_setting's own ValueError here only covers a future
+    # setting-specific validation rule (e.g. a cross-field constraint).
+    updates = body.values.model_dump(exclude_unset=True)
     result: dict = {}
     try:
-        for key, value in values.items():
+        for key, value in updates.items():
             result = await run_sync(ws_service.set_setting, user.id, name, key, value)
     except ValueError:
         raise HTTPException(status_code=422, detail=WorkspaceError.INVALID_INPUT) from None
     if not result:
         result = await run_sync(ws_service.get_settings, user.id, name)
-    return JSONResponse({"values": result})
+    return UpdateWorkspaceSettingsResponse(values=result)
 
 
 @router.post(
@@ -79,18 +83,16 @@ async def api_update_workspace_settings(
 async def api_temporal_backfill_preview(
     name: str,
     user: CurrentUser = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     note_temporal_service: NoteTemporalService = Depends(get_note_temporal_service),
-) -> JSONResponse:
-    if not await run_sync(ws_service.has_access, user.id, name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
+) -> TemporalBackfillPreviewResponse:
     result = await run_sync(
         note_temporal_service.temporal_backfill_preview,
         name,
         user.id,
-        ws_service.workspace_path(user.id, name),
+        str(workspace.path),
     )
-    return JSONResponse(result)
+    return TemporalBackfillPreviewResponse(**result)
 
 
 @router.post(
@@ -102,19 +104,17 @@ async def api_apply_temporal_backfill(
     name: str,
     body: ApplyTemporalBackfillRequest,
     user: CurrentUser = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     note_temporal_service: NoteTemporalService = Depends(get_note_temporal_service),
-) -> JSONResponse:
-    if not await run_sync(ws_service.has_access, user.id, name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
+) -> ApplyTemporalBackfillResponse:
     try:
         result = await run_sync(
             note_temporal_service.apply_temporal_backfill,
             name,
             user.id,
-            ws_service.workspace_path(user.id, name),
+            str(workspace.path),
             [candidate.model_dump() for candidate in body.candidates],
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return JSONResponse(result)
+    return ApplyTemporalBackfillResponse(**result)
