@@ -149,20 +149,7 @@ def workspace(git_workspace_factory: Callable[[str], Path]) -> Path:
 
 
 @pytest.fixture
-def link_service(database: Database) -> NoteLinkService:
-    engine = database.engine
-    return NoteLinkService(
-        NoteRepository(engine),
-        NoteLinkRepository(engine),
-        NoteTagRepository(engine),
-        None,
-        None,
-        JobRepository(engine),
-    )
-
-
-@pytest.fixture
-def service(database: Database, link_service: NoteLinkService) -> NoteService:
+def service(database: Database) -> NoteService:
     chunk_repo = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
         chunk_repo,
@@ -170,7 +157,7 @@ def service(database: Database, link_service: NoteLinkService) -> NoteService:
         resolve_backend=lambda owner_id: None,  # FTS-only in tests (no network)
         jobs=JobRepository(database.engine),
     )
-    return build_note_service(database, indexer=indexer, link_service=link_service)
+    return build_note_service(database, indexer=indexer)
 
 
 @pytest.fixture
