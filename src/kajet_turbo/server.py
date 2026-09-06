@@ -437,4 +437,23 @@ def main() -> None:
     else:
         factory = "kajet_turbo.server:build_app"
         workers = int(os.getenv("MCP_WORKERS", "1"))
-    uvicorn.run(factory, host=host, port=port, workers=workers, factory=True)
+    # uvicorn's default log config gives the "uvicorn" logger its own plain-text
+    # stderr handler with propagate=False, so its lifecycle lines and every
+    # "Exception in ASGI application" traceback bypassed the JSON sink: in production
+    # they reached Loki as raw text with no level or request_id and made up most of
+    # the api stream. log_config=None leaves those loggers bare, so they propagate to
+    # the root _InterceptHandler like any other stdlib logger. setup_logging() here
+    # covers the supervisor process; each worker re-runs it in _logging_lifespan.
+    # log_level must travel with the kwarg: uvicorn gates its TRACE middleware and
+    # per-connection trace lines on the logger's *own* level (NOTSET passes), and a
+    # spawned worker decides that in config.load() before any lifespan runs.
+    setup_logging()
+    uvicorn.run(
+        factory,
+        host=host,
+        port=port,
+        workers=workers,
+        factory=True,
+        log_config=None,
+        log_level="info",
+    )

@@ -138,8 +138,10 @@ class _InterceptHandler(logging.Handler):
         # Bind the stdlib logger name: loguru derives `record["name"]` from the frame, so
         # without this the emitting library ("fastmcp.server.server", "dulwich.config", …)
         # is lost and every intercepted line looks anonymous in the JSONL.
+        # uvicorn logs "Exception in ASGI application\n" with a trailing newline; kept
+        # verbatim it would land in the JSON msg and defeat any exact-match msg filter.
         logger.opt(depth=depth, exception=record.exc_info).bind(logger=record.name).log(
-            level, record.getMessage()
+            level, record.getMessage().rstrip("\n")
         )
 
 
