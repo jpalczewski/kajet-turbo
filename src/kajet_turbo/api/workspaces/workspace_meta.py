@@ -52,8 +52,10 @@ async def api_create_workspace(
     tags = body.get("tags")
     try:
         await run_sync(ws_service.create, name, user.id, description=description)
-    except ValueError, FileExistsError:
+    except FileExistsError:
         raise HTTPException(status_code=409, detail=WorkspaceError.ALREADY_EXISTS) from None
+    except ValueError:
+        raise HTTPException(status_code=422, detail=WorkspaceError.INVALID_INPUT) from None
     if folder is not None or tags is not None:
         try:
             await run_sync(
