@@ -7,6 +7,7 @@ from .preferences import PreferencesError
 from .request import RequestError
 from .targets import TargetError
 from .workspace import WorkspaceError
+from .workspace_remote import WorkspaceRemoteError
 
 type ErrorCode = (
     AuthError
@@ -18,6 +19,7 @@ type ErrorCode = (
     | PreferencesError
     | RequestError
     | TargetError
+    | WorkspaceRemoteError
 )
 
 __all__ = [
@@ -33,4 +35,5 @@ __all__ = [
     "SecurityReason",
     "TargetError",
     "WorkspaceError",
+    "WorkspaceRemoteError",
 ]

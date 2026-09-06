@@ -22,6 +22,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   JOB_NOT_FOUND: 'Zadanie nie istnieje.',
   INTERNAL_ERROR: 'Błąd wewnętrzny.',
   INVALID_INPUT: 'Nieprawidłowe dane.',
+  WORKSPACE_REMOTE_NOT_FOUND: 'Remote nie jest skonfigurowany.',
+  WORKSPACE_REMOTE_NOT_CONFIGURED: 'Brak włączonego remote.',
+  WORKSPACE_REMOTE_INVALID_INPUT: 'Nieprawidłowe dane remote.',
 };
 
 export function translateErrorCode(code: string | undefined): string | undefined {

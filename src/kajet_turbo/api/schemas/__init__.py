@@ -51,7 +51,11 @@ from .notes import (
 )
 from .preferences import UserPreferences
 from .ssh_keys import SshKeyItem, SshKeysResponse
-from .workspace_remote import WorkspaceRemoteResponse, WorkspaceRemoteView
+from .workspace_remote import (
+    SetWorkspaceRemoteRequest,
+    WorkspaceRemoteResponse,
+    WorkspaceRemoteView,
+)
 from .workspaces import (
     CreateWorkspaceResponse,
     DeleteWorkspaceResponse,
@@ -105,6 +109,7 @@ __all__ = [
     "ReindexResponse",
     "RestoreVersionResponse",
     "SessionResponse",
+    "SetWorkspaceRemoteRequest",
     "SettingDefinition",
     "SshKeyItem",
     "SshKeysResponse",

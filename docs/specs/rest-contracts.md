@@ -76,7 +76,7 @@ Fixed in #247 — all now dispatch through `run_sync()`:
 | `api/auth.py` | `api_login` | `user_repo.get_by_email`, `verify_password`, `session_repo.create` called directly in `async def` | wrapped in `run_sync` |
 | `api/auth.py` | `api_session_delete` | `session_repo.delete` direct | `run_sync` |
 | `api/auth.py` | `api_sessions_delete` | `oauth_repo.delete_credentials_by_user`, `session_repo.delete_all_for_user` direct | `run_sync` |
-| `api/workspace_remote.py` | `api_set_workspace_remote` (async) | `_guard` called `has_access` direct | new `_guard_async` wraps it in `run_sync`; the three sync `def` routes keep using sync `_guard` (FastAPI's threadpool already covers them) |
+| `api/workspace_remote.py` | `api_set_workspace_remote` (async) | `_guard` called `has_access` direct | new `_guard_async` wraps it in `run_sync` (superseded in #254 by `resolve_workspace_target`, which does its own blocking-safe access check); the three sync `def` routes keep using sync `_guard` (FastAPI's threadpool already covers them) |
 | `api/workspaces/export.py` | `api_export_workspace` | direct | `run_sync` |
 | `api/workspaces/workspace_settings.py` | all 4 routes | direct | `run_sync` |
 | `api/workspaces/notes/crud/folders.py` | all 3 routes | direct | `run_sync` |
@@ -141,7 +141,27 @@ All `GET`, all sync `def`, uniform 404 → `NoteError.NOT_FOUND`. `history.py`'s
 `resolve_note_target` for access, not a direct `has_access` call, so it was not part of
 the blocking-call audit.
 
-### Workspace remote / SSH keys / embedding profiles — `workspace_remote.py`, `ssh_keys.py`, `embedding.py`
+### Workspace remotes — `workspace_remote.py` (migrated, #254)
+
+All four routes (`GET`/`PUT`/`DELETE .../remote`, `POST .../remote/push`) now follow the
+#253 typed-endpoint pattern: `_guard`/`_guard_async` are gone, replaced by
+`workspace: WorkspaceTarget = Depends(resolve_workspace_target)`. This is a deliberate
+wire-format change — a 403 body used to be free-text `{"error": "Brak dostępu."}` and is
+now the shared envelope `{"error": "ACCESS_DENIED"}`. `PUT` takes a typed
+`SetWorkspaceRemoteRequest` (`origin_url`, `ssh_key_id` both `min_length=1`, `enabled`
+defaults `True`); a present-but-blank field now 422s declaratively instead of the service
+raising `ValueError("origin_url is required")`. The service still rejects a non-SSH
+`origin_url` and an unknown `ssh_key_id` itself (domain checks a Pydantic validator can't
+make — URL-scheme shape and a DB lookup), mapped locally to
+`WorkspaceRemoteError.INVALID_INPUT` (400, `{"error": ..., "detail": <message>}`).
+`DELETE`'s and `POST .../push`'s free-text 404/400 bodies ("Not found", "No enabled remote
+configured") became `WorkspaceRemoteError.NOT_FOUND` / `NOT_CONFIGURED`
+(`src/kajet_turbo/errors/workspace_remote.py`). Responses are the existing
+`WorkspaceRemoteResponse`/`OkResponse` models, actually constructed and returned now
+instead of being declared as `response_model` while the route returned a raw
+`JSONResponse` (so FastAPI's response validation never ran pre-migration).
+
+### SSH keys / embedding profiles — `ssh_keys.py`, `embedding.py`
 
 Free-text error bodies throughout (see "Known inconsistencies"). SSH key creation and
 embedding-profile create/update are correctly offloaded via `run_sync` already (RSA
@@ -177,9 +197,11 @@ None migrated in #247 — this enumerates the full blast radius for later phases
 `auth.py`/`oauth.py` were migrated in #254 (`api_login`, `api_consent`) and are removed
 from this list; `api_pending_info` never had a body.
 
-`ssh_keys.py:28`, `embedding.py:27,54`, `workspace_remote.py:47`,
+`ssh_keys.py:28`, `embedding.py:27,54`,
 `preferences.py:33`, `workspace_settings.py:53`, `workspace_meta.py:44,85`,
 `notes/crud/notes.py:72,125,158,225`, `notes/crud/folders.py:63`.
+
+(`workspace_remote.py` fully migrated in #254 — removed from this list.)
 
 ## Frontend callers
 

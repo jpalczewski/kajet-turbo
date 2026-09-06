@@ -36,8 +36,6 @@ export type AuthError = typeof AuthError[keyof typeof AuthError];
 export const AuthError = {
   NOT_AUTHENTICATED: 'NOT_AUTHENTICATED',
   ACCESS_DENIED: 'ACCESS_DENIED',
-  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
-  PENDING_EXPIRED: 'PENDING_EXPIRED',
 } as const;
 
 export interface CreateNoteRequest {
@@ -114,10 +112,6 @@ export interface ChunkPreviewResponse {
   index_state: string;
   chunk_count: number;
   chunks: ChunkPreviewItem[];
-}
-
-export interface ConsentRequest {
-  pending_id: string;
 }
 
 export interface ConsentResponse {
@@ -245,13 +239,6 @@ export const GitError = {
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
-export type JobError = typeof JobError[keyof typeof JobError];
-
-
-export const JobError = {
-  JOB_NOT_FOUND: 'JOB_NOT_FOUND',
-} as const;
-
 export type PreferencesError = typeof PreferencesError[keyof typeof PreferencesError];
 
 
@@ -276,7 +263,16 @@ export const TargetError = {
   TARGET_MIXED_WORKSPACES: 'TARGET_MIXED_WORKSPACES',
 } as const;
 
-export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,...JobError,...PreferencesError,...RequestError,...TargetError,} as const
+export type WorkspaceRemoteError = typeof WorkspaceRemoteError[keyof typeof WorkspaceRemoteError];
+
+
+export const WorkspaceRemoteError = {
+  WORKSPACE_REMOTE_NOT_FOUND: 'WORKSPACE_REMOTE_NOT_FOUND',
+  WORKSPACE_REMOTE_NOT_CONFIGURED: 'WORKSPACE_REMOTE_NOT_CONFIGURED',
+  WORKSPACE_REMOTE_INVALID_INPUT: 'WORKSPACE_REMOTE_INVALID_INPUT',
+} as const;
+
+export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,...PreferencesError,...RequestError,...TargetError,...WorkspaceRemoteError,} as const
 export type ErrorCode = typeof ErrorCode[keyof typeof ErrorCode];
 
 export interface ErrorResponse {
@@ -412,12 +408,6 @@ export const Locale = {
   en: 'en',
 } as const;
 
-export interface LoginRequest {
-  email: string;
-  password: string;
-  pending_id?: string | null;
-}
-
 export interface LoginResponse {
   email: string;
   redirect_uri?: string | null;
@@ -505,6 +495,20 @@ export interface UserPreferences {
 export interface SessionResponse {
   email: string;
   preferences: UserPreferences;
+}
+
+export interface SetWorkspaceRemoteRequest {
+  /**
+     * SSH git remote URL
+     * @minLength 1
+     */
+  origin_url: string;
+  /**
+     * Sealed SSH key to push with
+     * @minLength 1
+     */
+  ssh_key_id: string;
+  enabled?: boolean;
 }
 
 export interface SettingDefinition {
@@ -722,38 +726,17 @@ export type ApiNoteGraphApiWorkspacesNameNotesGraphGetParams = {
 include_tags?: boolean;
 };
 
-export type ApiListJobsApiMeJobsGetParams = {
-status?: string | null;
-};
-
 export type apiLoginApiLoginPostResponse200 = {
   data: LoginResponse
   status: 200
 }
 
-export type apiLoginApiLoginPostResponse400 = {
-  data: ErrorResponse
-  status: 400
-}
-
-export type apiLoginApiLoginPostResponse401 = {
-  data: ErrorResponse
-  status: 401
-}
-
-export type apiLoginApiLoginPostResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
 export type apiLoginApiLoginPostResponseSuccess = (apiLoginApiLoginPostResponse200) & {
   headers: Headers;
 };
-export type apiLoginApiLoginPostResponseError = (apiLoginApiLoginPostResponse400 | apiLoginApiLoginPostResponse401 | apiLoginApiLoginPostResponse422) & {
-  headers: Headers;
-};
+;
 
-export type apiLoginApiLoginPostResponse = (apiLoginApiLoginPostResponseSuccess | apiLoginApiLoginPostResponseError)
+export type apiLoginApiLoginPostResponse = (apiLoginApiLoginPostResponseSuccess)
 
 export const getApiLoginApiLoginPostUrl = () => {
 
@@ -766,20 +749,14 @@ export const getApiLoginApiLoginPostUrl = () => {
 /**
  * @summary Api Login
  */
-export const apiLoginApiLoginPost = async (loginRequest: LoginRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiLoginApiLoginPostResponse> => {
+export const apiLoginApiLoginPost = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiLoginApiLoginPostResponse> => {
 
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customFetch<apiLoginApiLoginPostResponse>(getApiLoginApiLoginPostUrl(),
+  return customFetch<apiLoginApiLoginPostResponse>(getApiLoginApiLoginPostUrl(),
   {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(loginRequest)
+    method: 'POST'
+
+
   }
 );}
 
@@ -899,24 +876,12 @@ export type apiConsentApiConsentPostResponse200 = {
   status: 200
 }
 
-export type apiConsentApiConsentPostResponse400 = {
-  data: ErrorResponse
-  status: 400
-}
-
-export type apiConsentApiConsentPostResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
 export type apiConsentApiConsentPostResponseSuccess = (apiConsentApiConsentPostResponse200) & {
   headers: Headers;
 };
-export type apiConsentApiConsentPostResponseError = (apiConsentApiConsentPostResponse400 | apiConsentApiConsentPostResponse422) & {
-  headers: Headers;
-};
+;
 
-export type apiConsentApiConsentPostResponse = (apiConsentApiConsentPostResponseSuccess | apiConsentApiConsentPostResponseError)
+export type apiConsentApiConsentPostResponse = (apiConsentApiConsentPostResponseSuccess)
 
 export const getApiConsentApiConsentPostUrl = () => {
 
@@ -929,20 +894,14 @@ export const getApiConsentApiConsentPostUrl = () => {
 /**
  * @summary Api Consent
  */
-export const apiConsentApiConsentPost = async (consentRequest: ConsentRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiConsentApiConsentPostResponse> => {
+export const apiConsentApiConsentPost = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiConsentApiConsentPostResponse> => {
 
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customFetch<apiConsentApiConsentPostResponse>(getApiConsentApiConsentPostUrl(),
+  return customFetch<apiConsentApiConsentPostResponse>(getApiConsentApiConsentPostUrl(),
   {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(consentRequest)
+    method: 'POST'
+
+
   }
 );}
 
@@ -953,11 +912,6 @@ export type apiPendingInfoApiPendingGetResponse200 = {
   status: 200
 }
 
-export type apiPendingInfoApiPendingGetResponse404 = {
-  data: ErrorResponse
-  status: 404
-}
-
 export type apiPendingInfoApiPendingGetResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -966,7 +920,7 @@ export type apiPendingInfoApiPendingGetResponse422 = {
 export type apiPendingInfoApiPendingGetResponseSuccess = (apiPendingInfoApiPendingGetResponse200) & {
   headers: Headers;
 };
-export type apiPendingInfoApiPendingGetResponseError = (apiPendingInfoApiPendingGetResponse404 | apiPendingInfoApiPendingGetResponse422) & {
+export type apiPendingInfoApiPendingGetResponseError = (apiPendingInfoApiPendingGetResponse422) & {
   headers: Headers;
 };
 
@@ -988,11 +942,6 @@ export const getApiPendingInfoApiPendingGetUrl = (params: ApiPendingInfoApiPendi
 }
 
 /**
- * No auth dependency by design (docs/specs/rest-contracts.md) -- this is the
- * pre-login OAuth consent screen's client-name lookup. Exempt from the rest of the
- * #254 typed-endpoint migration per the issue (protocol-adjacent OAuth routes keep
- * their wire shape); the 404 case reuses PENDING_EXPIRED since it's the same
- * unknown/expired-pending_id condition as api_consent's.
  * @summary Api Pending Info
  */
 export const apiPendingInfoApiPendingGet = async (params: ApiPendingInfoApiPendingGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiPendingInfoApiPendingGetResponse> => {
@@ -3286,6 +3235,16 @@ export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse200 = {
   status: 200
 }
 
+export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
 export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -3294,7 +3253,7 @@ export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse422 = {
 export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseSuccess = (apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse200) & {
   headers: Headers;
 };
-export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseError = (apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse422) & {
+export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseError = (apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse401 | apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse403 | apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse422) & {
   headers: Headers;
 };
 
@@ -3325,19 +3284,34 @@ export const apiGetWorkspaceRemoteApiWorkspacesNameRemoteGet = async (name: stri
 
 
 export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse200 = {
-  data: unknown
+  data: WorkspaceRemoteResponse
   status: 200
 }
 
+export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse400 = {
+  data: ErrorResponse
+  status: 400
+}
+
+export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
 export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse422 = {
-  data: HTTPValidationError
+  data: ErrorResponse
   status: 422
 }
 
 export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseSuccess = (apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse200) & {
   headers: Headers;
 };
-export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseError = (apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse422) & {
+export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseError = (apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse400 | apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse401 | apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse403 | apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse422) & {
   headers: Headers;
 };
 
@@ -3354,22 +3328,44 @@ export const getApiSetWorkspaceRemoteApiWorkspacesNameRemotePutUrl = (name: stri
 /**
  * @summary Api Set Workspace Remote
  */
-export const apiSetWorkspaceRemoteApiWorkspacesNameRemotePut = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse> => {
+export const apiSetWorkspaceRemoteApiWorkspacesNameRemotePut = async (name: string,
+    setWorkspaceRemoteRequest: SetWorkspaceRemoteRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse> => {
 
-  return customFetch<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse>(getApiSetWorkspaceRemoteApiWorkspacesNameRemotePutUrl(name),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse>(getApiSetWorkspaceRemoteApiWorkspacesNameRemotePutUrl(name),
   {
     ...options,
-    method: 'PUT'
-
-
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(setWorkspaceRemoteRequest)
   }
 );}
 
 
 
 export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse200 = {
-  data: unknown
+  data: OkResponse
   status: 200
+}
+
+export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse404 = {
+  data: ErrorResponse
+  status: 404
 }
 
 export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse422 = {
@@ -3380,7 +3376,7 @@ export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse422 = {
 export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseSuccess = (apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse200) & {
   headers: Headers;
 };
-export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseError = (apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse422) & {
+export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseError = (apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse401 | apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse403 | apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse404 | apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse422) & {
   headers: Headers;
 };
 
@@ -3411,8 +3407,23 @@ export const apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDelete = async (name
 
 
 export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse200 = {
-  data: unknown
+  data: OkResponse
   status: 200
+}
+
+export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse400 = {
+  data: ErrorResponse
+  status: 400
+}
+
+export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse403 = {
+  data: ErrorResponse
+  status: 403
 }
 
 export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse422 = {
@@ -3423,7 +3434,7 @@ export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse422 = 
 export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseSuccess = (apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse200) & {
   headers: Headers;
 };
-export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseError = (apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse422) & {
+export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseError = (apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse400 | apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse401 | apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse403 | apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse422) & {
   headers: Headers;
 };
 
@@ -3458,46 +3469,27 @@ export type apiListJobsApiMeJobsGetResponse200 = {
   status: 200
 }
 
-export type apiListJobsApiMeJobsGetResponse401 = {
-  data: ErrorResponse
-  status: 401
-}
-
-export type apiListJobsApiMeJobsGetResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
 export type apiListJobsApiMeJobsGetResponseSuccess = (apiListJobsApiMeJobsGetResponse200) & {
   headers: Headers;
 };
-export type apiListJobsApiMeJobsGetResponseError = (apiListJobsApiMeJobsGetResponse401 | apiListJobsApiMeJobsGetResponse422) & {
-  headers: Headers;
-};
+;
 
-export type apiListJobsApiMeJobsGetResponse = (apiListJobsApiMeJobsGetResponseSuccess | apiListJobsApiMeJobsGetResponseError)
+export type apiListJobsApiMeJobsGetResponse = (apiListJobsApiMeJobsGetResponseSuccess)
 
-export const getApiListJobsApiMeJobsGetUrl = (params?: ApiListJobsApiMeJobsGetParams,) => {
-  const normalizedParams = new URLSearchParams();
+export const getApiListJobsApiMeJobsGetUrl = () => {
 
-  Object.entries(params || {}).forEach(([key, value]) => {
 
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
 
-  const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/me/jobs?${stringifiedParams}` : `/api/me/jobs`
+  return `/api/me/jobs`
 }
 
 /**
  * @summary Api List Jobs
  */
-export const apiListJobsApiMeJobsGet = async (params?: ApiListJobsApiMeJobsGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiListJobsApiMeJobsGetResponse> => {
+export const apiListJobsApiMeJobsGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiListJobsApiMeJobsGetResponse> => {
 
-  return customFetch<apiListJobsApiMeJobsGetResponse>(getApiListJobsApiMeJobsGetUrl(params),
+  return customFetch<apiListJobsApiMeJobsGetResponse>(getApiListJobsApiMeJobsGetUrl(),
   {
     ...options,
     method: 'GET'
@@ -3509,18 +3501,8 @@ export const apiListJobsApiMeJobsGet = async (params?: ApiListJobsApiMeJobsGetPa
 
 
 export type apiRetryJobApiMeJobsJobIdRetryPostResponse200 = {
-  data: OkResponse
+  data: unknown
   status: 200
-}
-
-export type apiRetryJobApiMeJobsJobIdRetryPostResponse401 = {
-  data: ErrorResponse
-  status: 401
-}
-
-export type apiRetryJobApiMeJobsJobIdRetryPostResponse404 = {
-  data: ErrorResponse
-  status: 404
 }
 
 export type apiRetryJobApiMeJobsJobIdRetryPostResponse422 = {
@@ -3531,7 +3513,7 @@ export type apiRetryJobApiMeJobsJobIdRetryPostResponse422 = {
 export type apiRetryJobApiMeJobsJobIdRetryPostResponseSuccess = (apiRetryJobApiMeJobsJobIdRetryPostResponse200) & {
   headers: Headers;
 };
-export type apiRetryJobApiMeJobsJobIdRetryPostResponseError = (apiRetryJobApiMeJobsJobIdRetryPostResponse401 | apiRetryJobApiMeJobsJobIdRetryPostResponse404 | apiRetryJobApiMeJobsJobIdRetryPostResponse422) & {
+export type apiRetryJobApiMeJobsJobIdRetryPostResponseError = (apiRetryJobApiMeJobsJobIdRetryPostResponse422) & {
   headers: Headers;
 };
 
@@ -3562,18 +3544,8 @@ export const apiRetryJobApiMeJobsJobIdRetryPost = async (jobId: string, options?
 
 
 export type apiDismissJobApiMeJobsJobIdDeleteResponse200 = {
-  data: OkResponse
+  data: unknown
   status: 200
-}
-
-export type apiDismissJobApiMeJobsJobIdDeleteResponse401 = {
-  data: ErrorResponse
-  status: 401
-}
-
-export type apiDismissJobApiMeJobsJobIdDeleteResponse404 = {
-  data: ErrorResponse
-  status: 404
 }
 
 export type apiDismissJobApiMeJobsJobIdDeleteResponse422 = {
@@ -3584,7 +3556,7 @@ export type apiDismissJobApiMeJobsJobIdDeleteResponse422 = {
 export type apiDismissJobApiMeJobsJobIdDeleteResponseSuccess = (apiDismissJobApiMeJobsJobIdDeleteResponse200) & {
   headers: Headers;
 };
-export type apiDismissJobApiMeJobsJobIdDeleteResponseError = (apiDismissJobApiMeJobsJobIdDeleteResponse401 | apiDismissJobApiMeJobsJobIdDeleteResponse404 | apiDismissJobApiMeJobsJobIdDeleteResponse422) & {
+export type apiDismissJobApiMeJobsJobIdDeleteResponseError = (apiDismissJobApiMeJobsJobIdDeleteResponse422) & {
   headers: Headers;
 };
 

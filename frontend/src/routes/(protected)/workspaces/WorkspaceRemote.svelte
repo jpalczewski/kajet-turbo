@@ -7,7 +7,7 @@
     type SshKeyItem,
     type WorkspaceRemoteView,
   } from '$lib/api';
-  import { apiErrorMessage, jsonBody } from '$lib/api/mutate';
+  import { apiErrorMessage } from '$lib/api/mutate';
   import { settingsPath } from '$lib/routes';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
 
@@ -49,12 +49,15 @@
       if (!SSH_REMOTE.test(originUrl.trim())) {
         throw new Error('Origin musi być adresem SSH (git@host:repo.git lub ssh://…), nie HTTPS.');
       }
-      const r = await apiSetWorkspaceRemoteApiWorkspacesNameRemotePut(
-        name,
-        jsonBody({ origin_url: originUrl.trim(), ssh_key_id: sshKeyId, enabled }),
-      );
+      const r = await apiSetWorkspaceRemoteApiWorkspacesNameRemotePut(name, {
+        origin_url: originUrl.trim(),
+        ssh_key_id: sshKeyId,
+        enabled,
+      });
       if (r.status === 200) {
-        remote = (r.data as { remote: WorkspaceRemoteView }).remote;
+        remote = r.data.remote;
+      } else {
+        throw new Error(apiErrorMessage(r, 'Nie udało się zapisać remote.'));
       }
     }, 'Nie udało się zapisać remote.');
   }

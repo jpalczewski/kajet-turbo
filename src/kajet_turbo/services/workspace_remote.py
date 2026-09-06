@@ -51,9 +51,10 @@ class WorkspaceRemoteService:
     def set(
         self, user_id: str, workspace: str, *, origin_url: str, ssh_key_id: str, enabled: bool
     ) -> dict:
+        # Blank origin_url/ssh_key_id are rejected declaratively by the request model
+        # (min_length=1) -- this only checks domain constraints Pydantic can't see:
+        # the URL scheme, and whether the key row actually belongs to this user.
         origin_url = origin_url.strip()
-        if not origin_url:
-            raise ValueError("origin_url is required")
         if not is_ssh_remote(origin_url):
             raise ValueError(
                 "origin must be an SSH URL (git@host:repo.git or ssh://...), not HTTP(S)"
