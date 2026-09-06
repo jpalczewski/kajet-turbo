@@ -8,11 +8,11 @@ from kajet_turbo.concurrency import run_sync
 from kajet_turbo.mcp.context import require_user_id, require_workspace_access
 from kajet_turbo.mcp.notes.types import SearchChunkResult
 from kajet_turbo.mcp.tooling import read_tool
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import NoteSearchService
 from kajet_turbo.services.workspaces import WorkspaceService
 
 
-def build_search(note_service: NoteService, workspace_service: WorkspaceService) -> FastMCP:
+def build_search(search_service: NoteSearchService, workspace_service: WorkspaceService) -> FastMCP:
     srv = FastMCP("notes-search")
 
     @srv.tool(**read_tool(tags={"notes", "search"}))
@@ -62,7 +62,7 @@ def build_search(note_service: NoteService, workspace_service: WorkspaceService)
             return []
         # search_async borrows a run_sync slot only for the ms-scale DB phases; the
         # query-embedding HTTP call is awaited natively on the event loop.
-        results = await note_service.search_async(
+        results = await search_service.search_async(
             query,
             workspaces,
             owner_id=owner_id,

@@ -10,12 +10,13 @@ touch, registered once in `register_job_handlers()` (`server.py:48`). A new back
 does not belong in this package even if it operates on notes.
 
 `NoteTemporalService` (`temporal.py`) is a deliberate exception to how every other collaborator
-here is exposed: `NoteFolderService`/`NoteVersionService`/`NoteTagService`/`NoteLinkService`/
-`NoteSearchService` are reached only through one-line delegate methods on `NoteService`, but
-REST and MCP call `NoteTemporalService.entries_in`/`temporal_backfill_preview`/
-`apply_temporal_backfill` directly — `NoteService` carries no delegating wrappers for this
-domain at all (#224). Its constructor takes only `NoteRepository`, same as
-`NoteVersionService`.
+here used to be exposed: REST and MCP call `NoteTemporalService.entries_in`/
+`temporal_backfill_preview`/`apply_temporal_backfill` directly — `NoteService` carries no
+delegating wrappers for this domain at all (#224). Its constructor takes only `NoteRepository`,
+same as `NoteVersionService`. `NoteTagService` (#306), `NoteLinkService` (#307), and
+`NoteSearchService` (#230) have since moved to the same direct-call shape, each removing its
+one-line delegate methods from `NoteService`. Only `NoteFolderService` and `NoteVersionService`
+are still reached exclusively through delegate methods on `NoteService`.
 
 ## Note-body writes go through `staged_workspace_change`
 

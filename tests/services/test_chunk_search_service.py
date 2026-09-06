@@ -4,10 +4,13 @@ from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
-from tests.services.conftest import build_note_service, workspace_target
+from tests.services.conftest import build_note_search_service, build_note_service, workspace_target
 
 
 def _service(database):
+    """A NoteService for seeding (via .save()) plus the NoteSearchService reading the
+    same chunk_repo, so a save is visible to search — the two are separate collaborators
+    now that NoteService no longer delegates to NoteSearchService."""
     chunk_repo = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
         chunk_repo,
@@ -15,11 +18,13 @@ def _service(database):
         resolve_backend=lambda o: None,
         jobs=JobRepository(database.engine),
     )
-    return build_note_service(database, indexer=indexer)
+    note_service = build_note_service(database, indexer=indexer, chunk_repo=chunk_repo)
+    search_service = build_note_search_service(database, chunk_repo=chunk_repo)
+    return note_service, search_service
 
 
 def test_search_returns_chunk_shape_fts_only(database, git_workspace_factory):
-    service = _service(database)
+    service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(
         workspace_target("u1", "ws", ws),
@@ -27,7 +32,7 @@ def test_search_returns_chunk_shape_fts_only(database, git_workspace_factory):
         "# Recipes\n\n## Soup\n\ntomato basil soup\n",
         tags=[],
     )
-    hits = service.search("tomato", ["ws"], owner_id="u1", limit=10)
+    hits = search_service.search("tomato", ["ws"], owner_id="u1", limit=10)
     assert len(hits) >= 1
     h = hits[0]
     assert set(h) >= {"note_id", "title", "header_path", "content", "score", "updated_at"}
@@ -37,14 +42,14 @@ def test_search_returns_chunk_shape_fts_only(database, git_workspace_factory):
 
 
 def test_search_empty_when_no_match(database, git_workspace_factory):
-    service = _service(database)
+    service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(workspace_target("u1", "ws", ws), "Recipes", "# Recipes\n\ntomato soup\n", tags=[])
-    assert service.search("zzzznomatch", ["ws"], owner_id="u1", limit=10) == []
+    assert search_service.search("zzzznomatch", ["ws"], owner_id="u1", limit=10) == []
 
 
 def test_search_matches_tag_and_folder_for_contentless_note(database, git_workspace_factory):
-    service = _service(database)
+    service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(
         workspace_target("u1", "ws", ws),
@@ -53,7 +58,7 @@ def test_search_matches_tag_and_folder_for_contentless_note(database, git_worksp
         tags=["alice"],
         folder="książki/Alice",
     )
-    hits = service.search("alice", ["ws"], owner_id="u1", limit=10)
+    hits = search_service.search("alice", ["ws"], owner_id="u1", limit=10)
     assert len(hits) == 1
     assert set(hits[0]["matched_on"]) == {"folder", "tag"}
     assert hits[0]["content"] == ""
@@ -61,10 +66,10 @@ def test_search_matches_tag_and_folder_for_contentless_note(database, git_worksp
 
 
 def test_search_matches_title_of_contentless_note(database, git_workspace_factory):
-    service = _service(database)
+    service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(workspace_target("u1", "ws", ws), "Unikalny Tytul Beztresciowy", "", tags=[])
-    hits = service.search("Unikalny Tytul Beztresciowy", ["ws"], owner_id="u1", limit=10)
+    hits = search_service.search("Unikalny Tytul Beztresciowy", ["ws"], owner_id="u1", limit=10)
     assert len(hits) == 1
     assert hits[0]["matched_on"] == ["title"]
 
@@ -85,9 +90,9 @@ def test_search_survives_backend_switch_with_no_vectors_at_new_dim(database, git
             return [1.0, 0.0, 0.0]
 
     state: dict = {"cfg": None}
-    svc = build_note_service(
+    svc = build_note_service(database, indexer=indexer, chunk_repo=chunk_repo)
+    search_svc = build_note_search_service(
         database,
-        indexer=indexer,
         query_resolver=lambda o: state["cfg"],
         build_embedder=lambda c: _FakeEmbedder(),
         chunk_repo=chunk_repo,
@@ -103,7 +108,7 @@ def test_search_survives_backend_switch_with_no_vectors_at_new_dim(database, git
         base_url="http://x",
         api_key="k",
     )
-    hits = svc.search("alpha", ["ws"], owner_id="u1")
+    hits = search_svc.search("alpha", ["ws"], owner_id="u1")
     assert len(hits) == 1
 
 
@@ -112,7 +117,7 @@ def test_search_across_workspaces_sorts_by_score_globally(database, git_workspac
     # boosts its score above ws1's content-only match) — a global top-k must still surface it
     # even though the buggy code (concat-then-truncate, no cross-workspace sort) would keep
     # whatever landed first from ws1 instead.
-    service = _service(database)
+    service, search_service = _service(database)
     ws1 = git_workspace_factory("ws1")
     ws2 = git_workspace_factory("ws2")
     service.save(
@@ -127,19 +132,19 @@ def test_search_across_workspaces_sorts_by_score_globally(database, git_workspac
         "# findmequery\n\nfindmequery here too\n",
         tags=[],
     )
-    hits = service.search("findmequery", ["ws1", "ws2"], owner_id="u1", limit=1)
+    hits = search_service.search("findmequery", ["ws1", "ws2"], owner_id="u1", limit=1)
     assert len(hits) == 1
     assert hits[0]["title"] == "findmequery"
 
 
 def test_search_narrows_by_folder(database, git_workspace_factory):
-    service = _service(database)
+    service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(workspace_target("u1", "ws", ws), "In scope", "keyword here", tags=[], folder="a")
     service.save(
         workspace_target("u1", "ws", ws), "Out of scope", "keyword here", tags=[], folder="b"
     )
-    hits = service.search("keyword", ["ws"], owner_id="u1", limit=10, folder="a")
+    hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, folder="a")
     assert [h["title"] for h in hits] == ["In scope"]
 
 
@@ -148,7 +153,7 @@ def test_search_narrows_by_folder_widens_metadata_candidate_window(database, git
     # "b" note ahead of the earlier "a" note. With limit=1 and folder narrowing to "a", the
     # metadata call must fetch a wide-enough window that the in-scope "a" note survives the
     # allowed_note_ids filter in hybrid_search, rather than being truncated out beforehand.
-    service = _service(database)
+    service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(
         workspace_target("u1", "ws", ws), "Early alice note", "", tags=["alice"], folder="a"
@@ -156,21 +161,21 @@ def test_search_narrows_by_folder_widens_metadata_candidate_window(database, git
     service.save(
         workspace_target("u1", "ws", ws), "Late alice note", "", tags=["alice"], folder="b"
     )
-    hits = service.search("alice", ["ws"], owner_id="u1", limit=1, folder="a")
+    hits = search_service.search("alice", ["ws"], owner_id="u1", limit=1, folder="a")
     assert [h["title"] for h in hits] == ["Early alice note"]
 
 
 def test_search_narrows_by_tags(database, git_workspace_factory):
-    service = _service(database)
+    service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(workspace_target("u1", "ws", ws), "Tagged", "keyword here", tags=["work"])
     service.save(workspace_target("u1", "ws", ws), "Untagged", "keyword here", tags=[])
-    hits = service.search("keyword", ["ws"], owner_id="u1", limit=10, tags=["work"])
+    hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, tags=["work"])
     assert [h["title"] for h in hits] == ["Tagged"]
 
 
 def test_search_folder_and_tags_intersect(database, git_workspace_factory):
-    service = _service(database)
+    service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(
         workspace_target("u1", "ws", ws), "Both", "keyword here", tags=["work"], folder="a"
@@ -181,7 +186,9 @@ def test_search_folder_and_tags_intersect(database, git_workspace_factory):
     service.save(
         workspace_target("u1", "ws", ws), "Only tag", "keyword here", tags=["work"], folder="b"
     )
-    hits = service.search("keyword", ["ws"], owner_id="u1", limit=10, folder="a", tags=["work"])
+    hits = search_service.search(
+        "keyword", ["ws"], owner_id="u1", limit=10, folder="a", tags=["work"]
+    )
     assert [h["title"] for h in hits] == ["Both"]
 
 
@@ -209,9 +216,9 @@ def test_search_reflects_deferred_embed_once_attached(database, git_workspace_fa
         base_url="http://x",
         api_key="k",
     )
-    svc = build_note_service(
+    svc = build_note_service(database, indexer=indexer, chunk_repo=chunk_repo)
+    search_svc = build_note_search_service(
         database,
-        indexer=indexer,
         query_resolver=lambda o: cfg,
         build_embedder=lambda c: _FakeEmbedder(),
         chunk_repo=chunk_repo,
@@ -221,7 +228,7 @@ def test_search_reflects_deferred_embed_once_attached(database, git_workspace_fa
 
     # "banana" has no lexical match in "alpha" — before the embed lands, neither FTS nor
     # (no-vectors-yet) vector search can find it.
-    assert svc.search("banana", ["ws"], owner_id="u1") == []
+    assert search_svc.search("banana", ["ws"], owner_id="u1") == []
 
     # The deferred attach must use the SAME identity the search resolves from cfg —
     # a vector written under another identity is in a partition search never scans.
@@ -236,7 +243,7 @@ def test_search_reflects_deferred_embed_once_attached(database, git_workspace_fa
     # _FakeEmbedder always returns [1.0, 0.0, 0.0], matching the stored vector exactly
     # (cosine similarity 1.0) — a "banana" hit here can only come from the vector path,
     # proving search actually picked up the deferred embed rather than re-running FTS.
-    hits = svc.search("banana", ["ws"], owner_id="u1")
+    hits = search_svc.search("banana", ["ws"], owner_id="u1")
     assert len(hits) == 1
     assert hits[0]["note_id"] == res["note_id"]
 
@@ -251,8 +258,9 @@ class _AsyncCountingEmbedder:
 
 
 def _async_service(database, chunk_repo=None, *, query_cache=None):
-    """Service wired for async query embedding; the sync build_embedder seam raises so
-    a regression back to the run_sync-slot path is loud."""
+    """A NoteService for seeding plus a NoteSearchService wired for async query
+    embedding; the sync build_embedder seam raises so a regression back to the
+    run_sync-slot path is loud."""
     if chunk_repo is None:
         chunk_repo = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
@@ -274,52 +282,52 @@ def _async_service(database, chunk_repo=None, *, query_cache=None):
     def _sync_seam_must_not_be_used(c):
         raise AssertionError("sync build_embedder used on the async path")
 
-    svc = build_note_service(
+    svc = build_note_service(database, indexer=indexer, chunk_repo=chunk_repo)
+    search_svc = build_note_search_service(
         database,
-        indexer=indexer,
         query_resolver=lambda o: cfg,
         build_embedder=_sync_seam_must_not_be_used,
         query_cache=query_cache,
         chunk_repo=chunk_repo,
         async_build_embedder=lambda c: emb,
     )
-    return svc, emb
+    return svc, search_svc, emb
 
 
 async def test_search_async_matches_sync_shape(database, git_workspace_factory):
-    svc, _emb = _async_service(database)
+    svc, search_svc, _emb = _async_service(database)
     ws = git_workspace_factory("ws")
     svc.save(
         workspace_target("u1", "ws", ws), "Recipes", "# Recipes\n\ntomato basil soup\n", tags=[]
     )
-    hits = await svc.search_async("tomato", ["ws"], owner_id="u1", limit=10)
+    hits = await search_svc.search_async("tomato", ["ws"], owner_id="u1", limit=10)
     assert len(hits) >= 1
     assert set(hits[0]) >= {"note_id", "title", "header_path", "content", "score", "updated_at"}
 
 
 async def test_search_async_embeds_query_on_event_loop(database, git_workspace_factory):
-    svc, emb = _async_service(database)
+    svc, search_svc, emb = _async_service(database)
     ws = git_workspace_factory("ws")
     svc.save(workspace_target("u1", "ws", ws), "T", "# T\n\nalpha\n", tags=[])
-    await svc.search_async("alpha", ["ws"], owner_id="u1")
+    await search_svc.search_async("alpha", ["ws"], owner_id="u1")
     assert emb.calls == 1
 
 
 async def test_search_async_query_cache_hit_skips_embedder(database, git_workspace_factory):
     from kajet_turbo.embedding.cache import QueryEmbeddingCache
 
-    svc, emb = _async_service(database, query_cache=QueryEmbeddingCache())
+    svc, search_svc, emb = _async_service(database, query_cache=QueryEmbeddingCache())
     ws = git_workspace_factory("ws")
     svc.save(workspace_target("u1", "ws", ws), "T", "# T\n\nalpha\n", tags=[])
     # No result cache; a different limit cannot be served from it anyway — only the
     # query-embedding LRU can dedupe the embed call.
-    await svc.search_async("alpha", ["ws"], owner_id="u1", limit=5)
-    await svc.search_async("alpha", ["ws"], owner_id="u1", limit=7)
+    await search_svc.search_async("alpha", ["ws"], owner_id="u1", limit=5)
+    await search_svc.search_async("alpha", ["ws"], owner_id="u1", limit=7)
     assert emb.calls == 1
 
 
 async def test_search_async_embed_failure_degrades_to_fts(database, git_workspace_factory):
-    svc, emb = _async_service(database)
+    svc, search_svc, emb = _async_service(database)
 
     async def _boom(text):
         raise RuntimeError("embedding endpoint down")
@@ -327,7 +335,7 @@ async def test_search_async_embed_failure_degrades_to_fts(database, git_workspac
     emb.embed_query = _boom  # type: ignore[method-assign]
     ws = git_workspace_factory("ws")
     svc.save(workspace_target("u1", "ws", ws), "T", "# T\n\nalpha\n", tags=[])
-    hits = await svc.search_async("alpha", ["ws"], owner_id="u1")
+    hits = await search_svc.search_async("alpha", ["ws"], owner_id="u1")
     assert len(hits) >= 1  # FTS still answers
 
 
@@ -336,8 +344,8 @@ async def test_search_async_falls_back_to_sync_without_async_embedder(
 ):
     # Test doubles / legacy wiring without async_build_embedder keep working: the
     # whole search runs through the sync path in a worker thread.
-    service = _service(database)
+    service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(workspace_target("u1", "ws", ws), "Recipes", "# Recipes\n\ntomato soup\n", tags=[])
-    hits = await service.search_async("tomato", ["ws"], owner_id="u1", limit=10)
+    hits = await search_service.search_async("tomato", ["ws"], owner_id="u1", limit=10)
     assert len(hits) >= 1

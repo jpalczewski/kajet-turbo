@@ -42,7 +42,6 @@ from kajet_turbo.services.notes.paths import (
     path_conflict_key,
 )
 from kajet_turbo.services.notes.persistence import NoteTeardown, new_note_row
-from kajet_turbo.services.notes.search import NoteSearchService
 from kajet_turbo.services.notes.staged_change import (
     StagedChange,
     commit_rows_then_tree,
@@ -145,7 +144,6 @@ class NoteService:
         chunk_repo: NoteChunkRepository,
         tag_service: NoteTagService,
         link_service: NoteLinkService,
-        search_service: NoteSearchService,
         version_service: NoteVersionService,
         folder_service: NoteFolderService,
         indexer=None,
@@ -157,7 +155,6 @@ class NoteService:
         self._chunk_repo = chunk_repo
         self._tag_service = tag_service
         self._link_service = link_service
-        self._search_service = search_service
         self._version_service = version_service
         self._folder_service = folder_service
         self._indexer = indexer
@@ -1062,32 +1059,6 @@ class NoteService:
             extras=version["extras"],
             occurred_at=version["occurred_at"],
             period=version["period"],
-        )
-
-    def search(
-        self,
-        query: str,
-        workspaces: list[str],
-        owner_id: str,
-        limit: int = 10,
-        folder: str | None = None,
-        tags: list[str] | None = None,
-    ) -> list[dict]:
-        return self._search_service.search(
-            query, workspaces, owner_id, limit, folder=folder, tags=tags
-        )
-
-    async def search_async(
-        self,
-        query: str,
-        workspaces: list[str],
-        owner_id: str,
-        limit: int = 10,
-        folder: str | None = None,
-        tags: list[str] | None = None,
-    ) -> list[dict]:
-        return await self._search_service.search_async(
-            query, workspaces, owner_id, limit, folder=folder, tags=tags
         )
 
     def get_history(self, target: NoteTarget, limit: int = 50) -> list[dict]:

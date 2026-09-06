@@ -268,13 +268,13 @@ def test_list_scoped_by_owner(service, read_service, workspace):
     assert len(result_u2) == 1 and result_u2[0]["title"] == "Notatka u2"
 
 
-def test_search_across_workspaces(service, workspace):
+def test_search_across_workspaces(service, search_service, workspace):
     ws2 = workspace.parent / "ws2"
     ws2.mkdir(parents=True)
     GitRepository.init(str(ws2))
     service.save(workspace_target("u1", "ws", workspace), "Python w ws1", "asyncio", [])
     service.save(workspace_target("u1", "ws2", ws2), "Python w ws2", "asyncio", [])
-    results = service.search("Python", ["ws", "ws2"], owner_id="u1", limit=10)
+    results = search_service.search("Python", ["ws", "ws2"], owner_id="u1", limit=10)
     titles = [r["title"] for r in results]
     assert "Python w ws1" in titles
     assert "Python w ws2" in titles

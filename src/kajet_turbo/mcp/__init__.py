@@ -126,6 +126,7 @@ def build_mcp(resources: AppResources) -> FastMCP:
             resources.note_temporal_service,
             resources.note_read_service,
             resources.note_reconcile_service,
+            resources.note_search_service,
             resources.workspace_service,
             resources.folder_meta_repo,
             resources.collection_service,

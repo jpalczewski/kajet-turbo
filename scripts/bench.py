@@ -241,13 +241,9 @@ def inproc_search_phase(tmp: Path) -> dict:
         NoteTagRepository,
     )
     from kajet_turbo.services.notes import (
-        NoteFolderService,
         NoteLinkService,
         NoteReconcileService,
         NoteSearchService,
-        NoteService,
-        NoteTagService,
-        NoteVersionService,
     )
 
     owner_id = (
@@ -261,7 +257,6 @@ def inproc_search_phase(tmp: Path) -> dict:
     tag_repo = NoteTagRepository(db.engine)
     chunk_repo = NoteChunkRepository(db.engine)
     job_repo = JobRepository(db.engine)
-    tag_service = NoteTagService(note_repo, tag_repo)
     link_service = NoteLinkService(
         note_repo,
         link_repo,
@@ -278,19 +273,6 @@ def inproc_search_phase(tmp: Path) -> dict:
         crud_repo=note_repo,
         tag_repo=tag_repo,
     )
-    version_service = NoteVersionService(note_repo)
-    folder_service = NoteFolderService(note_repo, link_service)
-    svc = NoteService(
-        note_repo,
-        link_repo,
-        tag_repo,
-        chunk_repo,
-        tag_service,
-        link_service,
-        search_service,
-        version_service,
-        folder_service,
-    )
     reconcile_service = NoteReconcileService(
         note_repo, link_repo, tag_repo, chunk_repo, link_service
     )
@@ -301,7 +283,7 @@ def inproc_search_phase(tmp: Path) -> dict:
 
         def one(i: int, lat: list[float] = latencies) -> None:
             t0 = time.perf_counter()
-            svc.search(QUERIES[i % len(QUERIES)], [WS], owner_id=owner_id, limit=10)
+            search_service.search(QUERIES[i % len(QUERIES)], [WS], owner_id=owner_id, limit=10)
             lat.append((time.perf_counter() - t0) * 1000)
 
         t0 = time.perf_counter()

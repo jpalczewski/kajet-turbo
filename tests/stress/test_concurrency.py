@@ -23,16 +23,21 @@ def _note(ws_path, note_id) -> NoteTarget:
 
 @pytest.fixture()
 def svc(tmp_path, database_factory):
-    from tests.services.conftest import build_note_read_service, build_note_service
+    from tests.services.conftest import (
+        build_note_read_service,
+        build_note_search_service,
+        build_note_service,
+    )
 
     db = database_factory("stress.db")
     service = build_note_service(db)
     read_service = build_note_read_service(db)
-    return service, read_service, str(tmp_path / "ws")
+    search_service = build_note_search_service(db)
+    return service, read_service, search_service, str(tmp_path / "ws")
 
 
 def test_parallel_save_search_history(svc, tmp_path):
-    service, read_service, ws_path = svc
+    service, read_service, search_service, ws_path = svc
     Path(ws_path).mkdir()
     GitRepository.init(ws_path)
     seed = service.save(_ws(ws_path), "Seed", "treść początkowa", [])
@@ -47,7 +52,7 @@ def test_parallel_save_search_history(svc, tmp_path):
 
     def search(i: int) -> None:
         try:
-            service.search("treść", [WS], owner_id=OWNER, limit=10)
+            search_service.search("treść", [WS], owner_id=OWNER, limit=10)
         except Exception as e:
             errors.append(e)
 

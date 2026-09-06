@@ -73,11 +73,7 @@ def build_note_wiring(
     indexer=None,
     link_validation_enabled=None,
     dangling_repo=None,
-    query_resolver=None,
-    build_embedder=None,
-    query_cache=None,
     chunk_repo: NoteChunkRepository | None = None,
-    async_build_embedder=None,
     reconcile_repo: LinkReconcileRepository | None = None,
     jobs: JobRepository | None = None,
     link_service: NoteLinkService | None = None,
@@ -98,15 +94,6 @@ def build_note_wiring(
         link_service = NoteLinkService(
             crud_repo, link_repo, tag_repo, dangling_repo, link_validation_enabled, jobs
         )
-    search_service = NoteSearchService(
-        chunk_repo,
-        query_resolver,
-        build_embedder,
-        query_cache,
-        crud_repo,
-        tag_repo,
-        async_build_embedder=async_build_embedder,
-    )
     version_service = NoteVersionService(crud_repo)
     folder_service = NoteFolderService(crud_repo, link_service, reconcile_repo=reconcile_repo)
 
@@ -118,7 +105,6 @@ def build_note_wiring(
             chunk_repo,
             tag_service,
             link_service,
-            search_service,
             version_service,
             folder_service,
             indexer=indexer,
@@ -131,6 +117,34 @@ def build_note_wiring(
 def build_note_service(database: Database, **kwargs) -> NoteService:
     """The note writer alone — for callers that need no other boundary."""
     return build_note_wiring(database, **kwargs).service
+
+
+def build_note_search_service(
+    database: Database,
+    query_resolver=None,
+    build_embedder=None,
+    query_cache=None,
+    chunk_repo: NoteChunkRepository | None = None,
+    async_build_embedder=None,
+) -> NoteSearchService:
+    """Construct a NoteSearchService reading the same Database as build_note_service.
+
+    Fresh repo instances on the same engine — stateless, so they see everything a
+    NoteService built against the same Database has already written."""
+    engine = database.engine
+    crud_repo = NoteRepository(engine)
+    tag_repo = NoteTagRepository(engine)
+    if chunk_repo is None:
+        chunk_repo = NoteChunkRepository(engine)
+    return NoteSearchService(
+        chunk_repo,
+        query_resolver,
+        build_embedder,
+        query_cache,
+        crud_repo,
+        tag_repo,
+        async_build_embedder=async_build_embedder,
+    )
 
 
 def build_note_read_service(database: Database, indexer=None) -> NoteReadService:
@@ -247,6 +261,11 @@ def temporal_service(service: NoteService) -> NoteTemporalService:
 @pytest.fixture
 def read_service(database: Database) -> NoteReadService:
     return build_note_read_service(database)
+
+
+@pytest.fixture
+def search_service(database: Database) -> NoteSearchService:
+    return build_note_search_service(database)
 
 
 @pytest.fixture
