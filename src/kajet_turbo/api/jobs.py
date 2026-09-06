@@ -6,7 +6,7 @@ from kajet_turbo.dependencies import CurrentUser, get_job_service, get_required_
 from kajet_turbo.errors import JobError
 from kajet_turbo.services.jobs import JobService
 
-router = APIRouter()
+router = APIRouter(responses={401: {"model": ErrorResponse}})
 
 
 @router.get("/api/me/jobs", response_model=JobsResponse)

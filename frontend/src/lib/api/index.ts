@@ -3454,12 +3454,19 @@ export type apiListJobsApiMeJobsGetResponse200 = {
   status: 200
 }
 
+export type apiListJobsApiMeJobsGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
 export type apiListJobsApiMeJobsGetResponseSuccess = (apiListJobsApiMeJobsGetResponse200) & {
   headers: Headers;
 };
-;
+export type apiListJobsApiMeJobsGetResponseError = (apiListJobsApiMeJobsGetResponse401) & {
+  headers: Headers;
+};
 
-export type apiListJobsApiMeJobsGetResponse = (apiListJobsApiMeJobsGetResponseSuccess)
+export type apiListJobsApiMeJobsGetResponse = (apiListJobsApiMeJobsGetResponseSuccess | apiListJobsApiMeJobsGetResponseError)
 
 export const getApiListJobsApiMeJobsGetUrl = () => {
 
@@ -3490,6 +3497,11 @@ export type apiRetryJobApiMeJobsJobIdRetryPostResponse200 = {
   status: 200
 }
 
+export type apiRetryJobApiMeJobsJobIdRetryPostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
 export type apiRetryJobApiMeJobsJobIdRetryPostResponse404 = {
   data: ErrorResponse
   status: 404
@@ -3503,7 +3515,7 @@ export type apiRetryJobApiMeJobsJobIdRetryPostResponse422 = {
 export type apiRetryJobApiMeJobsJobIdRetryPostResponseSuccess = (apiRetryJobApiMeJobsJobIdRetryPostResponse200) & {
   headers: Headers;
 };
-export type apiRetryJobApiMeJobsJobIdRetryPostResponseError = (apiRetryJobApiMeJobsJobIdRetryPostResponse404 | apiRetryJobApiMeJobsJobIdRetryPostResponse422) & {
+export type apiRetryJobApiMeJobsJobIdRetryPostResponseError = (apiRetryJobApiMeJobsJobIdRetryPostResponse401 | apiRetryJobApiMeJobsJobIdRetryPostResponse404 | apiRetryJobApiMeJobsJobIdRetryPostResponse422) & {
   headers: Headers;
 };
 
@@ -3538,6 +3550,11 @@ export type apiDismissJobApiMeJobsJobIdDeleteResponse200 = {
   status: 200
 }
 
+export type apiDismissJobApiMeJobsJobIdDeleteResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
 export type apiDismissJobApiMeJobsJobIdDeleteResponse404 = {
   data: ErrorResponse
   status: 404
@@ -3551,7 +3568,7 @@ export type apiDismissJobApiMeJobsJobIdDeleteResponse422 = {
 export type apiDismissJobApiMeJobsJobIdDeleteResponseSuccess = (apiDismissJobApiMeJobsJobIdDeleteResponse200) & {
   headers: Headers;
 };
-export type apiDismissJobApiMeJobsJobIdDeleteResponseError = (apiDismissJobApiMeJobsJobIdDeleteResponse404 | apiDismissJobApiMeJobsJobIdDeleteResponse422) & {
+export type apiDismissJobApiMeJobsJobIdDeleteResponseError = (apiDismissJobApiMeJobsJobIdDeleteResponse401 | apiDismissJobApiMeJobsJobIdDeleteResponse404 | apiDismissJobApiMeJobsJobIdDeleteResponse422) & {
   headers: Headers;
 };
 
