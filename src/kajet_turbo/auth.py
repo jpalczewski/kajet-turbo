@@ -22,7 +22,8 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from kajet_turbo import identity
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import logger
+from kajet_turbo.errors import SecurityEvent, SecurityReason
+from kajet_turbo.log import log_security_event, logger
 from kajet_turbo.repositories.oauth import (
     OAuthRepository,
     OAuthTokenPair,
@@ -354,20 +355,38 @@ class KajetOAuthProvider(OAuthProvider):
     async def load_access_token(self, token: str) -> AccessToken | None:  # ty: ignore[invalid-method-override]
         row = await run_sync(self._oauth_repo.get_access_token, token)
         if row is None:
-            logger.warning("oauth_token_rejected", token_prefix=token[:8], reason="unknown_token")
+            log_security_event(
+                SecurityEvent.AUTH_FAILURE,
+                level="WARNING",
+                user_id=None,
+                auth_method="oauth_token",
+                reason=SecurityReason.UNKNOWN_TOKEN.value,
+                token_prefix=token[:8],
+            )
             return None
         if row["user_id"] is None:
             # Predates the user_id column, so there is no way to tell whose it is.
             # Rejecting here (401) is what makes the client re-run OAuth — failing later
             # in _resolve_user would only surface as a tool error, which clients retry
             # forever instead of re-authorizing.
-            logger.warning("oauth_token_rejected", token_prefix=token[:8], reason="no_owner")
+            log_security_event(
+                SecurityEvent.AUTH_FAILURE,
+                level="WARNING",
+                user_id=None,
+                auth_method="oauth_token",
+                reason=SecurityReason.NO_OWNER.value,
+                token_prefix=token[:8],
+                client_id=row["client_id"],
+            )
             return None
         if identity.token_expired(row):
-            logger.warning(
-                "oauth_token_rejected",
+            log_security_event(
+                SecurityEvent.AUTH_FAILURE,
+                level="WARNING",
+                user_id=str(row["user_id"]),
+                auth_method="oauth_token",
+                reason=SecurityReason.EXPIRED.value,
                 token_prefix=token[:8],
-                reason="expired",
                 expired_s=int(time.time() - row["expires_at"]),
                 client_id=row["client_id"],
             )
@@ -375,6 +394,13 @@ class KajetOAuthProvider(OAuthProvider):
             # client can refresh.
             await run_sync(self._oauth_repo.delete_access_token, token)
             return None
+        log_security_event(
+            SecurityEvent.AUTH_SUCCESS,
+            level="INFO",
+            user_id=str(row["user_id"]),
+            auth_method="oauth_token",
+            client_id=row["client_id"],
+        )
         return AccessToken(
             token=row["token"],
             client_id=row["client_id"],

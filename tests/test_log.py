@@ -27,6 +27,25 @@ def test_json_sink_produces_valid_jsonl(capsys):
     assert entry["msg"] == "hello world"
     assert entry["level"] == "info"
     assert entry["foo"] == "bar"
+
+
+def test_permission_denied_uses_the_shared_security_event_contract(capsys):
+    from kajet_turbo.errors import SecurityEvent, SecurityReason
+    from kajet_turbo.log import log_permission_denied, setup_logging
+    from tests.helpers import entries_named, read_log_entries
+
+    setup_logging()
+    log_permission_denied(
+        action="note.read",
+        resource="note",
+        caller_id="u1",
+        reason=SecurityReason.WRONG_OWNER,
+        note_id="opaque-note-id",
+    )
+
+    (entry,) = entries_named(read_log_entries(capsys), SecurityEvent.PERMISSION_DENIED.value)
+    assert entry["category"] == "security"
+    assert entry["reason"] == SecurityReason.WRONG_OWNER.value
     assert "ts" in entry
 
 

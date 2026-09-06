@@ -26,8 +26,8 @@ from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbeddingCache
 from kajet_turbo.embedding.client import SharedEmbedderClient
 from kajet_turbo.embedding.resolver import ProfileResolver
-from kajet_turbo.errors import AuthError, NoteError
-from kajet_turbo.log import log_permission_denied
+from kajet_turbo.errors import AuthError, NoteError, SecurityEvent, SecurityReason
+from kajet_turbo.log import log_permission_denied, log_security_event
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 from kajet_turbo.repositories.events import EventRepository
@@ -71,7 +71,6 @@ from kajet_turbo.services.reconcile_links_handler import ReconcileLinksHandler
 from kajet_turbo.services.reindex_handler import ReindexNoteHandler
 from kajet_turbo.services.ssh_keys import SshKeyService
 from kajet_turbo.services.targets import (
-    DenialReason,
     NoteTarget,
     TargetResolutionError,
     TargetResolver,
@@ -468,6 +467,13 @@ def get_session_user(request: Request) -> dict | None:
 def get_required_user(request: Request) -> CurrentUser:
     user = get_session_user(request)
     if not user:
+        log_security_event(
+            SecurityEvent.AUTH_FAILURE,
+            level="WARNING",
+            user_id=None,
+            auth_method="session_cookie",
+            reason=SecurityReason.NO_SESSION.value,
+        )
         raise HTTPException(status_code=401, detail=AuthError.NOT_AUTHENTICATED)
     return CurrentUser(
         id=user["id"], email=user["email"], timezone=user["timezone"], locale=user["locale"]
@@ -521,7 +527,7 @@ def resolve_note_target(
             action="note.read",
             resource="note",
             caller_id=user.id,
-            reason=DenialReason.WORKSPACE_MISMATCH,
+            reason=SecurityReason.WORKSPACE_MISMATCH,
             note_id=note_id,
             workspace=name,
         )

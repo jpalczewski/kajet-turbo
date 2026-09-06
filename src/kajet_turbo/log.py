@@ -14,6 +14,7 @@ from loguru import logger
 from kajet_turbo import identity
 from kajet_turbo.cache import TtlCache, cache_enabled
 from kajet_turbo.concurrency import run_sync
+from kajet_turbo.errors.auth import SecurityEvent, SecurityReason
 from kajet_turbo.perf import current as perf_current
 from kajet_turbo.perf import perf_span
 
@@ -230,30 +231,34 @@ def install_loop_exception_handler() -> None:
     asyncio.get_running_loop().set_exception_handler(_handle_loop_exception)
 
 
+def log_security_event(event: SecurityEvent, *, level: str, **fields: object) -> None:
+    """Emit one audit record without leaking its category into request context."""
+    logger.log(level, event.value, category="security", **fields)
+
+
 def log_permission_denied(
     *,
     action: str,
     resource: str,
     caller_id: str,
-    reason: object,
+    reason: SecurityReason,
     note_id: str | None = None,
     workspace: str | None = None,
 ) -> None:
-    """Shared security-audit seam for the target resolver (#246), pending #262's own
-    SecurityEvent vocabulary — whichever lands first, the other extends/reuses this.
+    """Shared security-audit seam for target-resolution denials (#246).
 
     Call exactly once per denied target resolution, from the adapter (REST route / MCP
     tool dependency), never from the resolver itself and never a second time by an
-    outer error mapper. `reason` is one of services.targets's private per-module denial
-    enums — never a title, body, or filesystem path.
+    outer error mapper. `reason` is a typed, log-only target-denial diagnostic — never
+    a title, body, or filesystem path.
     """
-    logger.warning(
-        "permission_denied",
-        category="security",
+    log_security_event(
+        SecurityEvent.PERMISSION_DENIED,
+        level="WARNING",
         action=action,
         resource=resource,
         caller_id=caller_id,
-        reason=str(reason),
+        reason=reason.value,
         note_id=note_id,
         workspace=workspace,
     )

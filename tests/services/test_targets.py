@@ -4,13 +4,12 @@ import pytest
 from sqlmodel import Session
 
 from kajet_turbo.db import Database
-from kajet_turbo.errors import TargetError
+from kajet_turbo.errors import SecurityReason, TargetError
 from kajet_turbo.models import Note
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.services.targets import (
     BatchTargetResolutionError,
-    DenialReason,
     NoteTarget,
     TargetFailure,
     TargetResolutionError,
@@ -119,7 +118,7 @@ def test_note_not_found_when_row_missing(database: Database, resolver: TargetRes
 
     failure = exc_info.value.failure
     assert failure.error == TargetError.NOT_FOUND
-    assert failure.reason == DenialReason.MISSING_ROW
+    assert failure.reason == SecurityReason.MISSING_ROW
 
 
 def test_note_not_found_when_owned_by_someone_else(database: Database, resolver: TargetResolver):
@@ -134,7 +133,7 @@ def test_note_not_found_when_owned_by_someone_else(database: Database, resolver:
     # Same public shape as a genuinely missing id -- no owner disclosure through the
     # error, only the private reason distinguishes "not yours" from "does not exist".
     assert failure.error == TargetError.NOT_FOUND
-    assert failure.reason == DenialReason.WRONG_OWNER
+    assert failure.reason == SecurityReason.WRONG_OWNER
 
 
 def test_note_not_found_when_workspace_access_was_revoked(
@@ -151,7 +150,7 @@ def test_note_not_found_when_workspace_access_was_revoked(
 
     failure = exc_info.value.failure
     assert failure.error == TargetError.NOT_FOUND
-    assert failure.reason == DenialReason.WORKSPACE_ACCESS_DENIED
+    assert failure.reason == SecurityReason.WORKSPACE_ACCESS_DENIED
 
 
 def test_note_never_touches_the_filesystem(database: Database, resolver: TargetResolver):
@@ -203,10 +202,10 @@ def test_notes_batch_missing_and_inaccessible_share_public_shape(
 
     assert isinstance(results[0], TargetFailure)
     assert results[0].error == TargetError.NOT_FOUND
-    assert results[0].reason == DenialReason.WRONG_OWNER
+    assert results[0].reason == SecurityReason.WRONG_OWNER
     assert isinstance(results[1], TargetFailure)
     assert results[1].error == TargetError.NOT_FOUND
-    assert results[1].reason == DenialReason.MISSING_ROW
+    assert results[1].reason == SecurityReason.MISSING_ROW
 
 
 # --- notes_in_one_workspace() ---

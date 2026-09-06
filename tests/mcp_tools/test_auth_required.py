@@ -6,7 +6,10 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+from kajet_turbo.errors import SecurityEvent, SecurityReason
+from kajet_turbo.log import setup_logging
 from kajet_turbo.repositories.git import GitRepository
+from tests.helpers import entries_named, read_log_entries
 
 
 async def test_tokenless_list_workspaces_rejected(tokenless_mcp_server):
@@ -25,7 +28,7 @@ async def test_tokenless_save_note_rejected(tokenless_mcp_server):
             )
 
 
-async def test_token_that_maps_to_no_user_is_rejected(tokenless_mcp_server, monkeypatch):
+async def test_token_that_maps_to_no_user_is_rejected(tokenless_mcp_server, monkeypatch, capsys):
     """A token with no owner — never issued, or predating the user_id column — is
     rejected the same way as a missing token, rather than falling back to whoever last
     authorized the client."""
@@ -34,9 +37,14 @@ async def test_token_that_maps_to_no_user_is_rejected(tokenless_mcp_server, monk
         lambda: SimpleNamespace(client_id="ghost", token="at-never-issued"),
     )
     mcp, _ = tokenless_mcp_server
+    setup_logging()
     async with Client(mcp) as client:
         with pytest.raises(ToolError, match="Authentication required"):
             await client.call_tool("list_workspaces")
+    (event,) = entries_named(read_log_entries(capsys), SecurityEvent.AUTH_FAILURE.value)
+    assert event["reason"] == SecurityReason.NO_OWNER.value
+    assert event["auth_method"] == "oauth_token"
+    assert "at-never-issued" not in str(event)
 
 
 async def test_ungranted_disk_workspace_is_unreachable(workspaces_dir, mcp_server):

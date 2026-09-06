@@ -1,4 +1,4 @@
-from .auth import AuthError
+from .auth import AuthError, SecurityEvent, SecurityReason
 from .folders import FolderError
 from .git import GitError
 from .notes import NoteError
@@ -26,6 +26,8 @@ __all__ = [
     "NoteError",
     "PreferencesError",
     "RequestError",
+    "SecurityEvent",
+    "SecurityReason",
     "TargetError",
     "WorkspaceError",
 ]

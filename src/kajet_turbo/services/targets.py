@@ -4,9 +4,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeGuard
 
-from kajet_turbo.errors import TargetError
+from kajet_turbo.errors import SecurityReason, TargetError
 from kajet_turbo.log import log_permission_denied
 from kajet_turbo.repositories.notes import NoteRepository
 
@@ -38,18 +38,6 @@ class NoteTarget:
     workspace: WorkspaceTarget
 
 
-class DenialReason(StrEnum):
-    """Public so an adapter can name a denial reason it detects itself (e.g. the note/
-    URL-workspace mismatch a REST route checks, which the resolver never produces) --
-    but still never serialize a member's value into an HTTP body/ToolError, only into
-    the audit log via log_permission_denied."""
-
-    MISSING_ROW = "missing_row"
-    WRONG_OWNER = "wrong_owner"
-    WORKSPACE_ACCESS_DENIED = "workspace_access_denied"
-    WORKSPACE_MISMATCH = "workspace_mismatch"
-
-
 class _ValidationReason(StrEnum):
     """Internal-only -- batch prevalidation failures that are NOT denials (no audit)."""
 
@@ -60,14 +48,23 @@ class _ValidationReason(StrEnum):
     MIXED_WORKSPACES = "mixed_workspaces"
 
 
-type DenialOrValidationReason = DenialReason | _ValidationReason
+type DenialOrValidationReason = SecurityReason | _ValidationReason
+
+_DENIAL_REASONS = frozenset(
+    {
+        SecurityReason.MISSING_ROW,
+        SecurityReason.WRONG_OWNER,
+        SecurityReason.WORKSPACE_ACCESS_DENIED,
+        SecurityReason.WORKSPACE_MISMATCH,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
 class TargetFailure:
     index: int | None
     error: TargetError
-    # Private diagnostic -- callers branch on isinstance(reason, DenialReason) to
+    # Private diagnostic -- callers use is_denial(reason) to
     # decide whether to emit a permission_denied audit record; never surface this
     # value itself in an HTTP body or ToolError message.
     reason: DenialOrValidationReason
@@ -79,7 +76,7 @@ class TargetResolutionError(Exception):
     def __init__(self, failure: TargetFailure) -> None:
         self.failure = failure
         # Public error code only -- failure.reason is the private diagnostic this
-        # dataclass exists to keep out of default serialization (see DenialReason).
+        # dataclass exists to keep out of default serialization.
         super().__init__(f"target resolution failed: {failure.error}")
 
 
@@ -92,9 +89,9 @@ class BatchTargetResolutionError(Exception):
         super().__init__(f"{len(failures)} target(s) failed prevalidation")
 
 
-def is_denial(reason: DenialOrValidationReason) -> bool:
+def is_denial(reason: DenialOrValidationReason) -> TypeGuard[SecurityReason]:
     """True when `reason` should be audited as a permission_denied event."""
-    return isinstance(reason, DenialReason)
+    return reason in _DENIAL_REASONS
 
 
 def audit_denied(
@@ -106,9 +103,10 @@ def audit_denied(
     chaining. Never raises -- callers raise their own ToolError/HTTPException with
     their own status and message; this only centralizes the repeated audit-logging
     skeleton duplicated across both adapters."""
-    if is_denial(failure.reason):
+    reason = failure.reason
+    if is_denial(reason):
         log_permission_denied(
-            action=action, resource=resource, caller_id=caller_id, reason=failure.reason, **extra
+            action=action, resource=resource, caller_id=caller_id, reason=reason, **extra
         )
         return True
     return False
@@ -126,7 +124,9 @@ class TargetResolver:
     def workspace(self, user_id: str, name: str) -> WorkspaceTarget:
         if not self._workspace_service.has_access(user_id, name):
             raise TargetResolutionError(
-                TargetFailure(None, TargetError.ACCESS_DENIED, DenialReason.WORKSPACE_ACCESS_DENIED)
+                TargetFailure(
+                    None, TargetError.ACCESS_DENIED, SecurityReason.WORKSPACE_ACCESS_DENIED
+                )
             )
         path = Path(self._workspace_service.workspace_path(user_id, name))
         return WorkspaceTarget(owner_id=user_id, name=name, path=path)
@@ -135,11 +135,11 @@ class TargetResolver:
         note = self._note_repo.get(note_id)
         if note is None:
             raise TargetResolutionError(
-                TargetFailure(None, TargetError.NOT_FOUND, DenialReason.MISSING_ROW)
+                TargetFailure(None, TargetError.NOT_FOUND, SecurityReason.MISSING_ROW)
             )
         if note.owner_id != user_id:
             raise TargetResolutionError(
-                TargetFailure(None, TargetError.NOT_FOUND, DenialReason.WRONG_OWNER)
+                TargetFailure(None, TargetError.NOT_FOUND, SecurityReason.WRONG_OWNER)
             )
         try:
             workspace = self.workspace(user_id, note.workspace)
@@ -149,7 +149,7 @@ class TargetResolver:
             # association without an independent access check. Public shape stays
             # NOT_FOUND either way; only the private reason differs.
             raise TargetResolutionError(
-                TargetFailure(None, TargetError.NOT_FOUND, DenialReason.WORKSPACE_ACCESS_DENIED)
+                TargetFailure(None, TargetError.NOT_FOUND, SecurityReason.WORKSPACE_ACCESS_DENIED)
             ) from e
         return NoteTarget(note_id=note_id, workspace=workspace)
 
@@ -172,7 +172,7 @@ class TargetResolver:
                     cached = self.workspace(user_id, note.workspace)
                 except TargetResolutionError:
                     cached = TargetFailure(
-                        index, TargetError.NOT_FOUND, DenialReason.WORKSPACE_ACCESS_DENIED
+                        index, TargetError.NOT_FOUND, SecurityReason.WORKSPACE_ACCESS_DENIED
                     )
                 workspace_cache[note.workspace] = cached
             if isinstance(cached, TargetFailure):
@@ -235,12 +235,16 @@ class TargetResolver:
             workspace = self.workspace(user_id, workspace_name)
         except TargetResolutionError as e:
             raise BatchTargetResolutionError(
-                [TargetFailure(None, TargetError.NOT_FOUND, DenialReason.WORKSPACE_ACCESS_DENIED)]
+                [
+                    TargetFailure(
+                        None, TargetError.NOT_FOUND, SecurityReason.WORKSPACE_ACCESS_DENIED
+                    )
+                ]
             ) from e
         resolved = [NoteTarget(note_id=note_id, workspace=workspace) for note_id in note_ids]
         return workspace, resolved
 
-    def _missing_reason(self, note_id: str, user_id: str) -> DenialReason:
+    def _missing_reason(self, note_id: str, user_id: str) -> SecurityReason:
         """Distinguish why `note_id` is absent from a `get_many(..., user_id)` result.
 
         That query already filters on `Note.owner_id == user_id`, so absence has
@@ -249,5 +253,5 @@ class TargetResolver:
         -- this never calls workspace access checks -- so don't invent one."""
         note = self._note_repo.get(note_id)
         if note is None:
-            return DenialReason.MISSING_ROW
-        return DenialReason.WRONG_OWNER
+            return SecurityReason.MISSING_ROW
+        return SecurityReason.WRONG_OWNER

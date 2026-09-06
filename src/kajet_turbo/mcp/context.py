@@ -9,13 +9,13 @@ from fastmcp.server.dependencies import get_access_token
 
 from kajet_turbo import identity
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.log import log_permission_denied, logger
+from kajet_turbo.errors import SecurityEvent, SecurityReason
+from kajet_turbo.log import log_permission_denied, log_security_event
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.git import PostCommitHooks
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.services.targets import (
     BatchTargetResolutionError,
-    DenialReason,
     NoteTarget,
     TargetFailure,
     TargetResolutionError,
@@ -86,7 +86,14 @@ def _resolve_user() -> str:
     # were already issued — see identity.resolve_bearer_user_id.
     user_id = identity.resolve_bearer_user_id(_deps().oauth_repo, token.token)
     if user_id is None:
-        logger.warning("mcp_token_without_user", client_id=token.client_id)
+        log_security_event(
+            SecurityEvent.AUTH_FAILURE,
+            level="WARNING",
+            user_id=None,
+            auth_method="oauth_token",
+            reason=SecurityReason.NO_OWNER.value,
+            client_id=token.client_id,
+        )
         raise ToolError("Authentication required.")
     return user_id
 
@@ -109,7 +116,7 @@ async def require_workspace_access(name: str, user_id: str) -> list[str]:
         action="workspace.read",
         resource="workspace",
         caller_id=user_id,
-        reason=DenialReason.WORKSPACE_ACCESS_DENIED,
+        reason=SecurityReason.WORKSPACE_ACCESS_DENIED,
         workspace=name,
     )
     msg = f"Workspace '{name}' does not exist or is not accessible."

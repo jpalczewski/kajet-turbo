@@ -2,6 +2,10 @@ import pytest
 from pydantic import AnyUrl
 
 from kajet_turbo.auth import KajetOAuthProvider
+from kajet_turbo.errors import SecurityEvent, SecurityReason
+from kajet_turbo.log import setup_logging
+from kajet_turbo.repositories.oauth import OAuthRepository
+from tests.helpers import entries_named, read_log_entries
 
 
 def test_expired_access_token_preserves_refresh_token(monkeypatch, database):
@@ -39,6 +43,49 @@ def test_expired_access_token_preserves_refresh_token(monkeypatch, database):
     client = _make_client("client1")
     rt = asyncio.run(provider.load_refresh_token(client, rt_val))
     assert rt is not None, "RT must survive AT expiry so client can refresh"
+
+
+def test_access_token_outcomes_are_security_events(database, monkeypatch, capsys):
+    import asyncio
+    import time
+
+    from tests.services.conftest import seed_user
+
+    monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
+    seed_user(database, "u1")
+    repo = OAuthRepository(database.engine)
+    now = int(time.time())
+    repo.upsert_access_token("at-valid-secret", "client-1", [], now + 3600, user_id="u1")
+    repo.upsert_access_token("at-no-owner-secret", "client-2", [], now + 3600)
+    provider = KajetOAuthProvider(repo, base_url="http://localhost:8000/mcp")
+    # The provider removes expired rows on initialization; insert afterwards to exercise
+    # load_access_token's own expiry branch.
+    repo.upsert_access_token("at-expired-secret", "client-3", [], now - 1, user_id="u1")
+    setup_logging()
+
+    assert asyncio.run(provider.load_access_token("at-valid-secret")) is not None
+    assert asyncio.run(provider.load_access_token("at-unknown-secret")) is None
+    assert asyncio.run(provider.load_access_token("at-no-owner-secret")) is None
+    assert asyncio.run(provider.load_access_token("at-expired-secret")) is None
+
+    entries = read_log_entries(capsys)
+    (success,) = entries_named(entries, SecurityEvent.AUTH_SUCCESS.value)
+    assert success["user_id"] == "u1"
+    assert success["auth_method"] == "oauth_token"
+    failures = entries_named(entries, SecurityEvent.AUTH_FAILURE.value)
+    assert [entry["reason"] for entry in failures] == [
+        SecurityReason.UNKNOWN_TOKEN.value,
+        SecurityReason.NO_OWNER.value,
+        SecurityReason.EXPIRED.value,
+    ]
+    serialized = str(entries)
+    for token in (
+        "at-valid-secret",
+        "at-unknown-secret",
+        "at-no-owner-secret",
+        "at-expired-secret",
+    ):
+        assert token not in serialized
 
 
 # --- Split-brain tests: two provider instances sharing one DB simulate ---
