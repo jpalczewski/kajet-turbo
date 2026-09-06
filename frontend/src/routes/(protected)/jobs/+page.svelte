@@ -19,9 +19,7 @@
   const action = useAsyncAction();
 
   async function reload() {
-    const url = statusFilter
-      ? `${getApiListJobsApiMeJobsGetUrl()}?status=${encodeURIComponent(statusFilter)}`
-      : getApiListJobsApiMeJobsGetUrl();
+    const url = getApiListJobsApiMeJobsGetUrl(statusFilter ? { status: statusFilter } : undefined);
     const r = await customFetch<apiListJobsApiMeJobsGetResponse>(url);
     if (r.status === 200) jobs = r.data.jobs;
   }

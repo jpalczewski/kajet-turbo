@@ -1,5 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException
 
 from kajet_turbo.api.schemas import ErrorResponse, JobsResponse, OkResponse
 from kajet_turbo.dependencies import CurrentUser, get_job_service, get_required_user
@@ -11,12 +10,11 @@ router = APIRouter(responses={401: {"model": ErrorResponse}})
 
 @router.get("/api/me/jobs", response_model=JobsResponse)
 def api_list_jobs(
-    request: Request,
+    status: str | None = None,
     user: CurrentUser = Depends(get_required_user),
     svc: JobService = Depends(get_job_service),
-) -> JSONResponse:
-    status = request.query_params.get("status") or None
-    return JSONResponse({"jobs": svc.list(user.id, status=status)})
+) -> JobsResponse:
+    return JobsResponse(jobs=svc.list(user.id, status=status))
 
 
 @router.post(

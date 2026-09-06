@@ -26,9 +26,39 @@ def _app(database, monkeypatch, *, user_id="u1"):
 def test_list_jobs(database, monkeypatch):
     client, repo = _app(database, monkeypatch)
     repo.enqueue("push_workspace", {"workspace": "ws"}, dedup_key="u1:ws", user_id="u1", now=1000.0)
-    jobs = client.get("/api/me/jobs").json()["jobs"]
-    assert [j["kind"] for j in jobs] == ["push_workspace"]
+    body = client.get("/api/me/jobs").json()
+    assert set(body) == {"jobs"}
+    jobs = body["jobs"]
+    assert len(jobs) == 1
+    assert set(jobs[0]) == {
+        "id",
+        "kind",
+        "workspace",
+        "status",
+        "attempts",
+        "max_attempts",
+        "last_error",
+        "next_run_at",
+        "created_at",
+        "updated_at",
+    }
+    assert jobs[0]["kind"] == "push_workspace"
     assert jobs[0]["workspace"] == "ws"
+    assert jobs[0]["status"] == "pending"
+
+
+def test_list_jobs_filters_by_status(database, monkeypatch):
+    client, repo = _app(database, monkeypatch)
+    job_id = repo.enqueue("k", {}, user_id="u1", max_attempts=1, now=1000.0)
+    repo.claim("w", now=1000.0)
+    repo.fail(job_id, "boom", now=1000.0)  # failed
+    repo.enqueue("other", {}, user_id="u1", now=1000.0)  # pending
+
+    failed = client.get("/api/me/jobs", params={"status": "failed"}).json()["jobs"]
+    assert [j["kind"] for j in failed] == ["k"]
+
+    pending = client.get("/api/me/jobs", params={"status": "pending"}).json()["jobs"]
+    assert [j["kind"] for j in pending] == ["other"]
 
 
 def test_retry_failed_job(database, monkeypatch):

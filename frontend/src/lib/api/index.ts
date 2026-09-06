@@ -722,6 +722,10 @@ export type ApiNoteGraphApiWorkspacesNameNotesGraphGetParams = {
 include_tags?: boolean;
 };
 
+export type ApiListJobsApiMeJobsGetParams = {
+status?: string | null;
+};
+
 export type apiLoginApiLoginPostResponse200 = {
   data: LoginResponse
   status: 200
@@ -3459,29 +3463,41 @@ export type apiListJobsApiMeJobsGetResponse401 = {
   status: 401
 }
 
+export type apiListJobsApiMeJobsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
 export type apiListJobsApiMeJobsGetResponseSuccess = (apiListJobsApiMeJobsGetResponse200) & {
   headers: Headers;
 };
-export type apiListJobsApiMeJobsGetResponseError = (apiListJobsApiMeJobsGetResponse401) & {
+export type apiListJobsApiMeJobsGetResponseError = (apiListJobsApiMeJobsGetResponse401 | apiListJobsApiMeJobsGetResponse422) & {
   headers: Headers;
 };
 
 export type apiListJobsApiMeJobsGetResponse = (apiListJobsApiMeJobsGetResponseSuccess | apiListJobsApiMeJobsGetResponseError)
 
-export const getApiListJobsApiMeJobsGetUrl = () => {
+export const getApiListJobsApiMeJobsGetUrl = (params?: ApiListJobsApiMeJobsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/me/jobs`
+  return stringifiedParams.length > 0 ? `/api/me/jobs?${stringifiedParams}` : `/api/me/jobs`
 }
 
 /**
  * @summary Api List Jobs
  */
-export const apiListJobsApiMeJobsGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiListJobsApiMeJobsGetResponse> => {
+export const apiListJobsApiMeJobsGet = async (params?: ApiListJobsApiMeJobsGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiListJobsApiMeJobsGetResponse> => {
 
-  return customFetch<apiListJobsApiMeJobsGetResponse>(getApiListJobsApiMeJobsGetUrl(),
+  return customFetch<apiListJobsApiMeJobsGetResponse>(getApiListJobsApiMeJobsGetUrl(params),
   {
     ...options,
     method: 'GET'

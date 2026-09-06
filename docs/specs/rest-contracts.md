@@ -156,11 +156,14 @@ envelope (`PreferencesError.INVALID_INPUT`).
 
 ### Jobs — `api/jobs.py`
 
-List/retry/dismiss, all sync `def` (unchanged — already off the event loop). `retry`/
-`dismiss` now 404 with `JobError.NOT_FOUND` and 200 with `OkResponse` instead of free-text
-bodies; `JobRepository.retry`/`dismiss` collapse "no such job", "wrong owner", and "wrong
-status" into one bool, so a single code is used rather than inventing a distinction the
-service can't actually report.
+List/retry/dismiss, all sync `def` (unchanged — already off the event loop). `list` now
+builds and returns `JobsResponse` directly (`response_model` enforced at runtime, no more
+`JSONResponse({...})`) and takes `status` as a typed `str | None` query parameter instead
+of reading `request.query_params` by hand. `retry`/`dismiss` now 404 with
+`JobError.NOT_FOUND` and 200 with `OkResponse` instead of free-text bodies;
+`JobRepository.retry`/`dismiss` collapse "no such job", "wrong owner", and "wrong status"
+into one bool, so a single code is used rather than inventing a distinction the service
+can't actually report.
 
 ### WebSocket — `api/ws.py`
 
