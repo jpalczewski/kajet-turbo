@@ -40,6 +40,6 @@ def build_notes(
     srv.mount(build_maintenance(note_service))
     srv.mount(build_folders(note_service, workspace_service, folder_meta_repo))
     srv.mount(build_tags(note_tag_service, workspace_service))
-    srv.mount(build_history(note_service, workspace_service))
-    srv.mount(build_graph(note_service, workspace_service))
+    srv.mount(build_history(note_service, note_link_service, workspace_service))
+    srv.mount(build_graph(note_link_service, workspace_service))
     return srv

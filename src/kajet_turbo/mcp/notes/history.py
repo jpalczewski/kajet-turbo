@@ -12,7 +12,7 @@ from kajet_turbo.mcp.notes.types import (
     StaleVersion,
 )
 from kajet_turbo.mcp.tooling import read_tool, require_found, write_tool
-from kajet_turbo.services.notes import NoteData, NoteService
+from kajet_turbo.services.notes import NoteData, NoteLinkService, NoteService
 from kajet_turbo.services.targets import NoteTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.shared.notes import HistoryEntry
@@ -20,6 +20,7 @@ from kajet_turbo.shared.notes import HistoryEntry
 
 def build_history(
     note_service: NoteService,
+    link_service: NoteLinkService,
     workspace_service: WorkspaceService,
 ) -> FastMCP:
     srv = FastMCP("notes-history")
@@ -91,9 +92,8 @@ def build_history(
         (e.g. [[note:abc-123]]) instead of [[Title]]."""
         result = require_found(
             await run_sync(
-                note_service.links,
-                target.note_id,
-                target.workspace.owner_id,
+                link_service.links,
+                target,
                 include_meta,
                 include_cross_workspace,
             ),

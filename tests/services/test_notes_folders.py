@@ -364,7 +364,7 @@ def test_move_folder_marks_affected_sources_dirty_even_when_backlink_rewrite_fai
     from kajet_turbo.services.notes import links as links_module
     from tests.services.helpers import build_reconcile_wiring
 
-    service, _jobs, dirty, _dangling, _handler = build_reconcile_wiring(database, workspace)
+    service, _links, _jobs, dirty, _dangling, _handler = build_reconcile_wiring(database, workspace)
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="src")[
         "note_id"
     ]

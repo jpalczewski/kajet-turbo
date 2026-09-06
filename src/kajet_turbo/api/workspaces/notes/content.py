@@ -14,6 +14,7 @@ from kajet_turbo.api.schemas import (
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_link_service,
     get_note_read_service,
     get_note_service,
     get_required_user,
@@ -22,7 +23,7 @@ from kajet_turbo.dependencies import (
 )
 from kajet_turbo.errors import NoteError
 from kajet_turbo.markdown import LinkResolver, XwsResolver, render_markdown
-from kajet_turbo.services.notes import NoteReadService, NoteService
+from kajet_turbo.services.notes import NoteLinkService, NoteReadService, NoteService
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 
 _ALLOWED_TAGS = [
@@ -94,6 +95,7 @@ def api_get_note_html(
     target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
     note_read_service: NoteReadService = Depends(get_note_read_service),
+    link_service: NoteLinkService = Depends(get_note_link_service),
 ) -> JSONResponse:
     note = note_read_service.get_with_content(target)
     if note is None:
@@ -110,9 +112,9 @@ def api_get_note_html(
             "period": note.period,
             "content_html": _render_html(
                 note.content,
-                resolver=note_service.link_resolver(name, user.id, note.folder),
-                slug=name,
-                xws_resolver=note_service.xws_link_resolver(user.id),
+                resolver=link_service.link_resolver(target.workspace, note.folder),
+                slug=target.workspace.name,
+                xws_resolver=link_service.xws_link_resolver(target.workspace.owner_id),
             ),
             "sha": note.sha,
         }
@@ -182,9 +184,9 @@ def api_note_links(
     note_id: str,
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
-    note_service: NoteService = Depends(get_note_service),
+    link_service: NoteLinkService = Depends(get_note_link_service),
 ) -> JSONResponse:
-    result = note_service.links(target.note_id, owner_id=target.workspace.owner_id)
+    result = link_service.links(target)
     if result is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
     return JSONResponse(result)
@@ -203,12 +205,10 @@ def api_note_neighborhood(
     include_tags: bool = False,
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
-    note_service: NoteService = Depends(get_note_service),
+    link_service: NoteLinkService = Depends(get_note_link_service),
 ) -> JSONResponse:
-    result = note_service.neighborhood(
-        target.note_id,
-        target.workspace.name,
-        target.workspace.owner_id,
+    result = link_service.neighborhood(
+        target,
         depth,
         include_cross_workspace,
         include_tags,
@@ -227,8 +227,8 @@ def api_note_graph(
     include_tags: bool = False,
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
-    note_service: NoteService = Depends(get_note_service),
+    link_service: NoteLinkService = Depends(get_note_link_service),
 ) -> JSONResponse:
     return JSONResponse(
-        note_service.graph(workspace.name, owner_id=workspace.owner_id, include_tags=include_tags)
+        link_service.graph(workspace, include_tags=include_tags)
     )

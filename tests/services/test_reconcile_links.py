@@ -12,7 +12,9 @@ from tests.services.helpers import build_reconcile_wiring, edit_item
 def test_target_creation_marks_only_dangling_source_and_reconciles(database, git_workspace_factory):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    service, jobs, dirty, dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
+    service, _links, jobs, dirty, dangling, handler = build_reconcile_wiring(
+        database, ws.parent.parent
+    )
 
     source_id = service.save(workspace_target("u1", "ws", ws), "Source", "[[Target]]", [])[
         "note_id"
@@ -54,13 +56,15 @@ def test_concurrent_source_mutation_cannot_leave_stale_graph(
 ):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    service, _jobs, dirty, _dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
+    service, links, _jobs, dirty, _dangling, handler = build_reconcile_wiring(
+        database, ws.parent.parent
+    )
     first_id = service.save(workspace_target("u1", "ws", ws), "First", "body", [])["note_id"]
     second_id = service.save(workspace_target("u1", "ws", ws), "Second", "body", [])["note_id"]
     source_id = service.save(workspace_target("u1", "ws", ws), "Source", "[[First]]", [])["note_id"]
     dirty.mark_and_enqueue("u1", "ws", {source_id})
 
-    original = service._link_service.persist_many
+    original = links.persist_many
     raced = False
 
     def persist_after_mutation(*args, **kwargs):
@@ -90,7 +94,7 @@ def test_concurrent_source_mutation_cannot_leave_stale_graph(
                 service.delete(source_target, expected_sha=sha)
         original(*args, **kwargs)
 
-    monkeypatch.setattr(service._link_service, "persist_many", persist_after_mutation)
+    monkeypatch.setattr(links, "persist_many", persist_after_mutation)
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
 
     links = NoteLinkRepository(database.engine)
@@ -117,7 +121,9 @@ def test_dirty_markers_roll_back_when_enqueue_fails(database, monkeypatch):
 def test_missing_source_file_is_logged_cleaned_and_acknowledged(database, git_workspace_factory):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    service, _jobs, dirty, dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
+    service, _links, _jobs, dirty, dangling, handler = build_reconcile_wiring(
+        database, ws.parent.parent
+    )
     notes = NoteRepository(database.engine)
     links = NoteLinkRepository(database.engine)
     notes.insert("source", "ws", "u1", "Missing", [], "now", "now")
@@ -138,7 +144,9 @@ def test_legacy_heal_payload_uses_new_handler_without_dirty_marker(
 ):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    _service, _jobs, dirty, dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
+    _service, _links, _jobs, dirty, dangling, handler = build_reconcile_wiring(
+        database, ws.parent.parent
+    )
     notes = NoteRepository(database.engine)
     links = NoteLinkRepository(database.engine)
     notes.insert("source", "ws", "u1", "Source", [], "now", "now")
@@ -158,7 +166,9 @@ def test_targeted_job_does_not_scan_unmarked_dangling_sources(
 ):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    _service, _jobs, dirty, dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
+    _service, _links, _jobs, dirty, dangling, handler = build_reconcile_wiring(
+        database, ws.parent.parent
+    )
     notes = NoteRepository(database.engine)
     links = NoteLinkRepository(database.engine)
     for source_id in ("source-1", "source-2"):
@@ -181,7 +191,9 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
 ):
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    service, _jobs, dirty, _dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
+    service, _links, _jobs, dirty, _dangling, handler = build_reconcile_wiring(
+        database, ws.parent.parent
+    )
     target_id = service.save(workspace_target("u1", "ws", ws), "Target", "body", [], folder="Old")[
         "note_id"
     ]

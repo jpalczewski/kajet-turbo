@@ -143,7 +143,9 @@ def test_reconcile_tag_only_drift_does_not_requeue_backlinks(database, git_works
 
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    service, _jobs, dirty, dangling, _handler = build_reconcile_wiring(database, ws.parent.parent)
+    service, _links, _jobs, dirty, dangling, _handler = build_reconcile_wiring(
+        database, ws.parent.parent
+    )
 
     target_id = service.save(workspace_target("u1", "ws", ws), "Target", "treść", ["old"])[
         "note_id"
@@ -290,7 +292,9 @@ def test_reconcile_heals_dangling_link_when_target_appears(database, git_workspa
 
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    service, _jobs, dirty, dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
+    service, _links, _jobs, dirty, dangling, handler = build_reconcile_wiring(
+        database, ws.parent.parent
+    )
 
     service.save(workspace_target("u1", "ws", ws), "Source", "[[Target]]", [])
     assert dangling.exists("u1", "ws") is True
@@ -324,7 +328,9 @@ def test_reconcile_heals_link_to_old_title_when_target_renamed(database, git_wor
 
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    service, _jobs, dirty, dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
+    service, _links, _jobs, dirty, dangling, handler = build_reconcile_wiring(
+        database, ws.parent.parent
+    )
 
     target_id = service.save(workspace_target("u1", "ws", ws), "Old title", "treść", [])["note_id"]
     service.save(workspace_target("u1", "ws", ws), "Source", "[[Old title]]", [])
@@ -366,7 +372,9 @@ def test_reconcile_heals_dangling_link_when_target_removed(database, git_workspa
 
     seed_user(database, "u1")
     ws = git_workspace_factory("u1/ws")
-    service, _jobs, dirty, dangling, handler = build_reconcile_wiring(database, ws.parent.parent)
+    service, _links, _jobs, dirty, dangling, handler = build_reconcile_wiring(
+        database, ws.parent.parent
+    )
 
     target_id = service.save(workspace_target("u1", "ws", ws), "Target", "treść", [])["note_id"]
     service.save(workspace_target("u1", "ws", ws), "Source", "[[Target]]", [])

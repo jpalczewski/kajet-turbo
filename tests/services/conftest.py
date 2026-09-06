@@ -178,6 +178,20 @@ def read_service(database: Database) -> NoteReadService:
     return build_note_read_service(database)
 
 
+@pytest.fixture
+def link_service(database: Database) -> NoteLinkService:
+    """Direct link-service boundary for tests that inspect the link graph."""
+    engine = database.engine
+    return NoteLinkService(
+        NoteRepository(engine),
+        NoteLinkRepository(engine),
+        NoteTagRepository(engine),
+        None,
+        None,
+        JobRepository(engine),
+    )
+
+
 def workspace_target(owner_id: str, name: str, path) -> WorkspaceTarget:
     """Build a WorkspaceTarget by hand for tests that call NoteService entry points
     directly, bypassing the real TargetResolver (already covered by test_targets.py)."""

@@ -125,14 +125,15 @@ def build_reconcile_wiring(database, base: Path):
         dangling_repo=dangling,
         reconcile_repo=dirty,
     )
+    link_service = service._link_service
     handler = ReconcileLinksHandler(
         NoteRepository(database.engine),
-        service._link_service,
+        link_service,
         dangling,
         dirty,
         str(base),
     )
-    return service, jobs, dirty, dangling, handler
+    return service, link_service, jobs, dirty, dangling, handler
 
 
 def make_service_with_dangling(database, link_validation_enabled=None):

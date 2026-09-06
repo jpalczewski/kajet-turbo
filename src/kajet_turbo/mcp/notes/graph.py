@@ -6,7 +6,7 @@ from pydantic import Field
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.mcp.context import NOTE_TARGET, WORKSPACE_TARGET
 from kajet_turbo.mcp.tooling import read_tool, require_found
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import NoteLinkService
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.shared.notes import GraphBase
@@ -17,7 +17,7 @@ class GraphResult(GraphBase):
 
 
 def build_graph(
-    note_service: NoteService,
+    link_service: NoteLinkService,
     workspace_service: WorkspaceService,
 ) -> FastMCP:
     srv = FastMCP("notes-graph")
@@ -35,7 +35,7 @@ def build_graph(
         validation is off and every link currently resolves. Set include_tags=true to add
         tag hubs, note-to-tag edges, and child-tag-to-parent-tag hierarchy edges.
         workspace: the workspace name to build the graph for."""
-        result = await run_sync(note_service.graph, target.name, target.owner_id, include_tags)
+        result = await run_sync(link_service.graph, target, include_tags)
         return GraphResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "links", "graph"}))
@@ -62,10 +62,8 @@ def build_graph(
         """
         result = require_found(
             await run_sync(
-                note_service.neighborhood,
-                note_id,
-                target.workspace.name,
-                target.workspace.owner_id,
+                link_service.neighborhood,
+                target,
                 depth,
                 include_cross_workspace,
                 include_tags,

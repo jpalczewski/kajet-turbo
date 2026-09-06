@@ -29,6 +29,7 @@ from kajet_turbo.services.notes.staged_change import (
     StagedChange,
     commit_rows_then_tree,
 )
+from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import locate_note, path_segments, read_note_file, write_note_file
 
 # (old, new) identity of a note that was moved and/or renamed.
@@ -249,11 +250,12 @@ class NoteLinkService:
 
     def backlinks(
         self,
-        note_id: str,
-        owner_id: str,
+        target: NoteTarget,
         include_meta: bool = False,
         include_cross_workspace: bool = True,
     ) -> list[dict]:
+        note_id = target.note_id
+        owner_id = target.workspace.owner_id
         same_ws: str | None = None
         if not include_cross_workspace:
             note = self._crud_repo.get(note_id, owner_id=owner_id)
@@ -264,65 +266,64 @@ class NoteLinkService:
             include_meta,
         )
 
-    def outlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
-        return self._resolve_link_notes(self._link_repo.outlinks(note_id), owner_id, include_meta)
+    def outlinks(self, target: NoteTarget, include_meta: bool = False) -> list[dict]:
+        return self._resolve_link_notes(
+            self._link_repo.outlinks(target.note_id), target.workspace.owner_id, include_meta
+        )
 
     def links(
         self,
-        note_id: str,
-        owner_id: str,
+        target: NoteTarget,
         include_meta: bool = False,
         include_cross_workspace: bool = True,
     ) -> dict | None:
-        if self._crud_repo.get(note_id, owner_id=owner_id) is None:
+        if self._crud_repo.get(target.note_id, owner_id=target.workspace.owner_id) is None:
             return None
         return {
-            "backlinks": self.backlinks(note_id, owner_id, include_meta, include_cross_workspace),
-            "outlinks": self.outlinks(note_id, owner_id, include_meta),
+            "backlinks": self.backlinks(target, include_meta, include_cross_workspace),
+            "outlinks": self.outlinks(target, include_meta),
         }
 
-    def graph(self, ws_name: str, owner_id: str, include_tags: bool = False) -> dict:
+    def graph(self, target: WorkspaceTarget, include_tags: bool = False) -> dict:
         """Whole-workspace note-link graph: every note as a node (isolated notes included),
         every note_links edge, and dangling (broken-wikilink) edges when link validation
         is off for this workspace."""
-        edges = self._link_repo.list_for_workspace(ws_name, owner_id)
+        edges = self._link_repo.list_for_workspace(target.name, target.owner_id)
         # Every edge's source is already in list_paths (NoteLink.workspace is always the
         # source's own workspace — see list_for_workspace's filter and the NoteLink model
         # docstring), but a cross-workspace [[note:ID]] target may not be, so add targets.
-        node_ids = {n.note_id for n in self._crud_repo.list_paths(ws_name, owner_id)}
+        node_ids = {n.note_id for n in self._crud_repo.list_paths(target.name, target.owner_id)}
         node_ids.update(t for _, t in edges)
         return self._build_graph(
-            sorted(node_ids), edges, owner_id, ws_name, include_tags=include_tags
+            sorted(node_ids), edges, target.owner_id, target.name, include_tags=include_tags
         )
 
     def neighborhood(
         self,
-        note_id: str,
-        ws_name: str,
-        owner_id: str,
+        target: NoteTarget,
         depth: int = 2,
         include_cross_workspace: bool = False,
         include_tags: bool = False,
     ) -> dict | None:
         """The directed induced graph within an undirected N-hop radius of ``note_id``."""
-        center = self._crud_repo.get(note_id, owner_id=owner_id)
-        if center is None or center.workspace != ws_name:
+        center = self._crud_repo.get(target.note_id, owner_id=target.workspace.owner_id)
+        if center is None or center.workspace != target.workspace.name:
             return None
         edges = self._link_repo.neighborhood(
-            note_id,
-            ws_name,
-            owner_id,
+            target.note_id,
+            target.workspace.name,
+            target.workspace.owner_id,
             depth,
             include_cross_workspace=include_cross_workspace,
         )
-        node_ids = {note_id}
+        node_ids = {target.note_id}
         node_ids.update(source for source, _ in edges)
         node_ids.update(target for _, target in edges)
         return self._build_graph(
             sorted(node_ids),
             edges,
-            owner_id,
-            ws_name,
+            target.workspace.owner_id,
+            target.workspace.name,
             dangling_source_ids=node_ids,
             include_tags=include_tags,
         )
@@ -424,6 +425,22 @@ class NoteLinkService:
             if note is None:
                 return None
             return note.title, note_explorer_url(note.workspace, note.folder, note.id)
+
+        return resolve
+
+    def link_resolver(
+        self, workspace: WorkspaceTarget, source_folder: str = ""
+    ) -> LinkResolver:
+        """Create a resolver without loading workspace paths until it is called."""
+        resolver: LinkResolver | None = None
+
+        def resolve(link_target: str):
+            nonlocal resolver
+            if resolver is None:
+                resolver = self.for_workspace(workspace.name, workspace.owner_id).resolver(
+                    source_folder
+                )
+            return resolver(link_target)
 
         return resolve
 

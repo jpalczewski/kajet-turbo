@@ -64,22 +64,24 @@ def test_save_with_cross_workspace_link_succeeds(service, workspace):
     assert "note_id" in result
 
 
-def test_save_with_cross_workspace_link_to_existing_note_records_edge(service, workspace):
+def test_save_with_cross_workspace_link_to_existing_note_records_edge(
+    service, link_service, workspace
+):
     """[[note:ID]] where ID exists is stored in note_links."""
     target_id = service.save(workspace_target("u1", "ws2", workspace), "Target", "", [])["note_id"]
     source_id = service.save(
         workspace_target("u1", "ws1", workspace), "Source", f"link to [[note:{target_id}]]", []
     )["note_id"]
-    backlinks = service._link_service._link_repo.backlinks(target_id)
+    backlinks = link_service._link_repo.backlinks(target_id)
     assert source_id in backlinks
 
 
-def test_save_cross_workspace_link_does_not_create_dangling(service, workspace):
+def test_save_cross_workspace_link_does_not_create_dangling(service, link_service, workspace):
     """[[note:nonexistent]] leaves no outgoing note_links row for source."""
     note_id = service.save(
         workspace_target("u1", "ws1", workspace), "Source", "[[note:ghost-id-000]]", []
     )["note_id"]
-    outlinks = service._link_service._link_repo.outlinks(note_id)
+    outlinks = link_service._link_repo.outlinks(note_id)
     assert outlinks == []
 
 
@@ -131,57 +133,57 @@ def test_update_to_valid_wikilink_succeeds(service, read_service, workspace):
     assert "[[Target]]" in note.content
 
 
-def test_save_records_note_link(service, workspace):
+def test_save_records_note_link(service, link_service, workspace):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "see [[Target]]", [])[
         "note_id"
     ]
-    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    assert link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_update_replaces_links(service, workspace):
+def test_update_replaces_links(service, link_service, workspace):
     a = service.save(workspace_target("u1", "ws", workspace), "A", "a", [])["note_id"]
     b = service.save(workspace_target("u1", "ws", workspace), "B", "b", [])["note_id"]
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[A]]", [])["note_id"]
-    assert service._link_service._link_repo.backlinks(a) == [sid]
+    assert link_service._link_repo.backlinks(a) == [sid]
     sha = service.get_history(note_target("u1", "ws", workspace, sid))[0]["sha"]
     service.update(
         note_target("u1", "ws", workspace, sid),
         expected_sha=sha,
         edit=EditSpec(content="now [[B]]"),
     )
-    assert service._link_service._link_repo.backlinks(a) == []
-    assert service._link_service._link_repo.backlinks(b) == [sid]
+    assert link_service._link_repo.backlinks(a) == []
+    assert link_service._link_repo.backlinks(b) == [sid]
 
 
-def test_delete_removes_outgoing_and_incoming_links(service, workspace):
+def test_delete_removes_outgoing_and_incoming_links(service, link_service, workspace):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
     # Source -> Target edge exists; deleting Source clears the edge.
     service.delete(note_target("u1", "ws", workspace, sid))
-    assert service._link_service._link_repo.backlinks(tid) == []
+    assert link_service._link_repo.backlinks(tid) == []
 
 
-def test_delete_target_orphans_handled(service, workspace):
+def test_delete_target_orphans_handled(service, link_service, workspace):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
     service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])
     service.delete(note_target("u1", "ws", workspace, tid))
     # Incoming edge to the deleted target is removed.
-    assert service._link_service._link_repo.backlinks(tid) == []
+    assert link_service._link_repo.backlinks(tid) == []
 
 
-def test_reindex_rebuilds_links(service, workspace):
+def test_reindex_rebuilds_links(service, link_service, workspace):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
     service.reindex("ws", "u1", str(workspace))
-    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    assert link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_move_rewrites_backlink_path(service, read_service, workspace):
+def test_move_rewrites_backlink_path(service, link_service, read_service, workspace):
     service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
     sid = service.save(
         workspace_target("u1", "ws", workspace), "Source", "see [[Old/Target|T]]", []
@@ -192,7 +194,7 @@ def test_move_rewrites_backlink_path(service, read_service, workspace):
     assert "[[New/Target|T]]" in src.content
     assert "[[Old/Target" not in src.content
     # edge still points to the same target note
-    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    assert link_service._link_repo.backlinks(tid) == [sid]
 
 
 def test_move_rewrite_enqueues_one_reindex_note_job_per_rewritten_source(
@@ -221,7 +223,9 @@ def test_move_rewrite_enqueues_one_reindex_note_job_per_rewritten_source(
     assert note_ids == {sid_a, sid_b}
 
 
-def test_move_rewrite_leaves_source_outlinks_and_dangling_unchanged(database, workspace):
+def test_move_rewrite_leaves_source_outlinks_and_dangling_unchanged(
+    database, link_service, workspace
+):
     """rewrite_backlinks() deliberately skips replace_links/write_dangling for the rewritten
     source note (see its docstring) — pin that the skip is actually harmless: the source's
     own outgoing-link graph and dangling-link bookkeeping are unaffected by the move."""
@@ -234,12 +238,12 @@ def test_move_rewrite_leaves_source_outlinks_and_dangling_unchanged(database, wo
         workspace_target("u1", "ws", workspace), "Source", "see [[Old/Target|T]] and [[Nope]]", []
     )["note_id"]
     tid = svc._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
-    outlinks_before = sorted(svc._link_service._link_repo.outlinks(sid))
+    outlinks_before = sorted(link_service._link_repo.outlinks(sid))
     dangling_before = dangling.list_for_workspace("u1", "ws")
 
     svc.move(note_target("u1", "ws", workspace, tid), "New")
 
-    assert sorted(svc._link_service._link_repo.outlinks(sid)) == outlinks_before
+    assert sorted(link_service._link_repo.outlinks(sid)) == outlinks_before
     assert dangling.list_for_workspace("u1", "ws") == dangling_before
 
 
@@ -490,9 +494,9 @@ def test_rewrite_backlinks_heals_corrupted_occurred_at_instead_of_nulling_it(ser
     assert src_meta.occurred_at == "2026-01-01"
 
 
-def test_validate_wikilinks_accepts_extra_index_notes(service, workspace):
+def test_validate_wikilinks_accepts_extra_index_notes(service, link_service, workspace):
     # No note "Target" exists in the DB; supply it via the index's extra notes.
-    workspace_links = service._link_service.for_workspace(
+    workspace_links = link_service.for_workspace(
         "ws", "u1", extra=[IndexedNote("abc1234", "Batch", "Target")]
     )
     links = workspace_links.validate("see [[Target]]", "")
@@ -500,13 +504,15 @@ def test_validate_wikilinks_accepts_extra_index_notes(service, workspace):
     assert links.broken == []
 
 
-def test_validate_wikilinks_without_extra_still_raises(service, workspace):
+def test_validate_wikilinks_without_extra_still_raises(service, link_service, workspace):
     with pytest.raises(BrokenWikilinkError):
-        service._link_service.for_workspace("ws", "u1").validate("see [[Nope]]", "")
+        link_service.for_workspace("ws", "u1").validate("see [[Nope]]", "")
 
 
-def test_with_extra_resolves_extra_notes_without_requerying(service, workspace, monkeypatch):
-    base = service._link_service.for_workspace("ws", "u1")
+def test_with_extra_resolves_extra_notes_without_requerying(
+    service, link_service, workspace, monkeypatch
+):
+    base = link_service.for_workspace("ws", "u1")
     real_list_paths = service._crud_repo.list_paths
     calls = 0
 
@@ -530,37 +536,37 @@ def test_with_extra_resolves_extra_notes_without_requerying(service, workspace, 
 # --- Obsidian-style short targets ---
 
 
-def test_save_short_link_resolves_note_in_subfolder(service, workspace):
+def test_save_short_link_resolves_note_in_subfolder(service, link_service, workspace):
     tid = service.save(
         workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Deep/Er"
     )["note_id"]
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "see [[Target]]", [])[
         "note_id"
     ]
-    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    assert link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_save_suffix_path_resolves_nested_note(service, workspace):
+def test_save_suffix_path_resolves_nested_note(service, link_service, workspace):
     tid = service.save(
         workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Deep/Er"
     )["note_id"]
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "see [[Er/Target]]", [])[
         "note_id"
     ]
-    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    assert link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_save_ambiguous_short_link_prefers_source_folder(service, workspace):
+def test_save_ambiguous_short_link_prefers_source_folder(service, link_service, workspace):
     a = service.save(workspace_target("u1", "ws", workspace), "T", "a", [], folder="A")["note_id"]
     b = service.save(workspace_target("u1", "ws", workspace), "T", "b", [], folder="B")["note_id"]
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[T]]", [], folder="B")[
         "note_id"
     ]
-    assert service._link_service._link_repo.backlinks(b) == [sid]
-    assert service._link_service._link_repo.backlinks(a) == []
+    assert link_service._link_repo.backlinks(b) == [sid]
+    assert link_service._link_repo.backlinks(a) == []
 
 
-def test_save_many_short_links_between_batch_notes_in_folder(service, workspace):
+def test_save_many_short_links_between_batch_notes_in_folder(service, link_service, workspace):
     # Regression: notes saved together into a folder, linking each other by bare title,
     # used to fail validation because the in-batch targets were keyed by full path only.
     notes = [
@@ -571,33 +577,37 @@ def test_save_many_short_links_between_batch_notes_in_folder(service, workspace)
     results = service.save_many(workspace_target("u1", "ws", workspace), notes)
     assert all("note_id" in r for r in results), results
     ids = {n["title"]: r["note_id"] for n, r in zip(notes, results, strict=True)}
-    links = service._link_service._link_repo
+    links = link_service._link_repo
     assert set(links.outlinks(ids["Beta"])) == {ids["Alpha"], ids["Gamma"]}
     assert links.outlinks(ids["Gamma"]) == [ids["Alpha"]]
 
 
-def test_rendered_short_link_points_at_target_folder(service, workspace):
+def test_rendered_short_link_points_at_target_folder(service, link_service, workspace):
     tid = service.save(
         workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Deep/Er"
     )["note_id"]
-    html = render_markdown("[[Target]]", resolver=service.link_resolver("ws", "u1"), slug="ws")
+    html = render_markdown(
+        "[[Target]]",
+        resolver=link_service.link_resolver(workspace_target("u1", "ws", workspace)),
+        slug="ws",
+    )
     assert f'href="/workspace/ws/notes/Deep/Er/{tid}"' in html
 
 
 def test_render_link_index_is_loaded_only_when_first_wikilink_is_rendered(
-    service, workspace, monkeypatch
+    service, link_service, workspace, monkeypatch
 ):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
     calls = 0
-    original = service._crud_repo.list_paths
+    original = link_service._crud_repo.list_paths
 
     def counted_list_paths(*args, **kwargs):
         nonlocal calls
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(service._crud_repo, "list_paths", counted_list_paths)
-    resolver = service.link_resolver("ws", "u1")
+    monkeypatch.setattr(link_service._crud_repo, "list_paths", counted_list_paths)
+    resolver = link_service.link_resolver(workspace_target("u1", "ws", workspace))
 
     assert calls == 0
     render_markdown("plain text", resolver=resolver, slug="ws")
@@ -608,7 +618,7 @@ def test_render_link_index_is_loaded_only_when_first_wikilink_is_rendered(
     assert calls == 1
 
 
-def test_move_keeps_short_backlink_unchanged(service, read_service, workspace):
+def test_move_keeps_short_backlink_unchanged(service, link_service, read_service, workspace):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")[
         "note_id"
     ]
@@ -618,10 +628,12 @@ def test_move_keeps_short_backlink_unchanged(service, read_service, workspace):
     service.move(note_target("u1", "ws", workspace, tid), "New")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "see [[Target|T]]"
-    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    assert link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_rename_rewrites_short_backlink_to_short_new_title(service, read_service, workspace):
+def test_rename_rewrites_short_backlink_to_short_new_title(
+    service, link_service, read_service, workspace
+):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Sub")[
         "note_id"
     ]
@@ -632,11 +644,11 @@ def test_rename_rewrites_short_backlink_to_short_new_title(service, read_service
     service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Renamed]]"
-    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    assert link_service._link_repo.backlinks(tid) == [sid]
 
 
 def test_rename_falls_back_to_full_path_when_short_form_would_be_ambiguous(
-    service, read_service, workspace
+    service, link_service, read_service, workspace
 ):
     # Another "Renamed" at the root would capture a bare [[Renamed]] (exact-root rule), so
     # the rewrite must spell the full path to keep the link on the renamed note.
@@ -651,7 +663,7 @@ def test_rename_falls_back_to_full_path_when_short_form_would_be_ambiguous(
     service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Sub/Renamed]]"
-    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    assert link_service._link_repo.backlinks(tid) == [sid]
 
 
 def test_move_rewrites_suffix_backlink_keeping_its_shape(service, read_service, workspace):
@@ -680,7 +692,9 @@ def test_move_folder_rewrites_source_linking_two_moved_notes_once(service, read_
     assert len(service.get_history(note_target("u1", "ws", workspace, sid))) == before + 1
 
 
-def test_move_to_root_rewrites_path_backlink_to_bare_title(service, read_service, workspace):
+def test_move_to_root_rewrites_path_backlink_to_bare_title(
+    service, link_service, read_service, workspace
+):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")[
         "note_id"
     ]
@@ -690,10 +704,12 @@ def test_move_to_root_rewrites_path_backlink_to_bare_title(service, read_service
     service.move(note_target("u1", "ws", workspace, tid), "")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Target|x]]"
-    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    assert link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_move_folder_ranks_co_moved_source_from_its_old_folder(service, read_service, workspace):
+def test_move_folder_ranks_co_moved_source_from_its_old_folder(
+    service, link_service, read_service, workspace
+):
     # Source sits inside the moved folder and links [[T]], which pre-move meant Old/T (the
     # nearest T). After the move a decoy Dst/Old/Sub/T would win from the source's new
     # folder, so the rewrite must judge the link from where the source *was*.
@@ -704,14 +720,14 @@ def test_move_folder_ranks_co_moved_source_from_its_old_folder(service, read_ser
     sid = service.save(workspace_target("u1", "ws", workspace), "S", "[[T]]", [], folder="Old/Sub")[
         "note_id"
     ]
-    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    assert link_service._link_repo.backlinks(tid) == [sid]
     service.move_folder("Old", "Dst/Old", owner_id="u1", ws_path=str(workspace), workspace="ws")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Old/T]]"
-    assert service._link_service._link_repo.backlinks(tid) == [sid]
+    assert link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_reindex_resolves_short_links_and_xws_ids(service, workspace):
+def test_reindex_resolves_short_links_and_xws_ids(service, link_service, workspace):
     from kajet_turbo.repositories.git import GitRepository
 
     other_ws = workspace.parent / "other"
@@ -725,8 +741,8 @@ def test_reindex_resolves_short_links_and_xws_ids(service, workspace):
         workspace_target("u1", "ws", workspace), "Source", f"[[Target]] [[note:{other}]]", []
     )["note_id"]
     service.reindex("ws", "u1", str(workspace))
-    assert service._link_service._link_repo.backlinks(tid) == [sid]
-    assert service._link_service._link_repo.backlinks(other) == [sid]
+    assert link_service._link_repo.backlinks(tid) == [sid]
+    assert link_service._link_repo.backlinks(other) == [sid]
 
 
 # --- conditional link validation ---
@@ -762,7 +778,7 @@ def test_save_with_broken_wikilink_allowed_when_validation_disabled(database, wo
     assert svc._crud_repo.get(result["note_id"], owner_id="u1") is not None
 
 
-def test_disabled_validation_still_links_existing_targets(database, workspace):
+def test_disabled_validation_still_links_existing_targets(database, link_service, workspace):
     """Validation disabled: resolved target IS in note_links; broken one is silently dropped."""
     svc = _make_service_with_validation(database, link_validation_enabled=lambda ws, owner: False)
     a = svc.save(workspace_target("u1", "ws", workspace), "Target", "body", tags=[])
@@ -770,10 +786,10 @@ def test_disabled_validation_still_links_existing_targets(database, workspace):
         workspace_target("u1", "ws", workspace), "Source", "[[Target]] and [[Ghost]]", tags=[]
     )
     # Resolved target appears as a backlink; broken Ghost is absent.
-    backlinks = svc._link_service._link_repo.backlinks(a["note_id"])
+    backlinks = link_service._link_repo.backlinks(a["note_id"])
     assert b["note_id"] in backlinks
     # Ghost never existed, so no outlink edge for it (no error row either).
-    outlinks = svc._link_service._link_repo.outlinks(b["note_id"])
+    outlinks = link_service._link_repo.outlinks(b["note_id"])
     assert a["note_id"] in outlinks
     assert len(outlinks) == 1
 

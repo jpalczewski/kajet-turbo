@@ -1466,54 +1466,6 @@ class NoteService:
             period=version["period"],
         )
 
-    # Delegation to peer services (public API unchanged):
-    def backlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
-        return self._link_service.backlinks(note_id, owner_id, include_meta)
-
-    def outlinks(self, note_id: str, owner_id: str, include_meta: bool = False) -> list[dict]:
-        return self._link_service.outlinks(note_id, owner_id, include_meta)
-
-    def links(
-        self,
-        note_id: str,
-        owner_id: str,
-        include_meta: bool = False,
-        include_cross_workspace: bool = True,
-    ) -> dict | None:
-        return self._link_service.links(note_id, owner_id, include_meta, include_cross_workspace)
-
-    def graph(self, ws_name: str, owner_id: str, include_tags: bool = False) -> dict:
-        return self._link_service.graph(ws_name, owner_id, include_tags)
-
-    def neighborhood(
-        self,
-        note_id: str,
-        ws_name: str,
-        owner_id: str,
-        depth: int = 2,
-        include_cross_workspace: bool = False,
-        include_tags: bool = False,
-    ) -> dict | None:
-        return self._link_service.neighborhood(
-            note_id, ws_name, owner_id, depth, include_cross_workspace, include_tags
-        )
-
-    def link_resolver(self, ws_name: str, owner_id: str, source_folder: str = "") -> LinkResolver:
-        resolver: LinkResolver | None = None
-
-        def resolve(target: str):
-            nonlocal resolver
-            if resolver is None:
-                resolver = self._link_service.for_workspace(ws_name, owner_id).resolver(
-                    source_folder
-                )
-            return resolver(target)
-
-        return resolve
-
-    def xws_link_resolver(self, owner_id: str):
-        return self._link_service.xws_link_resolver(owner_id)
-
     def search(
         self,
         query: str,

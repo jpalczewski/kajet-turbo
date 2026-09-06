@@ -7,13 +7,14 @@ from kajet_turbo.api.workspaces.notes.content import _render_html
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_link_service,
     get_note_service,
     get_required_user,
     resolve_note_target,
 )
 from kajet_turbo.errors import NoteError
 from kajet_turbo.repositories.git import GitError as RepoGitError
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import NoteLinkService, NoteService
 from kajet_turbo.services.targets import NoteTarget
 
 router = APIRouter(
@@ -55,6 +56,7 @@ def api_note_version(
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
+    link_service: NoteLinkService = Depends(get_note_link_service),
 ) -> JSONResponse:
     try:
         version = note_service.get_version(target, sha)
@@ -72,9 +74,9 @@ def api_note_version(
             "period": version["period"],
             "content_html": _render_html(
                 version["content"],
-                resolver=note_service.link_resolver(name, user.id, version["folder"]),
-                slug=name,
-                xws_resolver=note_service.xws_link_resolver(user.id),
+                resolver=link_service.link_resolver(target.workspace, version["folder"]),
+                slug=target.workspace.name,
+                xws_resolver=link_service.xws_link_resolver(target.workspace.owner_id),
             ),
         }
     )

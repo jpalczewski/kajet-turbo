@@ -73,7 +73,7 @@ def test_save_many_empty_list(service, workspace):
     assert service.save_many(workspace_target("u1", "ws", workspace), []) == []
 
 
-def test_save_many_cross_batch_wikilink_order_independent(service, workspace):
+def test_save_many_cross_batch_wikilink_order_independent(service, link_service, workspace):
     # Note A links to B; B comes AFTER A in input order — must still resolve.
     notes = [
         {"title": "A note", "content": "links to [[B note]]"},
@@ -85,7 +85,7 @@ def test_save_many_cross_batch_wikilink_order_independent(service, workspace):
     assert "note_id" in results[1]
     b_id = results[1]["note_id"]
     # A's link edge resolves to B's note_id.
-    assert service._link_service._link_repo.outlinks(results[0]["note_id"]) == [b_id]
+    assert link_service._link_repo.outlinks(results[0]["note_id"]) == [b_id]
 
 
 def test_save_many_non_cascading_drop(service, workspace):

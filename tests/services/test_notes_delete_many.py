@@ -120,7 +120,7 @@ def test_delete_many_empty_batch_raises(service, workspace):
         service.delete_many(workspace_target("u1", "ws", workspace), [])
 
 
-def test_delete_many_clears_tags_links_and_index(service, read_service, workspace):
+def test_delete_many_clears_tags_links_and_index(service, read_service, link_service, workspace):
     r2 = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
     r1 = service.save(
         workspace_target("u1", "ws", workspace), "First", "links [[Second]]\n", ["tag-a"]
@@ -132,7 +132,7 @@ def test_delete_many_clears_tags_links_and_index(service, read_service, workspac
     )
 
     assert result["applied"] is True
-    assert service.backlinks(r2["note_id"], "u1") == []
+    assert link_service.backlinks(note_target("u1", "ws", workspace, r2["note_id"])) == []
     assert (
         read_service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"])) is not None
     )
