@@ -23,6 +23,7 @@ from kajet_turbo.dependencies import (
 from kajet_turbo.errors import NoteError
 from kajet_turbo.markdown import LinkResolver, XwsResolver, render_markdown
 from kajet_turbo.services.notes import NoteLinkService, NoteReadService
+from kajet_turbo.services.notes.types import NoteData
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 
 _ALLOWED_TAGS = [
@@ -74,6 +75,29 @@ def _render_html(
     )
 
 
+def note_html_fields(
+    note: NoteData,
+    resolver: LinkResolver | None = None,
+    slug: str | None = None,
+    xws_resolver: XwsResolver | None = None,
+) -> dict:
+    return {
+        "note_id": note.note_id,
+        "title": note.title,
+        "folder": note.folder,
+        "tags": note.tags,
+        "created_at": note.created_at,
+        "updated_at": note.updated_at,
+        "occurred_at": note.occurred_at,
+        "period": note.period,
+        "extras": note.extras,
+        "content_html": _render_html(
+            note.content, resolver=resolver, slug=slug, xws_resolver=xws_resolver
+        ),
+        "sha": note.sha,
+    }
+
+
 router = APIRouter(
     responses={
         401: {"model": ErrorResponse},
@@ -99,24 +123,12 @@ def api_get_note_html(
     if note is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
     return JSONResponse(
-        {
-            "note_id": note.note_id,
-            "title": note.title,
-            "folder": note.folder,
-            "tags": note.tags,
-            "created_at": note.created_at,
-            "updated_at": note.updated_at,
-            "occurred_at": note.occurred_at,
-            "period": note.period,
-            "extras": note.extras,
-            "content_html": _render_html(
-                note.content,
-                resolver=link_service.link_resolver(target.workspace, note.folder),
-                slug=target.workspace.name,
-                xws_resolver=link_service.xws_link_resolver(target.workspace.owner_id),
-            ),
-            "sha": note.sha,
-        }
+        note_html_fields(
+            note,
+            resolver=link_service.link_resolver(target.workspace, note.folder),
+            slug=target.workspace.name,
+            xws_resolver=link_service.xws_link_resolver(target.workspace.owner_id),
+        )
     )
 
 

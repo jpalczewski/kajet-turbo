@@ -8,6 +8,7 @@ from fastapi import APIRouter, FastAPI
 from starlette.testclient import TestClient
 
 from kajet_turbo.api.errors import install_error_handlers
+from kajet_turbo.api.public_notes import router as public_notes_router
 from kajet_turbo.api.workspaces import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import (
@@ -17,6 +18,7 @@ from kajet_turbo.dependencies import (
     get_note_read_service,
     get_note_reconcile_service,
     get_note_service,
+    get_note_share_link_repo,
     get_note_tag_service,
     get_note_temporal_service,
     get_note_version_service,
@@ -28,6 +30,7 @@ from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
+from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository, NoteTagRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
@@ -52,6 +55,7 @@ class ApiTestContext:
     note_service: NoteService
     workspace: Path
     note_read_service: NoteReadService
+    share_link_repo: NoteShareLinkRepository
 
     def __iter__(self):
         yield self.client
@@ -139,13 +143,14 @@ def api_client_factory(
             WorkspaceRemoteRepository(database.engine),
             JobRepository(database.engine),
         )
+        share_link_repo = NoteShareLinkRepository(database.engine)
 
         if user_id is not None:
             seed_user(database, user_id)
             if grant_access:
                 workspace_repository.grant_access(user_id, "test-ws")
 
-        app = build_test_app()
+        app = build_test_app(routers=(router, public_notes_router))
         app.dependency_overrides[get_note_service] = lambda: note_service
         app.dependency_overrides[get_note_reconcile_service] = lambda: note_reconcile_service
         app.dependency_overrides[get_note_tag_service] = lambda: note_tag_service
@@ -155,6 +160,7 @@ def api_client_factory(
         app.dependency_overrides[get_note_version_service] = lambda: note_service._version_service
         app.dependency_overrides[get_note_read_service] = lambda: note_read_service
         app.dependency_overrides[get_workspace_service] = lambda: workspace_service
+        app.dependency_overrides[get_note_share_link_repo] = lambda: share_link_repo
         app.dependency_overrides[get_target_resolver] = lambda: TargetResolver(
             note_repository, workspace_service
         )
@@ -167,7 +173,7 @@ def api_client_factory(
         client_manager = TestClient(app)
         client = client_manager.__enter__()
         contexts.append((client_manager, None))
-        return ApiTestContext(client, note_service, workspace, note_read_service)
+        return ApiTestContext(client, note_service, workspace, note_read_service, share_link_repo)
 
     yield create
 

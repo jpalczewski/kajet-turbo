@@ -35,6 +35,7 @@ from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.git import PostCommitHooks
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
+from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
@@ -133,6 +134,7 @@ class AppResources:
     oauth_repo: OAuthRepository
     provider: KajetOAuthProvider
     folder_meta_repo: FolderMetaRepository
+    note_share_link_repo: NoteShareLinkRepository
     job_repo: JobRepository
     note_service: NoteService
     note_tag_service: NoteTagService
@@ -267,6 +269,7 @@ def build_resources(config: AppConfig) -> AppResources:
             async_build_embedder=lambda cfg: build_embedder(cfg, shared_embed_client.get()),
         )
         folder_meta_repo = FolderMetaRepository(db.engine)
+        note_share_link_repo = NoteShareLinkRepository(db.engine)
         folder_service = NoteFolderService(
             note_repo, link_service, folder_meta_repo, reconcile_repo
         )
@@ -328,6 +331,7 @@ def build_resources(config: AppConfig) -> AppResources:
             oauth_repo,
             provider,
             folder_meta_repo,
+            note_share_link_repo,
             job_repo,
             note_service,
             tag_service,
@@ -398,6 +402,10 @@ def get_embedding_profile_service(conn: HTTPConnection) -> EmbeddingProfileServi
 
 def get_folder_meta_repo(conn: HTTPConnection) -> FolderMetaRepository:
     return _resources(conn).folder_meta_repo
+
+
+def get_note_share_link_repo(conn: HTTPConnection) -> NoteShareLinkRepository:
+    return _resources(conn).note_share_link_repo
 
 
 def get_note_repo(conn: HTTPConnection) -> NoteRepository:
