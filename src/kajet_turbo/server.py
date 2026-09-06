@@ -82,29 +82,32 @@ async def _sweep_outbox_lifespan(app: FastAPI):
     yield
 
 
+def _run_job_worker(resources: AppResources, *, stop_event: Any = None) -> None:
+    """Drain the job queue with the standard registry/lock wiring. Shared by the
+    standalone worker role (main()) and role "all"'s in-process worker thread."""
+    from kajet_turbo.worker import run_worker
+
+    with use_post_commit_hooks(resources.post_commit_hooks):
+        run_worker(
+            resources.db.engine,
+            registry=register_job_handlers(resources),
+            poll_interval=resources.config.worker_poll_interval,
+            concurrency=resources.config.worker_concurrency,
+            stop_event=stop_event,
+        )
+
+
 @asynccontextmanager
 async def _worker_lifespan(app: FastAPI):
     # Role "all" has no separate worker process, so drain the job queue in-process —
     # otherwise deferred embeddings and auto-push silently never run in bare local dev.
     import threading
 
-    from kajet_turbo.worker import run_worker
-
     resources: AppResources = app.state.resources
     stop = threading.Event()
 
-    def run() -> None:
-        with use_post_commit_hooks(resources.post_commit_hooks):
-            run_worker(
-                resources.db.engine,
-                registry=register_job_handlers(resources),
-                poll_interval=resources.config.worker_poll_interval,
-                concurrency=resources.config.worker_concurrency,
-                stop_event=stop,
-            )
-
     thread = threading.Thread(
-        target=run,
+        target=lambda: _run_job_worker(resources, stop_event=stop),
         daemon=True,
         name="kajet-inprocess-worker",
     )
@@ -244,8 +247,8 @@ def _wire(app: FastAPI, resources: AppResources) -> None:
 
 
 def build_mcp_app(config: AppConfig | None = None) -> Any:
-    """MCP role: /mcp + OAuth routes only. Stateless transport (#244); still pinned to
-    one process pending #250's validated multi-worker rollout."""
+    """MCP role: /mcp + OAuth routes only. Stateless transport (#244) — scales to any
+    worker count via MCP_WORKERS (#250)."""
     resources = _assemble(config)
     with _assembling(resources):
         mcp_app = _new_mcp_app(resources)
@@ -396,8 +399,6 @@ def main() -> None:
     port = int(os.getenv("MCP_PORT", "8000"))
     role = os.getenv("KAJET_ROLE", "all")
     if role == "worker":
-        from kajet_turbo.worker import run_worker
-
         # The worker returns before any uvicorn app is built, so it must init logging
         # itself — otherwise it falls back to loguru's default human sink (no `extra`
         # fields), and push errors never reach the logs. This switches it to the JSON
@@ -418,24 +419,17 @@ def main() -> None:
             except Exception as e:
                 logger.warning("startup_branch_migration_failed", error=str(e))
 
-        resources = build_resources(AppConfig.from_env())
+        resources = _assemble(None)
         try:
             resources.job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox")
-            with use_post_commit_hooks(resources.post_commit_hooks):
-                run_worker(
-                    resources.db.engine,
-                    registry=register_job_handlers(resources),
-                    poll_interval=resources.config.worker_poll_interval,
-                    concurrency=resources.config.worker_concurrency,
-                )
+            _run_job_worker(resources)
         finally:
             resources.db.close()
         return
     if role == "mcp":
-        # /mcp is served stateless_http=True (#244), so the single-process constraint
-        # this used to encode is gone; still pinned to 1 pending #250's validated
-        # multi-worker rollout for this role.
-        factory, workers = "kajet_turbo.server:build_mcp_app", 1
+        # /mcp is served stateless_http=True (#244): no in-process session state to
+        # pin this to one worker, so it reads MCP_WORKERS like role "all" does.
+        factory, workers = "kajet_turbo.server:build_mcp_app", int(os.getenv("MCP_WORKERS", "1"))
     elif role == "api":
         factory = "kajet_turbo.server:build_api_app"
         workers = int(os.getenv("API_WORKERS", "2"))

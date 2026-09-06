@@ -51,9 +51,13 @@ services:
       - kajet_workspaces:/workspaces
     healthcheck: *kajet-http-healthcheck
 
-  # Stateful MCP. Single process (enforced in code) so sessions stay coherent
-  # and ctx.sample()/elicitation keep working. Shares the DB + workspaces with
-  # the api role; api runs migrations first.
+  # Stateless MCP (#244); MCP_WORKERS controls its process count like API_WORKERS
+  # does for kajet-api. Each process caps blocking work at run_sync's
+  # CapacityLimiter(10) and a 5+5 SQLAlchemy pool, so two workers means up to 20
+  # concurrent blocking ops against the one SQLite file — no throughput claim beyond
+  # that. The cross-process fcntl.flock on <workspace>/.git/kajet-write.lock is what
+  # actually serializes writes, independent of worker count. Shares the DB +
+  # workspaces with the api role; api runs migrations first.
   kajet-mcp:
     image: kajet-turbo:local
     depends_on:
@@ -62,6 +66,7 @@ services:
     env_file: .env
     environment:
       KAJET_ROLE: mcp
+      MCP_WORKERS: "2"
     volumes:
       - kajet_data:/data
       - kajet_workspaces:/workspaces

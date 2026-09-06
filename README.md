@@ -109,16 +109,15 @@ MCP_BASE_URL=http://localhost:8000 kajet-turbo
 |---|---|---|
 | `MCP_HOST` | `0.0.0.0` | Listen address |
 | `MCP_PORT` | `8000` | Listen port |
-| `KAJET_ROLE` | `all` | Process role: `all` (MCP+API+SPA in one — dev), `mcp` (`/mcp` + OAuth only, **always 1 worker**), `api` (REST `/api` + SPA, N workers) |
-| `MCP_WORKERS` | `1` | Worker count for role `all` |
+| `KAJET_ROLE` | `all` | Process role: `all` (MCP+API+SPA in one — dev), `mcp` (`/mcp` + OAuth only, N workers), `api` (REST `/api` + SPA, N workers) |
+| `MCP_WORKERS` | `1` | Worker count for roles `mcp` and `all` |
 | `API_WORKERS` | `2` | Worker count for role `api` |
 
 Production topology (`docker-compose.yml`): ingress (Caddy) + `kajet-api`
-(stateless, N workers) + `kajet-mcp` (stateful, 1 worker — MCP sessions and
-`ctx.sample()` require a single process). Both roles share the `/data`
-(SQLite) and `/workspaces` (git) volumes **on the same host**. The host proxy
-only routes `Host → ingress:8000`; path splitting is done by the
-`Caddyfile`.
+(stateless, N workers) + `kajet-mcp` (stateless, N workers via `MCP_WORKERS`).
+Both roles share the `/data` (SQLite) and `/workspaces` (git) volumes **on the
+same host**. The host proxy only routes `Host → ingress:8000`; path splitting
+is done by the `Caddyfile`.
 
 ## Development images
 
