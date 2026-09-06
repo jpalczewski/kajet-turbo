@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from kajet_turbo import identity
-from kajet_turbo.api.schemas import LoginResponse, OkResponse, SessionResponse
+from kajet_turbo.api.schemas import LoginRequest, LoginResponse, OkResponse, SessionResponse
+from kajet_turbo.api.schemas.errors import ErrorResponse
+from kajet_turbo.api.schemas.preferences import UserPreferences
 from kajet_turbo.auth import DUMMY_PASSWORD_HASH, verify_password
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
@@ -13,7 +14,7 @@ from kajet_turbo.dependencies import (
     get_session_repo,
     get_user_repo,
 )
-from kajet_turbo.errors import SecurityEvent, SecurityReason
+from kajet_turbo.errors import AuthError, SecurityEvent, SecurityReason
 from kajet_turbo.log import log_security_event, logger
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.sessions import SessionRepository
@@ -25,25 +26,27 @@ _SESSION_COOKIE = identity.SESSION_COOKIE
 _SESSION_MAX_AGE = 30 * 24 * 3600
 
 
-@router.post("/api/login", response_model=LoginResponse)
+@router.post(
+    "/api/login",
+    response_model=LoginResponse,
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
 async def api_login(
-    request: Request,
+    body: LoginRequest,
+    response: Response,
     user_repo: UserRepository = Depends(get_user_repo),
     session_repo: SessionRepository = Depends(get_session_repo),
     provider=Depends(get_provider),
-) -> Response:
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-
-    email = str(body.get("email", ""))
-    password = str(body.get("password", ""))
-    pending_id = str(body.get("pending_id", ""))
-
-    user = await run_sync(user_repo.get_by_email, email)
+) -> LoginResponse:
+    user = await run_sync(user_repo.get_by_email, body.email)
     password_hash = user.password_hash if user and user.password_hash else DUMMY_PASSWORD_HASH
-    password_ok = await run_sync(verify_password, password_hash, password)
+    # Timing-safe: verify_password always runs, even for an unknown email, so a login
+    # attempt's response time doesn't leak whether the address is registered.
+    password_ok = await run_sync(verify_password, password_hash, body.password)
     if not user or not password_ok:
         failure_reason = SecurityReason.BAD_CREDENTIALS if user else SecurityReason.UNKNOWN_EMAIL
         log_security_event(
@@ -53,14 +56,14 @@ async def api_login(
             auth_method="password",
             reason=failure_reason.value,
         )
-        return JSONResponse({"error": "Nieprawidłowy email lub hasło."}, status_code=401)
+        raise HTTPException(status_code=401, detail=AuthError.INVALID_CREDENTIALS)
 
     session_token = await run_sync(session_repo.create, user.id)
-    data: dict = {"email": user.email}
 
-    if pending_id:
+    redirect_uri = None
+    if body.pending_id:
         try:
-            data["redirect_uri"] = await provider.complete_authorization(pending_id, user.id)
+            redirect_uri = await provider.complete_authorization(body.pending_id, user.id)
         except ValueError:
             log_security_event(
                 SecurityEvent.AUTH_FAILURE,
@@ -69,7 +72,9 @@ async def api_login(
                 auth_method="password",
                 reason=SecurityReason.EXPIRED_PENDING.value,
             )
-            return JSONResponse({"error": "Wygasły pending_id."}, status_code=400)
+            # Session row is already created but the cookie below is never set -- matches
+            # the pre-migration behavior of returning before Set-Cookie on this branch.
+            raise HTTPException(status_code=400, detail=AuthError.PENDING_EXPIRED) from None
 
     log_security_event(
         SecurityEvent.AUTH_SUCCESS,
@@ -77,42 +82,40 @@ async def api_login(
         user_id=user.id,
         auth_method="password",
     )
-    resp = JSONResponse(data)
-    resp.set_cookie(
+    response.set_cookie(
         _SESSION_COOKIE, session_token, max_age=_SESSION_MAX_AGE, httponly=True, samesite="lax"
     )
-    return resp
+    return LoginResponse(email=user.email, redirect_uri=redirect_uri)
 
 
 @router.get("/api/session", response_model=SessionResponse)
-async def api_session_get(user: CurrentUser = Depends(get_required_user)) -> Response:
-    return JSONResponse(
-        {
-            "email": user.email,
-            "preferences": {"timezone": user.timezone, "locale": user.locale},
-        }
+async def api_session_get(user: CurrentUser = Depends(get_required_user)) -> SessionResponse:
+    return SessionResponse(
+        email=user.email,
+        preferences=UserPreferences(timezone=user.timezone, locale=user.locale),
     )
 
 
 @router.delete("/api/session", response_model=OkResponse)
 async def api_session_delete(
     request: Request,
+    response: Response,
     session_repo: SessionRepository = Depends(get_session_repo),
-) -> Response:
+) -> OkResponse:
     token = request.cookies.get(_SESSION_COOKIE, "")
     if token:
         await run_sync(session_repo.delete, token)
-    resp = JSONResponse({"ok": True})
-    resp.delete_cookie(_SESSION_COOKIE)
-    return resp
+    response.delete_cookie(_SESSION_COOKIE)
+    return OkResponse(ok=True)
 
 
 @router.delete("/api/sessions", response_model=OkResponse)
 async def api_sessions_delete(
+    response: Response,
     user: CurrentUser = Depends(get_required_user),
     oauth_repo: OAuthRepository = Depends(get_oauth_repo),
     session_repo: SessionRepository = Depends(get_session_repo),
-) -> Response:
+) -> OkResponse:
     """Sign the current user out of every browser and connected OAuth client."""
     user_id = str(user.id)
     # Revoke OAuth first. If deleting browser sessions then fails, the still-valid cookie
@@ -125,6 +128,5 @@ async def api_sessions_delete(
         oauth_credentials=oauth_count,
         sessions=session_count,
     )
-    response = JSONResponse({"ok": True})
     response.delete_cookie(_SESSION_COOKIE)
-    return response
+    return OkResponse(ok=True)

@@ -36,6 +36,8 @@ export type AuthError = typeof AuthError[keyof typeof AuthError];
 export const AuthError = {
   NOT_AUTHENTICATED: 'NOT_AUTHENTICATED',
   ACCESS_DENIED: 'ACCESS_DENIED',
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  PENDING_EXPIRED: 'PENDING_EXPIRED',
 } as const;
 
 export interface CreateNoteRequest {
@@ -112,6 +114,10 @@ export interface ChunkPreviewResponse {
   index_state: string;
   chunk_count: number;
   chunks: ChunkPreviewItem[];
+}
+
+export interface ConsentRequest {
+  pending_id: string;
 }
 
 export interface ConsentResponse {
@@ -398,6 +404,12 @@ export const Locale = {
   pl: 'pl',
   en: 'en',
 } as const;
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+  pending_id?: string | null;
+}
 
 export interface LoginResponse {
   email: string;
@@ -708,12 +720,29 @@ export type apiLoginApiLoginPostResponse200 = {
   status: 200
 }
 
+export type apiLoginApiLoginPostResponse400 = {
+  data: ErrorResponse
+  status: 400
+}
+
+export type apiLoginApiLoginPostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiLoginApiLoginPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
 export type apiLoginApiLoginPostResponseSuccess = (apiLoginApiLoginPostResponse200) & {
   headers: Headers;
 };
-;
+export type apiLoginApiLoginPostResponseError = (apiLoginApiLoginPostResponse400 | apiLoginApiLoginPostResponse401 | apiLoginApiLoginPostResponse422) & {
+  headers: Headers;
+};
 
-export type apiLoginApiLoginPostResponse = (apiLoginApiLoginPostResponseSuccess)
+export type apiLoginApiLoginPostResponse = (apiLoginApiLoginPostResponseSuccess | apiLoginApiLoginPostResponseError)
 
 export const getApiLoginApiLoginPostUrl = () => {
 
@@ -726,14 +755,20 @@ export const getApiLoginApiLoginPostUrl = () => {
 /**
  * @summary Api Login
  */
-export const apiLoginApiLoginPost = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiLoginApiLoginPostResponse> => {
+export const apiLoginApiLoginPost = async (loginRequest: LoginRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiLoginApiLoginPostResponse> => {
 
-  return customFetch<apiLoginApiLoginPostResponse>(getApiLoginApiLoginPostUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<apiLoginApiLoginPostResponse>(getApiLoginApiLoginPostUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(loginRequest)
   }
 );}
 
@@ -853,12 +888,24 @@ export type apiConsentApiConsentPostResponse200 = {
   status: 200
 }
 
+export type apiConsentApiConsentPostResponse400 = {
+  data: ErrorResponse
+  status: 400
+}
+
+export type apiConsentApiConsentPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
 export type apiConsentApiConsentPostResponseSuccess = (apiConsentApiConsentPostResponse200) & {
   headers: Headers;
 };
-;
+export type apiConsentApiConsentPostResponseError = (apiConsentApiConsentPostResponse400 | apiConsentApiConsentPostResponse422) & {
+  headers: Headers;
+};
 
-export type apiConsentApiConsentPostResponse = (apiConsentApiConsentPostResponseSuccess)
+export type apiConsentApiConsentPostResponse = (apiConsentApiConsentPostResponseSuccess | apiConsentApiConsentPostResponseError)
 
 export const getApiConsentApiConsentPostUrl = () => {
 
@@ -871,14 +918,20 @@ export const getApiConsentApiConsentPostUrl = () => {
 /**
  * @summary Api Consent
  */
-export const apiConsentApiConsentPost = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiConsentApiConsentPostResponse> => {
+export const apiConsentApiConsentPost = async (consentRequest: ConsentRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiConsentApiConsentPostResponse> => {
 
-  return customFetch<apiConsentApiConsentPostResponse>(getApiConsentApiConsentPostUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<apiConsentApiConsentPostResponse>(getApiConsentApiConsentPostUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(consentRequest)
   }
 );}
 
@@ -889,6 +942,11 @@ export type apiPendingInfoApiPendingGetResponse200 = {
   status: 200
 }
 
+export type apiPendingInfoApiPendingGetResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
 export type apiPendingInfoApiPendingGetResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -897,7 +955,7 @@ export type apiPendingInfoApiPendingGetResponse422 = {
 export type apiPendingInfoApiPendingGetResponseSuccess = (apiPendingInfoApiPendingGetResponse200) & {
   headers: Headers;
 };
-export type apiPendingInfoApiPendingGetResponseError = (apiPendingInfoApiPendingGetResponse422) & {
+export type apiPendingInfoApiPendingGetResponseError = (apiPendingInfoApiPendingGetResponse404 | apiPendingInfoApiPendingGetResponse422) & {
   headers: Headers;
 };
 
@@ -919,6 +977,11 @@ export const getApiPendingInfoApiPendingGetUrl = (params: ApiPendingInfoApiPendi
 }
 
 /**
+ * No auth dependency by design (docs/specs/rest-contracts.md) -- this is the
+ * pre-login OAuth consent screen's client-name lookup. Exempt from the rest of the
+ * #254 typed-endpoint migration per the issue (protocol-adjacent OAuth routes keep
+ * their wire shape); the 404 case reuses PENDING_EXPIRED since it's the same
+ * unknown/expired-pending_id condition as api_consent's.
  * @summary Api Pending Info
  */
 export const apiPendingInfoApiPendingGet = async (params: ApiPendingInfoApiPendingGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiPendingInfoApiPendingGetResponse> => {

@@ -1,4 +1,12 @@
-from .auth import ConsentResponse, LoginResponse, OkResponse, PendingInfoResponse, SessionResponse
+from .auth import (
+    ConsentRequest,
+    ConsentResponse,
+    LoginRequest,
+    LoginResponse,
+    OkResponse,
+    PendingInfoResponse,
+    SessionResponse,
+)
 from .backfill import (
     ApplyTemporalBackfillRequest,
     ApplyTemporalBackfillResponse,
@@ -62,6 +70,7 @@ __all__ = [
     "BatchCreateNotesResponse",
     "ChunkPreviewItem",
     "ChunkPreviewResponse",
+    "ConsentRequest",
     "ConsentResponse",
     "CreateFolderRequest",
     "CreateFolderResponse",
@@ -79,6 +88,7 @@ __all__ = [
     "JobItem",
     "JobsResponse",
     "LinksResponse",
+    "LoginRequest",
     "LoginResponse",
     "MoveNoteRequest",
     "MoveNoteResponse",

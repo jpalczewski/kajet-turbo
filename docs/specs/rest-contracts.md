@@ -48,10 +48,12 @@ once a family is migrated — it goes stale the moment code changes.
 
 ## Known inconsistencies to resolve during migration (not fixed in #247)
 
-- `embedding.py`, `ssh_keys.py`, `oauth.py`, `jobs.py` return **free-form exception text**
+- `embedding.py`, `ssh_keys.py`, `jobs.py` return **free-form exception text**
   as `error` (e.g. `{"error": "Profil nie istnieje."}`, `{"error": str(e)}`), not a
-  machine-readable `ErrorCode`. `entries.py`'s folder/period validation error is also a
-  literal string (`detail="period or folder is invalid"`). `frontend/src/lib/api/errors.ts`
+  machine-readable `ErrorCode`. `oauth.py` was migrated in #254: both `api_consent` and
+  `api_pending_info` now raise `AuthError.PENDING_EXPIRED`. `entries.py`'s folder/period
+  validation error is also a literal string (`detail="period or folder is invalid"`).
+  `frontend/src/lib/api/errors.ts`
   can't translate any of these — the frontend shows whatever server string arrives.
 - `UpdateNoteRequest` (`src/kajet_turbo/api/schemas/notes/crud.py`) does not declare
   `expected_sha`, which `api_update_note` (`notes.py`) reads from the raw body. #253 owns
@@ -85,20 +87,22 @@ own threadpool dispatch: `entries.py::api_entries_in`, `crud/tags.py::api_list_t
 
 Not audited in #247 (out of the has_access-specific scope this phase targeted, flagged for
 #254's pass): `ws_service.workspace_path(...)` calls inside async routes
-(`export.py`, `folders.py`), `provider.complete_authorization` in `auth.py`/`oauth.py`.
+(`export.py`, `folders.py`). `provider.complete_authorization` in `auth.py`/`oauth.py` was
+checked during #254's auth-family pass -- it's already `async def` and awaits its own
+`run_sync()`-wrapped repository calls internally, so no route-level change was needed.
 
 ## Route families
 
-### Auth / session — `api/auth.py`, `api/oauth.py`
+### Auth / session — `api/auth.py`, `api/oauth.py` (migrated in #254)
 
 | Route | Body | Null/omission | Status/envelope | Notes |
 |---|---|---|---|---|
-| `POST /api/login` | manual `request.json()` | missing fields default to `""` via `body.get(k, "")` | 400 invalid JSON (free-text `{"error": "Invalid JSON"}`, not the shared envelope), 401 wrong credentials, 200 + `Set-Cookie` | timing-safe: `verify_password` always runs even for unknown email (`DUMMY_PASSWORD_HASH`) |
+| `POST /api/login` | typed `LoginRequest{email, password, pending_id: str \| None}` | malformed JSON → 422/400 via the global `RequestValidationError` handler (`RequestError.INVALID_INPUT`); `pending_id` omitted skips the OAuth-completion branch entirely | 401 `AuthError.INVALID_CREDENTIALS`, 400 `AuthError.PENDING_EXPIRED` (no cookie set on this branch), 200 + `Set-Cookie` via an injected `Response` | timing-safe: `verify_password` always runs even for unknown email (`DUMMY_PASSWORD_HASH`) |
 | `GET /api/session` | — | — | 200 `{email, preferences: {timezone, locale}}` | needs auth |
-| `DELETE /api/session` | — | — | 200 always (idempotent even with no cookie) | |
-| `DELETE /api/sessions` | — | — | 200; revokes all sessions + OAuth grants for the caller | logs `user_signed_out_everywhere` |
-| `POST /api/consent` | manual | `pending_id` defaults `""` → 400 | 400/200 | |
-| `GET /api/pending` | query param `id` | — | 404/200 | **no auth dependency** — intentional |
+| `DELETE /api/session` | — | — | 200 always (idempotent even with no cookie); cookie deleted via an injected `Response` | |
+| `DELETE /api/sessions` | — | — | 200; revokes all sessions + OAuth grants for the caller; cookie deleted via an injected `Response` | logs `user_signed_out_everywhere` |
+| `POST /api/consent` | typed `ConsentRequest{pending_id: str}` | missing key → 422 `RequestError.INVALID_INPUT`; a present-but-invalid `pending_id` reaches `provider.complete_authorization` and raises there | 400 `AuthError.PENDING_EXPIRED`, 200 | |
+| `GET /api/pending` | query param `id` | — | 404 `AuthError.PENDING_EXPIRED` (reused: same "unknown/expired pending_id" condition as `/api/consent`), 200 | **no auth dependency** — intentional; exempt from the typed-body migration (no body, protocol-adjacent) |
 
 ### Workspaces meta — `api/workspaces/workspace_meta.py`
 
@@ -162,10 +166,12 @@ the `CurrentUser` migration. Still returns a raw `dict`.
 
 ## Manual `request.json()` sites (R2/R3 backlog for typed bodies)
 
-None migrated in #247 — this enumerates the full blast radius for later phases:
+None migrated in #247 — this enumerates the full blast radius for later phases.
+`auth.py`/`oauth.py` were migrated in #254 (`api_login`, `api_consent`) and are removed
+from this list; `api_pending_info` never had a body.
 
-`ssh_keys.py:28`, `auth.py:33`, `embedding.py:27,54`, `workspace_remote.py:47`,
-`preferences.py:33`, `oauth.py:18`, `workspace_settings.py:53`, `workspace_meta.py:44,85`,
+`ssh_keys.py:28`, `embedding.py:27,54`, `workspace_remote.py:47`,
+`preferences.py:33`, `workspace_settings.py:53`, `workspace_meta.py:44,85`,
 `notes/crud/notes.py:72,125,158,225`, `notes/crud/folders.py:63`.
 
 ## Frontend callers

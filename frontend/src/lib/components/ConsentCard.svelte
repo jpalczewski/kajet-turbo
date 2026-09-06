@@ -1,5 +1,6 @@
 <script lang="ts">
   import { apiConsentApiConsentPost } from '$lib/api';
+  import { apiErrorMessage } from '$lib/api/mutate';
 
   let {
     pendingId,
@@ -18,13 +19,11 @@
     submitting = true;
     error = '';
     try {
-      const result = await apiConsentApiConsentPost({
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pending_id: pendingId }),
-      });
+      const result = await apiConsentApiConsentPost({ pending_id: pendingId });
+      if (result.status !== 200) throw new Error();
       window.location.href = result.data.redirect_uri;
-    } catch {
-      error = 'Błąd sieci.';
+    } catch (e) {
+      error = apiErrorMessage(e, 'Błąd sieci.');
     } finally {
       submitting = false;
     }

@@ -1,6 +1,8 @@
 const ERROR_MESSAGES: Record<string, string> = {
   NOT_AUTHENTICATED: 'Zaloguj się.',
   ACCESS_DENIED: 'Brak dostępu.',
+  INVALID_CREDENTIALS: 'Nieprawidłowy email lub hasło.',
+  PENDING_EXPIRED: 'Wygasły pending_id.',
   WORKSPACE_NOT_FOUND: 'Workspace nie istnieje.',
   WORKSPACE_ALREADY_EXISTS: 'Workspace o tej nazwie już istnieje.',
   WORKSPACE_NAME_REQUIRED: "Nazwa workspace'u jest wymagana.",
