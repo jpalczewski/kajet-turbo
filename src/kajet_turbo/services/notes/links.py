@@ -428,9 +428,7 @@ class NoteLinkService:
 
         return resolve
 
-    def link_resolver(
-        self, workspace: WorkspaceTarget, source_folder: str = ""
-    ) -> LinkResolver:
+    def link_resolver(self, workspace: WorkspaceTarget, source_folder: str = "") -> LinkResolver:
         """Create a resolver without loading workspace paths until it is called."""
         resolver: LinkResolver | None = None
 

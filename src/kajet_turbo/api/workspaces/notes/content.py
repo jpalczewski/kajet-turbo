@@ -229,6 +229,4 @@ def api_note_graph(
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     link_service: NoteLinkService = Depends(get_note_link_service),
 ) -> JSONResponse:
-    return JSONResponse(
-        link_service.graph(workspace, include_tags=include_tags)
-    )
+    return JSONResponse(link_service.graph(workspace, include_tags=include_tags))
