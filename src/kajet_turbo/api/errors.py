@@ -45,8 +45,10 @@ from kajet_turbo.workspace import ExtrasReservedKeyError, InvalidFolderError, Te
 
 async def _http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     if isinstance(exc.detail, dict):
-        return JSONResponse(status_code=exc.status_code, content=exc.detail)
-    return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
+        return JSONResponse(status_code=exc.status_code, content=exc.detail, headers=exc.headers)
+    return JSONResponse(
+        status_code=exc.status_code, content={"error": exc.detail}, headers=exc.headers
+    )
 
 
 # Pydantic error "type" -> legacy error code, for validators (schemas/notes/crud.py,

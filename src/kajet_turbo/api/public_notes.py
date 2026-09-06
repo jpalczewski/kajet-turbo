@@ -19,6 +19,37 @@ from kajet_turbo.services.workspaces import WorkspaceService
 
 router = APIRouter()
 
+_NO_STORE = {"Cache-Control": "no-store"}
+
+
+def _load_public_note(
+    token: str,
+    share_link_repo: NoteShareLinkRepository,
+    workspace_service: WorkspaceService,
+    note_read_service: NoteReadService,
+) -> dict | None:
+    """Resolve a share token straight through to rendered fields in one thread dispatch --
+    lookup, path computation, the git-backed read, and markdown rendering are all blocking
+    calls chained on each other's output, so one run_sync() beats three."""
+    link = share_link_repo.resolve(token)
+    if link is None:
+        return None
+    # The token is the sole authorization gate here -- workspace/note are trusted from the
+    # resolved share-link row, never from has_access, unlike every other note read route.
+    ws_path = workspace_service.workspace_path(link.owner_id, link.workspace)
+    target = NoteTarget(
+        note_id=link.note_id,
+        workspace=WorkspaceTarget(owner_id=link.owner_id, name=link.workspace, path=Path(ws_path)),
+    )
+    note = note_read_service.get_with_content(target)
+    if note is None:
+        return None
+    # No resolver/xws_resolver: render_markdown degrades wikilinks to a plain, unlinked
+    # <span> instead of a real <a href> pointing at the note's folder/id -- the link text
+    # itself (a note title) still renders, only the location it would otherwise expose does
+    # not. See #348 for the full wikilink-leak scope this endpoint intentionally defers to.
+    return note_html_fields(note)
+
 
 @router.get(
     "/api/public/notes/{token}",
@@ -33,20 +64,11 @@ async def api_get_public_note(
     note_read_service: NoteReadService = Depends(get_note_read_service),
 ) -> NoteHtmlResponse:
     # A revoked token must 404 on the very next request even through a caching proxy.
-    response.headers["Cache-Control"] = "no-store"
-    link = await run_sync(share_link_repo.resolve, token)
-    if link is None:
-        raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
-    # The token is the sole authorization gate here -- workspace/note are trusted from the
-    # resolved share-link row, never from has_access, unlike every other note read route.
-    ws_path = await run_sync(workspace_service.workspace_path, link.owner_id, link.workspace)
-    target = NoteTarget(
-        note_id=link.note_id,
-        workspace=WorkspaceTarget(owner_id=link.owner_id, name=link.workspace, path=Path(ws_path)),
+    # HTTPException(headers=...) below covers the 404 branch; this covers the 200 one.
+    response.headers.update(_NO_STORE)
+    fields = await run_sync(
+        _load_public_note, token, share_link_repo, workspace_service, note_read_service
     )
-    note = await run_sync(note_read_service.get_with_content, target)
-    if note is None:
-        raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
-    # No resolver/xws_resolver: render_markdown degrades wikilinks to plain text instead of
-    # a real <a href>, so an anonymous viewer never learns a linked private note exists.
-    return NoteHtmlResponse(**note_html_fields(note))
+    if fields is None:
+        raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND, headers=_NO_STORE)
+    return NoteHtmlResponse(**fields)

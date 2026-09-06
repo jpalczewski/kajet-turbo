@@ -34,6 +34,10 @@ def test_revoked_token_returns_404_not_403(auth_client):
     response = client.get(f"/api/public/notes/{link.token}")
 
     assert response.status_code == 404
+    # A revoked token must 404 on the very next request even through a caching proxy --
+    # this specifically caught a bug where HTTPException's headers were silently dropped
+    # by the global exception handler, so only the 200 path ever carried no-store.
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_unknown_token_returns_404_with_no_identity_at_all(anon_client):
@@ -42,3 +46,4 @@ def test_unknown_token_returns_404_with_no_identity_at_all(anon_client):
     response = anon_client.client.get("/api/public/notes/does-not-exist")
 
     assert response.status_code == 404
+    assert response.headers["cache-control"] == "no-store"
