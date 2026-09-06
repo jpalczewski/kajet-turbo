@@ -13,7 +13,7 @@ def _seed_default_owner(database):
     seed_user(database, "u1")
 
 
-def test_reindex_rebuilds_fts(service, database, git_workspace_factory):
+def test_reindex_rebuilds_fts(service, reconcile_service, database, git_workspace_factory):
     from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.workspace import NoteFrontmatter, note_filepath, write_note_file
 
@@ -34,7 +34,7 @@ def test_reindex_rebuilds_fts(service, database, git_workspace_factory):
         ),
         "treść zewnętrzna",
     )
-    result = service.reindex("ws", owner_id="u1", ws_path=str(workspace))
+    result = reconcile_service.reindex("ws", owner_id="u1", ws_path=str(workspace))
     assert result["count"] == 1
 
     jobs = JobRepository(database.engine)
@@ -45,17 +45,19 @@ def test_reindex_rebuilds_fts(service, database, git_workspace_factory):
     assert any(n["note_id"] == "ext001" for n in found)
 
 
-def test_reindex_finds_notes_in_subfolders(service, workspace, note_file_factory):
+def test_reindex_finds_notes_in_subfolders(
+    service, reconcile_service, workspace, note_file_factory
+):
     note_file_factory(workspace, "Root note", note_id="root-id")
     note_file_factory(workspace, "Nested note", note_id="nested-id", folder="docs")
 
-    result = service.reindex("ws", owner_id="u1", ws_path=str(workspace))
+    result = reconcile_service.reindex("ws", owner_id="u1", ws_path=str(workspace))
 
     assert result["count"] == 2
 
 
 def test_reindex_batches_note_writes_and_tag_sync(
-    service, workspace, note_file_factory, monkeypatch
+    service, reconcile_service, workspace, note_file_factory, monkeypatch
 ):
     """Both new notes land in ONE DB transaction (reconcile_paths wraps every insert/
     update for the whole reconcile in a single ``operation()``, not one commit per
@@ -81,7 +83,7 @@ def test_reindex_batches_note_writes_and_tag_sync(
     monkeypatch.setattr(service._crud_repo, "operation", record_note_op)
     monkeypatch.setattr(service._tag_repo, "sync_note_tags_many", record_tags)
 
-    result = service.reindex("ws", owner_id="u1", ws_path=str(workspace))
+    result = reconcile_service.reindex("ws", owner_id="u1", ws_path=str(workspace))
 
     assert result["count"] == 2
     assert calls == {"note_op": 1, "tags": 1}

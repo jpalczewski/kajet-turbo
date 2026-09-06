@@ -243,6 +243,7 @@ def inproc_search_phase(tmp: Path) -> dict:
     from kajet_turbo.services.notes import (
         NoteFolderService,
         NoteLinkService,
+        NoteReconcileService,
         NoteSearchService,
         NoteService,
         NoteTagService,
@@ -290,6 +291,9 @@ def inproc_search_phase(tmp: Path) -> dict:
         version_service,
         folder_service,
     )
+    reconcile_service = NoteReconcileService(
+        note_repo, link_repo, tag_repo, chunk_repo, link_service
+    )
     results: dict[str, dict] = {}
     total = 200
     for threads in (1, 4, 8):
@@ -313,7 +317,9 @@ def inproc_search_phase(tmp: Path) -> dict:
     from kajet_turbo.workspace import workspace_path
 
     t0 = time.perf_counter()
-    reindexed = svc.reindex(WS, owner_id=owner_id, ws_path=workspace_path(WS, user_id=owner_id))
+    reindexed = reconcile_service.reindex(
+        WS, owner_id=owner_id, ws_path=workspace_path(WS, user_id=owner_id)
+    )
     wall = time.perf_counter() - t0
     results["reindex_total"] = {
         "latency_ms": percentiles([wall * 1000]),

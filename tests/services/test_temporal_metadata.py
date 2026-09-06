@@ -120,7 +120,9 @@ def test_edit_many_keeps_db_occurred_at_when_file_value_is_corrupted(service, wo
     assert row is not None and row.occurred_at == "2026-03-22"
 
 
-def test_reconcile_paths_keeps_db_occurred_at_when_file_value_is_corrupted(service, workspace):
+def test_reconcile_paths_keeps_db_occurred_at_when_file_value_is_corrupted(
+    service, reconcile_service, workspace
+):
     """reconcile_paths must not treat a corrupted (unparseable) on-disk occurred_at as a
     genuine drift-to-None and overwrite the DB's correct value with it (#132 follow-up)."""
     note_id = service.save(
@@ -134,7 +136,7 @@ def test_reconcile_paths_keeps_db_occurred_at_when_file_value_is_corrupted(servi
     corrupt_temporal_field(path, "occurred_at", "banana")
 
     # reconcile_paths is out of scope for the #246 target migration -- unchanged signature.
-    service.reconcile_paths(
+    reconcile_service.reconcile_paths(
         "ws", owner_id="u1", ws_path=str(workspace), paths=["Corrupt Reconcile.md"]
     )
 
@@ -142,7 +144,7 @@ def test_reconcile_paths_keeps_db_occurred_at_when_file_value_is_corrupted(servi
     assert row is not None and row.occurred_at == "2026-03-22"
 
 
-def test_save_update_clear_and_reconcile_temporal_metadata(service, workspace):
+def test_save_update_clear_and_reconcile_temporal_metadata(service, reconcile_service, workspace):
     note_id = service.save(
         workspace_target("u1", "ws", workspace),
         "Event",
@@ -170,7 +172,9 @@ def test_save_update_clear_and_reconcile_temporal_metadata(service, workspace):
     meta, body = read_note_file(path)
     write_note_file(path, replace(meta, occurred_at="2026-03-23"), body)
     # reconcile_paths is out of scope for the #246 target migration -- unchanged signature.
-    service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=["Event.md"])
+    reconcile_service.reconcile_paths(
+        "ws", owner_id="u1", ws_path=str(workspace), paths=["Event.md"]
+    )
     row = service._crud_repo.get(note_id, owner_id="u1")
     assert row is not None and row.occurred_at == "2026-03-23"
 

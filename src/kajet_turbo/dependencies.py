@@ -244,7 +244,13 @@ def build_resources(config: AppConfig) -> AppResources:
             job_repo,
         )
         note_reconcile_service = NoteReconcileService(
-            note_repo, note_link_repo, note_tag_repo, note_chunk_repo, link_service
+            note_repo,
+            note_link_repo,
+            note_tag_repo,
+            note_chunk_repo,
+            link_service,
+            indexer=indexer,
+            reconcile_repo=reconcile_repo,
         )
         shared_embed_client = SharedEmbedderClient()
         search_service = NoteSearchService(

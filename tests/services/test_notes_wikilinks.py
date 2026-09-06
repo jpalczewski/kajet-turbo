@@ -174,12 +174,12 @@ def test_delete_target_orphans_handled(service, link_service, workspace):
     assert link_service._link_repo.backlinks(tid) == []
 
 
-def test_reindex_rebuilds_links(service, link_service, workspace):
+def test_reindex_rebuilds_links(service, reconcile_service, link_service, workspace):
     tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
     sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
-    service.reindex("ws", "u1", str(workspace))
+    reconcile_service.reindex("ws", "u1", str(workspace))
     assert link_service._link_repo.backlinks(tid) == [sid]
 
 
@@ -727,7 +727,9 @@ def test_move_folder_ranks_co_moved_source_from_its_old_folder(
     assert link_service._link_repo.backlinks(tid) == [sid]
 
 
-def test_reindex_resolves_short_links_and_xws_ids(service, link_service, workspace):
+def test_reindex_resolves_short_links_and_xws_ids(
+    service, reconcile_service, link_service, workspace
+):
     from kajet_turbo.repositories.git import GitRepository
 
     other_ws = workspace.parent / "other"
@@ -740,7 +742,7 @@ def test_reindex_resolves_short_links_and_xws_ids(service, link_service, workspa
     sid = service.save(
         workspace_target("u1", "ws", workspace), "Source", f"[[Target]] [[note:{other}]]", []
     )["note_id"]
-    service.reindex("ws", "u1", str(workspace))
+    reconcile_service.reindex("ws", "u1", str(workspace))
     assert link_service._link_repo.backlinks(tid) == [sid]
     assert link_service._link_repo.backlinks(other) == [sid]
 

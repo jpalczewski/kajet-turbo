@@ -347,7 +347,7 @@ class NoteLinkService:
             node["kind"] = "note"
         resolved_ids = {n["note_id"] for n in nodes}
         # Edges pointing at a note that didn't resolve are dropped, not surfaced. This is
-        # reachable in practice: clear_workspace_data (service.py) only deletes a deleted
+        # reachable in practice: clear_workspace_data (reconcile.py) only deletes a deleted
         # workspace's own OUTGOING note_links rows, not INBOUND cross-workspace edges from
         # notes elsewhere that still [[note:ID]]-reference a note that just got wiped —
         # those become permanently dangling. Filtering here, not raising, is deliberate.

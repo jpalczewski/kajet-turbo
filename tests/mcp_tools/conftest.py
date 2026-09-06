@@ -93,6 +93,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         NoteTagRepository(database.engine),
         note_chunk_repository,
         note_link_service_inst,
+        indexer=indexer,
     )
     workspace_service = WorkspaceService(
         workspace_repository,

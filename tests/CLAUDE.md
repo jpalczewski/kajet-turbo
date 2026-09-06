@@ -17,8 +17,8 @@ Never parametrize an expensive fixture over cases a fast test already covers.
 
 - `tests/conftest.py` — `database` / `database_factory` (copies a migrated template, so no
   Alembic per test), `git_workspace_factory`, `note_file_factory`
-- `tests/services/conftest.py` — `service`, `workspace`, `seed_user`, `build_note_service`,
-  `build_workspace_service`
+- `tests/services/conftest.py` — `service`, `reconcile_service`, `workspace`, `seed_user`,
+  `build_note_service`, `build_note_reconcile_service`, `build_workspace_service`
 - `tests/mcp_tools/conftest.py` — `mcp_server` (seeded user `u1`, patched access token),
   `tokenless_mcp_server` (for auth-rejection tests), `workspaces_dir`
 - `tests/mcp_tools/helpers.py` — `call_json` (never hand-roll

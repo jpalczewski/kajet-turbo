@@ -3,12 +3,12 @@ from fastmcp import FastMCP
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.mcp.context import WORKSPACE_TARGET
 from kajet_turbo.mcp.tooling import write_tool
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import NoteReconcileService
 from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.shared.notes import ReindexResult
 
 
-def build_maintenance(note_service: NoteService) -> FastMCP:
+def build_maintenance(note_reconcile_service: NoteReconcileService) -> FastMCP:
     srv = FastMCP("notes-maintenance")
 
     @srv.tool(**write_tool(tags={"notes", "index"}, idempotent=True))
@@ -25,7 +25,7 @@ def build_maintenance(note_service: NoteService) -> FastMCP:
 
         workspace: the workspace name to reindex."""
         result = await run_sync(
-            note_service.reindex,
+            note_reconcile_service.reindex,
             target.name,
             owner_id=target.owner_id,
             ws_path=str(target.path),

@@ -104,6 +104,25 @@ def drain_reindex_jobs(jobs, handler, owner_id: str, workspace_name: str) -> int
     return len(pending)
 
 
+def build_note_reconcile_service_from(service):
+    """A NoteReconcileService sharing every repo/collaborator instance a NoteService
+    already holds — mirrors production wiring (dependencies.py builds both from the
+    same repo set), so a test's monkeypatch on one of `service`'s repo instances is
+    visible to the reconcile side too, and reconcile_paths/save() see the same DB
+    state without needing a second, independently-constructed set of repos."""
+    from kajet_turbo.services.notes import NoteReconcileService
+
+    return NoteReconcileService(
+        service._crud_repo,
+        service._link_repo,
+        service._tag_repo,
+        service._chunk_repo,
+        service._link_service,
+        indexer=service._indexer,
+        reconcile_repo=service._reconcile_repo,
+    )
+
+
 def build_reconcile_wiring(database, base: Path):
     """A NoteService wired with a real LinkReconcileRepository + DanglingLinkRepository,
     plus the ReconcileLinksHandler that can drain the jobs it enqueues — for tests that

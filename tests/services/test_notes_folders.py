@@ -225,7 +225,7 @@ def test_prune_empty_folders_removes_orphans_keeps_gitkeep(service, workspace):
 
 
 def test_move_folder_db_failure_leaves_git_committed_and_rows_healable(
-    service, read_service, workspace
+    service, reconcile_service, read_service, workspace
 ):
     """#170: move_folder now commits the git tree unconditionally *first* (matching
     pre-#155 behavior), then writes every note's folder-column update in one DB
@@ -261,7 +261,7 @@ def test_move_folder_db_failure_leaves_git_committed_and_rows_healable(
     assert read_service.get(a, owner_id="u1")["folder"] == "people"
     assert read_service.get(b, owner_id="u1")["folder"] == "people"
 
-    service.reconcile_paths(
+    reconcile_service.reconcile_paths(
         "ws", owner_id="u1", ws_path=str(workspace), paths=["team/A.md", "team/B.md"]
     )
     assert read_service.get(a, owner_id="u1")["folder"] == "team"

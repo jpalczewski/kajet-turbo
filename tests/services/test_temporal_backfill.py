@@ -120,12 +120,12 @@ def test_temporal_backfill_reports_conflicting_week_folder(service, temporal_ser
 
 
 def test_temporal_backfill_applies_note_with_no_git_history(
-    service, temporal_service, workspace, note_file_factory
+    service, reconcile_service, temporal_service, workspace, note_file_factory
 ):
     # A file reconciled onto disk (e.g. pre-existing data) has no commit touching it yet,
     # so its preview candidate carries sha=None; apply must still accept it as fresh.
     path = note_file_factory(workspace, "2026-03-22 Daily", note_id="nogit1", content="body")
-    service.reconcile_paths(
+    reconcile_service.reconcile_paths(
         "ws", owner_id="u1", ws_path=str(workspace), paths=[_rel(workspace, path)]
     )
 

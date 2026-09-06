@@ -132,6 +132,8 @@ def build_note_reconcile_service(
     link_validation_enabled=None,
     jobs: JobRepository | None = None,
     chunk_repo: NoteChunkRepository | None = None,
+    indexer=None,
+    reconcile_repo: LinkReconcileRepository | None = None,
 ):
     """Construct a NoteReconcileService from a Database for tests, without building a
     full NoteService — the point of #225's split."""
@@ -149,7 +151,15 @@ def build_note_reconcile_service(
         link_service = NoteLinkService(
             crud_repo, link_repo, tag_repo, dangling_repo, link_validation_enabled, jobs
         )
-    return NoteReconcileService(crud_repo, link_repo, tag_repo, chunk_repo, link_service)
+    return NoteReconcileService(
+        crud_repo,
+        link_repo,
+        tag_repo,
+        chunk_repo,
+        link_service,
+        indexer=indexer,
+        reconcile_repo=reconcile_repo,
+    )
 
 
 def build_workspace_service(database: Database) -> WorkspaceService:
@@ -185,6 +195,17 @@ def service(database: Database) -> NoteService:
         jobs=JobRepository(database.engine),
     )
     return build_note_service(database, indexer=indexer)
+
+
+@pytest.fixture
+def reconcile_service(service: NoteService):
+    """A NoteReconcileService sharing every repo/collaborator instance the `service`
+    fixture already holds (see build_note_reconcile_service_from) — reconcile_paths/
+    reindex on this fixture and save()/update() on `service` operate on the same DB
+    state, same as production wiring."""
+    from tests.services.helpers import build_note_reconcile_service_from
+
+    return build_note_reconcile_service_from(service)
 
 
 @pytest.fixture
