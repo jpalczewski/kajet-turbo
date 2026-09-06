@@ -9,6 +9,7 @@ import pytest
 from loki_source import (
     LokiConfigError,
     SshTarget,
+    _entry_timestamps,
     _to_unix_ns,
     _warn_if_capped,
     _warn_if_stale,
@@ -120,8 +121,7 @@ def test_to_unix_ns_iso_timestamp():
 
 def test_warn_if_capped_warns_on_5000_entries(capsys):
     """Verify warning is printed to stderr when result is exactly 5000 entries."""
-    events = [{"msg": f"event_{i}"} for i in range(5000)]
-    _warn_if_capped(events)
+    _warn_if_capped(5000)
     captured = capsys.readouterr()
     assert "warning: Loki result capped at 5000 entries" in captured.err
     assert "Narrow --since, or add --mode errors" in captured.err
@@ -129,52 +129,61 @@ def test_warn_if_capped_warns_on_5000_entries(capsys):
 
 def test_warn_if_capped_no_warning_under_5000(capsys):
     """Verify no warning when result is under 5000 entries."""
-    events = [{"msg": f"event_{i}"} for i in range(4999)]
-    _warn_if_capped(events)
+    _warn_if_capped(4999)
     captured = capsys.readouterr()
     assert captured.err == ""
 
 
 def test_warn_if_capped_no_warning_over_5000(capsys):
     """Verify no warning when result is over 5000 entries (shouldn't happen but be safe)."""
-    events = [{"msg": f"event_{i}"} for i in range(5001)]
-    _warn_if_capped(events)
+    _warn_if_capped(5001)
     captured = capsys.readouterr()
     assert captured.err == ""
 
 
-def _event_aged(seconds: float) -> dict:
-    """One event whose ts is `seconds` behind now, in the Z-suffixed form Loki emits."""
-    when = datetime.datetime.now(datetime.UTC) - datetime.timedelta(seconds=seconds)
-    return {"ts": when.isoformat().replace("+00:00", "Z"), "msg": "event"}
+def test_entry_timestamps_count_every_line_not_just_parseable_ones():
+    """The cap and freshness checks look at what Loki returned, not what parsed.
+
+    Regression: a production api stream where most lines were raw uvicorn tracebacks
+    came back as exactly 5000 entries, parsed to 681 events, and neither the cap
+    warning nor an honest freshness check fired — the 24h window had silently shrunk
+    to 90 minutes.
+    """
+    values = [[str(1_000 + i), '{"ts": "2026-01-01T00:00:00Z", "msg": "http"}'] for i in range(10)]
+    values += [[str(2_000 + i), '  File "/app/x.py", line 1, in f'] for i in range(40)]
+    data = {"data": {"result": [{"stream": {}, "values": values}]}}
+    stamps = _entry_timestamps(data)
+    assert len(stamps) == 50
+    assert stamps == sorted(stamps)
+    assert stamps[-1] == 2_039
+    assert len(parse_query_range_response(data)) == 10
 
 
-def test_warn_if_stale_warns_when_newest_event_lags(capsys):
-    _warn_if_stale([_event_aged(600)], "now")
+def _entry_aged(seconds: float) -> int:
+    """A Loki entry timestamp (ns) `seconds` behind now."""
+    return int((time.time() - seconds) * 1e9)
+
+
+def test_warn_if_stale_warns_when_newest_entry_lags(capsys):
+    _warn_if_stale(_entry_aged(600), "now")
     captured = capsys.readouterr()
     assert "warning: newest Loki event is" in captured.err
     assert "may not match" in captured.err
 
 
 def test_warn_if_stale_silent_on_fresh_window(capsys):
-    _warn_if_stale([_event_aged(5)], "now")
+    _warn_if_stale(_entry_aged(5), "now")
     assert capsys.readouterr().err == ""
 
 
 def test_warn_if_stale_silent_for_historical_window(capsys):
     """A window ending in the past is expected to lag — only `until=now` implies freshness."""
-    _warn_if_stale([_event_aged(86400)], "2026-01-01T00:00:00")
+    _warn_if_stale(_entry_aged(86400), "2026-01-01T00:00:00")
     assert capsys.readouterr().err == ""
 
 
-def test_warn_if_stale_silent_without_events(capsys):
-    _warn_if_stale([], "now")
-    assert capsys.readouterr().err == ""
-
-
-def test_warn_if_stale_silent_on_unparseable_ts(capsys):
-    """A malformed ts is the line parser's problem, not a staleness signal."""
-    _warn_if_stale([{"ts": "not a timestamp"}, {"msg": "no ts at all"}], "now")
+def test_warn_if_stale_silent_without_entries(capsys):
+    _warn_if_stale(None, "now")
     assert capsys.readouterr().err == ""
 
 

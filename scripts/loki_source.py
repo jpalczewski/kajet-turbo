@@ -246,35 +246,43 @@ class _Tunnel:
         )
 
 
-def _warn_if_capped(events: list[dict]) -> None:
-    """Warn if a Loki query result was capped at 5000 entries."""
-    if len(events) == 5000:
+def _entry_timestamps(data: dict[str, Any]) -> list[int]:
+    """Loki timestamps (ns) of every entry in a query_range response, oldest first.
+
+    Counted before parsing on purpose: the 5000-entry cap and the freshness check are
+    about what Loki returned, and a stream where most lines are not JSON (uvicorn
+    tracebacks, for instance) would otherwise look uncapped and stale at once while the
+    window had silently collapsed to a fraction of --since.
+    """
+    return sorted(
+        int(ts_ns)
+        for stream in data.get("data", {}).get("result", [])
+        for ts_ns, _ in stream.get("values", [])
+    )
+
+
+def _warn_if_capped(entry_count: int) -> None:
+    """Warn if a Loki query result was capped at 5000 entries (parsed or not)."""
+    if entry_count == 5000:
         print(
             "warning: Loki result capped at 5000 entries — the window may be truncated "
-            "(missing older events). Narrow --since, or add --mode errors / --msg to "
-            "filter server-side.",
+            "(missing older events). Non-JSON lines count toward the cap too. Narrow "
+            "--since, or add --mode errors / --msg to filter server-side.",
             file=sys.stderr,
         )
 
 
-def _warn_if_stale(events: list[dict], until: str) -> None:
-    """Warn if the newest event lags wall-clock 'now' by more than the threshold.
+def _warn_if_stale(newest_ns: int | None, until: str) -> None:
+    """Warn if the newest entry lags wall-clock 'now' by more than the threshold.
 
     A large lag usually means the selector no longer matches what's being
     ingested (e.g. an upstream relabeling change dropped or renamed a label
     this query still filters on) rather than a real outage — but either way
     the caller shouldn't trust the window on faith.
     """
-    if until != "now" or not events:
+    if until != "now" or newest_ns is None:
         return
-    last_ts = events[-1].get("ts")
-    if not isinstance(last_ts, str):
-        return
-    try:
-        last_epoch = datetime.datetime.fromisoformat(last_ts.replace("Z", "+00:00")).timestamp()
-    except ValueError:
-        return
-    lag_s = time.time() - last_epoch
+    lag_s = time.time() - newest_ns / 1e9
     if lag_s > _STALE_THRESHOLD_S:
         print(
             f"warning: newest Loki event is {lag_s:.0f}s old — the selector may not match "
@@ -315,10 +323,10 @@ def fetch_events(
         ) from e
     finally:
         tunnel.close()
-    events = parse_query_range_response(data)
-    _warn_if_capped(events)
-    _warn_if_stale(events, until)
-    return events
+    stamps = _entry_timestamps(data)
+    _warn_if_capped(len(stamps))
+    _warn_if_stale(stamps[-1] if stamps else None, until)
+    return parse_query_range_response(data)
 
 
 def _to_unix_ns(spec: str) -> int:
