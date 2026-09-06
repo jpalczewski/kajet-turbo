@@ -71,11 +71,12 @@ _CUSTOM_ERROR_TYPES: dict[str, NoteError | FolderError | SshKeyError | Workspace
 # still gets its own code via the "ssh_key_name_required" custom type below, which is
 # inherently model-specific because it's a distinct validator error type, not a bare
 # field name.
-_REQUIRED_FIELD_CODES: dict[str, NoteError | FolderError | SshKeyError] = {
+_REQUIRED_FIELD_CODES: dict[str, NoteError | FolderError | SshKeyError | PreferencesError] = {
     "title": NoteError.TITLE_REQUIRED,
     "path": FolderError.PATH_REQUIRED,
     "folder": FolderError.PATH_REQUIRED,
     "algorithm": SshKeyError.INVALID_ALGORITHM,
+    "timezone": PreferencesError.INVALID_INPUT,
     # "name" deliberately not keyed here -- it's too common a field name across the app's
     # request models (see tests/api/test_error_handlers.py's own unrelated probe body) to
     # map safely at this global-by-field-name scope. CreateWorkspaceRequest instead raises
@@ -85,6 +86,13 @@ _REQUIRED_FIELD_CODES: dict[str, NoteError | FolderError | SshKeyError] = {
     # above instead of the generic "missing" one this table maps.
 }
 _REQUIRED_ERROR_TYPES = {"missing", "string_type", "string_too_short", "literal_error"}
+# CreateWorkspaceRequest/UpdateWorkspaceRequest also declare a "folder" field (the picker
+# grouping path, unrelated to MoveNoteRequest's move-target folder) -- but it's genuinely
+# optional (default None), so it can only ever produce a "string_type" error here, never
+# "missing". Without this guard a wrong-type value on that field (e.g. `folder: 123`) would
+# hit the same table entry as MoveNoteRequest's *required* folder and 422 with the
+# misleading FOLDER_PATH_REQUIRED ("path is required") instead of a generic INVALID_INPUT.
+_MISSING_ONLY_FIELDS = {"folder"}
 # UpdatePreferencesRequest.locale is typed as the closed `Locale` enum, so an unsupported
 # value fails Pydantic's own "enum" check before the route runs -- map it back to the
 # pre-existing PREFERENCES_INVALID_INPUT code the frontend already keys off of.
@@ -108,7 +116,11 @@ async def _request_validation_handler(
     error_type = first.get("type", "")
     field = str(loc[-1]) if loc else ""
     code: NoteError | FolderError | RequestError | SshKeyError | PreferencesError | WorkspaceError
-    if error_type in _REQUIRED_ERROR_TYPES and field in _REQUIRED_FIELD_CODES:
+    if (
+        error_type in _REQUIRED_ERROR_TYPES
+        and field in _REQUIRED_FIELD_CODES
+        and (field not in _MISSING_ONLY_FIELDS or error_type == "missing")
+    ):
         code = _REQUIRED_FIELD_CODES[field]
     elif error_type == "enum" and field in _ENUM_FIELD_CODES:
         code = _ENUM_FIELD_CODES[field]

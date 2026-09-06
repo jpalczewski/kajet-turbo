@@ -61,6 +61,19 @@ def test_list_jobs_filters_by_status(database, monkeypatch):
     assert [j["kind"] for j in pending] == ["other"]
 
 
+def test_list_jobs_empty_status_query_means_no_filter(database, monkeypatch):
+    # A blank `?status=` (e.g. an HTML form's unset "All" option) must behave like the
+    # status param being absent entirely, not like filtering for Job.status == "".
+    client, repo = _app(database, monkeypatch)
+    job_id = repo.enqueue("k", {}, user_id="u1", max_attempts=1, now=1000.0)
+    repo.claim("w", now=1000.0)
+    repo.fail(job_id, "boom", now=1000.0)  # failed
+    repo.enqueue("other", {}, user_id="u1", now=1000.0)  # pending
+
+    jobs = client.get("/api/me/jobs", params={"status": ""}).json()["jobs"]
+    assert {j["kind"] for j in jobs} == {"k", "other"}
+
+
 def test_retry_failed_job(database, monkeypatch):
     client, repo = _app(database, monkeypatch)
     job_id = repo.enqueue("k", {}, user_id="u1", max_attempts=1, now=1000.0)

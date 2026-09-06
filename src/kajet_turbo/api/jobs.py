@@ -14,7 +14,10 @@ def api_list_jobs(
     user: CurrentUser = Depends(get_required_user),
     svc: JobService = Depends(get_job_service),
 ) -> JobsResponse:
-    return JobsResponse(jobs=svc.list(user.id, status=status))
+    # An empty `?status=` (e.g. an HTML form's blank "All" option) must mean "no filter",
+    # matching the pre-#254 `request.query_params.get("status") or None` behavior --
+    # JobRepository.list_jobs treats `status=""` as a real filter value, not "unset".
+    return JobsResponse(jobs=svc.list(user.id, status=status or None))
 
 
 @router.post(

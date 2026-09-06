@@ -77,6 +77,7 @@ def test_patch_wrong_type_timezone_returns_422(database):
     client = _app(database)
     resp = client.patch("/api/me/preferences", json={"timezone": 123})
     assert resp.status_code == 422
+    assert resp.json()["error"] == "PREFERENCES_INVALID_INPUT"
 
 
 def test_patch_both_fields_at_once(database):

@@ -69,6 +69,15 @@ def test_patch_wrong_type_422(auth_client):
     assert r.status_code == 422
 
 
+def test_patch_wrong_type_folder_is_generic_invalid_input(auth_client):
+    # UpdateWorkspaceRequest.folder is optional (unlike MoveNoteRequest's required,
+    # same-named field) -- a wrong-type value must not 422 with the misleading
+    # FOLDER_PATH_REQUIRED ("path is required") code that field name maps to elsewhere.
+    r = auth_client.patch("/api/workspaces/test-ws", json={"folder": 123})
+    assert r.status_code == 422
+    assert r.json()["error"] == "INVALID_INPUT"
+
+
 def test_patch_omitted_key_is_a_no_op(auth_client):
     auth_client.patch("/api/workspaces/test-ws", json={"description": "d", "folder": "A"})
     r = auth_client.patch("/api/workspaces/test-ws", json={})
