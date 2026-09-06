@@ -235,11 +235,7 @@ class TargetResolver:
             workspace = self.workspace(user_id, workspace_name)
         except TargetResolutionError as e:
             raise BatchTargetResolutionError(
-                [
-                    TargetFailure(
-                        None, TargetError.NOT_FOUND, SecurityReason.WORKSPACE_ACCESS_DENIED
-                    )
-                ]
+                [TargetFailure(None, TargetError.NOT_FOUND, SecurityReason.WORKSPACE_ACCESS_DENIED)]
             ) from e
         resolved = [NoteTarget(note_id=note_id, workspace=workspace) for note_id in note_ids]
         return workspace, resolved

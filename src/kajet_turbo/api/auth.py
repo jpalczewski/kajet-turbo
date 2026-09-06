@@ -45,16 +45,13 @@ async def api_login(
     password_hash = user.password_hash if user and user.password_hash else DUMMY_PASSWORD_HASH
     password_ok = await run_sync(verify_password, password_hash, password)
     if not user or not password_ok:
+        failure_reason = SecurityReason.BAD_CREDENTIALS if user else SecurityReason.UNKNOWN_EMAIL
         log_security_event(
             SecurityEvent.AUTH_FAILURE,
             level="WARNING",
             user_id=user.id if user else None,
             auth_method="password",
-            reason=(
-                SecurityReason.BAD_CREDENTIALS.value
-                if user
-                else SecurityReason.UNKNOWN_EMAIL.value
-            ),
+            reason=failure_reason.value,
         )
         return JSONResponse({"error": "Nieprawidłowy email lub hasło."}, status_code=401)
 
