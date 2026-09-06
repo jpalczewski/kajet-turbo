@@ -7,6 +7,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   WORKSPACE_ALREADY_EXISTS: 'Workspace o tej nazwie już istnieje.',
   WORKSPACE_NAME_REQUIRED: "Nazwa workspace'u jest wymagana.",
   WORKSPACE_INVALID_INPUT: "Nieprawidłowe dane workspace'u.",
+  WORKSPACE_BACKFILL_STALE: 'Dane zmieniły się w międzyczasie — uruchom analizę ponownie.',
   NOTE_NOT_FOUND: 'Notatka nie istnieje.',
   NOTE_ALREADY_EXISTS: 'Notatka o tym tytule już istnieje.',
   NOTE_TITLE_REQUIRED: 'Tytuł jest wymagany.',

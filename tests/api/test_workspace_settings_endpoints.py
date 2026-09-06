@@ -130,3 +130,62 @@ def test_temporal_backfill_preview_and_apply(client, ws_name):
     )
     assert applied.status_code == 200
     assert applied.json() == {"applied": 1}
+
+
+def test_temporal_backfill_preview_requires_auth_401(anon_client, ws_name):
+    r = anon_client.post(f"/api/workspaces/{ws_name}/settings/temporal-backfill/preview")
+    assert r.status_code == 401
+
+
+def test_temporal_backfill_preview_no_access_403(other_client, ws_name):
+    r = other_client.post(f"/api/workspaces/{ws_name}/settings/temporal-backfill/preview")
+    assert r.status_code == 403
+
+
+def test_temporal_backfill_apply_requires_auth_401(anon_client, ws_name):
+    r = anon_client.post(
+        f"/api/workspaces/{ws_name}/settings/temporal-backfill/apply",
+        json={"candidates": []},
+    )
+    assert r.status_code == 401
+
+
+def test_temporal_backfill_apply_no_access_403(other_client, ws_name):
+    r = other_client.post(
+        f"/api/workspaces/{ws_name}/settings/temporal-backfill/apply",
+        json={"candidates": []},
+    )
+    assert r.status_code == 403
+
+
+def test_temporal_backfill_apply_rejects_empty_candidates_422(client, ws_name):
+    # An empty batch is a client mistake (nothing to apply), not a staleness conflict --
+    # this must land as 422/WORKSPACE_INVALID_INPUT, not the 409 the stale-preview path uses.
+    res = client.post(
+        f"/api/workspaces/{ws_name}/settings/temporal-backfill/apply",
+        json={"candidates": []},
+    )
+    assert res.status_code == 422
+    assert res.json()["error"] == "WORKSPACE_INVALID_INPUT"
+
+
+def test_temporal_backfill_apply_stale_preview_409(client, ws_name):
+    target = WorkspaceTarget(owner_id="u1", name=ws_name, path=Path(client.workspace))
+    client.note_service.save(target, "2026-03-22", "body", [])
+
+    preview = client.post(f"/api/workspaces/{ws_name}/settings/temporal-backfill/preview")
+    candidates = preview.json()["candidates"]
+    first = client.post(
+        f"/api/workspaces/{ws_name}/settings/temporal-backfill/apply",
+        json={"candidates": candidates},
+    )
+    assert first.status_code == 200
+
+    # Re-applying the same (now-outdated) preview batch must be rejected as a conflict,
+    # distinct from the 422 malformed-input path above, with a machine-readable code.
+    second = client.post(
+        f"/api/workspaces/{ws_name}/settings/temporal-backfill/apply",
+        json={"candidates": candidates},
+    )
+    assert second.status_code == 409
+    assert second.json()["error"] == "WORKSPACE_BACKFILL_STALE"

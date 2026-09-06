@@ -27,6 +27,15 @@ _TEMPORAL_TOKEN = re.compile(
 )
 
 
+class BackfillStaleError(ValueError):
+    """A previewed candidate no longer matches the note's current git/db state.
+
+    Distinct from a plain ValueError (malformed candidate shape) so the API route can
+    tell "the request is wrong" (422) apart from "the request was fine but the world
+    moved since preview, retry" (409) without parsing exception text.
+    """
+
+
 def _folder_conflicts_with_period(folder: str, period) -> bool:
     """Treat calendar-looking folder components only as corroboration, never a source."""
     parts = folder.split("/")
@@ -167,7 +176,7 @@ class NoteTemporalService:
         for item in candidates:
             loc = located.get(item["note_id"])
             if loc is None or not loc.file_exists:
-                raise ValueError("backfill preview is stale; run preview again")
+                raise BackfillStaleError("backfill preview is stale; run preview again")
             # item["sha"] is None for a note with no matching git history yet (a brand
             # new file). sha_is_fresh treats a falsy expected_sha as never fresh, so that
             # case is compared directly instead: still-no-history is fresh, anything else
@@ -178,7 +187,7 @@ class NoteTemporalService:
                 else sha_is_fresh(loc.head_sha, item["sha"])
             )
             if not fresh:
-                raise ValueError("backfill preview is stale; run preview again")
+                raise BackfillStaleError("backfill preview is stale; run preview again")
             # Re-derive the candidate from the current row instead of re-running preview
             # over the whole workspace (this method already holds the write lock; a full
             # rescan here would block every other write for O(workspace size), not
@@ -187,7 +196,7 @@ class NoteTemporalService:
                 loc.note.id, loc.note.title, loc.note.folder, loc.note.occurred_at, loc.note.period
             )
             if kind != "candidate" or {**expected, "sha": item["sha"]} != item:
-                raise ValueError("backfill preview is stale; run preview again")
+                raise BackfillStaleError("backfill preview is stale; run preview again")
             meta, content = read_note_file(loc.filepath)
             occurred_at = item["value"] if item["field"] == "occurred_at" else None
             period = item["value"] if item["field"] == "period" else None

@@ -21,6 +21,7 @@ from kajet_turbo.dependencies import (
 )
 from kajet_turbo.errors import WorkspaceError
 from kajet_turbo.services.notes import NoteTemporalService
+from kajet_turbo.services.notes.temporal import BackfillStaleError
 from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -115,6 +116,8 @@ async def api_apply_temporal_backfill(
             str(workspace.path),
             [candidate.model_dump() for candidate in body.candidates],
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except BackfillStaleError:
+        raise HTTPException(status_code=409, detail=WorkspaceError.BACKFILL_STALE) from None
+    except ValueError:
+        raise HTTPException(status_code=422, detail=WorkspaceError.INVALID_INPUT) from None
     return ApplyTemporalBackfillResponse(**result)

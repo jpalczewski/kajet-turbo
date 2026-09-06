@@ -140,8 +140,12 @@ per-key-in-`values`-dict behavior. Unlike the rest of this family's REST bodies,
 as before) and uses `StrictBool` rather than `bool` (a JSON string like `"yes"` still 422s
 rather than being coerced) -- both preserve pre-#254 behavior that a plain `dict` body
 happened to give for free. `apply_temporal_backfill` was already on a typed Pydantic body
-(`ApplyTemporalBackfillRequest`) before this phase and is unchanged apart from the target
-dependency.
+(`ApplyTemporalBackfillRequest`) before this phase; besides the target dependency, its
+error mapping was tightened too -- the service now raises `BackfillStaleError` (a
+`ValueError` subclass) specifically for a stale preview batch, so the route can 409
+`WORKSPACE_BACKFILL_STALE` for that case while every other `ValueError` (malformed
+candidate shape: empty batch, blank/duplicate `note_id`) 422s `WORKSPACE_INVALID_INPUT`,
+instead of every failure surfacing as a 409 with the raw exception string as `detail`.
 
 ### Export — `api/workspaces/export.py` (migrated, #254)
 

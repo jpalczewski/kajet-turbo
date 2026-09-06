@@ -76,6 +76,16 @@ def test_patch_omitted_key_is_a_no_op(auth_client):
     assert r.json() == {"name": "test-ws", "description": "d", "folder": "A", "tags": []}
 
 
+def test_patch_explicit_null_is_also_a_no_op(auth_client):
+    # An explicit JSON null for a field carries the same "leave it unchanged" contract as
+    # omitting the key entirely (see the route's own comment and rest-contracts.md) --
+    # exercise that branch directly instead of only the omitted-key case above.
+    auth_client.patch("/api/workspaces/test-ws", json={"description": "d", "folder": "A"})
+    r = auth_client.patch("/api/workspaces/test-ws", json={"description": None, "folder": None})
+    assert r.status_code == 200
+    assert r.json() == {"name": "test-ws", "description": "d", "folder": "A", "tags": []}
+
+
 def test_list_requires_auth_401(anon_client):
     r = anon_client.get("/api/workspaces")
     assert r.status_code == 401
