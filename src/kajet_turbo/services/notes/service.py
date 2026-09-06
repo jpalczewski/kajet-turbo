@@ -18,7 +18,6 @@ from kajet_turbo.markdown import (
     EditSpec,
     IndexedNote,
     LinkResolution,
-    LinkResolver,
     apply_edit,
 )
 from kajet_turbo.models import Note

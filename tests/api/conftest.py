@@ -12,6 +12,7 @@ from kajet_turbo.api.workspaces import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_link_service,
     get_note_read_service,
     get_note_service,
     get_note_tag_service,
