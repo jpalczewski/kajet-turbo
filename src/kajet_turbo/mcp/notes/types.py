@@ -1,9 +1,10 @@
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
 from kajet_turbo.markdown import EditMode, EditSpec
 from kajet_turbo.shared.notes import (
+    DanglingLinkItem,
     FolderContext,
     NoteLinkItemWithMeta,
     NoteLinksBase,
@@ -350,3 +351,106 @@ class DeleteNotesRejected(BaseModel):
     errors: list[DeleteNotesError] = Field(
         description="Cały batch odrzucony — nic nie zostało usunięte."
     )
+
+
+# --- Graph (#168) ---
+#
+# MCP carries a leaner graph than REST: adjacency on the node instead of a parallel edge
+# list. It halves the wire size of a dense page (77B -> 29B an edge), and it makes the
+# paging invariant structural — a page cannot name an edge whose source it does not carry,
+# because there is nowhere to write one. The REST shapes in `shared/notes.py` stay as they
+# are; the frontend renders a whole graph at once and has no page to be consistent with.
+
+
+class GraphNoteNode(NoteLinkItemWithMeta):
+    """A note node in a graph page, carrying its own outgoing links."""
+
+    kind: Literal["note"] = Field(description="Graph node kind")
+    links: list[str] = Field(
+        description="Ids this note links to: a note_id, or 'tag:<id>' for a tag hub. Only "
+        "links whose source is on this page are listed, so walking every page yields each "
+        "link exactly once; a link may name a node from another page."
+    )
+
+
+class GraphTagNode(BaseModel):
+    """A workspace-scoped tag hub in a graph page."""
+
+    id: str = Field(description="This tag's graph node id, of the form 'tag:<id>'")
+    kind: Literal["tag"] = Field(description="Graph node kind")
+    path: str = Field(description="Full normalized tag path")
+    name: str = Field(description="Final segment of the tag path")
+    workspace: str = Field(description="Workspace that owns this tag")
+    links: list[str] = Field(description="Ids this hub links to — its parent tag, if any")
+
+
+type GraphNode = GraphNoteNode | GraphTagNode
+
+
+class GraphResult(BaseModel):
+    """A page of a note-link graph."""
+
+    nodes: list[GraphNode] = Field(
+        description="This page's nodes; get_workspace_graph ranks them highest-degree first"
+    )
+    total_nodes: int = Field(description="Note nodes in the whole graph, tag hubs excluded")
+    total_edges: int = Field(
+        description="Links between note nodes in the whole graph; tag hubs and the links "
+        "into them are not counted."
+    )
+    next_offset: int | None = Field(
+        description="Pass as offset for the next page; null means this was the last one."
+    )
+    dangling_links: list[DanglingLinkItem] | None = Field(
+        default=None,
+        description="Wikilinks on this page's notes that resolve to nothing. Null when the "
+        "workspace validates links (a broken one cannot be saved, so none are tracked).",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fold_edges_into_nodes(cls, data: Any, info: ValidationInfo) -> Any:
+        """Fold the service's REST-shaped ``edges`` list into per-node ``links``.
+
+        The service keeps producing the edge-list shape because the REST route serializes
+        its dict verbatim; only this model pays for the leaner form. An unpaged caller
+        (`get_note_neighborhood`) hands over no totals, so they are derived from what it
+        did hand over — one page holding everything — which keeps the fields required
+        rather than optional in the schema the calling model reads.
+
+        `workspace` on a same-workspace note is dropped to null: `NoteLinkItem` already
+        documents non-null-and-different as the cross-workspace signal, so null is the
+        documented reading of "here", not a lossy shortcut.
+        """
+        if not isinstance(data, dict) or "edges" not in data:
+            return data
+        adjacency: dict[str, list[str]] = {}
+        for edge in data["edges"]:
+            adjacency.setdefault(edge["source"], []).append(edge["target"])
+        home = (info.context or {}).get("workspace")
+        nodes = [dict(node) for node in data["nodes"]]
+        note_ids = set()
+        for node in nodes:
+            if node["kind"] == "note":
+                node_id = node.pop("id")
+                note_ids.add(node_id)
+                if home is not None and node.get("workspace") == home:
+                    node["workspace"] = None
+            else:
+                node_id = node["id"]
+            node["links"] = adjacency.get(node_id, [])
+        folded = {key: value for key, value in data.items() if key != "edges"}
+        folded["nodes"] = nodes
+        folded.setdefault("total_nodes", len(note_ids))
+        # Note-to-note only, matching what the paged path counts before `_graph_tags`
+        # appends its edges — a tag edge has a note as its source but never as its target.
+        folded.setdefault(
+            "total_edges",
+            sum(
+                1
+                for edge in data["edges"]
+                if edge["source"] in note_ids and edge["target"] in note_ids
+            ),
+        )
+        folded.setdefault("next_offset", None)
+        return folded

@@ -231,3 +231,70 @@ def test_neighborhood_requires_center_in_requested_workspace(link_service, servi
         "note_id"
     ]
     assert link_service.neighborhood(note_target("u1", "ws", workspace, note_id)) is None
+
+
+def test_graph_pages_by_degree_and_scopes_edges_to_their_source_page(
+    service, link_service, workspace
+):
+    target = workspace_target("u1", "ws", workspace)
+    spokes = {service.save(target, title, "", [])["note_id"] for title in ("A", "B", "C")}
+    hub_id = service.save(target, "Hub", "[[A]] [[B]] [[C]]", [])["note_id"]
+    service.save(target, "Lonely", "", [])
+
+    first = link_service.graph(target, limit=1)
+    rest = link_service.graph(target, limit=4, offset=first["next_offset"])
+
+    # The hub outranks its spokes, which outrank the note nobody links to.
+    assert [node["note_id"] for node in first["nodes"]] == [hub_id]
+    assert {node["note_id"] for node in rest["nodes"][:3]} == spokes
+    assert rest["nodes"][-1]["title"] == "Lonely"
+    # Every edge rides with its source, so page two carries none of them despite
+    # holding all three targets.
+    assert {edge["target"] for edge in first["edges"]} == spokes
+    assert rest["edges"] == []
+    assert (first["total_nodes"], first["total_edges"], first["next_offset"]) == (5, 3, 1)
+    assert (rest["total_nodes"], rest["total_edges"], rest["next_offset"]) == (5, 3, None)
+
+
+def test_graph_page_scopes_dangling_links_to_its_own_notes(database, workspace):
+    svc, links, _dangling = make_service_with_dangling(
+        database, link_validation_enabled=lambda ws, owner: False
+    )
+    target = workspace_target("u1", "ws", workspace)
+    svc.save(target, "Target", "", [])
+    svc.save(target, "Source", "[[Target]]", [])
+    ghosty_id = svc.save(target, "Ghosty", "[[Ghost]]", [])["note_id"]
+
+    # Ghosty links to nothing that resolves, so it ranks last and lands on page two.
+    linked_page = links.graph(target, limit=2)
+    ghost_page = links.graph(target, limit=2, offset=2)
+
+    assert ghosty_id not in {node["note_id"] for node in linked_page["nodes"]}
+    assert linked_page["dangling_links"] == []
+    assert ghost_page["dangling_links"] == [
+        {"source_note_id": ghosty_id, "target_folder": "", "target_title": "Ghost"}
+    ]
+
+
+def test_graph_page_repeats_a_tag_hub_shared_across_pages(service, link_service, workspace):
+    """A hub is only meaningful next to its notes, so it is re-sent on every page holding
+    one — unlike a note node, which lands on exactly one page."""
+    target = workspace_target("u1", "ws", workspace)
+    first_id = service.save(target, "First", "", ["work/projects"])["note_id"]
+    second_id = service.save(target, "Second", "", ["work/projects"])["note_id"]
+
+    pages = [link_service.graph(target, include_tags=True, limit=1, offset=n) for n in (0, 1)]
+    notes = [
+        {node["note_id"] for node in page["nodes"] if node["kind"] == "note"} for page in pages
+    ]
+    hubs = [
+        {node["path"]: node["id"] for node in page["nodes"] if node["kind"] == "tag"}
+        for page in pages
+    ]
+
+    assert notes[0].isdisjoint(notes[1])
+    assert notes[0] | notes[1] == {first_id, second_id}
+    assert hubs[0] == hubs[1]
+    assert set(hubs[0]) == {"work", "work/projects"}
+    # Tag edges never count towards the graph's totals, on any page.
+    assert [(page["total_nodes"], page["total_edges"]) for page in pages] == [(2, 0), (2, 0)]

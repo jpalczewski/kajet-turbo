@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -284,18 +285,37 @@ class NoteLinkService:
             "outlinks": self.outlinks(target, include_meta),
         }
 
-    def graph(self, target: WorkspaceTarget, include_tags: bool = False) -> dict:
+    def graph(
+        self,
+        target: WorkspaceTarget,
+        include_tags: bool = False,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> dict:
         """Whole-workspace note-link graph: every note as a node (isolated notes included),
         every note_links edge, and dangling (broken-wikilink) edges when link validation
-        is off for this workspace."""
+        is off for this workspace.
+
+        Nodes are ranked by link degree, descending, so a `limit`-sized page leads with the
+        workspace's hubs instead of an arbitrary slice of ids (#168). Degree counts raw
+        edges, including the few whose target never resolves — that only perturbs the
+        ranking, and those edges are dropped from the output either way.
+        """
         edges = self._link_repo.list_for_workspace(target.name, target.owner_id)
         # Every edge's source is already in list_paths (NoteLink.workspace is always the
         # source's own workspace — see list_for_workspace's filter and the NoteLink model
         # docstring), but a cross-workspace [[note:ID]] target may not be, so add targets.
         node_ids = {n.note_id for n in self._crud_repo.list_paths(target.name, target.owner_id)}
         node_ids.update(t for _, t in edges)
+        degree = Counter(chain.from_iterable(edges))
         return self._build_graph(
-            sorted(node_ids), edges, target.owner_id, target.name, include_tags=include_tags
+            sorted(node_ids, key=lambda note_id: (-degree[note_id], note_id)),
+            edges,
+            target.owner_id,
+            target.name,
+            include_tags=include_tags,
+            limit=limit,
+            offset=offset,
         )
 
     def neighborhood(
@@ -337,10 +357,21 @@ class NoteLinkService:
         *,
         dangling_source_ids: set[str] | None = None,
         include_tags: bool = False,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> dict:
-        """Shared {nodes, edges, dangling_links} assembly — a future neighborhood query
-        (#134) reuses this with a different (node_ids, edges) pair rather than
-        reimplementing the conversion."""
+        """Shared {nodes, edges, dangling_links} assembly — the neighborhood query reuses
+        this with a different (node_ids, edges) pair rather than reimplementing the
+        conversion.
+
+        With ``limit``, only ``node_ids[offset : offset + limit]`` become nodes and the
+        result additionally carries ``total_nodes``/``total_edges``/``next_offset``. A page
+        emits exactly the edges whose *source* is on it, so a full walk yields every edge
+        once while a target stays free to name a node from another page; ``dangling_links``
+        narrows to the page's notes the same way. Callers that want the whole graph pass no
+        limit and the three paging keys stay absent — the REST route serializes this dict
+        verbatim and `GraphResponse` does not declare them.
+        """
         nodes = self._resolve_link_notes(node_ids, owner_id, include_meta=True)
         for node in nodes:
             node["id"] = node["note_id"]
@@ -352,15 +383,32 @@ class NoteLinkService:
         # notes elsewhere that still [[note:ID]]-reference a note that just got wiped —
         # those become permanently dangling. Filtering here, not raising, is deliberate.
         filtered_edges = [(s, t) for s, t in edges if s in resolved_ids and t in resolved_ids]
-        graph_edges = [{"source": s, "target": t} for s, t in sorted(filtered_edges)]
+        result: dict = {}
+        if limit is not None:
+            next_offset = offset + limit
+            result = {
+                "total_nodes": len(nodes),
+                "total_edges": len(filtered_edges),
+                "next_offset": next_offset if next_offset < len(nodes) else None,
+            }
+            nodes = nodes[offset:next_offset]
+            # Scoping dangling links to the page keeps them paired with the notes that
+            # own them; an explicit scope (neighborhood) only ever narrows further.
+            page_ids = {n["note_id"] for n in nodes}
+            dangling_source_ids = (
+                page_ids if dangling_source_ids is None else dangling_source_ids & page_ids
+            )
+        else:
+            page_ids = resolved_ids
+        graph_edges = [
+            {"source": s, "target": t} for s, t in sorted(filtered_edges) if s in page_ids
+        ]
         if include_tags:
             tag_nodes, tag_edges = self._graph_tags(nodes, owner_id)
             nodes.extend(tag_nodes)
             graph_edges.extend(tag_edges)
-        result: dict = {
-            "nodes": nodes,
-            "edges": sorted(graph_edges, key=lambda edge: (edge["source"], edge["target"])),
-        }
+        result["nodes"] = nodes
+        result["edges"] = sorted(graph_edges, key=lambda edge: (edge["source"], edge["target"]))
         if self._dangling_repo is not None and not self._links_validated(ws_name, owner_id):
             dangling_rows = self._dangling_repo.list_for_workspace(owner_id, ws_name)
             if dangling_source_ids is not None:
