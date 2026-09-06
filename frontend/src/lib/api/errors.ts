@@ -19,6 +19,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   INVALID_FOLDER: 'Nieprawidłowy folder.',
   FOLDER_NOT_FOUND: 'Folder nie istnieje.',
   GIT_ERROR: 'Błąd git.',
+  JOB_NOT_FOUND: 'Zadanie nie istnieje.',
   INTERNAL_ERROR: 'Błąd wewnętrzny.',
   INVALID_INPUT: 'Nieprawidłowe dane.',
 };

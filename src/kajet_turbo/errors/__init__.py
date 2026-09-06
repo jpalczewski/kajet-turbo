@@ -1,6 +1,7 @@
 from .auth import AuthError, SecurityEvent, SecurityReason
 from .folders import FolderError
 from .git import GitError
+from .jobs import JobError
 from .notes import NoteError
 from .preferences import PreferencesError
 from .request import RequestError
@@ -13,6 +14,7 @@ type ErrorCode = (
     | NoteError
     | FolderError
     | GitError
+    | JobError
     | PreferencesError
     | RequestError
     | TargetError
@@ -23,6 +25,7 @@ __all__ = [
     "ErrorCode",
     "FolderError",
     "GitError",
+    "JobError",
     "NoteError",
     "PreferencesError",
     "RequestError",

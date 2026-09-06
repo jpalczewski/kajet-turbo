@@ -245,6 +245,13 @@ export const GitError = {
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
+export type JobError = typeof JobError[keyof typeof JobError];
+
+
+export const JobError = {
+  JOB_NOT_FOUND: 'JOB_NOT_FOUND',
+} as const;
+
 export type PreferencesError = typeof PreferencesError[keyof typeof PreferencesError];
 
 
@@ -269,7 +276,7 @@ export const TargetError = {
   TARGET_MIXED_WORKSPACES: 'TARGET_MIXED_WORKSPACES',
 } as const;
 
-export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,...PreferencesError,...RequestError,...TargetError,} as const
+export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,...JobError,...PreferencesError,...RequestError,...TargetError,} as const
 export type ErrorCode = typeof ErrorCode[keyof typeof ErrorCode];
 
 export interface ErrorResponse {
@@ -3479,8 +3486,13 @@ export const apiListJobsApiMeJobsGet = async ( options?: Parameters<typeof custo
 
 
 export type apiRetryJobApiMeJobsJobIdRetryPostResponse200 = {
-  data: unknown
+  data: OkResponse
   status: 200
+}
+
+export type apiRetryJobApiMeJobsJobIdRetryPostResponse404 = {
+  data: ErrorResponse
+  status: 404
 }
 
 export type apiRetryJobApiMeJobsJobIdRetryPostResponse422 = {
@@ -3491,7 +3503,7 @@ export type apiRetryJobApiMeJobsJobIdRetryPostResponse422 = {
 export type apiRetryJobApiMeJobsJobIdRetryPostResponseSuccess = (apiRetryJobApiMeJobsJobIdRetryPostResponse200) & {
   headers: Headers;
 };
-export type apiRetryJobApiMeJobsJobIdRetryPostResponseError = (apiRetryJobApiMeJobsJobIdRetryPostResponse422) & {
+export type apiRetryJobApiMeJobsJobIdRetryPostResponseError = (apiRetryJobApiMeJobsJobIdRetryPostResponse404 | apiRetryJobApiMeJobsJobIdRetryPostResponse422) & {
   headers: Headers;
 };
 
@@ -3522,8 +3534,13 @@ export const apiRetryJobApiMeJobsJobIdRetryPost = async (jobId: string, options?
 
 
 export type apiDismissJobApiMeJobsJobIdDeleteResponse200 = {
-  data: unknown
+  data: OkResponse
   status: 200
+}
+
+export type apiDismissJobApiMeJobsJobIdDeleteResponse404 = {
+  data: ErrorResponse
+  status: 404
 }
 
 export type apiDismissJobApiMeJobsJobIdDeleteResponse422 = {
@@ -3534,7 +3551,7 @@ export type apiDismissJobApiMeJobsJobIdDeleteResponse422 = {
 export type apiDismissJobApiMeJobsJobIdDeleteResponseSuccess = (apiDismissJobApiMeJobsJobIdDeleteResponse200) & {
   headers: Headers;
 };
-export type apiDismissJobApiMeJobsJobIdDeleteResponseError = (apiDismissJobApiMeJobsJobIdDeleteResponse422) & {
+export type apiDismissJobApiMeJobsJobIdDeleteResponseError = (apiDismissJobApiMeJobsJobIdDeleteResponse404 | apiDismissJobApiMeJobsJobIdDeleteResponse422) & {
   headers: Headers;
 };
 

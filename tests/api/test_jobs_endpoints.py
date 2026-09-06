@@ -36,9 +36,20 @@ def test_retry_failed_job(database, monkeypatch):
     job_id = repo.enqueue("k", {}, user_id="u1", max_attempts=1, now=1000.0)
     repo.claim("w", now=1000.0)
     repo.fail(job_id, "boom", now=1000.0)  # failed
-    assert client.post(f"/api/me/jobs/{job_id}/retry").status_code == 200
+    resp = client.post(f"/api/me/jobs/{job_id}/retry")
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
     # now pending -> retry again rejected
-    assert client.post(f"/api/me/jobs/{job_id}/retry").status_code == 404
+    resp = client.post(f"/api/me/jobs/{job_id}/retry")
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "JOB_NOT_FOUND"}
+
+
+def test_retry_unknown_job_not_found(database, monkeypatch):
+    client, _repo = _app(database, monkeypatch)
+    resp = client.post("/api/me/jobs/does-not-exist/retry")
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "JOB_NOT_FOUND"}
 
 
 def test_dismiss_terminal_job(database, monkeypatch):
@@ -46,10 +57,23 @@ def test_dismiss_terminal_job(database, monkeypatch):
     job_id = repo.enqueue("k", {}, user_id="u1", max_attempts=1, now=1000.0)
     repo.claim("w", now=1000.0)
     repo.fail(job_id, "boom", now=1000.0)  # failed (terminal)
-    assert client.delete(f"/api/me/jobs/{job_id}").status_code == 200
-    assert client.delete(f"/api/me/jobs/{job_id}").status_code == 404  # gone
+    resp = client.delete(f"/api/me/jobs/{job_id}")
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    resp = client.delete(f"/api/me/jobs/{job_id}")  # gone
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "JOB_NOT_FOUND"}
+
+
+def test_dismiss_unknown_job_not_found(database, monkeypatch):
+    client, _repo = _app(database, monkeypatch)
+    resp = client.delete("/api/me/jobs/does-not-exist")
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "JOB_NOT_FOUND"}
 
 
 def test_requires_login(database, monkeypatch):
     client, _ = _app(database, monkeypatch, user_id=None)
     assert client.get("/api/me/jobs").status_code == 401
+    assert client.post("/api/me/jobs/x/retry").status_code == 401
+    assert client.delete("/api/me/jobs/x").status_code == 401

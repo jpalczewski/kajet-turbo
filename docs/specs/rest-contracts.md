@@ -48,13 +48,14 @@ once a family is migrated — it goes stale the moment code changes.
 
 ## Known inconsistencies to resolve during migration (not fixed in #247)
 
-- `embedding.py`, `ssh_keys.py`, `jobs.py` return **free-form exception text**
+- `embedding.py`, `ssh_keys.py` return **free-form exception text**
   as `error` (e.g. `{"error": "Profil nie istnieje."}`, `{"error": str(e)}`), not a
   machine-readable `ErrorCode`. `oauth.py` was migrated in #254: both `api_consent` and
-  `api_pending_info` now raise `AuthError.PENDING_EXPIRED`. `entries.py`'s folder/period
-  validation error is also a literal string (`detail="period or folder is invalid"`).
-  `frontend/src/lib/api/errors.ts`
-  can't translate any of these — the frontend shows whatever server string arrives.
+  `api_pending_info` now raise `AuthError.PENDING_EXPIRED`. `jobs.py` was also migrated in
+  #254: retry/dismiss now raise `JobError` codes instead of free text. `entries.py`'s
+  folder/period validation error is also a literal string
+  (`detail="period or folder is invalid"`). `frontend/src/lib/api/errors.ts` can't translate
+  any of these — the frontend shows whatever server string arrives.
 - `UpdateNoteRequest` (`src/kajet_turbo/api/schemas/notes/crud.py`) does not declare
   `expected_sha`, which `api_update_note` (`notes.py`) reads from the raw body. #253 owns
   adding the field when it adopts the model.
@@ -155,8 +156,11 @@ envelope (`PreferencesError.INVALID_INPUT`).
 
 ### Jobs — `api/jobs.py`
 
-List/retry/dismiss, all sync `def`. Free-text 404 bodies (`"Job not found or not
-retryable"`), not machine-readable.
+List/retry/dismiss, all sync `def` (unchanged — already off the event loop). `retry`/
+`dismiss` now 404 with `JobError.NOT_FOUND` and 200 with `OkResponse` instead of free-text
+bodies; `JobRepository.retry`/`dismiss` collapse "no such job", "wrong owner", and "wrong
+status" into one bool, so a single code is used rather than inventing a distinction the
+service can't actually report.
 
 ### WebSocket — `api/ws.py`
 
