@@ -1,0 +1,168 @@
+{
+  "label": "before-343",
+  "python": "3.14.3",
+  "free_threading": true,
+  "sizes": [
+    100,
+    500,
+    1000,
+    2000
+  ],
+  "writes": 20,
+  "concurrency": 8,
+  "warmup": 5,
+  "scenarios": {
+    "note_create@c1/100files": {
+      "latency_ms": {
+        "p50": 23.73,
+        "p95": 30.68,
+        "p99": 32.07,
+        "mean": 24.79,
+        "count": 20
+      },
+      "rps": 40.3,
+      "errors": 0,
+      "server_ms": {
+        "duration_ms": 22.5,
+        "workspace_write_ms": 19.5,
+        "git_ms": 15.7,
+        "git_lock_wait_ms": 0.1,
+        "db_ms": 3.4
+      },
+      "files": 105
+    },
+    "note_create@c8/100files": {
+      "latency_ms": {
+        "p50": 174.41,
+        "p95": 182.69,
+        "p99": 187.69,
+        "mean": 148.98,
+        "count": 20
+      },
+      "rps": 44.6,
+      "errors": 0,
+      "server_ms": {
+        "duration_ms": 172.5,
+        "workspace_write_ms": 21.8,
+        "git_ms": 16.9,
+        "git_lock_wait_ms": 147.5,
+        "db_ms": 4.2
+      },
+      "files": 125
+    },
+    "note_create@c1/500files": {
+      "latency_ms": {
+        "p50": 34.97,
+        "p95": 36.38,
+        "p99": 70.94,
+        "mean": 36.74,
+        "count": 20
+      },
+      "rps": 27.2,
+      "errors": 0,
+      "server_ms": {
+        "duration_ms": 33.0,
+        "workspace_write_ms": 30.1,
+        "git_ms": 24.6,
+        "git_lock_wait_ms": 0.1,
+        "db_ms": 4.0
+      },
+      "files": 505
+    },
+    "note_create@c8/500files": {
+      "latency_ms": {
+        "p50": 248.33,
+        "p95": 264.04,
+        "p99": 266.23,
+        "mean": 211.26,
+        "count": 20
+      },
+      "rps": 30.9,
+      "errors": 0,
+      "server_ms": {
+        "duration_ms": 247.0,
+        "workspace_write_ms": 31.5,
+        "git_ms": 25.4,
+        "git_lock_wait_ms": 212.1,
+        "db_ms": 4.4
+      },
+      "files": 525
+    },
+    "note_create@c1/1000files": {
+      "latency_ms": {
+        "p50": 50.24,
+        "p95": 55.15,
+        "p99": 55.25,
+        "mean": 50.69,
+        "count": 20
+      },
+      "rps": 19.7,
+      "errors": 0,
+      "server_ms": {
+        "duration_ms": 49.0,
+        "workspace_write_ms": 45.0,
+        "git_ms": 36.8,
+        "git_lock_wait_ms": 0.1,
+        "db_ms": 5.3
+      },
+      "files": 1005
+    },
+    "note_create@c8/1000files": {
+      "latency_ms": {
+        "p50": 375.91,
+        "p95": 384.21,
+        "p99": 386.98,
+        "mean": 315.02,
+        "count": 20
+      },
+      "rps": 21.1,
+      "errors": 0,
+      "server_ms": {
+        "duration_ms": 374.0,
+        "workspace_write_ms": 47.0,
+        "git_ms": 38.2,
+        "git_lock_wait_ms": 323.7,
+        "db_ms": 5.4
+      },
+      "files": 1025
+    },
+    "note_create@c1/2000files": {
+      "latency_ms": {
+        "p50": 72.6,
+        "p95": 74.66,
+        "p99": 77.15,
+        "mean": 72.29,
+        "count": 20
+      },
+      "rps": 13.8,
+      "errors": 0,
+      "server_ms": {
+        "duration_ms": 71.0,
+        "workspace_write_ms": 67.3,
+        "git_ms": 54.8,
+        "git_lock_wait_ms": 0.1,
+        "db_ms": 6.0
+      },
+      "files": 2005
+    },
+    "note_create@c8/2000files": {
+      "latency_ms": {
+        "p50": 533.87,
+        "p95": 539.54,
+        "p99": 546.13,
+        "mean": 445.92,
+        "count": 20
+      },
+      "rps": 14.9,
+      "errors": 0,
+      "server_ms": {
+        "duration_ms": 533.0,
+        "workspace_write_ms": 66.8,
+        "git_ms": 54.5,
+        "git_lock_wait_ms": 462.2,
+        "db_ms": 6.2
+      },
+      "files": 2025
+    }
+  }
+}
