@@ -195,9 +195,8 @@ configured") became `WorkspaceRemoteError.NOT_FOUND` / `NOT_CONFIGURED`
 instead of being declared as `response_model` while the route returned a raw
 `JSONResponse` (so FastAPI's response validation never ran pre-migration).
 
-### SSH keys / embedding profiles — `ssh_keys.py`, `embedding.py`
+### SSH keys / embedding profiles — `ssh_keys.py`, `embedding.py` (migrated in #254)
 
-`workspace_remote.py` still has free-text error bodies (see "Known inconsistencies").
 `ssh_keys.py` and `embedding.py` were migrated in #254 (secrets-and-prefs): both take a
 typed `CreateXRequest`/`UpdateXRequest` body and answer with `SshKeyError`/
 `EmbeddingProfileError` codes instead of `{"error": str(e)}`. `CreateSshKeyRequest.algorithm`
@@ -216,9 +215,9 @@ directly (`SshKeysResponse`/`EmbeddingProfilesResponse` wrapping a list of
 `SshKeyItem`/`EmbeddingProfileItem`) instead of returning a raw `JSONResponse` — the same
 defense-in-depth filtering the `POST`/`PUT` routes already relied on now also covers list.
 
-### Preferences — `api/preferences.py`
+### Preferences — `api/preferences.py` (migrated in #254)
 
-Migrated in #254: `PATCH` now takes a typed `UpdatePreferencesRequest` body (`timezone`,
+`PATCH` now takes a typed `UpdatePreferencesRequest` body (`timezone`,
 `locale: Locale | None`) instead of `await request.json()`, using `model_fields_set` for the
 same field-presence semantics it already had by hand (an omitted key is a no-op, an explicit
 `null` still 422s — Pydantic can't tell those two apart from the resolved value alone).
@@ -231,7 +230,7 @@ still 422s via the service's `ValueError`. `GET` returns the `PreferencesService
 `UserPreferences` directly (the service already builds that model in `_view`), so there is
 no raw `JSONResponse` here either.
 
-### Jobs — `api/jobs.py`
+### Jobs — `api/jobs.py` (migrated in #254)
 
 List/retry/dismiss, all sync `def` (unchanged — already off the event loop). `list` now
 builds and returns `JobsResponse` directly (`response_model` enforced at runtime, no more
@@ -242,11 +241,20 @@ of reading `request.query_params` by hand. `retry`/`dismiss` now 404 with
 into one bool, so a single code is used rather than inventing a distinction the service
 can't actually report.
 
-### WebSocket — `api/ws.py`
+### WebSocket — `api/ws.py` (assessed in #254, no change)
 
 Its own auth dependency, `_get_ws_user` — deliberately **not** `get_required_user` (a
 WebSocket accept/close has different semantics than an HTTP 401), so it was untouched by
-the `CurrentUser` migration. Still returns a raw `dict`.
+the `CurrentUser` migration. Still returns a raw `dict`. #254 re-examined this file for the
+"identity dependency reuse" the epic called out: `_get_ws_user` already resolves its
+`SessionRepository` via the same `Depends(get_session_repo)` provider every HTTP route uses,
+and calls the same `identity.resolve_session_user_from_cookies` primitive
+`get_session_user`/`get_required_user` wrap — that sharing predates #247/#253 (commit
+22f5529, #70). Swapping in `get_session_user`/`get_required_user` directly would be a
+regression, not a cleanup: the former reads `app.state.resources` directly instead of going
+through the `Depends` override the WS test app installs, and the latter's DB call is
+synchronous and would block this route's event loop without a `run_sync()` wrapper it
+doesn't have. No code change was made.
 
 ## Manual `request.json()` sites (R2/R3 backlog for typed bodies)
 
