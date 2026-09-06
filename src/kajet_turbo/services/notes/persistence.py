@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from sqlmodel import Session
 
 from kajet_turbo.models import Note
+from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
@@ -51,10 +52,11 @@ def new_note_row(
 class NoteTeardown:
     """FK-sensitive note deletion, note- and workspace-scoped, in one implementation.
 
-    Both scopes tear down the same artifacts in the same order (tags, chunks, the note
-    row, then links) — keeping them on one object is what stops the ordering from
-    drifting between ``NoteService.delete``/``delete_many``/``reconcile_paths`` and
-    ``clear_workspace_data`` as those callers move to separate services under #156.
+    Both scopes tear down the same artifacts in the same order (tags, chunks, share
+    links, the note row, then links) — keeping them on one object is what stops the
+    ordering from drifting between ``NoteService.delete``/``delete_many``/
+    ``reconcile_paths`` and ``clear_workspace_data`` as those callers move to separate
+    services under #156.
     """
 
     tag_repo: NoteTagRepository
@@ -62,11 +64,13 @@ class NoteTeardown:
     crud_repo: NoteRepository
     link_repo: NoteLinkRepository
     link_service: NoteLinkService
+    share_link_repo: NoteShareLinkRepository
 
     def note_in_session(self, session: Session, note: Note) -> None:
         """Remove every DB artifact of ``note`` inside the caller's transaction."""
         self.tag_repo.delete_note_tags_in_session(session, note.id, note.workspace, note.owner_id)
         self.chunk_repo.delete_chunks(note.id, session)
+        self.share_link_repo.delete_for_note_in_session(session, note.id)
         self.crud_repo.delete_in_session(session, note.id, owner_id=note.owner_id)
         self.link_repo.delete_links_from_in_session(session, note.id)
         self.link_repo.delete_links_to_in_session(session, note.id)
@@ -74,10 +78,11 @@ class NoteTeardown:
 
     def workspace_in_session(self, session: Session, ws_name: str, owner_id: str) -> None:
         """Remove every note-related row for a whole workspace inside the caller's
-        transaction. FK ordering: chunks must be deleted before notes
-        (``note_chunks.note_id`` FK)."""
+        transaction. FK ordering: chunks and share links must be deleted before notes
+        (``note_chunks.note_id``/``note_share_links.note_id`` FKs)."""
         self.tag_repo.delete_workspace_tags_in_session(session, ws_name, owner_id)
         self.chunk_repo.delete_for_workspace_in_session(ws_name, owner_id, session)
+        self.share_link_repo.delete_for_workspace_in_session(session, ws_name, owner_id)
         self.crud_repo.delete_for_workspace_in_session(ws_name, owner_id, session)
         self.link_repo.delete_workspace_links_in_session(session, ws_name, owner_id)
         self.link_service.delete_dangling_for_workspace_in_session(session, ws_name, owner_id)

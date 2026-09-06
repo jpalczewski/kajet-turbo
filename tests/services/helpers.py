@@ -118,6 +118,7 @@ def build_note_reconcile_service_from(service):
         service._tag_repo,
         service._chunk_repo,
         service._link_service,
+        service._share_link_repo,
         indexer=service._indexer,
         reconcile_repo=service._reconcile_repo,
     )
@@ -232,6 +233,7 @@ def seed_full_workspace(database, *, user_id: str, name: str) -> None:
     from kajet_turbo.repositories.folder_meta import FolderMetaRepository
     from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
+    from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
     from kajet_turbo.repositories.notes import (
         NoteChunkRepository,
         NoteLinkRepository,
@@ -271,6 +273,8 @@ def seed_full_workspace(database, *, user_id: str, name: str) -> None:
     DanglingLinkRepository(database.engine).replace_for_source(
         f"{user_id}-n1", name, user_id, [("", "Missing Note")]
     )
+
+    NoteShareLinkRepository(database.engine).create(f"{user_id}-n1", name, user_id)
 
     FolderMetaRepository(database.engine).set(user_id, name, "proj", description="Project folder")
 
@@ -316,6 +320,7 @@ def workspace_table_counts(database, *, workspace: str, owner_id: str) -> dict[s
         LinkReconcileDirty,
         Note,
         NoteLink,
+        NoteShareLink,
         NoteTag,
         Tag,
         WorkspaceAccess,
@@ -352,6 +357,7 @@ def workspace_table_counts(database, *, workspace: str, owner_id: str) -> dict[s
             ),
             "tags": count(Tag, workspace=workspace, owner_id=owner_id),
             "note_links": count(NoteLink, workspace=workspace, owner_id=owner_id),
+            "note_share_links": count(NoteShareLink, workspace=workspace, owner_id=owner_id),
             "dangling_links": count(DanglingLink, workspace=workspace, owner_id=owner_id),
             "folder_meta": count(FolderMeta, workspace=workspace, owner_id=owner_id),
             "workspace_remote": count(WorkspaceRemote, workspace=workspace, user_id=owner_id),

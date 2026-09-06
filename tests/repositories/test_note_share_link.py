@@ -81,3 +81,40 @@ def test_revoke_is_owner_scoped(database: Database):
 def test_revoke_unknown_token_returns_false(database: Database):
     repo = NoteShareLinkRepository(database.engine)
     assert repo.revoke("u1", "does-not-exist") is False
+
+
+def test_delete_for_note_in_session_removes_only_that_notes_links(database: Database):
+    _user(database.engine, "u1")
+    _note(database.engine, "n1", "ws1", "u1")
+    _note(database.engine, "n2", "ws1", "u1")
+    repo = NoteShareLinkRepository(database.engine)
+    link1 = repo.create("n1", "ws1", "u1")
+    link2 = repo.create("n2", "ws1", "u1")
+
+    with Session(database.engine) as session:
+        repo.delete_for_note_in_session(session, "n1")
+        session.commit()
+
+    assert repo.resolve(link1.token) is None
+    assert repo.list_for_note("n1") == []
+    assert repo.resolve(link2.token) is not None
+
+
+def test_delete_for_workspace_in_session_is_owner_and_workspace_scoped(database: Database):
+    _user(database.engine, "u1")
+    _user(database.engine, "u2")
+    _note(database.engine, "n1", "ws1", "u1")
+    _note(database.engine, "n2", "ws2", "u1")
+    _note(database.engine, "n3", "ws1", "u2")
+    repo = NoteShareLinkRepository(database.engine)
+    same_ws_same_owner = repo.create("n1", "ws1", "u1")
+    other_ws_same_owner = repo.create("n2", "ws2", "u1")
+    same_ws_other_owner = repo.create("n3", "ws1", "u2")
+
+    with Session(database.engine) as session:
+        repo.delete_for_workspace_in_session(session, "ws1", "u1")
+        session.commit()
+
+    assert repo.resolve(same_ws_same_owner.token) is None
+    assert repo.resolve(other_ws_same_owner.token) is not None
+    assert repo.resolve(same_ws_other_owner.token) is not None

@@ -8,7 +8,7 @@ import pytest
 
 from kajet_turbo import perf
 from kajet_turbo.repositories.git import GitError, GitRepository
-from tests.services.conftest import note_target, workspace_target
+from tests.services.conftest import note_target, seed_user, workspace_target
 from tests.services.helpers import head_sha, make_flaky_db_write
 
 
@@ -203,6 +203,38 @@ def test_delete_removes_file_from_note_folder(service, workspace):
     service.delete(note_target("u1", "ws", workspace, note_id))
 
     assert not (workspace / "trash" / "Delete me.md").exists()
+
+
+def test_delete_note_with_share_link_succeeds(service, workspace, database):
+    """A NoteShareLink FKs to notes.id with no cascade (models.py) — NoteTeardown must
+    delete it before the note row or this raises IntegrityError under
+    PRAGMA foreign_keys=ON (db.py), leaving the note permanently undeletable."""
+    seed_user(database, "u1")
+    note_id = service.save(workspace_target("u1", "ws", workspace), "Shared", "content", [])[
+        "note_id"
+    ]
+    service._share_link_repo.create(note_id, "ws", "u1")
+
+    service.delete(note_target("u1", "ws", workspace, note_id))
+
+    assert service._crud_repo.get(note_id, owner_id="u1") is None
+    assert service._share_link_repo.list_for_note(note_id) == []
+
+
+def test_delete_note_with_revoked_share_link_succeeds(service, workspace, database):
+    """revoke() only soft-deletes (sets revoked_at) — the row, and its FK to notes.id,
+    survives revocation, so a revoked-but-undeleted link must not block note deletion
+    either."""
+    seed_user(database, "u1")
+    note_id = service.save(workspace_target("u1", "ws", workspace), "Shared", "content", [])[
+        "note_id"
+    ]
+    link = service._share_link_repo.create(note_id, "ws", "u1")
+    service._share_link_repo.revoke("u1", link.token)
+
+    service.delete(note_target("u1", "ws", workspace, note_id))
+
+    assert service._crud_repo.get(note_id, owner_id="u1") is None
 
 
 def test_delete_rolls_back_database_teardown_and_leaves_file_untouched(

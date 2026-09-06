@@ -4,7 +4,8 @@ public share-link endpoint would call; it treats a revoked token as not found.""
 import secrets
 from datetime import UTC, datetime
 
-from sqlmodel import Session, select
+from sqlalchemy import delete
+from sqlmodel import Session, col, select
 
 from kajet_turbo.models import NoteShareLink
 from kajet_turbo.repositories import DbRepository
@@ -70,4 +71,17 @@ class NoteShareLinkRepository(DbRepository):
             apply,
             guard=lambda link: link.owner_id == owner_id and link.revoked_at is None,
             owner_id=owner_id,
+        )
+
+    @staticmethod
+    def delete_for_note_in_session(session: Session, note_id: str) -> None:
+        session.exec(delete(NoteShareLink).where(col(NoteShareLink.note_id) == note_id))
+
+    @staticmethod
+    def delete_for_workspace_in_session(session: Session, workspace: str, owner_id: str) -> None:
+        session.exec(
+            delete(NoteShareLink).where(
+                col(NoteShareLink.workspace) == workspace,
+                col(NoteShareLink.owner_id) == owner_id,
+            )
         )

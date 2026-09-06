@@ -12,6 +12,7 @@ from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
+from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
@@ -77,6 +78,7 @@ def build_note_wiring(
     reconcile_repo: LinkReconcileRepository | None = None,
     jobs: JobRepository | None = None,
     link_service: NoteLinkService | None = None,
+    share_link_repo: NoteShareLinkRepository | None = None,
 ) -> NoteWiring:
     """Construct a fully-wired NoteService from a Database for tests, plus the peer
     boundaries a test may need to address directly."""
@@ -88,6 +90,8 @@ def build_note_wiring(
         chunk_repo = NoteChunkRepository(engine)
     if jobs is None:
         jobs = JobRepository(engine)
+    if share_link_repo is None:
+        share_link_repo = NoteShareLinkRepository(engine)
 
     tag_service = NoteTagService(crud_repo, tag_repo, indexer)
     if link_service is None:
@@ -105,6 +109,7 @@ def build_note_wiring(
             tag_service,
             link_service,
             version_service,
+            share_link_repo,
             indexer=indexer,
             reconcile_repo=reconcile_repo,
         ),
@@ -169,6 +174,7 @@ def build_note_reconcile_service(
     chunk_repo: NoteChunkRepository | None = None,
     indexer=None,
     reconcile_repo: LinkReconcileRepository | None = None,
+    share_link_repo: NoteShareLinkRepository | None = None,
 ):
     """Construct a NoteReconcileService from a Database for tests, without building a
     full NoteService — the point of #225's split."""
@@ -186,12 +192,15 @@ def build_note_reconcile_service(
         link_service = NoteLinkService(
             crud_repo, link_repo, tag_repo, dangling_repo, link_validation_enabled, jobs
         )
+    if share_link_repo is None:
+        share_link_repo = NoteShareLinkRepository(engine)
     return NoteReconcileService(
         crud_repo,
         link_repo,
         tag_repo,
         chunk_repo,
         link_service,
+        share_link_repo,
         indexer=indexer,
         reconcile_repo=reconcile_repo,
     )

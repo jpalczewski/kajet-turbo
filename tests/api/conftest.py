@@ -28,6 +28,7 @@ from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
+from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository, NoteTagRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
@@ -127,6 +128,7 @@ def api_client_factory(
             NoteTagRepository(database.engine),
             note_chunk_repository,
             note_link_service,
+            NoteShareLinkRepository(database.engine),
             indexer=note_indexer,
         )
         workspace_service = WorkspaceService(

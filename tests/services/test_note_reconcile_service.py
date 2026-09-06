@@ -12,7 +12,14 @@ from tests.services.helpers import make_flaky_db_write, seed_full_workspace, wor
 # Tables NoteTeardown.workspace_in_session actually touches — everything else
 # workspace_table_counts reports (folder_meta, workspace_remote/access/meta, jobs,
 # link_reconcile_dirty) is WorkspaceService.delete's job, not this service's.
-_NOTE_DOMAIN_TABLES = {"notes", "note_tags", "tags", "note_links", "dangling_links"}
+_NOTE_DOMAIN_TABLES = {
+    "notes",
+    "note_tags",
+    "tags",
+    "note_links",
+    "note_share_links",
+    "dangling_links",
+}
 
 
 def _service(database):

@@ -234,6 +234,7 @@ def inproc_search_phase(tmp: Path) -> dict:
     os.environ["WORKSPACES_DIR"] = str(tmp / "workspaces")
     from kajet_turbo.db import Database
     from kajet_turbo.repositories.jobs import JobRepository
+    from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
     from kajet_turbo.repositories.notes import (
         NoteChunkRepository,
         NoteLinkRepository,
@@ -274,7 +275,7 @@ def inproc_search_phase(tmp: Path) -> dict:
         tag_repo=tag_repo,
     )
     reconcile_service = NoteReconcileService(
-        note_repo, link_repo, tag_repo, chunk_repo, link_service
+        note_repo, link_repo, tag_repo, chunk_repo, link_service, NoteShareLinkRepository(db.engine)
     )
     results: dict[str, dict] = {}
     total = 200

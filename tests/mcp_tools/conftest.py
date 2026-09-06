@@ -14,6 +14,7 @@ from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.mcp import build_mcp
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.git import PostCommitHooks
+from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository, NoteTagRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
@@ -98,6 +99,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         NoteTagRepository(database.engine),
         note_chunk_repository,
         note_link_service_inst,
+        NoteShareLinkRepository(database.engine),
         indexer=indexer,
     )
     note_search_service = build_note_search_service(database, chunk_repo=note_chunk_repository)

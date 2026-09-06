@@ -21,6 +21,7 @@ from kajet_turbo.repositories.git import (
     workspace_write_transaction,
 )
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
+from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
@@ -130,6 +131,7 @@ class NoteReconcileService:
         tag_repo: NoteTagRepository,
         chunk_repo: NoteChunkRepository,
         link_service: NoteLinkService,
+        share_link_repo: NoteShareLinkRepository,
         indexer=None,
         reconcile_repo: LinkReconcileRepository | None = None,
     ) -> None:
@@ -138,13 +140,16 @@ class NoteReconcileService:
         self._tag_repo = tag_repo
         self._chunk_repo = chunk_repo
         self._link_service = link_service
+        self._share_link_repo = share_link_repo
         self._indexer = indexer
         self._reconcile_repo = reconcile_repo
-        self._teardown = NoteTeardown(tag_repo, chunk_repo, crud_repo, link_repo, link_service)
+        self._teardown = NoteTeardown(
+            tag_repo, chunk_repo, crud_repo, link_repo, link_service, share_link_repo
+        )
 
     def clear_workspace_data(self, ws_name: str, owner_id: str) -> None:
         """Delete every note-related row for a workspace: tags, chunks (+ FTS/vec),
-        notes, and links. Used by workspace deletion. NOT used by reconcile/reindex
+        share links, notes, and links. Used by workspace deletion. NOT used by reconcile/reindex
         (see reconcile_paths) — a wipe-then-rebuild has no window where the deletion
         safety valve could measure anything, and a crash mid-run loses every row."""
         with self._crud_repo.operation(

@@ -25,6 +25,7 @@ from kajet_turbo.repositories.git import (
     target_write_transaction,
 )
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
+from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
 from kajet_turbo.repositories.notes import (
     NoteChunkRepository,
     NoteLinkRepository,
@@ -144,6 +145,7 @@ class NoteService:
         tag_service: NoteTagService,
         link_service: NoteLinkService,
         version_service: NoteVersionService,
+        share_link_repo: NoteShareLinkRepository,
         indexer=None,
         reconcile_repo: LinkReconcileRepository | None = None,
     ) -> None:
@@ -154,9 +156,12 @@ class NoteService:
         self._tag_service = tag_service
         self._link_service = link_service
         self._version_service = version_service
+        self._share_link_repo = share_link_repo
         self._indexer = indexer
         self._reconcile_repo = reconcile_repo
-        self._teardown = NoteTeardown(tag_repo, chunk_repo, crud_repo, link_repo, link_service)
+        self._teardown = NoteTeardown(
+            tag_repo, chunk_repo, crud_repo, link_repo, link_service, share_link_repo
+        )
 
     def _validate_destructive_items(
         self,
