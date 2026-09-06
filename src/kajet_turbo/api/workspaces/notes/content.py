@@ -16,14 +16,13 @@ from kajet_turbo.dependencies import (
     CurrentUser,
     get_note_link_service,
     get_note_read_service,
-    get_note_service,
     get_required_user,
     resolve_note_target,
     resolve_workspace_target,
 )
 from kajet_turbo.errors import NoteError
 from kajet_turbo.markdown import LinkResolver, XwsResolver, render_markdown
-from kajet_turbo.services.notes import NoteLinkService, NoteReadService, NoteService
+from kajet_turbo.services.notes import NoteLinkService, NoteReadService
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 
 _ALLOWED_TAGS = [
@@ -93,7 +92,6 @@ def api_get_note_html(
     note_id: str,
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
-    note_service: NoteService = Depends(get_note_service),
     note_read_service: NoteReadService = Depends(get_note_read_service),
     link_service: NoteLinkService = Depends(get_note_link_service),
 ) -> JSONResponse:

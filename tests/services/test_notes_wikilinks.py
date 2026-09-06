@@ -229,7 +229,7 @@ def test_move_rewrite_leaves_source_outlinks_and_dangling_unchanged(
     """rewrite_backlinks() deliberately skips replace_links/write_dangling for the rewritten
     source note (see its docstring) — pin that the skip is actually harmless: the source's
     own outgoing-link graph and dangling-link bookkeeping are unaffected by the move."""
-    svc, dangling = make_service_with_dangling(
+    svc, _links, dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
     svc.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
@@ -806,7 +806,7 @@ def test_save_broken_wikilink_still_rejected_when_enabled_default(database, work
 
 def test_validation_off_save_writes_dangling_rows(database, workspace):
     """Broken wikilinks on a validation-off save are persisted in dangling_links."""
-    svc, dangling = make_service_with_dangling(
+    svc, _links, dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
     res = svc.save(
@@ -822,7 +822,7 @@ def test_validation_off_save_writes_dangling_rows(database, workspace):
 
 def test_validation_off_resolved_link_writes_no_dangling(database, workspace):
     """Fully resolved wikilinks produce zero dangling rows."""
-    svc, dangling = make_service_with_dangling(
+    svc, _links, dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
     svc.save(workspace_target("u1", "ws", workspace), "Target", "body", tags=[])
@@ -832,7 +832,7 @@ def test_validation_off_resolved_link_writes_no_dangling(database, workspace):
 
 def test_resave_replaces_dangling_rows(database, workspace):
     """update() overwrites the source note's dangling rows, not appends."""
-    svc, dangling = make_service_with_dangling(
+    svc, _links, dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
     r = svc.save(workspace_target("u1", "ws", workspace), "Source", "[[Ghost]]", tags=[])
@@ -848,7 +848,7 @@ def test_resave_replaces_dangling_rows(database, workspace):
 
 def test_validation_on_writes_no_dangling(database, workspace):
     """Validation-on raises BrokenWikilinkError before any dangling write."""
-    svc, dangling = make_service_with_dangling(database)  # no predicate => validation ON
+    svc, _links, dangling = make_service_with_dangling(database)  # no predicate => validation ON
     with pytest.raises(BrokenWikilinkError):
         svc.save(workspace_target("u1", "ws", workspace), "Source", "[[Ghost]]", tags=[])
     assert dangling.exists("u1", "ws") is False
@@ -856,7 +856,7 @@ def test_validation_on_writes_no_dangling(database, workspace):
 
 def test_delete_note_clears_dangling_rows(database, workspace):
     """Deleting a note that was the source of dangling links removes its dangling rows."""
-    svc, dangling = make_service_with_dangling(
+    svc, _links, dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
     res = svc.save(workspace_target("u1", "ws", workspace), "Source", "[[Ghost]]", tags=[])

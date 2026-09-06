@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -54,7 +55,20 @@ def seed_user(database: Database, user_id: str) -> None:
         session.commit()
 
 
-def build_note_service(
+@dataclass(frozen=True)
+class NoteWiring:
+    """The concrete note service graph, with the boundaries a test may need as its subject.
+
+    A test that drives writes through ``NoteService`` but asserts on the link graph takes
+    ``link_service`` from here rather than from a second, separately built one: the builder
+    hands both services the same ``NoteRepository``, so patching ``service._crud_repo`` —
+    to count workspace snapshots, say — still intercepts the link service's reads."""
+
+    service: NoteService
+    link_service: NoteLinkService
+
+
+def build_note_wiring(
     database: Database,
     indexer=None,
     link_validation_enabled=None,
@@ -67,8 +81,9 @@ def build_note_service(
     reconcile_repo: LinkReconcileRepository | None = None,
     jobs: JobRepository | None = None,
     link_service: NoteLinkService | None = None,
-) -> NoteService:
-    """Construct a fully-wired NoteService from a Database for tests."""
+) -> NoteWiring:
+    """Construct a fully-wired NoteService from a Database for tests, plus the peer
+    boundaries a test may need to address directly."""
     engine = database.engine
     crud_repo = NoteRepository(engine)
     link_repo = NoteLinkRepository(engine)
@@ -95,19 +110,27 @@ def build_note_service(
     version_service = NoteVersionService(crud_repo)
     folder_service = NoteFolderService(crud_repo, link_service, reconcile_repo=reconcile_repo)
 
-    return NoteService(
-        crud_repo,
-        link_repo,
-        tag_repo,
-        chunk_repo,
-        tag_service,
-        link_service,
-        search_service,
-        version_service,
-        folder_service,
-        indexer=indexer,
-        reconcile_repo=reconcile_repo,
+    return NoteWiring(
+        service=NoteService(
+            crud_repo,
+            link_repo,
+            tag_repo,
+            chunk_repo,
+            tag_service,
+            link_service,
+            search_service,
+            version_service,
+            folder_service,
+            indexer=indexer,
+            reconcile_repo=reconcile_repo,
+        ),
+        link_service=link_service,
     )
+
+
+def build_note_service(database: Database, **kwargs) -> NoteService:
+    """The note writer alone — for callers that need no other boundary."""
+    return build_note_wiring(database, **kwargs).service
 
 
 def build_note_read_service(database: Database, indexer=None) -> NoteReadService:

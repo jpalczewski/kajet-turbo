@@ -79,22 +79,22 @@ def test_graph_dangling_links_none_when_not_tracked(service, link_service, works
 
 
 def test_graph_dangling_links_empty_list_when_tracked_and_clean(database, workspace):
-    svc, _dangling = make_service_with_dangling(
+    svc, links, _dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
     svc.save(workspace_target("u1", "ws", workspace), "Note", "body", [])
-    graph = svc._link_service.graph(workspace_target("u1", "ws", workspace))
+    graph = links.graph(workspace_target("u1", "ws", workspace))
     assert graph["dangling_links"] == []
 
 
 def test_graph_includes_dangling_links_when_validation_off(database, workspace):
-    svc, _dangling = make_service_with_dangling(
+    svc, links, _dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
     source_id = svc.save(workspace_target("u1", "ws", workspace), "Source", "[[Ghost]]", [])[
         "note_id"
     ]
-    graph = svc._link_service.graph(workspace_target("u1", "ws", workspace))
+    graph = links.graph(workspace_target("u1", "ws", workspace))
     assert graph["dangling_links"] == [
         {"source_note_id": source_id, "target_folder": "", "target_title": "Ghost"}
     ]
@@ -211,7 +211,7 @@ def test_neighborhood_includes_cross_workspace_note_tags(service, link_service, 
 
 
 def test_neighborhood_limits_dangling_links_to_neighborhood_sources(database, workspace):
-    svc, _dangling = make_service_with_dangling(
+    svc, links, _dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
     center_id = svc.save(workspace_target("u1", "ws", workspace), "Center", "", [])["note_id"]
@@ -220,7 +220,7 @@ def test_neighborhood_limits_dangling_links_to_neighborhood_sources(database, wo
     )["note_id"]
     svc.save(workspace_target("u1", "ws", workspace), "Elsewhere", "[[Other ghost]]", [])
 
-    graph = svc._link_service.neighborhood(note_target("u1", "ws", workspace, center_id), depth=1)
+    graph = links.neighborhood(note_target("u1", "ws", workspace, center_id), depth=1)
     assert graph["dangling_links"] == [
         {"source_note_id": source_id, "target_folder": "", "target_title": "Ghost"}
     ]

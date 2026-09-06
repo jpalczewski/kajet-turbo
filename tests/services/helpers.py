@@ -114,36 +114,36 @@ def build_reconcile_wiring(database, base: Path):
     from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
     from kajet_turbo.repositories.notes import NoteRepository
     from kajet_turbo.services.reconcile_links_handler import ReconcileLinksHandler
-    from tests.services.conftest import build_note_service
+    from tests.services.conftest import build_note_wiring
 
     jobs = JobRepository(database.engine)
     dirty = LinkReconcileRepository(database.engine, jobs)
     dangling = DanglingLinkRepository(database.engine)
-    service = build_note_service(
+    wiring = build_note_wiring(
         database,
         link_validation_enabled=lambda _ws, _owner: False,
         dangling_repo=dangling,
         reconcile_repo=dirty,
     )
-    link_service = service._link_service
     handler = ReconcileLinksHandler(
         NoteRepository(database.engine),
-        link_service,
+        wiring.link_service,
         dangling,
         dirty,
         str(base),
     )
-    return service, link_service, jobs, dirty, dangling, handler
+    return wiring.service, wiring.link_service, jobs, dirty, dangling, handler
 
 
 def make_service_with_dangling(database, link_validation_enabled=None):
-    """Build a NoteService wired with a real DanglingLinkRepository on the same engine."""
+    """Build a NoteService wired with a real DanglingLinkRepository on the same engine,
+    returning the link boundary alongside it for tests that assert on the link graph."""
     from kajet_turbo.embedding.cache import EmbeddingCacheRepository
     from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
     from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.repositories.notes import NoteChunkRepository
     from kajet_turbo.services.indexing import NoteIndexer
-    from tests.services.conftest import build_note_service
+    from tests.services.conftest import build_note_wiring
 
     chunk_repo = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
@@ -153,15 +153,13 @@ def make_service_with_dangling(database, link_validation_enabled=None):
         jobs=JobRepository(database.engine),
     )
     dangling = DanglingLinkRepository(database.engine)
-    return (
-        build_note_service(
-            database,
-            indexer=indexer,
-            link_validation_enabled=link_validation_enabled,
-            dangling_repo=dangling,
-        ),
-        dangling,
+    wiring = build_note_wiring(
+        database,
+        indexer=indexer,
+        link_validation_enabled=link_validation_enabled,
+        dangling_repo=dangling,
     )
+    return wiring.service, wiring.link_service, dangling
 
 
 def make_flaky_write(real_write, *, fail_on_call: int = 2, message: str = "disk full"):
