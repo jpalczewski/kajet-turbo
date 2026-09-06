@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 from fastapi import Depends, HTTPException
-from starlette.requests import Request
+from starlette.requests import HTTPConnection, Request
 
 from kajet_turbo import identity
 from kajet_turbo.auth import KajetOAuthProvider, create_auth
@@ -361,100 +361,107 @@ def build_resources(config: AppConfig) -> AppResources:
         raise
 
 
-def _resources(request: Request) -> AppResources:
-    return request.app.state.resources
+def _resources(conn: HTTPConnection) -> AppResources:
+    """Resolve the app graph for either scope.
+
+    Typed as HTTPConnection, not Request: FastAPI fills a Request parameter only for
+    HTTP requests, so a WebSocket route (`/api/ws`) resolving a Request-typed
+    dependency gets it called with no argument at all. HTTPConnection is the common
+    base FastAPI injects in both scopes.
+    """
+    return conn.app.state.resources
 
 
-def get_job_service(request: Request) -> JobService:
-    return _resources(request).job_service
+def get_job_service(conn: HTTPConnection) -> JobService:
+    return _resources(conn).job_service
 
 
-def get_event_repo(request: Request) -> EventRepository:
-    return _resources(request).event_repo
+def get_event_repo(conn: HTTPConnection) -> EventRepository:
+    return _resources(conn).event_repo
 
 
-def get_workspace_remote_service(request: Request) -> WorkspaceRemoteService:
-    return _resources(request).workspace_remote_service
+def get_workspace_remote_service(conn: HTTPConnection) -> WorkspaceRemoteService:
+    return _resources(conn).workspace_remote_service
 
 
-def get_ssh_key_service(request: Request) -> SshKeyService:
-    return _resources(request).ssh_key_service
+def get_ssh_key_service(conn: HTTPConnection) -> SshKeyService:
+    return _resources(conn).ssh_key_service
 
 
-def get_preferences_service(request: Request) -> PreferencesService:
-    return _resources(request).preferences_service
+def get_preferences_service(conn: HTTPConnection) -> PreferencesService:
+    return _resources(conn).preferences_service
 
 
-def get_embedding_profile_service(request: Request) -> EmbeddingProfileService:
-    return _resources(request).embedding_profile_service
+def get_embedding_profile_service(conn: HTTPConnection) -> EmbeddingProfileService:
+    return _resources(conn).embedding_profile_service
 
 
-def get_folder_meta_repo(request: Request) -> FolderMetaRepository:
-    return _resources(request).folder_meta_repo
+def get_folder_meta_repo(conn: HTTPConnection) -> FolderMetaRepository:
+    return _resources(conn).folder_meta_repo
 
 
-def get_note_repo(request: Request) -> NoteRepository:
-    return _resources(request).note_repo
+def get_note_repo(conn: HTTPConnection) -> NoteRepository:
+    return _resources(conn).note_repo
 
 
-def get_note_service(request: Request) -> NoteService:
-    return _resources(request).note_service
+def get_note_service(conn: HTTPConnection) -> NoteService:
+    return _resources(conn).note_service
 
 
-def get_note_reconcile_service(request: Request) -> NoteReconcileService:
-    return _resources(request).note_reconcile_service
+def get_note_reconcile_service(conn: HTTPConnection) -> NoteReconcileService:
+    return _resources(conn).note_reconcile_service
 
 
-def get_note_tag_service(request: Request) -> NoteTagService:
-    return _resources(request).note_tag_service
+def get_note_tag_service(conn: HTTPConnection) -> NoteTagService:
+    return _resources(conn).note_tag_service
 
 
-def get_note_link_service(request: Request) -> NoteLinkService:
-    return _resources(request).note_link_service
+def get_note_link_service(conn: HTTPConnection) -> NoteLinkService:
+    return _resources(conn).note_link_service
 
 
-def get_note_folder_service(request: Request) -> NoteFolderService:
-    return _resources(request).note_folder_service
+def get_note_folder_service(conn: HTTPConnection) -> NoteFolderService:
+    return _resources(conn).note_folder_service
 
 
-def get_note_temporal_service(request: Request) -> NoteTemporalService:
-    return _resources(request).note_temporal_service
+def get_note_temporal_service(conn: HTTPConnection) -> NoteTemporalService:
+    return _resources(conn).note_temporal_service
 
 
-def get_note_version_service(request: Request) -> NoteVersionService:
-    return _resources(request).note_version_service
+def get_note_version_service(conn: HTTPConnection) -> NoteVersionService:
+    return _resources(conn).note_version_service
 
 
-def get_note_read_service(request: Request) -> NoteReadService:
-    return _resources(request).note_read_service
+def get_note_read_service(conn: HTTPConnection) -> NoteReadService:
+    return _resources(conn).note_read_service
 
 
-def get_workspace_service(request: Request) -> WorkspaceService:
-    return _resources(request).workspace_service
+def get_workspace_service(conn: HTTPConnection) -> WorkspaceService:
+    return _resources(conn).workspace_service
 
 
-def get_target_resolver(request: Request) -> TargetResolver:
-    return _resources(request).target_resolver
+def get_target_resolver(conn: HTTPConnection) -> TargetResolver:
+    return _resources(conn).target_resolver
 
 
-def get_user_repo(request: Request) -> UserRepository:
-    return _resources(request).user_repo
+def get_user_repo(conn: HTTPConnection) -> UserRepository:
+    return _resources(conn).user_repo
 
 
-def get_session_repo(request: Request) -> SessionRepository:
-    return _resources(request).session_repo
+def get_session_repo(conn: HTTPConnection) -> SessionRepository:
+    return _resources(conn).session_repo
 
 
-def get_workspace_repo(request: Request) -> WorkspaceRepository:
-    return _resources(request).workspace_repo
+def get_workspace_repo(conn: HTTPConnection) -> WorkspaceRepository:
+    return _resources(conn).workspace_repo
 
 
-def get_oauth_repo(request: Request) -> OAuthRepository:
-    return _resources(request).oauth_repo
+def get_oauth_repo(conn: HTTPConnection) -> OAuthRepository:
+    return _resources(conn).oauth_repo
 
 
-def get_provider(request: Request) -> KajetOAuthProvider:
-    return _resources(request).provider
+def get_provider(conn: HTTPConnection) -> KajetOAuthProvider:
+    return _resources(conn).provider
 
 
 @dataclass(frozen=True, slots=True)
