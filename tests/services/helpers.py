@@ -182,6 +182,151 @@ def make_flaky_write(real_write, *, fail_on_call: int = 2, message: str = "disk 
     return flaky_write
 
 
+def seed_full_workspace(database, *, user_id: str, name: str) -> None:
+    """Seeds one row in every workspace-scoped table, plus a WorkspaceRemote (which
+    needs a real User + SshKey to satisfy FKs). Shared by tests covering full-workspace
+    teardown (``WorkspaceService.delete`` and ``NoteReconcileService.clear_workspace_data``
+    directly)."""
+    from sqlmodel import Session
+
+    from kajet_turbo.markdown import Chunk
+    from kajet_turbo.models import Note
+    from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
+    from kajet_turbo.repositories.folder_meta import FolderMetaRepository
+    from kajet_turbo.repositories.jobs import JobRepository
+    from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
+    from kajet_turbo.repositories.notes import (
+        NoteChunkRepository,
+        NoteLinkRepository,
+        NoteTagRepository,
+    )
+    from kajet_turbo.repositories.ssh_keys import SshKeyRepository
+    from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
+    from tests.services.conftest import seed_user
+
+    seed_user(database, user_id)
+    with Session(database.engine) as session:
+        session.add(
+            Note(
+                id=f"{user_id}-n1",
+                workspace=name,
+                owner_id=user_id,
+                title="T",
+                created_at="2026-01-01",
+                updated_at="2026-01-01",
+            )
+        )
+        session.commit()
+
+    chunk_repo = NoteChunkRepository(database.engine)
+    chunk_repo.replace_chunks(
+        f"{user_id}-n1", name, user_id, "T", [Chunk(0, ["# T"], "body", 0, 4)], None, None
+    )
+
+    NoteTagRepository(database.engine).sync_note_tags(
+        f"{user_id}-n1", name, user_id, [("proj/notes", "frontmatter")]
+    )
+
+    NoteLinkRepository(database.engine).replace_links(
+        f"{user_id}-n1", name, user_id, {f"{user_id}-n2"}
+    )
+
+    DanglingLinkRepository(database.engine).replace_for_source(
+        f"{user_id}-n1", name, user_id, [("", "Missing Note")]
+    )
+
+    FolderMetaRepository(database.engine).set(user_id, name, "proj", description="Project folder")
+
+    ssh_repo = SshKeyRepository(database.engine)
+    key = ssh_repo.create(user_id, "deploy", "ed25519", "ssh-ed25519 AAAA", b"secret", "fp")
+    WorkspaceRemoteRepository(database.engine).upsert(
+        user_id, name, origin_url="git@host:repo.git", ssh_key_id=key.id, enabled=True
+    )
+
+    job_repo = JobRepository(database.engine)
+    job_repo.enqueue(
+        "push_workspace",
+        {"user_id": user_id, "workspace": name, "ws_path": f"/workspaces/{user_id}/{name}"},
+        dedup_key=f"{user_id}:{name}",
+        user_id=user_id,
+    )
+    job_repo.enqueue(
+        "heal_dangling",
+        {"user_id": user_id, "workspace": name},
+        dedup_key=f"heal:{user_id}:{name}",
+        user_id=user_id,
+    )
+    job_repo.enqueue(
+        "embed_note",
+        {"note_id": f"{user_id}-n1", "workspace": name, "owner_id": user_id},
+        dedup_key=f"{user_id}:{name}:{user_id}-n1",
+        user_id=user_id,
+    )
+    LinkReconcileRepository(database.engine, job_repo).mark_and_enqueue(
+        user_id, name, {f"{user_id}-n1"}
+    )
+
+
+def workspace_table_counts(database, *, workspace: str, owner_id: str) -> dict[str, int]:
+    """Row counts across every workspace-scoped table ``seed_full_workspace`` touches."""
+    from sqlalchemy import func
+    from sqlmodel import Session, col, select
+
+    from kajet_turbo.models import (
+        DanglingLink,
+        FolderMeta,
+        Job,
+        LinkReconcileDirty,
+        Note,
+        NoteLink,
+        NoteTag,
+        Tag,
+        WorkspaceAccess,
+        WorkspaceMeta,
+        WorkspaceRemote,
+    )
+
+    with Session(database.engine) as session:
+
+        def count(model, **filters) -> int:
+            stmt = select(model)
+            for key, value in filters.items():
+                stmt = stmt.where(getattr(model, key) == value)
+            return len(session.exec(stmt).all())
+
+        def job_count() -> int:
+            return len(
+                session.exec(
+                    select(Job).where(
+                        col(Job.user_id) == owner_id,
+                        func.json_extract(col(Job.payload), "$.workspace") == workspace,
+                    )
+                ).all()
+            )
+
+        return {
+            "notes": count(Note, workspace=workspace, owner_id=owner_id),
+            "note_tags": len(
+                session.exec(
+                    select(NoteTag)
+                    .join(Tag, col(NoteTag.tag_id) == col(Tag.id))
+                    .where(Tag.workspace == workspace, Tag.owner_id == owner_id)
+                ).all()
+            ),
+            "tags": count(Tag, workspace=workspace, owner_id=owner_id),
+            "note_links": count(NoteLink, workspace=workspace, owner_id=owner_id),
+            "dangling_links": count(DanglingLink, workspace=workspace, owner_id=owner_id),
+            "folder_meta": count(FolderMeta, workspace=workspace, owner_id=owner_id),
+            "workspace_remote": count(WorkspaceRemote, workspace=workspace, user_id=owner_id),
+            "workspace_access": count(WorkspaceAccess, workspace=workspace, user_id=owner_id),
+            "workspace_meta": count(WorkspaceMeta, workspace=workspace, user_id=owner_id),
+            "jobs": job_count(),
+            "link_reconcile_dirty": count(
+                LinkReconcileDirty, workspace=workspace, owner_id=owner_id
+            ),
+        }
+
+
 def make_flaky_db_write(
     real_fn,
     *,

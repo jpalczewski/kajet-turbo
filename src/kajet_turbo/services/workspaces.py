@@ -12,7 +12,7 @@ from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import NoteReconcileService
 from kajet_turbo.workspace import create_workspace as _create_workspace
 from kajet_turbo.workspace import delete_workspace_directory, normalize_folder
 from kajet_turbo.workspace import workspace_path as _workspace_path
@@ -31,7 +31,7 @@ class WorkspaceService:
         workspace_repo: WorkspaceRepository,
         note_repo: NoteRepository,
         meta_repo: WorkspaceMetaRepository,
-        note_service: NoteService,
+        note_reconcile_service: NoteReconcileService,
         dangling_repo: DanglingLinkRepository,
         folder_meta_repo: FolderMetaRepository,
         remote_repo: WorkspaceRemoteRepository,
@@ -42,7 +42,7 @@ class WorkspaceService:
         self._repo = workspace_repo
         self._note_repo = note_repo
         self._meta_repo = meta_repo
-        self._note_service = note_service
+        self._note_reconcile_service = note_reconcile_service
         self._dangling_repo = dangling_repo
         self._folder_meta_repo = folder_meta_repo
         self._remote_repo = remote_repo
@@ -70,7 +70,7 @@ class WorkspaceService:
         deliberately last: has_access() only reads workspace_access, so as long as
         that row survives, the caller can retry the whole operation.
         """
-        self._note_service.clear_workspace_data(name, user_id)
+        self._note_reconcile_service.clear_workspace_data(name, user_id)
         self._dangling_repo.delete_for_workspace(user_id, name)
         self._folder_meta_repo.delete_for_workspace(user_id, name)
         self._remote_repo.delete(user_id, name)

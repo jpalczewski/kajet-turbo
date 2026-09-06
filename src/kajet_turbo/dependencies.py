@@ -58,6 +58,7 @@ from kajet_turbo.services.notes import (
     NoteFolderService,
     NoteLinkService,
     NoteReadService,
+    NoteReconcileService,
     NoteSearchService,
     NoteService,
     NoteTagService,
@@ -137,6 +138,7 @@ class AppResources:
     note_link_service: NoteLinkService
     note_temporal_service: NoteTemporalService
     note_read_service: NoteReadService
+    note_reconcile_service: NoteReconcileService
     workspace_service: WorkspaceService
     target_resolver: TargetResolver
     collection_service: CollectionService
@@ -241,6 +243,9 @@ def build_resources(config: AppConfig) -> AppResources:
             lambda ws, owner: workspace_service.get_settings(owner, ws)["validate_links"],
             job_repo,
         )
+        note_reconcile_service = NoteReconcileService(
+            note_repo, note_link_repo, note_tag_repo, note_chunk_repo, link_service
+        )
         shared_embed_client = SharedEmbedderClient()
         search_service = NoteSearchService(
             note_chunk_repo,
@@ -279,7 +284,7 @@ def build_resources(config: AppConfig) -> AppResources:
             workspace_repo,
             note_repo,
             workspace_meta_repo,
-            note_service,
+            note_reconcile_service,
             dangling_repo,
             folder_meta_repo,
             workspace_remote_repo,
@@ -320,6 +325,7 @@ def build_resources(config: AppConfig) -> AppResources:
             link_service,
             note_temporal_service,
             note_read_service,
+            note_reconcile_service,
             workspace_service,
             TargetResolver(note_repo, workspace_service),
             CollectionService(note_repo, note_service),
@@ -381,6 +387,10 @@ def get_note_repo(request: Request) -> NoteRepository:
 
 def get_note_service(request: Request) -> NoteService:
     return _resources(request).note_service
+
+
+def get_note_reconcile_service(request: Request) -> NoteReconcileService:
+    return _resources(request).note_reconcile_service
 
 
 def get_note_tag_service(request: Request) -> NoteTagService:

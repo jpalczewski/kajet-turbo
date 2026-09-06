@@ -125,6 +125,33 @@ def build_note_read_service(database: Database, indexer=None) -> NoteReadService
     return NoteReadService(crud_repo, tag_repo, link_service, indexer=indexer)
 
 
+def build_note_reconcile_service(
+    database: Database,
+    link_service: NoteLinkService | None = None,
+    dangling_repo: DanglingLinkRepository | None = None,
+    link_validation_enabled=None,
+    jobs: JobRepository | None = None,
+    chunk_repo: NoteChunkRepository | None = None,
+):
+    """Construct a NoteReconcileService from a Database for tests, without building a
+    full NoteService — the point of #225's split."""
+    from kajet_turbo.services.notes import NoteReconcileService
+
+    engine = database.engine
+    crud_repo = NoteRepository(engine)
+    link_repo = NoteLinkRepository(engine)
+    tag_repo = NoteTagRepository(engine)
+    if chunk_repo is None:
+        chunk_repo = NoteChunkRepository(engine)
+    if jobs is None:
+        jobs = JobRepository(engine)
+    if link_service is None:
+        link_service = NoteLinkService(
+            crud_repo, link_repo, tag_repo, dangling_repo, link_validation_enabled, jobs
+        )
+    return NoteReconcileService(crud_repo, link_repo, tag_repo, chunk_repo, link_service)
+
+
 def build_workspace_service(database: Database) -> WorkspaceService:
     """Construct a fully-wired WorkspaceService from a Database for tests."""
     engine = database.engine
@@ -134,7 +161,7 @@ def build_workspace_service(database: Database) -> WorkspaceService:
         WorkspaceRepository(engine),
         NoteRepository(engine),
         WorkspaceMetaRepository(engine),
-        build_note_service(database, reconcile_repo=reconcile_repo, jobs=jobs),
+        build_note_reconcile_service(database, jobs=jobs),
         DanglingLinkRepository(engine),
         FolderMetaRepository(engine),
         WorkspaceRemoteRepository(engine),

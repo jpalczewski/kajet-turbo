@@ -1116,19 +1116,6 @@ class NoteService:
         results = [{"index": p.index, "note_id": p.note_id} for p in prepared]
         return {"applied": True, "results": results}
 
-    def clear_workspace_data(self, ws_name: str, owner_id: str) -> None:
-        """Delete every note-related row for a workspace: tags, chunks (+ FTS/vec),
-        notes, and links. Used by workspace deletion. NOT used by reconcile/reindex
-        (see reconcile_paths) — a wipe-then-rebuild has no window where the deletion
-        safety valve could measure anything, and a crash mid-run loses every row."""
-        with self._crud_repo.operation(
-            "clear_workspace_data", workspace=ws_name, owner_id=owner_id
-        ) as operation:
-            session = operation.session
-            with session.begin():
-                self._teardown.workspace_in_session(session, ws_name, owner_id)
-        logger.info("workspace_data_cleared", ws=ws_name, owner_id=owner_id)
-
     @workspace_write_transaction
     def reconcile_paths(
         self, ws_name: str, owner_id: str, ws_path: str, paths: Iterable[str]
