@@ -12,7 +12,12 @@ from .backfill import (
     ApplyTemporalBackfillResponse,
     TemporalBackfillPreviewResponse,
 )
-from .embedding import EmbeddingProfileItem, EmbeddingProfilesResponse
+from .embedding import (
+    CreateEmbeddingProfileRequest,
+    EmbeddingProfileItem,
+    EmbeddingProfilesResponse,
+    UpdateEmbeddingProfileRequest,
+)
 from .errors import ErrorResponse
 from .jobs import JobItem, JobsResponse
 from .notes import (
@@ -49,8 +54,8 @@ from .notes import (
     WikilinkWarning,
     WorkspaceContentsResponse,
 )
-from .preferences import UserPreferences
-from .ssh_keys import SshKeyItem, SshKeysResponse
+from .preferences import UpdatePreferencesRequest, UserPreferences
+from .ssh_keys import CreateSshKeyRequest, SshKeyItem, SshKeysResponse
 from .workspace_remote import (
     SetWorkspaceRemoteRequest,
     WorkspaceRemoteResponse,
@@ -76,10 +81,12 @@ __all__ = [
     "ChunkPreviewResponse",
     "ConsentRequest",
     "ConsentResponse",
+    "CreateEmbeddingProfileRequest",
     "CreateFolderRequest",
     "CreateFolderResponse",
     "CreateNoteRequest",
     "CreateNoteResponse",
+    "CreateSshKeyRequest",
     "CreateWorkspaceResponse",
     "DeleteNoteResponse",
     "DeleteWorkspaceResponse",
@@ -116,9 +123,11 @@ __all__ = [
     "TagNode",
     "TagsResponse",
     "TemporalBackfillPreviewResponse",
+    "UpdateEmbeddingProfileRequest",
     "UpdateFolderMetaRequest",
     "UpdateNoteRequest",
     "UpdateNoteResponse",
+    "UpdatePreferencesRequest",
     "UpdateWorkspaceResponse",
     "UpdateWorkspaceSettingsResponse",
     "UserPreferences",

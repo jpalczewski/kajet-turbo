@@ -11,6 +11,12 @@ from kajet_turbo.models import EmbeddingProfile
 from kajet_turbo.repositories import DbRepository
 
 
+class ProfileNotFoundError(ValueError):
+    """No profile with this ID exists for this user. A ValueError subclass so a plain
+    ``except ValueError`` (services shared with MCP's ToolDispatchMiddleware) still
+    catches it, while a route can catch it specifically to answer 404 instead of 400."""
+
+
 class EmbeddingProfileRepository(DbRepository):
     repository_name = "embedding_profiles"
 
@@ -69,7 +75,7 @@ class EmbeddingProfileRepository(DbRepository):
             session = operation.session
             p = session.get(EmbeddingProfile, profile_id)
             if p is None or p.user_id != user_id:
-                raise ValueError("profile not found")
+                raise ProfileNotFoundError(profile_id)
             p.name, p.base_url, p.model, p.dim = name, base_url, model, dim
             p.api_key_enc = api_key_enc
             p.updated_at = now
@@ -82,7 +88,7 @@ class EmbeddingProfileRepository(DbRepository):
             session = operation.session
             target = session.get(EmbeddingProfile, profile_id)
             if target is None or target.user_id != user_id:
-                raise ValueError("profile not found")
+                raise ProfileNotFoundError(profile_id)
             for p in session.exec(
                 select(EmbeddingProfile).where(EmbeddingProfile.user_id == user_id)
             ):

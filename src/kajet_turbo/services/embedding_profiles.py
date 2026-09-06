@@ -5,7 +5,10 @@ write-only (stored sealed, never returned — only ``has_key``)."""
 from collections.abc import Callable
 
 from kajet_turbo.crypto import KeyCipher
-from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
+from kajet_turbo.repositories.embedding_profiles import (
+    EmbeddingProfileRepository,
+    ProfileNotFoundError,
+)
 
 # probe_dim(base_url, model, api_key) -> int (vector length); raises on connection/auth error.
 ProbeDim = Callable[[str, str, str | None], int]
@@ -62,7 +65,10 @@ class EmbeddingProfileService:
     ) -> dict:
         existing = self._repo.get(user_id, profile_id)
         if existing is None:
-            raise ValueError("profile not found")
+            # ProfileNotFoundError is a ValueError subclass -- API routes catch it
+            # specifically to answer 404 instead of the generic 400 below, without
+            # string-matching this exception's message (see api/embedding.py).
+            raise ProfileNotFoundError(profile_id)
         dim = self._probe_dim(base_url, model, api_key)
         # non-empty key → reseal; omitted → keep the existing sealed key
         key_enc = self._cipher_factory().encrypt(api_key) if api_key else existing.api_key_enc

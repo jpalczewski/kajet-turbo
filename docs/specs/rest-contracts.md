@@ -48,14 +48,13 @@ once a family is migrated — it goes stale the moment code changes.
 
 ## Known inconsistencies to resolve during migration (not fixed in #247)
 
-- `embedding.py`, `ssh_keys.py` return **free-form exception text**
-  as `error` (e.g. `{"error": "Profil nie istnieje."}`, `{"error": str(e)}`), not a
-  machine-readable `ErrorCode`. `oauth.py` was migrated in #254: both `api_consent` and
-  `api_pending_info` now raise `AuthError.PENDING_EXPIRED`. `jobs.py` was also migrated in
-  #254: retry/dismiss now raise `JobError` codes instead of free text. `entries.py`'s
-  folder/period validation error is also a literal string
-  (`detail="period or folder is invalid"`). `frontend/src/lib/api/errors.ts` can't translate
-  any of these — the frontend shows whatever server string arrives.
+- `embedding.py`, `ssh_keys.py`, `oauth.py`, and `jobs.py` all previously returned
+  **free-form exception text** as `error` (e.g. `{"error": "Profil nie istnieje."}`,
+  `{"error": str(e)}`) instead of a machine-readable `ErrorCode` — all four were migrated
+  in #254 (`EmbeddingProfileError`/`SshKeyError`, `AuthError.PENDING_EXPIRED`, `JobError`
+  respectively). `entries.py`'s folder/period validation error is still a literal string
+  (`detail="period or folder is invalid"`), not yet migrated. `frontend/src/lib/api/errors.ts`
+  can't translate that one — the frontend shows whatever server string arrives.
 - `UpdateNoteRequest` (`src/kajet_turbo/api/schemas/notes/crud.py`) does not declare
   `expected_sha`, which `api_update_note` (`notes.py`) reads from the raw body. #253 owns
   adding the field when it adopts the model.
@@ -163,16 +162,33 @@ instead of being declared as `response_model` while the route returned a raw
 
 ### SSH keys / embedding profiles — `ssh_keys.py`, `embedding.py`
 
-Free-text error bodies throughout (see "Known inconsistencies"). SSH key creation and
+`workspace_remote.py` still has free-text error bodies (see "Known inconsistencies").
+`ssh_keys.py` and `embedding.py` were migrated in #254 (secrets-and-prefs): both take a
+typed `CreateXRequest`/`UpdateXRequest` body and answer with `SshKeyError`/
+`EmbeddingProfileError` codes instead of `{"error": str(e)}`. `CreateSshKeyRequest.algorithm`
+is a `Literal` mirroring `crypto.ssh_keys.ALGORITHMS` (kept in sync by a test, since a type
+checker won't accept that module's constants as `Literal` arguments), so an unknown
+algorithm now 422s from Pydantic instead of the route's old 400. `EmbeddingProfileService`'s
+repository raises a dedicated `ProfileNotFoundError` (a `ValueError` subclass) for a missing
+profile in `update`/`set_active`, so the route distinguishes "not found" (404) from a probe
+failure (400) by exception type instead of string-matching the message. SSH key creation and
 embedding-profile create/update are correctly offloaded via `run_sync` already (RSA
 keygen is CPU-bound; the embedding probe uses `asyncio.run()` internally and would deadlock
-inline on the route's own loop).
+inline on the route's own loop). The private key never leaves `SshKeyService._view`, and
+`api_key` is never included in a `ValueError` message, so neither reaches an error response.
 
 ### Preferences — `api/preferences.py`
 
-The one route with genuine PATCH field-presence semantics (`if key in body`, not
-`.get()`), because explicit `null` must 422 rather than no-op. Already on the shared
-envelope (`PreferencesError.INVALID_INPUT`).
+Migrated in #254: `PATCH` now takes a typed `UpdatePreferencesRequest` body (`timezone`,
+`locale: Locale | None`) instead of `await request.json()`, using `model_fields_set` for the
+same field-presence semantics it already had by hand (an omitted key is a no-op, an explicit
+`null` still 422s — Pydantic can't tell those two apart from the resolved value alone).
+`locale` being typed as the closed `Locale` enum means an unsupported value now 422s from
+Pydantic before the route runs; `api/errors.py`'s `_request_validation_handler` maps that
+`"enum"` failure on the `locale` field back to the pre-existing `PREFERENCES_INVALID_INPUT`
+code so the client-visible contract is unchanged. `timezone` stays a plain `str` field --
+`is_valid_timezone` needs the live IANA database, not a fixed enum -- so an unknown timezone
+still 422s via the service's `ValueError`.
 
 ### Jobs — `api/jobs.py`
 
@@ -193,15 +209,12 @@ the `CurrentUser` migration. Still returns a raw `dict`.
 
 ## Manual `request.json()` sites (R2/R3 backlog for typed bodies)
 
-None migrated in #247 — this enumerates the full blast radius for later phases.
-`auth.py`/`oauth.py` were migrated in #254 (`api_login`, `api_consent`) and are removed
-from this list; `api_pending_info` never had a body.
+None migrated in #247 — this enumerates the full blast radius for later phases. `auth.py`,
+`oauth.py`, `workspace_remote.py`, `ssh_keys.py`, `embedding.py`, and `preferences.py` were
+all migrated in #254 and are removed from this list; `api_pending_info` never had a body.
 
-`ssh_keys.py:28`, `embedding.py:27,54`,
-`preferences.py:33`, `workspace_settings.py:53`, `workspace_meta.py:44,85`,
+`workspace_settings.py:53`, `workspace_meta.py:44,85`,
 `notes/crud/notes.py:72,125,158,225`, `notes/crud/folders.py:63`.
-
-(`workspace_remote.py` fully migrated in #254 — removed from this list.)
 
 ## Frontend callers
 

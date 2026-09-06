@@ -9,8 +9,8 @@
     apiCreateSshKeyApiMeSshKeysPost,
     apiDeleteSshKeyApiMeSshKeysKeyIdDelete,
     apiSessionsDeleteApiSessionsDelete,
+    CreateSshKeyRequestAlgorithm,
   } from '$lib/api';
-  import { jsonBody } from '$lib/api/mutate';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
@@ -44,9 +44,12 @@
     const m = model.trim();
     if (!n || !b || !m) return;
     await profileAction.run(async () => {
-      await apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost(
-        jsonBody({ name: n, base_url: b, model: m, api_key: apiKey || undefined }),
-      );
+      await apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost({
+        name: n,
+        base_url: b,
+        model: m,
+        api_key: apiKey || undefined,
+      });
       name = '';
       baseUrl = '';
       model = '';
@@ -73,7 +76,7 @@
   // svelte-ignore state_referenced_locally
   let keys = $state(data.keys);
   let keyName = $state('');
-  let keyAlgorithm = $state('ed25519');
+  let keyAlgorithm: CreateSshKeyRequestAlgorithm = $state(CreateSshKeyRequestAlgorithm.ed25519);
 
   const keyAction = useAsyncAction();
 
@@ -87,7 +90,7 @@
     const n = keyName.trim();
     if (!n) return;
     await keyAction.run(async () => {
-      await apiCreateSshKeyApiMeSshKeysPost(jsonBody({ name: n, algorithm: keyAlgorithm }));
+      await apiCreateSshKeyApiMeSshKeysPost({ name: n, algorithm: keyAlgorithm });
       keyName = '';
       await reloadKeys();
     }, 'Nie udało się wygenerować klucza.');

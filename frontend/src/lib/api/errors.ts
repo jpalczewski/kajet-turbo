@@ -25,6 +25,13 @@ const ERROR_MESSAGES: Record<string, string> = {
   WORKSPACE_REMOTE_NOT_FOUND: 'Remote nie jest skonfigurowany.',
   WORKSPACE_REMOTE_NOT_CONFIGURED: 'Brak włączonego remote.',
   WORKSPACE_REMOTE_INVALID_INPUT: 'Nieprawidłowe dane remote.',
+  PREFERENCES_INVALID_INPUT: 'Nieprawidłowe dane preferencji.',
+  SSH_KEY_NAME_REQUIRED: 'Nazwa klucza jest wymagana.',
+  SSH_KEY_NAME_TAKEN: 'Klucz o tej nazwie już istnieje.',
+  SSH_KEY_INVALID_ALGORITHM: 'Nieobsługiwany algorytm klucza.',
+  SSH_KEY_NOT_FOUND: 'Klucz nie istnieje.',
+  EMBEDDING_PROFILE_NOT_FOUND: 'Profil nie istnieje.',
+  EMBEDDING_PROFILE_PROBE_FAILED: 'Nie udało się połączyć z embedderem.',
 };
 
 export function translateErrorCode(code: string | undefined): string | undefined {

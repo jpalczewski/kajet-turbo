@@ -71,3 +71,28 @@ def test_patch_explicit_null_locale_returns_422(database):
     resp = client.patch("/api/me/preferences", json={"locale": None})
     assert resp.status_code == 422
     assert resp.json()["error"] == "PREFERENCES_INVALID_INPUT"
+
+
+def test_patch_wrong_type_timezone_returns_422(database):
+    client = _app(database)
+    resp = client.patch("/api/me/preferences", json={"timezone": 123})
+    assert resp.status_code == 422
+
+
+def test_patch_both_fields_at_once(database):
+    client = _app(database)
+    resp = client.patch(
+        "/api/me/preferences", json={"timezone": "America/New_York", "locale": "en"}
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"timezone": "America/New_York", "locale": "en"}
+
+
+def test_requires_login(database):
+    app = build_test_app(routers=(router,))
+    app.dependency_overrides[get_preferences_service] = lambda: PreferencesService(
+        UserRepository(database.engine)
+    )
+    client = TestClient(app)
+    assert client.get("/api/me/preferences").status_code == 401
+    assert client.patch("/api/me/preferences", json={}).status_code == 401

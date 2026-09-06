@@ -118,6 +118,13 @@ export interface ConsentResponse {
   redirect_uri: string;
 }
 
+export interface CreateEmbeddingProfileRequest {
+  name: string;
+  base_url: string;
+  model: string;
+  api_key?: string | null;
+}
+
 export interface CreateFolderRequest {
   path: string;
 }
@@ -129,6 +136,21 @@ export interface CreateFolderResponse {
 export interface CreateNoteResponse {
   note_id: string;
   warnings?: WikilinkWarning[];
+}
+
+export type CreateSshKeyRequestAlgorithm = typeof CreateSshKeyRequestAlgorithm[keyof typeof CreateSshKeyRequestAlgorithm];
+
+
+export const CreateSshKeyRequestAlgorithm = {
+  ed25519: 'ed25519',
+  'ecdsa-p256': 'ecdsa-p256',
+  'rsa-4096': 'rsa-4096',
+} as const;
+
+export interface CreateSshKeyRequest {
+  /** @minLength 1 */
+  name: string;
+  algorithm: CreateSshKeyRequestAlgorithm;
 }
 
 export interface CreateWorkspaceResponse {
@@ -154,6 +176,14 @@ export interface DeleteNoteResponse {
 export interface DeleteWorkspaceResponse {
   name: string;
 }
+
+export type EmbeddingProfileError = typeof EmbeddingProfileError[keyof typeof EmbeddingProfileError];
+
+
+export const EmbeddingProfileError = {
+  EMBEDDING_PROFILE_NOT_FOUND: 'EMBEDDING_PROFILE_NOT_FOUND',
+  EMBEDDING_PROFILE_PROBE_FAILED: 'EMBEDDING_PROFILE_PROBE_FAILED',
+} as const;
 
 export interface EmbeddingProfileItem {
   id: string;
@@ -263,16 +293,17 @@ export const TargetError = {
   TARGET_MIXED_WORKSPACES: 'TARGET_MIXED_WORKSPACES',
 } as const;
 
-export type WorkspaceRemoteError = typeof WorkspaceRemoteError[keyof typeof WorkspaceRemoteError];
+export type SshKeyError = typeof SshKeyError[keyof typeof SshKeyError];
 
 
-export const WorkspaceRemoteError = {
-  WORKSPACE_REMOTE_NOT_FOUND: 'WORKSPACE_REMOTE_NOT_FOUND',
-  WORKSPACE_REMOTE_NOT_CONFIGURED: 'WORKSPACE_REMOTE_NOT_CONFIGURED',
-  WORKSPACE_REMOTE_INVALID_INPUT: 'WORKSPACE_REMOTE_INVALID_INPUT',
+export const SshKeyError = {
+  SSH_KEY_NAME_REQUIRED: 'SSH_KEY_NAME_REQUIRED',
+  SSH_KEY_NAME_TAKEN: 'SSH_KEY_NAME_TAKEN',
+  SSH_KEY_INVALID_ALGORITHM: 'SSH_KEY_INVALID_ALGORITHM',
+  SSH_KEY_NOT_FOUND: 'SSH_KEY_NOT_FOUND',
 } as const;
 
-export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,...PreferencesError,...RequestError,...TargetError,...WorkspaceRemoteError,} as const
+export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,...PreferencesError,...RequestError,...TargetError,...SshKeyError,...EmbeddingProfileError,} as const
 export type ErrorCode = typeof ErrorCode[keyof typeof ErrorCode];
 
 export interface ErrorResponse {
@@ -497,20 +528,6 @@ export interface SessionResponse {
   preferences: UserPreferences;
 }
 
-export interface SetWorkspaceRemoteRequest {
-  /**
-     * SSH git remote URL
-     * @minLength 1
-     */
-  origin_url: string;
-  /**
-     * Sealed SSH key to push with
-     * @minLength 1
-     */
-  ssh_key_id: string;
-  enabled?: boolean;
-}
-
 export interface SettingDefinition {
   key: string;
   type: string;
@@ -583,6 +600,13 @@ export interface TemporalWarning {
   field: TemporalWarningField;
 }
 
+export interface UpdateEmbeddingProfileRequest {
+  name: string;
+  base_url: string;
+  model: string;
+  api_key?: string | null;
+}
+
 export interface UpdateFolderMetaRequest {
   /** What this folder is for; empty string clears the field */
   description: string;
@@ -606,6 +630,11 @@ export interface UpdateNoteResponse {
   note_id: string;
   warnings?: WikilinkWarning[];
   temporal_warnings?: TemporalWarning[];
+}
+
+export interface UpdatePreferencesRequest {
+  timezone?: string | null;
+  locale?: Locale | null;
 }
 
 export interface UpdateWorkspaceResponse {
@@ -2859,17 +2888,29 @@ export const apiListEmbeddingProfilesApiMeEmbeddingProfilesGet = async ( options
 
 
 
-export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse200 = {
-  data: unknown
-  status: 200
+export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse201 = {
+  data: EmbeddingProfileItem
+  status: 201
 }
 
-export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse200) & {
+export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse400 = {
+  data: ErrorResponse
+  status: 400
+}
+
+export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse422 = {
+  data: ErrorResponse
+  status: 422
+}
+
+export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse201) & {
   headers: Headers;
 };
-;
+export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseError = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse400 | apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse422) & {
+  headers: Headers;
+};
 
-export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess)
+export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess | apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseError)
 
 export const getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl = () => {
 
@@ -2882,33 +2923,49 @@ export const getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl = () => {
 /**
  * @summary Api Create Embedding Profile
  */
-export const apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse> => {
+export const apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost = async (createEmbeddingProfileRequest: CreateEmbeddingProfileRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse> => {
 
-  return customFetch<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse>(getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse>(getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(createEmbeddingProfileRequest)
   }
 );}
 
 
 
 export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse200 = {
-  data: unknown
+  data: EmbeddingProfileItem
   status: 200
 }
 
+export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse400 = {
+  data: ErrorResponse
+  status: 400
+}
+
+export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
 export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse422 = {
-  data: HTTPValidationError
+  data: ErrorResponse
   status: 422
 }
 
 export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseSuccess = (apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse200) & {
   headers: Headers;
 };
-export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseError = (apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse422) & {
+export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseError = (apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse400 | apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse404 | apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse422) & {
   headers: Headers;
 };
 
@@ -2925,21 +2982,28 @@ export const getApiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutUrl =
 /**
  * @summary Api Update Embedding Profile
  */
-export const apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPut = async (profileId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse> => {
+export const apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPut = async (profileId: string,
+    updateEmbeddingProfileRequest: UpdateEmbeddingProfileRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse> => {
 
-  return customFetch<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse>(getApiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutUrl(profileId),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse>(getApiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutUrl(profileId),
   {
     ...options,
-    method: 'PUT'
-
-
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(updateEmbeddingProfileRequest)
   }
 );}
 
 
 
 export type apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponse200 = {
-  data: unknown
+  data: OkResponse
   status: 200
 }
 
@@ -2982,8 +3046,13 @@ export const apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDelete = as
 
 
 export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse200 = {
-  data: unknown
+  data: OkResponse
   status: 200
+}
+
+export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse404 = {
+  data: ErrorResponse
+  status: 404
 }
 
 export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse422 = {
@@ -2994,7 +3063,7 @@ export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePo
 export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseSuccess = (apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse200) & {
   headers: Headers;
 };
-export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseError = (apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse422) & {
+export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseError = (apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse404 | apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse422) & {
   headers: Headers;
 };
 
@@ -3060,17 +3129,29 @@ export const apiListSshKeysApiMeSshKeysGet = async ( options?: Parameters<typeof
 
 
 
-export type apiCreateSshKeyApiMeSshKeysPostResponse200 = {
-  data: unknown
-  status: 200
+export type apiCreateSshKeyApiMeSshKeysPostResponse201 = {
+  data: SshKeyItem
+  status: 201
 }
 
-export type apiCreateSshKeyApiMeSshKeysPostResponseSuccess = (apiCreateSshKeyApiMeSshKeysPostResponse200) & {
+export type apiCreateSshKeyApiMeSshKeysPostResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type apiCreateSshKeyApiMeSshKeysPostResponse422 = {
+  data: ErrorResponse
+  status: 422
+}
+
+export type apiCreateSshKeyApiMeSshKeysPostResponseSuccess = (apiCreateSshKeyApiMeSshKeysPostResponse201) & {
   headers: Headers;
 };
-;
+export type apiCreateSshKeyApiMeSshKeysPostResponseError = (apiCreateSshKeyApiMeSshKeysPostResponse409 | apiCreateSshKeyApiMeSshKeysPostResponse422) & {
+  headers: Headers;
+};
 
-export type apiCreateSshKeyApiMeSshKeysPostResponse = (apiCreateSshKeyApiMeSshKeysPostResponseSuccess)
+export type apiCreateSshKeyApiMeSshKeysPostResponse = (apiCreateSshKeyApiMeSshKeysPostResponseSuccess | apiCreateSshKeyApiMeSshKeysPostResponseError)
 
 export const getApiCreateSshKeyApiMeSshKeysPostUrl = () => {
 
@@ -3083,22 +3164,33 @@ export const getApiCreateSshKeyApiMeSshKeysPostUrl = () => {
 /**
  * @summary Api Create Ssh Key
  */
-export const apiCreateSshKeyApiMeSshKeysPost = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiCreateSshKeyApiMeSshKeysPostResponse> => {
+export const apiCreateSshKeyApiMeSshKeysPost = async (createSshKeyRequest: CreateSshKeyRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateSshKeyApiMeSshKeysPostResponse> => {
 
-  return customFetch<apiCreateSshKeyApiMeSshKeysPostResponse>(getApiCreateSshKeyApiMeSshKeysPostUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<apiCreateSshKeyApiMeSshKeysPostResponse>(getApiCreateSshKeyApiMeSshKeysPostUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(createSshKeyRequest)
   }
 );}
 
 
 
 export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse200 = {
-  data: unknown
+  data: OkResponse
   status: 200
+}
+
+export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse404 = {
+  data: ErrorResponse
+  status: 404
 }
 
 export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse422 = {
@@ -3109,7 +3201,7 @@ export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse422 = {
 export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseSuccess = (apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse200) & {
   headers: Headers;
 };
-export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseError = (apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse422) & {
+export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseError = (apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse404 | apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse422) & {
   headers: Headers;
 };
 
@@ -3217,14 +3309,20 @@ export const getApiUpdatePreferencesApiMePreferencesPatchUrl = () => {
 /**
  * @summary Api Update Preferences
  */
-export const apiUpdatePreferencesApiMePreferencesPatch = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiUpdatePreferencesApiMePreferencesPatchResponse> => {
+export const apiUpdatePreferencesApiMePreferencesPatch = async (updatePreferencesRequest: UpdatePreferencesRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdatePreferencesApiMePreferencesPatchResponse> => {
 
-  return customFetch<apiUpdatePreferencesApiMePreferencesPatchResponse>(getApiUpdatePreferencesApiMePreferencesPatchUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<apiUpdatePreferencesApiMePreferencesPatchResponse>(getApiUpdatePreferencesApiMePreferencesPatchUrl(),
   {
     ...options,
-    method: 'PATCH'
-
-
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(updatePreferencesRequest)
   }
 );}
 
@@ -3235,16 +3333,6 @@ export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse200 = {
   status: 200
 }
 
-export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse401 = {
-  data: ErrorResponse
-  status: 401
-}
-
-export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse403 = {
-  data: ErrorResponse
-  status: 403
-}
-
 export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse422 = {
   data: HTTPValidationError
   status: 422
@@ -3253,7 +3341,7 @@ export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse422 = {
 export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseSuccess = (apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse200) & {
   headers: Headers;
 };
-export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseError = (apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse401 | apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse403 | apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse422) & {
+export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseError = (apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse422) & {
   headers: Headers;
 };
 
@@ -3284,34 +3372,19 @@ export const apiGetWorkspaceRemoteApiWorkspacesNameRemoteGet = async (name: stri
 
 
 export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse200 = {
-  data: WorkspaceRemoteResponse
+  data: unknown
   status: 200
 }
 
-export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse400 = {
-  data: ErrorResponse
-  status: 400
-}
-
-export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse401 = {
-  data: ErrorResponse
-  status: 401
-}
-
-export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse403 = {
-  data: ErrorResponse
-  status: 403
-}
-
 export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse422 = {
-  data: ErrorResponse
+  data: HTTPValidationError
   status: 422
 }
 
 export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseSuccess = (apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse200) & {
   headers: Headers;
 };
-export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseError = (apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse400 | apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse401 | apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse403 | apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse422) & {
+export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseError = (apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse422) & {
   headers: Headers;
 };
 
@@ -3328,44 +3401,22 @@ export const getApiSetWorkspaceRemoteApiWorkspacesNameRemotePutUrl = (name: stri
 /**
  * @summary Api Set Workspace Remote
  */
-export const apiSetWorkspaceRemoteApiWorkspacesNameRemotePut = async (name: string,
-    setWorkspaceRemoteRequest: SetWorkspaceRemoteRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse> => {
+export const apiSetWorkspaceRemoteApiWorkspacesNameRemotePut = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse> => {
 
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customFetch<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse>(getApiSetWorkspaceRemoteApiWorkspacesNameRemotePutUrl(name),
+  return customFetch<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse>(getApiSetWorkspaceRemoteApiWorkspacesNameRemotePutUrl(name),
   {
     ...options,
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(setWorkspaceRemoteRequest)
+    method: 'PUT'
+
+
   }
 );}
 
 
 
 export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse200 = {
-  data: OkResponse
+  data: unknown
   status: 200
-}
-
-export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse401 = {
-  data: ErrorResponse
-  status: 401
-}
-
-export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse403 = {
-  data: ErrorResponse
-  status: 403
-}
-
-export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse404 = {
-  data: ErrorResponse
-  status: 404
 }
 
 export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse422 = {
@@ -3376,7 +3427,7 @@ export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse422 = {
 export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseSuccess = (apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse200) & {
   headers: Headers;
 };
-export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseError = (apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse401 | apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse403 | apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse404 | apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse422) & {
+export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseError = (apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse422) & {
   headers: Headers;
 };
 
@@ -3407,23 +3458,8 @@ export const apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDelete = async (name
 
 
 export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse200 = {
-  data: OkResponse
+  data: unknown
   status: 200
-}
-
-export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse400 = {
-  data: ErrorResponse
-  status: 400
-}
-
-export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse401 = {
-  data: ErrorResponse
-  status: 401
-}
-
-export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse403 = {
-  data: ErrorResponse
-  status: 403
 }
 
 export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse422 = {
@@ -3434,7 +3470,7 @@ export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse422 = 
 export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseSuccess = (apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse200) & {
   headers: Headers;
 };
-export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseError = (apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse400 | apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse401 | apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse403 | apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse422) & {
+export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseError = (apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse422) & {
   headers: Headers;
 };
 

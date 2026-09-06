@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
-from kajet_turbo.api.schemas import UserPreferences
+from kajet_turbo.api.schemas import UpdatePreferencesRequest, UserPreferences
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import CurrentUser, get_preferences_service, get_required_user
@@ -25,22 +25,18 @@ def api_get_preferences(
     responses={422: {"model": ErrorResponse}},
 )
 async def api_update_preferences(
-    request: Request,
+    body: UpdatePreferencesRequest,
     user: CurrentUser = Depends(get_required_user),
     svc: PreferencesService = Depends(get_preferences_service),
-) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail=PreferencesError.INVALID_INPUT) from None
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=422, detail=PreferencesError.INVALID_INPUT)
-
+) -> UserPreferences:
+    # model_fields_set (not the resolved value) is what tells "field omitted" (no-op)
+    # apart from "field present but null" (must 422, not silently no-op) -- both parse to
+    # the same `None` attribute once Pydantic has validated the body.
     updates: dict[str, str] = {}
     for key in ("timezone", "locale"):
-        if key in body:  # `in`, not `.get() is not None` — explicit null must 422, not no-op
-            value = body[key]
-            if not isinstance(value, str):
+        if key in body.model_fields_set:
+            value = getattr(body, key)
+            if value is None:
                 raise HTTPException(status_code=422, detail=PreferencesError.INVALID_INPUT)
             updates[key] = value
 
@@ -48,4 +44,4 @@ async def api_update_preferences(
         prefs = await run_sync(svc.update_preferences, user.id, **updates)
     except ValueError:
         raise HTTPException(status_code=422, detail=PreferencesError.INVALID_INPUT) from None
-    return JSONResponse(prefs.model_dump())
+    return prefs
