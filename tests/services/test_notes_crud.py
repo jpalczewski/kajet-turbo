@@ -191,6 +191,39 @@ def test_get_with_content_returns_note_data(service, read_service, workspace):
     assert result.content == "# Content"
 
 
+def test_save_with_extras_round_trips(service, read_service, workspace):
+    note_id = service.save(
+        workspace_target("u1", "ws", workspace),
+        "Title",
+        "# Content",
+        [],
+        extras={"mood": "great", "weather": "sunny"},
+    )["note_id"]
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    assert note.extras == {"mood": "great", "weather": "sunny"}
+
+
+def test_save_without_extras_defaults_to_empty(service, read_service, workspace):
+    note_id = service.save(workspace_target("u1", "ws", workspace), "Title", "# Content", [])[
+        "note_id"
+    ]
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    assert note.extras == {}
+
+
+def test_save_rejects_extras_shadowing_reserved_key(service, workspace):
+    from kajet_turbo.workspace import ExtrasReservedKeyError
+
+    with pytest.raises(ExtrasReservedKeyError, match="tags"):
+        service.save(
+            workspace_target("u1", "ws", workspace),
+            "Title",
+            "# Content",
+            [],
+            extras={"tags": ["evil"]},
+        )
+
+
 def test_get_with_content_returns_none_for_wrong_owner(service, read_service, workspace):
     result = service.save(workspace_target("u1", "ws", workspace), "Notatka", "treść", [])
     note_id = result["note_id"]

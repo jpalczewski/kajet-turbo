@@ -50,6 +50,14 @@ def build_write(note_service: NoteService) -> FastMCP:
         folder: str = "",
         occurred_at: str | None = None,
         period: str | None = None,
+        extras: Annotated[
+            dict[str, object] | None,
+            Field(
+                description="Extra frontmatter fields beyond title/tags/dates, e.g. "
+                "{'mood': 'ok'}. Keys must not shadow id/title/tags/created_at/updated_at/"
+                "occurred_at/period."
+            ),
+        ] = None,
         target: WorkspaceTarget = WORKSPACE_TARGET,
     ) -> SavedNoteResult:
         """Saves a new note in the given folder (root by default).
@@ -65,6 +73,7 @@ def build_write(note_service: NoteService) -> FastMCP:
             folder=folder,
             occurred_at=occurred_at,
             period=period,
+            extras=extras,
         )
         await publish_workspace_changed(target)
         return SavedNoteResult.model_validate(result)
@@ -132,6 +141,15 @@ def build_write(note_service: NoteService) -> FastMCP:
                 "another mode owns is an error, not a silent no-op."
             ),
         ] = "overwrite",
+        extras: Annotated[
+            dict[str, object] | None,
+            Field(
+                description="Extra frontmatter fields to merge into the note's existing "
+                "extras: a key given here overwrites its previous value, existing keys not "
+                "mentioned survive. Omit to leave extras untouched entirely. Keys must not "
+                "shadow id/title/tags/created_at/updated_at/occurred_at/period."
+            ),
+        ] = None,
         target_heading: Annotated[
             str | None,
             Field(
@@ -189,6 +207,7 @@ def build_write(note_service: NoteService) -> FastMCP:
                 new_str=new_str,
                 replace_all=replace_all,
             ),
+            extras=extras,
             clear_date_metadata=clear_date_metadata,
             **temporal_kwargs(  # ty: ignore[invalid-argument-type] - dict[str, str] spread vs update()'s heterogeneous kwargs; keys are always occurred_at/period
                 occurred_at, period

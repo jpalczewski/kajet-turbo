@@ -59,6 +59,11 @@ class CreateNoteRequest(RequestModel):
     tags: list[str] = Field(default_factory=list)
     occurred_at: str | None = None
     period: str | None = None
+    extras: dict[str, object] | None = Field(
+        default=None,
+        description="Extra frontmatter fields beyond title/tags/dates. Keys must not "
+        "shadow id/title/tags/created_at/updated_at/occurred_at/period.",
+    )
 
     _validate_title = field_validator("title")(_require_title)
 
@@ -77,6 +82,13 @@ class UpdateNoteRequest(BaseModel):
     tags: list[str] | None = None
     occurred_at: str | None = None
     period: str | None = None
+    extras: dict[str, object] | None = Field(
+        default=None,
+        description="Extra frontmatter fields to merge into the note's existing extras: "
+        "a key given here overwrites its previous value, existing keys not mentioned "
+        "survive. Omit to leave extras untouched entirely. Keys must not shadow "
+        "id/title/tags/created_at/updated_at/occurred_at/period.",
+    )
     clear_date_metadata: bool = False
     expected_sha: str | None = Field(
         default=None,

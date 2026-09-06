@@ -37,5 +37,6 @@ class NoteData(BaseModel):
     updated_at: str
     occurred_at: str | None
     period: str | None
+    extras: dict[str, object]
     content: str
     sha: str

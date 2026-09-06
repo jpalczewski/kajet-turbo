@@ -40,7 +40,7 @@ from kajet_turbo.errors import GitError as GitErrorCode
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import BrokenWikilinkError
 from kajet_turbo.repositories.git import GitError
-from kajet_turbo.workspace import InvalidFolderError, TemporalMetadataError
+from kajet_turbo.workspace import ExtrasReservedKeyError, InvalidFolderError, TemporalMetadataError
 
 
 async def _http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
@@ -158,7 +158,9 @@ async def _broken_wikilink_handler(request: Request, exc: BrokenWikilinkError) -
     )
 
 
-async def _temporal_metadata_handler(request: Request, exc: TemporalMetadataError) -> JSONResponse:
+async def _invalid_input_handler(
+    request: Request, exc: TemporalMetadataError | ExtrasReservedKeyError
+) -> JSONResponse:
     return JSONResponse(
         status_code=422, content={"error": str(NoteError.INVALID_INPUT), "detail": str(exc)}
     )
@@ -188,6 +190,7 @@ def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, _request_validation_handler)  # ty: ignore[invalid-argument-type]
     app.add_exception_handler(InvalidFolderError, _invalid_folder_handler)  # ty: ignore[invalid-argument-type]
     app.add_exception_handler(BrokenWikilinkError, _broken_wikilink_handler)  # ty: ignore[invalid-argument-type]
-    app.add_exception_handler(TemporalMetadataError, _temporal_metadata_handler)  # ty: ignore[invalid-argument-type]
+    app.add_exception_handler(TemporalMetadataError, _invalid_input_handler)  # ty: ignore[invalid-argument-type]
+    app.add_exception_handler(ExtrasReservedKeyError, _invalid_input_handler)  # ty: ignore[invalid-argument-type]
     app.add_exception_handler(GitError, _git_error_handler)  # ty: ignore[invalid-argument-type]
     app.add_exception_handler(Exception, _unexpected_exception_handler)

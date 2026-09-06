@@ -62,6 +62,30 @@ def test_markdown_returns_raw_content(auth_client):
     assert "content_html" not in data
 
 
+def test_html_returns_extras(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save(_ws(ws_path), "Nastrój", "body", [], extras={"mood": "great"})[
+        "note_id"
+    ]
+
+    resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/html")
+
+    assert resp.status_code == 200
+    assert resp.json()["extras"] == {"mood": "great"}
+
+
+def test_markdown_returns_extras(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save(_ws(ws_path), "Nastrój", "body", [], extras={"mood": "great"})[
+        "note_id"
+    ]
+
+    resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/markdown")
+
+    assert resp.status_code == 200
+    assert resp.json()["extras"] == {"mood": "great"}
+
+
 def test_markdown_returns_401_when_not_logged_in(anon_client):
     resp = anon_client.get("/api/workspaces/test-ws/notes/abc1234/markdown")
     assert resp.status_code == 401
@@ -216,6 +240,26 @@ def test_create_note_response_matches_declared_schema(auth_client):
     assert data == {"note_id": data["note_id"], "warnings": []}
 
 
+def test_create_note_accepts_extras(auth_client):
+    client, _, ws_path = auth_client
+    resp = client.post(
+        "/api/workspaces/test-ws/notes",
+        json={"title": "Nastrój", "content": "body", "extras": {"mood": "great"}},
+    )
+    assert resp.status_code == 201
+    note = auth_client.note_read_service.get_with_content(_note(ws_path, resp.json()["note_id"]))
+    assert note is not None and note.extras == {"mood": "great"}
+
+
+def test_create_note_rejects_extras_shadowing_reserved_key_with_422(auth_client):
+    client, _, _ = auth_client
+    resp = client.post(
+        "/api/workspaces/test-ws/notes",
+        json={"title": "Nastrój", "content": "body", "extras": {"tags": ["evil"]}},
+    )
+    assert resp.status_code == 422
+
+
 def test_create_note_accepts_temporal_metadata(auth_client):
     client, _, ws_path = auth_client
     response = client.post(
@@ -342,6 +386,60 @@ def test_update_note_response_matches_declared_schema(auth_client):
         json={"content": "new content", "expected_sha": sha},
     )
     assert resp.json() == {"note_id": note_id, "warnings": [], "temporal_warnings": []}
+
+
+def test_update_note_merges_extras(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save(
+        _ws(ws_path), "Nastrój", "body", [], extras={"mood": "great", "weather": "sunny"}
+    )["note_id"]
+    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+
+    resp = client.patch(
+        f"/api/workspaces/test-ws/notes/{note_id}",
+        json={"extras": {"weather": "rainy", "new_field": "added"}, "expected_sha": sha},
+    )
+
+    assert resp.status_code == 200
+    note = auth_client.note_read_service.get_with_content(_note(ws_path, note_id))
+    assert note.extras == {"mood": "great", "weather": "rainy", "new_field": "added"}
+
+
+def test_update_note_without_extras_leaves_existing_extras_untouched(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save(_ws(ws_path), "Nastrój", "body", [], extras={"mood": "great"})[
+        "note_id"
+    ]
+    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+
+    resp = client.patch(
+        f"/api/workspaces/test-ws/notes/{note_id}",
+        json={"content": "new body", "expected_sha": sha},
+    )
+
+    assert resp.status_code == 200
+    note = auth_client.note_read_service.get_with_content(_note(ws_path, note_id))
+    assert note.extras == {"mood": "great"}
+    assert note.content == "new body"
+
+
+def test_update_note_rejects_extras_shadowing_reserved_key_with_422_not_404(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save(_ws(ws_path), "Nastrój", "body", [], extras={"mood": "great"})[
+        "note_id"
+    ]
+    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+
+    resp = client.patch(
+        f"/api/workspaces/test-ws/notes/{note_id}",
+        json={"extras": {"period": "evil"}, "expected_sha": sha},
+    )
+
+    assert resp.status_code == 422
+    # Refused, not partially applied.
+    note = auth_client.note_read_service.get_with_content(_note(ws_path, note_id))
+    assert note.extras == {"mood": "great"}
+    assert note.content == "body"
 
 
 def test_update_note_rejects_malformed_period_with_422_not_404(auth_client):

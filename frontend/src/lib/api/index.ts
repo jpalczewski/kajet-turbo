@@ -40,6 +40,11 @@ export const AuthError = {
   PENDING_EXPIRED: 'PENDING_EXPIRED',
 } as const;
 
+/**
+ * Extra frontmatter fields beyond title/tags/dates. Keys must not shadow id/title/tags/created_at/updated_at/occurred_at/period.
+ */
+export type CreateNoteRequestExtras = { [key: string]: unknown } | null;
+
 export interface CreateNoteRequest {
   /**
      * Note title; unique within (workspace, folder)
@@ -51,6 +56,8 @@ export interface CreateNoteRequest {
   tags?: string[];
   occurred_at?: string | null;
   period?: string | null;
+  /** Extra frontmatter fields beyond title/tags/dates. Keys must not shadow id/title/tags/created_at/updated_at/occurred_at/period. */
+  extras?: CreateNoteRequestExtras;
 }
 
 export interface BatchCreateNotesRequest {
@@ -508,6 +515,8 @@ export interface NoteHistoryResponse {
   entries: NoteHistoryEntry[];
 }
 
+export type NoteHtmlResponseExtras = { [key: string]: unknown };
+
 export interface NoteHtmlResponse {
   note_id: string;
   title: string;
@@ -517,9 +526,12 @@ export interface NoteHtmlResponse {
   updated_at: string;
   occurred_at?: string | null;
   period?: string | null;
+  extras?: NoteHtmlResponseExtras;
   content_html: string;
   sha: string;
 }
+
+export type NoteMarkdownResponseExtras = { [key: string]: unknown };
 
 export interface NoteMarkdownResponse {
   note_id: string;
@@ -530,6 +542,7 @@ export interface NoteMarkdownResponse {
   updated_at: string;
   occurred_at?: string | null;
   period?: string | null;
+  extras?: NoteMarkdownResponseExtras;
   content: string;
   sha: string;
 }
@@ -675,6 +688,11 @@ export interface UpdateFolderMetaRequest {
   instructions: string;
 }
 
+/**
+ * Extra frontmatter fields to merge into the note's existing extras: a key given here overwrites its previous value, existing keys not mentioned survive. Omit to leave extras untouched entirely. Keys must not shadow id/title/tags/created_at/updated_at/occurred_at/period.
+ */
+export type UpdateNoteRequestExtras = { [key: string]: unknown } | null;
+
 export interface UpdateNoteRequest {
   title?: string | null;
   content?: string | null;
@@ -682,6 +700,8 @@ export interface UpdateNoteRequest {
   tags?: string[] | null;
   occurred_at?: string | null;
   period?: string | null;
+  /** Extra frontmatter fields to merge into the note's existing extras: a key given here overwrites its previous value, existing keys not mentioned survive. Omit to leave extras untouched entirely. Keys must not shadow id/title/tags/created_at/updated_at/occurred_at/period. */
+  extras?: UpdateNoteRequestExtras;
   clear_date_metadata?: boolean;
   /** The note's current HEAD sha from get_note_history -- a stale or missing value is rejected with 409 NOTE_STALE_VERSION. */
   expected_sha?: string | null;

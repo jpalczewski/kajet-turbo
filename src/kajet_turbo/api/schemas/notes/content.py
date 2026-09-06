@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from kajet_turbo.shared.notes import GraphBase, NoteLinkItem, NoteLinksBase
 
@@ -30,6 +30,7 @@ class NoteHtmlResponse(BaseModel):
     updated_at: str
     occurred_at: str | None = None
     period: str | None = None
+    extras: dict[str, object] = Field(default_factory=dict)
     content_html: str
     sha: str
 
@@ -43,6 +44,7 @@ class NoteMarkdownResponse(BaseModel):
     updated_at: str
     occurred_at: str | None = None
     period: str | None = None
+    extras: dict[str, object] = Field(default_factory=dict)
     content: str
     sha: str
 

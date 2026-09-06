@@ -36,6 +36,98 @@ def test_update_perf_span_excludes_git_commit_from_db_ms(service, workspace):
     assert span.fields["db_ms"] + span.fields["git_ms"] <= duration_ms
 
 
+def test_update_merges_extras_into_existing(service, read_service, workspace):
+    result = service.save(
+        workspace_target("u1", "ws", workspace),
+        "Title",
+        "body",
+        [],
+        extras={"mood": "great", "weather": "sunny"},
+    )
+    note_id = result["note_id"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
+
+    service.update(
+        note_target("u1", "ws", workspace, note_id),
+        expected_sha=sha,
+        extras={"weather": "rainy", "new_field": "added"},
+    )
+
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    assert note.extras == {"mood": "great", "weather": "rainy", "new_field": "added"}
+
+
+def test_update_extras_none_leaves_existing_extras_untouched(service, read_service, workspace):
+    result = service.save(
+        workspace_target("u1", "ws", workspace), "Title", "body", [], extras={"mood": "great"}
+    )
+    note_id = result["note_id"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
+
+    service.update(
+        note_target("u1", "ws", workspace, note_id),
+        expected_sha=sha,
+        edit=EditSpec(content="new body"),
+    )
+
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    assert note.extras == {"mood": "great"}
+    assert note.content == "new body"
+
+
+def test_update_rejects_extras_shadowing_reserved_key(service, read_service, workspace):
+    from kajet_turbo.workspace import ExtrasReservedKeyError
+
+    result = service.save(
+        workspace_target("u1", "ws", workspace), "Title", "body", [], extras={"mood": "great"}
+    )
+    note_id = result["note_id"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
+
+    with pytest.raises(ExtrasReservedKeyError, match="period"):
+        service.update(
+            note_target("u1", "ws", workspace, note_id),
+            expected_sha=sha,
+            extras={"period": "evil"},
+        )
+
+    # Refused, not partially applied: extras and content stand exactly as before.
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    assert note.extras == {"mood": "great"}
+    assert note.content == "body"
+
+
+def test_restore_version_replaces_extras_fully_not_merge(service, read_service, workspace):
+    result = service.save(
+        workspace_target("u1", "ws", workspace), "Title", "v1 body", [], extras={"tag_v1": "yes"}
+    )
+    note_id = result["note_id"]
+    sha_v1 = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
+
+    service.update(
+        note_target("u1", "ws", workspace, note_id),
+        expected_sha=sha_v1,
+        edit=EditSpec(content="v2 body"),
+        extras={"tag_v2": "added_later"},
+    )
+
+    service.restore_version(note_target("u1", "ws", workspace, note_id), sha_v1)
+
+    note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
+    assert note.content == "v1 body"
+    # A restore is a full replace, not a merge onto current state: tag_v2 (added after
+    # sha_v1) must not survive, unlike a plain update()'s extras merge.
+    assert note.extras == {"tag_v1": "yes"}
+
+
 def test_update_git_error_reverts_file(service, read_service, workspace):
     from kajet_turbo.repositories.git import GitError
 

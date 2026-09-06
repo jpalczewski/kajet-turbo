@@ -66,6 +66,98 @@ async def test_get_notes_bulk_read(workspaces_dir, mcp_server):
         assert "Note not found: note_id=bad-id" in text
 
 
+async def test_save_note_with_extras_round_trips(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        saved = await call_json(
+            client,
+            "save_note",
+            {
+                "workspace": "test-ws",
+                "title": "Nastrój",
+                "content": "body",
+                "extras": {"mood": "great", "weather": "sunny"},
+            },
+        )
+        note = await call_json(client, "get_note", {"note_id": saved["note_id"]})
+        assert note["extras"] == {"mood": "great", "weather": "sunny"}
+
+
+async def test_save_note_rejects_extras_shadowing_reserved_key(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        with pytest.raises(ToolError, match="tags"):
+            await client.call_tool(
+                "save_note",
+                {
+                    "workspace": "test-ws",
+                    "title": "Nastrój",
+                    "content": "body",
+                    "extras": {"tags": ["evil"]},
+                },
+            )
+
+
+async def test_edit_note_merges_extras_into_existing(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        saved = await seed_note(
+            client,
+            workspace="test-ws",
+            title="Nastrój",
+            content="body",
+            extras={"mood": "great", "weather": "sunny"},
+        )
+        await client.call_tool(
+            "edit_note",
+            {
+                "note_id": saved["note_id"],
+                "expected_sha": saved["sha"],
+                "extras": {"weather": "rainy", "new_field": "added"},
+            },
+        )
+        note = await call_json(client, "get_note", {"note_id": saved["note_id"]})
+        assert note["extras"] == {"mood": "great", "weather": "rainy", "new_field": "added"}
+
+
+async def test_edit_note_without_extras_leaves_existing_extras_untouched(
+    workspaces_dir, mcp_server
+):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        saved = await seed_note(
+            client, workspace="test-ws", title="Nastrój", content="body", extras={"mood": "great"}
+        )
+        await client.call_tool(
+            "edit_note",
+            {"note_id": saved["note_id"], "expected_sha": saved["sha"], "content": "new body"},
+        )
+        note = await call_json(client, "get_note", {"note_id": saved["note_id"]})
+        assert note["extras"] == {"mood": "great"}
+        assert note["content"] == "new body"
+
+
+async def test_edit_note_rejects_extras_shadowing_reserved_key(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        saved = await seed_note(
+            client, workspace="test-ws", title="Nastrój", content="body", extras={"mood": "great"}
+        )
+        with pytest.raises(ToolError, match="period"):
+            await client.call_tool(
+                "edit_note",
+                {
+                    "note_id": saved["note_id"],
+                    "expected_sha": saved["sha"],
+                    "extras": {"period": "evil"},
+                },
+            )
+        # Refused, not partially applied.
+        note = await call_json(client, "get_note", {"note_id": saved["note_id"]})
+        assert note["extras"] == {"mood": "great"}
+        assert note["content"] == "body"
+
+
 async def test_get_notes_rejects_too_many_ids(workspaces_dir, mcp_server):
     mcp, _ = mcp_server
     async with Client(mcp) as client:

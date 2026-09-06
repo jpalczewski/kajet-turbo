@@ -108,6 +108,7 @@ def api_get_note_html(
             "updated_at": note.updated_at,
             "occurred_at": note.occurred_at,
             "period": note.period,
+            "extras": note.extras,
             "content_html": _render_html(
                 note.content,
                 resolver=link_service.link_resolver(target.workspace, note.folder),
@@ -144,6 +145,7 @@ def api_get_note_markdown(
             "updated_at": note.updated_at,
             "occurred_at": note.occurred_at,
             "period": note.period,
+            "extras": note.extras,
             "content": note.content,
             "sha": note.sha,
         }

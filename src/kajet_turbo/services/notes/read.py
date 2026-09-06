@@ -58,8 +58,8 @@ class NoteReadService:
             raise ValueError(
                 f"Notatka {loc.note.id} nie ma historii commitów (niespójny stan repo)."
             )
-        _, content = read_note_file(loc.filepath)
-        return NoteData(**note_to_list_item(loc.note), content=content, sha=sha)
+        meta, content = read_note_file(loc.filepath)
+        return NoteData(**note_to_list_item(loc.note), extras=meta.extras, content=content, sha=sha)
 
     def get(self, note_id: str, owner_id: str) -> dict | None:
         note = self._crud_repo.get(note_id, owner_id=owner_id)

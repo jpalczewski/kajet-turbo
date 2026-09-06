@@ -35,7 +35,12 @@ from kajet_turbo.services.notes import (
     NoteTagService,
 )
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
-from kajet_turbo.workspace import InvalidFolderError, TemporalMetadataError, temporal_kwargs
+from kajet_turbo.workspace import (
+    ExtrasReservedKeyError,
+    InvalidFolderError,
+    TemporalMetadataError,
+    temporal_kwargs,
+)
 
 router = APIRouter(
     responses={
@@ -95,6 +100,7 @@ async def api_create_note(
             folder=body.folder,
             occurred_at=body.occurred_at,
             period=body.period,
+            extras=body.extras,
         )
     except FileExistsError:
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None
@@ -145,6 +151,7 @@ async def api_update_note(
             edit=EditSpec(content=body.content),
             tags=body.tags,
             folder=body.folder,
+            extras=body.extras,
             clear_date_metadata=body.clear_date_metadata,
             # temporal_kwargs omits occurred_at/period entirely when None, so an omitted
             # or explicit-null value falls through to update()'s _UNCHANGED default
@@ -153,7 +160,7 @@ async def api_update_note(
                 body.occurred_at, body.period
             ),
         )
-    except InvalidFolderError, TemporalMetadataError, BrokenWikilinkError:
+    except InvalidFolderError, TemporalMetadataError, BrokenWikilinkError, ExtrasReservedKeyError:
         raise
     except FileExistsError:
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None

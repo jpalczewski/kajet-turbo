@@ -231,6 +231,7 @@ class NoteService:
         folder: str = "",
         occurred_at: object = None,
         period: object = None,
+        extras: dict[str, object] | None = None,
     ) -> dict:
         user_id = target.owner_id
         ws_name = target.name
@@ -258,6 +259,7 @@ class NoteService:
             updated_at=now,
             occurred_at=occurred_at,
             period=period,
+            extras=extras or {},
         )
         item = StagedChange(
             add=relative, remove=None, apply=partial(write_note_file, filepath, meta, content)
@@ -511,6 +513,7 @@ class NoteService:
         edit: EditSpec = _NO_EDIT,
         *,
         extras: dict[str, object] | None = None,
+        extras_replace: bool = False,
         occurred_at: object = _UNCHANGED,
         period: object = _UNCHANGED,
         clear_date_metadata: bool = False,
@@ -567,7 +570,14 @@ class NoteService:
                 new_occurred_at = existing_meta.occurred_at
             if "period" not in existing_meta.temporal_dropped:
                 new_period = existing_meta.period
-        new_extras = extras if extras is not None else existing_meta.extras
+        if extras is None:
+            new_extras = existing_meta.extras
+        elif extras_replace:
+            new_extras = extras
+        else:
+            # Merge, not replace (#352): caller-supplied keys win, existing hand-written
+            # keys not mentioned here survive — matching write_note_file's #105 behavior.
+            new_extras = {**existing_meta.extras, **extras}
         # apply_edit owns every mode/parameter rule, including "overwrite without content
         # leaves the body alone" — the metadata-only edit path.
         edit_result = apply_edit(old_content, edit)
@@ -1054,6 +1064,7 @@ class NoteService:
             edit=EditSpec(content=version["content"]),
             tags=version["tags"],
             extras=version["extras"],
+            extras_replace=True,
             occurred_at=version["occurred_at"],
             period=version["period"],
         )

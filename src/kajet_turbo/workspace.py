@@ -34,6 +34,12 @@ class TemporalMetadataError(ValueError):
     so callers (the API layer) can map it to 422 instead of the generic not-found 404."""
 
 
+class ExtrasReservedKeyError(ValueError):
+    """extras shadows a reserved frontmatter key. Distinct from a bare ValueError so
+    callers (the API layer) can map it to 422 instead of the generic not-found 404 that
+    NoteService.update()'s other ValueErrors mean."""
+
+
 @dataclass(frozen=True, slots=True)
 class NoteFrontmatter:
     """Parsed note frontmatter: reserved keys plus everything else in ``extras``.
@@ -60,7 +66,9 @@ class NoteFrontmatter:
     def __post_init__(self) -> None:
         shadowed = RESERVED_FRONTMATTER_KEYS & self.extras.keys()
         if shadowed:
-            raise ValueError(f"extras cannot shadow reserved frontmatter keys: {sorted(shadowed)}")
+            raise ExtrasReservedKeyError(
+                f"extras cannot shadow reserved frontmatter keys: {sorted(shadowed)}"
+            )
         occurred_at, period = normalize_temporal_metadata(self.occurred_at, self.period)
         if (occurred_at, period) != (self.occurred_at, self.period):
             raise ValueError("occurred_at and period must use canonical string values.")

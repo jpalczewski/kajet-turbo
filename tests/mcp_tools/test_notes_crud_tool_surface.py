@@ -19,7 +19,7 @@ EXPECTED: dict[str, tuple[frozenset[str], bool, bool, bool, tuple[str, ...], str
         False,
         False,
         False,
-        ("content", "folder", "occurred_at", "period", "tags", "title", "workspace"),
+        ("content", "extras", "folder", "occurred_at", "period", "tags", "title", "workspace"),
         "2eedacd5d86537f3a772a03c917863788755d77809374ca37e598703a685894c",
     ),
     "save_notes": (
@@ -55,6 +55,7 @@ EXPECTED: dict[str, tuple[frozenset[str], bool, bool, bool, tuple[str, ...], str
             "clear_date_metadata",
             "content",
             "expected_sha",
+            "extras",
             "folder",
             "mode",
             "new_str",
