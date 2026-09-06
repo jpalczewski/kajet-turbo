@@ -23,6 +23,20 @@ def _require_name_present(data: object) -> object:
     return data
 
 
+def _reject_wrong_type_folder(v: object) -> object:
+    """Runs in "before" mode so a wrong-type "folder" raises a model-specific custom error
+    type ("workspace_folder_invalid") instead of Pydantic's generic "string_type", which
+    would otherwise collide with api/errors.py's global by-field-name `_REQUIRED_FIELD_CODES`
+    table -- that table already maps a bare "folder" key to `FolderError.PATH_REQUIRED` for
+    MoveNoteRequest's unrelated, *required* "folder" field (notes/crud.py), where "" is a
+    legitimate move-to-root value and only a missing/wrong-type key should 422. This
+    workspace "folder" field is genuinely optional (grouping path for the picker), so a
+    wrong-type value here must not surface the misleading "path is required" message."""
+    if v is not None and not isinstance(v, str):
+        raise PydanticCustomError("workspace_folder_invalid", "Folder must be a string")
+    return v
+
+
 class WorkspaceInfo(WorkspaceInfoBase):
     file_count: int = Field(description="Number of notes in this workspace")
     last_commit_at: int | None = Field(description="Unix epoch of the last commit, if any")
@@ -46,6 +60,11 @@ class CreateWorkspaceRequest(BaseModel):
 
     _require_name = model_validator(mode="before")(_require_name_present)
 
+    @field_validator("folder", mode="before")
+    @classmethod
+    def _validate_folder(cls, v: object) -> object:
+        return _reject_wrong_type_folder(v)
+
     @field_validator("name")
     @classmethod
     def _strip_name(cls, v: str) -> str:
@@ -67,6 +86,11 @@ class UpdateWorkspaceRequest(BaseModel):
     description: str | None = None
     folder: str | None = None
     tags: list[str] | None = None
+
+    @field_validator("folder", mode="before")
+    @classmethod
+    def _validate_folder(cls, v: object) -> object:
+        return _reject_wrong_type_folder(v)
 
 
 class UpdateWorkspaceResponse(BaseModel):

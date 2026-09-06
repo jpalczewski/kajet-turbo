@@ -28,16 +28,14 @@ async def api_update_preferences(
     user: CurrentUser = Depends(get_required_user),
     svc: PreferencesService = Depends(get_preferences_service),
 ) -> UserPreferences:
-    # model_fields_set (not the resolved value) is what tells "field omitted" (no-op)
-    # apart from "field present but null" (must 422, not silently no-op) -- both parse to
-    # the same `None` attribute once Pydantic has validated the body.
-    updates: dict[str, str] = {}
-    for key in ("timezone", "locale"):
-        if key in body.model_fields_set:
-            value = getattr(body, key)
-            if value is None:
-                raise HTTPException(status_code=422, detail=PreferencesError.INVALID_INPUT)
-            updates[key] = value
+    # exclude_unset (Pydantic's own model_fields_set-based mechanism, matching the
+    # workspace_meta.py/workspace_settings.py PATCH routes) is what tells "field omitted"
+    # (no-op) apart from "field present but null" (must 422, not silently no-op) -- both
+    # parse to the same `None` attribute once Pydantic has validated the body.
+    sent = body.model_dump(exclude_unset=True)
+    if any(value is None for value in sent.values()):
+        raise HTTPException(status_code=422, detail=PreferencesError.INVALID_INPUT)
+    updates: dict[str, str] = sent
 
     try:
         prefs = await run_sync(svc.update_preferences, user.id, **updates)

@@ -488,6 +488,21 @@ def test_move_note_missing_folder_key_returns_422(auth_client):
     assert resp.json()["error"] == "FOLDER_PATH_REQUIRED"
 
 
+def test_move_note_wrong_type_folder_returns_422(auth_client):
+    # Pins MoveNoteRequest.folder's wrong-type case to FOLDER_PATH_REQUIRED, distinct from
+    # api/schemas/workspaces/meta.py's CreateWorkspaceRequest/UpdateWorkspaceRequest.folder
+    # (an unrelated, optional field) so a future change to api/errors.py's global
+    # by-field-name table can't silently collapse the two "folder" fields onto one code
+    # again without breaking a test.
+    client, note_svc, ws_path = auth_client
+    note_id = note_svc.save(_ws(ws_path), "Move me", "c", [])["note_id"]
+
+    resp = client.post(f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": 123})
+
+    assert resp.status_code == 422
+    assert resp.json()["error"] == "FOLDER_PATH_REQUIRED"
+
+
 def test_move_note_returns_401_when_anon(anon_client):
     resp = anon_client.post("/api/workspaces/test-ws/notes/abc/move", json={"folder": ""})
     assert resp.status_code == 401

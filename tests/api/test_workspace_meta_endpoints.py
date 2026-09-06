@@ -69,13 +69,15 @@ def test_patch_wrong_type_422(auth_client):
     assert r.status_code == 422
 
 
-def test_patch_wrong_type_folder_is_generic_invalid_input(auth_client):
+def test_patch_wrong_type_folder_is_workspace_invalid_input(auth_client):
     # UpdateWorkspaceRequest.folder is optional (unlike MoveNoteRequest's required,
     # same-named field) -- a wrong-type value must not 422 with the misleading
-    # FOLDER_PATH_REQUIRED ("path is required") code that field name maps to elsewhere.
+    # FOLDER_PATH_REQUIRED ("path is required") code that field name maps to for notes/move.
+    # A dedicated before-mode validator (schemas/workspaces/meta.py) raises a
+    # model-specific custom error type instead of colliding with that global mapping.
     r = auth_client.patch("/api/workspaces/test-ws", json={"folder": 123})
     assert r.status_code == 422
-    assert r.json()["error"] == "INVALID_INPUT"
+    assert r.json()["error"] == "WORKSPACE_INVALID_INPUT"
 
 
 def test_patch_omitted_key_is_a_no_op(auth_client):
@@ -135,3 +137,9 @@ def test_create_workspace_duplicate_409(auth_client):
     r = auth_client.post("/api/workspaces", json={"name": "test-ws"})
     assert r.status_code == 409
     assert r.json()["error"] == "WORKSPACE_ALREADY_EXISTS"
+
+
+def test_create_workspace_wrong_type_folder_is_workspace_invalid_input(auth_client):
+    r = auth_client.post("/api/workspaces", json={"name": "new-ws", "folder": 123})
+    assert r.status_code == 422
+    assert r.json()["error"] == "WORKSPACE_INVALID_INPUT"

@@ -14,7 +14,14 @@ from kajet_turbo.repositories import DbRepository
 class ProfileNotFoundError(ValueError):
     """No profile with this ID exists for this user. A ValueError subclass so a plain
     ``except ValueError`` (services shared with MCP's ToolDispatchMiddleware) still
-    catches it, while a route can catch it specifically to answer 404 instead of 400."""
+    catches it, while a route can catch it specifically to answer 404 instead of 400.
+    Builds its own descriptive message so callers can raise with just the id (root
+    CLAUDE.md: a ValueError raised in services/ reaches the calling LLM verbatim -- name
+    the parameter at fault instead of leaving the message as the bare id)."""
+
+    def __init__(self, profile_id: str) -> None:
+        super().__init__(f"No embedding profile found for profile_id={profile_id!r}")
+        self.profile_id = profile_id
 
 
 class EmbeddingProfileRepository(DbRepository):
