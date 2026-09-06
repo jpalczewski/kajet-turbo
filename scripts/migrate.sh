@@ -24,4 +24,8 @@ sed \
 trap 'rm -f "${INI_FILE}"' EXIT
 
 export DISABLE_SQLALCHEMY_CEXT_RUNTIME=1
-exec uv run alembic -c "${INI_FILE}" "${@:-upgrade head}"
+if [ "$#" -eq 0 ]; then
+    exec uv run alembic -c "${INI_FILE}" upgrade head
+else
+    exec uv run alembic -c "${INI_FILE}" "$@"
+fi
