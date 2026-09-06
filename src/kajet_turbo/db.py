@@ -9,6 +9,7 @@ from sqlalchemy.pool import QueuePool
 from sqlmodel import Session, create_engine
 
 from alembic import command
+from kajet_turbo.locking import flock_exclusive
 from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.metadata
     ClientAuthorization,
     EmbeddingCache,
@@ -72,7 +73,16 @@ class Database:
             alembic_ini = Path(__file__).parents[2] / "alembic.ini"
         cfg = Config(str(alembic_ini))
         cfg.set_main_option("sqlalchemy.url", f"sqlite:///{self.db_path}")
-        command.upgrade(cfg, "head")
+
+        # Every role (api/mcp/worker) can start with multiple workers against a
+        # shared, possibly-unmigrated DB file. Without this lock, each worker's
+        # Database() races into `command.upgrade` concurrently and a loser dies
+        # with `sqlite3.OperationalError: table alembic_version already exists`.
+        # No timeout: nothing here can recover from giving up early, and a slow
+        # migration is not a bug — the waiting workers should just wait it out.
+        lock_path = Path(self.db_path).parent / "kajet-migrate.lock"
+        with flock_exclusive(lock_path):
+            command.upgrade(cfg, "head")
 
     def _init_schema(self) -> None:
         with Session(self.engine) as session:

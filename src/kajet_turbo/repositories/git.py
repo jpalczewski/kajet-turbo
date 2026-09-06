@@ -1,5 +1,4 @@
 import contextlib
-import fcntl
 import inspect
 import os
 import shutil
@@ -20,6 +19,7 @@ from dulwich.objects import Blob, Commit
 from dulwich.repo import Repo
 from nanoid import generate
 
+from kajet_turbo.locking import flock_exclusive
 from kajet_turbo.log import logger
 from kajet_turbo.perf import record, timed
 
@@ -165,29 +165,18 @@ _LOCK_TIMEOUT = float(os.getenv("KAJET_GIT_LOCK_TIMEOUT", "10"))
 def _cross_process_lock(workspace_path: str):
     """Advisory flock serializing git writes across processes/containers.
 
-    Kernel-enforced and auto-released on process death, so a crashed writer never
-    wedges the repo (unlike a stale .lock file). Requires a shared local
-    filesystem — already guaranteed (both roles mount the same /workspaces volume
-    on one host; SQLite WAL needs the same). The lock file lives inside .git so it
-    is per-workspace, not enumerated as a workspace, and never committed; dulwich
-    ignores it (it uses its own <name>.lock protocol)."""
+    Requires a shared local filesystem — already guaranteed (both roles mount
+    the same /workspaces volume on one host; SQLite WAL needs the same). The
+    lock file lives inside .git so it is per-workspace, not enumerated as a
+    workspace, and never committed; dulwich ignores it (it uses its own
+    <name>.lock protocol)."""
     lock_path = Path(workspace_path, ".git", "kajet-write.lock")
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
-    try:
-        deadline = time.monotonic() + _LOCK_TIMEOUT
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except OSError:
-                if time.monotonic() >= deadline:
-                    raise GitError(f"workspace busy (git lock timeout): {workspace_path}") from None
-                time.sleep(0.05)
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(flock_exclusive(lock_path, timeout=_LOCK_TIMEOUT))
+        except TimeoutError:
+            raise GitError(f"workspace busy (git lock timeout): {workspace_path}") from None
         yield
-    finally:
-        with contextlib.suppress(OSError):
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
 
 
 @contextlib.contextmanager
