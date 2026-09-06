@@ -4,11 +4,11 @@ from kajet_turbo.markdown import EditSpec
 from tests.services.conftest import note_target, workspace_target
 
 
-def test_set_tags_stale_sha_rejected(service, read_service, workspace):
+def test_set_tags_stale_sha_rejected(service, read_service, tag_service, workspace):
     note_id = service.save(workspace_target("u1", "ws", workspace), "T", "body", ["docs", "extra"])[
         "note_id"
     ]
-    result = service.set_tags(
+    result = tag_service.set_tags(
         note_target("u1", "ws", workspace, note_id), ["docs"], expected_sha="0" * 12
     )
     assert result["stale_sha"] is True
@@ -21,23 +21,23 @@ def test_set_tags_stale_sha_rejected(service, read_service, workspace):
     ]
 
 
-def test_set_tags_fresh_sha_applies_drop(service, read_service, workspace):
+def test_set_tags_fresh_sha_applies_drop(service, read_service, tag_service, workspace):
     note_id = service.save(
         workspace_target("u1", "ws", workspace), "T2", "body", ["docs", "extra"]
     )["note_id"]
     sha = read_service.get_with_content(note_target("u1", "ws", workspace, note_id)).sha
-    result = service.set_tags(
+    result = tag_service.set_tags(
         note_target("u1", "ws", workspace, note_id), ["docs"], expected_sha=sha
     )
     assert result["frontmatter_tags"] == ["docs"]
 
 
-def test_set_tags_none_sha_skips_check(service, workspace):
+def test_set_tags_none_sha_skips_check(service, tag_service, workspace):
     """REST API path: expected_sha=None is a trusted caller — no gate."""
     note_id = service.save(
         workspace_target("u1", "ws", workspace), "T3", "body", ["docs", "extra"]
     )["note_id"]
-    result = service.set_tags(note_target("u1", "ws", workspace, note_id), ["docs"])
+    result = tag_service.set_tags(note_target("u1", "ws", workspace, note_id), ["docs"])
     assert result["frontmatter_tags"] == ["docs"]
 
 

@@ -231,7 +231,7 @@ def test_restore_version_still_works_after_expected_sha_added(service, read_serv
 
 
 def test_nested_restore_releases_workspace_before_reindexing(
-    service, read_service, workspace, monkeypatch
+    service, read_service, tag_service, workspace, monkeypatch
 ):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
@@ -264,7 +264,7 @@ def test_nested_restore_releases_workspace_before_reindexing(
         assert index_started.wait(timeout=5)
         try:
             add = pool.submit(
-                service.add_tags, note_target("u1", "ws", workspace, note_id), ["extra"]
+                tag_service.add_tags, note_target("u1", "ws", workspace, note_id), ["extra"]
             )
             add.result(timeout=2)
         finally:
