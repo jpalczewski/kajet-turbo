@@ -58,7 +58,7 @@ def test_parallel_save_search_history(svc, tmp_path):
 
     def history(i: int) -> None:
         try:
-            service.get_history(_note(ws_path, seed["note_id"]))
+            service._version_service.get_history(_note(ws_path, seed["note_id"]))
         except Exception as e:
             errors.append(e)
 

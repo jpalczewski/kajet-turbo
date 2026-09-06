@@ -40,7 +40,9 @@ def test_parse_frontmatter_still_rejects_malformed_values_on_explicit_write(serv
     note_id = service.save(workspace_target("u1", "ws", workspace), "Strict Write", "Body", [])[
         "note_id"
     ]
-    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
 
     with pytest.raises(TemporalMetadataError):
         service.update(
@@ -80,7 +82,7 @@ def test_update_keeps_db_occurred_at_when_file_value_is_corrupted(service, works
     corrupt_temporal_field(path, "occurred_at", "banana")
 
     target = note_target("u1", "ws", workspace, note_id)
-    sha = service.get_history(target)[0]["sha"]
+    sha = service._version_service.get_history(target)[0]["sha"]
     result = service.update(target, expected_sha=sha, title="Renamed")
 
     assert result["temporal_warnings"] == [
@@ -105,7 +107,9 @@ def test_edit_many_keeps_db_occurred_at_when_file_value_is_corrupted(service, wo
     )["note_id"]
     path = note_filepath(str(workspace), "", "Corrupt Batch")
     corrupt_temporal_field(path, "occurred_at", "banana")
-    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
 
     result = service.edit_many(
         workspace_target("u1", "ws", workspace),
@@ -156,14 +160,14 @@ def test_save_update_clear_and_reconcile_temporal_metadata(service, reconcile_se
     assert row is not None and (row.occurred_at, row.period) == ("2026-03-22", None)
 
     target = note_target("u1", "ws", workspace, note_id)
-    sha = service.get_history(target)[0]["sha"]
+    sha = service._version_service.get_history(target)[0]["sha"]
     service.update(target, expected_sha=sha, period="2026-W12")
     row = service._crud_repo.get(note_id, owner_id="u1")
     assert row is not None and (row.occurred_at, row.period) == (None, "2026-W12")
     meta, _ = read_note_file(note_filepath(str(workspace), "", "Event"))
     assert (meta.occurred_at, meta.period) == (None, "2026-W12")
 
-    sha = service.get_history(target)[0]["sha"]
+    sha = service._version_service.get_history(target)[0]["sha"]
     service.update(target, expected_sha=sha, clear_date_metadata=True)
     row = service._crud_repo.get(note_id, owner_id="u1")
     assert row is not None and (row.occurred_at, row.period) == (None, None)
@@ -188,7 +192,7 @@ def test_update_rejects_clear_combined_with_temporal_and_leaves_note_unchanged(s
         occurred_at="2026-03-22",
     )["note_id"]
     target = note_target("u1", "ws", workspace, note_id)
-    sha = service.get_history(target)[0]["sha"]
+    sha = service._version_service.get_history(target)[0]["sha"]
 
     with pytest.raises(TemporalMetadataError, match="cannot be combined"):
         service.update(
@@ -212,7 +216,9 @@ def test_edit_many_rejects_clear_combined_with_temporal_and_leaves_note_unchange
         [],
         occurred_at="2026-03-22",
     )["note_id"]
-    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
 
     result = service.edit_many(
         workspace_target("u1", "ws", workspace),
@@ -238,7 +244,7 @@ def test_update_rejects_malformed_period(service, workspace):
         "note_id"
     ]
     target = note_target("u1", "ws", workspace, note_id)
-    sha = service.get_history(target)[0]["sha"]
+    sha = service._version_service.get_history(target)[0]["sha"]
 
     with pytest.raises(TemporalMetadataError, match="canonical period key"):
         service.update(target, expected_sha=sha, period="not-a-period")
@@ -251,7 +257,9 @@ def test_edit_many_rejects_malformed_period(service, workspace):
     note_id = service.save(workspace_target("u1", "ws", workspace), "Bad Period Batch", "Body", [])[
         "note_id"
     ]
-    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
 
     result = service.edit_many(
         workspace_target("u1", "ws", workspace),

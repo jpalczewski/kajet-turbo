@@ -30,7 +30,9 @@ def test_older_index_callback_cannot_overwrite_newer_edit(service, workspace, mo
     note_id = service.save(workspace_target("u1", "ws", workspace), "Title", "initial body", [])[
         "note_id"
     ]
-    initial_sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    initial_sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[
+        0
+    ]["sha"]
     older_chunking = Event()
     release_older = Event()
     real_chunk_markdown = indexing_module.chunk_markdown
@@ -50,7 +52,9 @@ def test_older_index_callback_cannot_overwrite_newer_edit(service, workspace, mo
             edit=EditSpec(content="older edit"),
         )
         assert older_chunking.wait(timeout=5)
-        newer_sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+        newer_sha = service._version_service.get_history(
+            note_target("u1", "ws", workspace, note_id)
+        )[0]["sha"]
         try:
             newer = pool.submit(
                 service.update,

@@ -169,7 +169,9 @@ def test_update_folder_only_keeps_path_creation_semantics(service, read_service,
         "note_id"
     ]
     before = read_service.get(note_id, owner_id="u1")
-    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
 
     service.update(note_target("u1", "ws", workspace, note_id), expected_sha=sha, folder="archive")
 

@@ -274,8 +274,8 @@ def test_move_folder_db_failure_leaves_git_committed_and_rows_healable(
     assert read_service.get(b, owner_id="u1")["folder"] == "team"
     # The actual #170 symptom: before the fix, a healed row pointed history lookups at a
     # git path with zero commits. Now the move's commit is there to find.
-    assert service.get_history(note_target("u1", "ws", workspace, a)) != []
-    assert service.get_history(note_target("u1", "ws", workspace, b)) != []
+    assert service._version_service.get_history(note_target("u1", "ws", workspace, a)) != []
+    assert service._version_service.get_history(note_target("u1", "ws", workspace, b)) != []
 
 
 def test_move_folder_git_failure_leaves_nothing_committed_or_written(

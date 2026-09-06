@@ -81,7 +81,7 @@ def test_concurrent_source_mutation_cannot_leave_stale_graph(
         if not raced and source_id in resolutions:
             raced = True
             source_target = note_target("u1", "ws", ws, source_id)
-            sha = service.get_history(source_target)[0]["sha"]
+            sha = service._version_service.get_history(source_target)[0]["sha"]
             if mutation == "update":
                 service.update(source_target, sha, edit=EditSpec(content="[[Second]]"))
             elif mutation == "edit_many":
@@ -227,7 +227,7 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
         return result
 
     target_target = note_target("u1", "ws", ws, target_id)
-    sha = service.get_history(target_target)[0]["sha"]
+    sha = service._version_service.get_history(target_target)[0]["sha"]
     one_snapshot(lambda: service.update(target_target, sha, title="Renamed"))
     assert set(dirty.list_dirty("u1", "ws")) == {source_id, target_id}
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
@@ -259,7 +259,7 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
 
     replacement_target = note_target("u1", "ws", ws, replacement_id)
-    replacement_sha = service.get_history(replacement_target)[0]["sha"]
+    replacement_sha = service._version_service.get_history(replacement_target)[0]["sha"]
     one_snapshot(
         lambda: service.delete_many(
             workspace_target("u1", "ws", ws),

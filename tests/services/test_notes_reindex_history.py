@@ -92,14 +92,16 @@ def test_reindex_batches_note_writes_and_tag_sync(
 def test_get_history_returns_commits(service, workspace):
     result = service.save(workspace_target("u1", "ws", workspace), "Historia", "v1", [])
     note_id = result["note_id"]
-    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
     service.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         edit=EditSpec(content="v2"),
     )
 
-    history = service.get_history(note_target("u1", "ws", workspace, note_id))
+    history = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))
 
     assert len(history) == 2
     assert all("sha" in h and "message" in h and "timestamp" in h for h in history)
@@ -107,7 +109,7 @@ def test_get_history_returns_commits(service, workspace):
 
 def test_get_history_raises_for_unknown_note(service, workspace):
     with pytest.raises(ValueError):
-        service.get_history(note_target("u1", "ws", workspace, "nie-ma"))
+        service._version_service.get_history(note_target("u1", "ws", workspace, "nie-ma"))
 
 
 def test_get_version_returns_historical_content(service, workspace):
@@ -115,14 +117,18 @@ def test_get_version_returns_historical_content(service, workspace):
         workspace_target("u1", "ws", workspace), "Historia", "treść oryginalna", []
     )
     note_id = result["note_id"]
-    sha_v1 = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha_v1 = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
     service.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha_v1,
         edit=EditSpec(content="treść nowa"),
     )
 
-    version = service.get_version(note_target("u1", "ws", workspace, note_id), sha_v1)
+    version = service._version_service.get_version(
+        note_target("u1", "ws", workspace, note_id), sha_v1
+    )
 
     assert version["content"] == "treść oryginalna"
     assert version["note_id"] == note_id
@@ -145,9 +151,11 @@ def test_get_version_falls_back_to_db_title_for_explicit_null_frontmatter(servic
     )
     relative = str(Path(path).relative_to(workspace))
     GitRepository(str(workspace)).commit_file(relative, "note: hand-edit null title")
-    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
 
-    version = service.get_version(note_target("u1", "ws", workspace, note_id), sha)
+    version = service._version_service.get_version(note_target("u1", "ws", workspace, note_id), sha)
 
     assert version["title"] == "Historia"  # DB fallback, not the literal string "None"
 
@@ -157,7 +165,9 @@ def test_restore_version_reverts_content(service, read_service, workspace):
         workspace_target("u1", "ws", workspace), "Historia", "treść oryginalna", []
     )
     note_id = result["note_id"]
-    sha_v1 = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha_v1 = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
     service.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha_v1,
@@ -190,7 +200,9 @@ def test_restore_version_reverts_tags_and_extras(service, read_service, workspac
     write_note_file(path, replace(meta, extras={"aliases": ["V1"]}), content)
     relative = str(Path(path).relative_to(workspace))
     GitRepository(str(workspace)).commit_file(relative, "note: hand-edit extras for v1")
-    sha_v1 = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha_v1 = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
 
     service.update(
         note_target("u1", "ws", workspace, note_id),
@@ -219,7 +231,9 @@ def test_restore_version_still_works_after_expected_sha_added(service, read_serv
     note_id = service.save(workspace_target("u1", "ws", workspace), "Historia", "oryginalna", [])[
         "note_id"
     ]
-    sha_v1 = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha_v1 = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
     service.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha_v1,
@@ -241,13 +255,17 @@ def test_nested_restore_releases_workspace_before_reindexing(
     note_id = service.save(workspace_target("u1", "ws", workspace), "Historia", "oryginalna", [])[
         "note_id"
     ]
-    sha_v1 = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha_v1 = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
     service.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha_v1,
         edit=EditSpec(content="nowa"),
     )
-    current_sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    current_sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[
+        0
+    ]["sha"]
     index_started = Event()
     release_index = Event()
 

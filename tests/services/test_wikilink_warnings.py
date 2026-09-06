@@ -72,7 +72,9 @@ def test_update_and_batch_writes_report_warning(
     source = service.save(
         workspace_target("u1", "ws", workspace), "Source", "body", [], folder=folder
     )
-    sha = service.get_history(note_target("u1", "ws", workspace, source["note_id"]))[0]["sha"]
+    sha = service._version_service.get_history(
+        note_target("u1", "ws", workspace, source["note_id"])
+    )[0]["sha"]
 
     updated = service.update(
         note_target("u1", "ws", workspace, source["note_id"]),
@@ -87,9 +89,9 @@ def test_update_and_batch_writes_report_warning(
     assert updated["warnings"] == [expected]
     assert created[0]["warnings"] == [expected]
 
-    latest_sha = service.get_history(note_target("u1", "ws", workspace, source["note_id"]))[0][
-        "sha"
-    ]
+    latest_sha = service._version_service.get_history(
+        note_target("u1", "ws", workspace, source["note_id"])
+    )[0]["sha"]
     edited = service.edit_many(
         workspace_target("u1", "ws", workspace),
         [edit_item(source["note_id"], latest_sha, mode="overwrite", content=f"again {content}")],

@@ -9,14 +9,18 @@ tools, not dispatched by job kind. That is the boundary between this package and
 touch, registered once in `register_job_handlers()` (`server.py:48`). A new background handler
 does not belong in this package even if it operates on notes.
 
-`NoteTemporalService` (`temporal.py`) is a deliberate exception to how every other collaborator
-here used to be exposed: REST and MCP call `NoteTemporalService.entries_in`/
+`NoteTemporalService` (`temporal.py`) was a deliberate exception to how every other
+collaborator here used to be exposed: REST and MCP call `NoteTemporalService.entries_in`/
 `temporal_backfill_preview`/`apply_temporal_backfill` directly — `NoteService` carries no
-delegating wrappers for this domain at all (#224). Its constructor takes only `NoteRepository`,
-same as `NoteVersionService`. `NoteTagService` (#306), `NoteLinkService` (#307),
-`NoteSearchService` (#230), and `NoteFolderService` (#229) have since moved to the same
-direct-call shape, each removing its one-line delegate methods from `NoteService`. Only
-`NoteVersionService` is still reached exclusively through delegate methods on `NoteService`.
+delegating wrappers for this domain at all (#224). Its constructor takes only
+`NoteRepository`, same as `NoteVersionService`. `NoteTagService` (#306), `NoteLinkService`
+(#307), `NoteSearchService` (#230), `NoteFolderService` (#229), and `NoteVersionService`
+(#231) have since moved to the same direct-call shape, each removing its one-line delegate
+methods from `NoteService`. `NoteVersionService` keeps one caller-facing difference from
+the rest: `NoteService.restore_version` still depends on it directly
+(`self._version_service`), since restoring a past version is a write-pipeline operation, not
+a read — the read/write split in this package (see "Service boundaries" below) is what
+decides whether a collaborator gets a `NoteService` delegate, not whether it has one at all.
 
 ## Note-body writes go through `staged_workspace_change`
 
@@ -154,8 +158,13 @@ nothing enforces it automatically.
 `get_with_content`, `get_with_content_by_title`, `get_many`, `resolve_note_id`, `get_outline`,
 `export_folder`, `grep`, `preview_chunks`, `list_notes` — live on `NoteReadService` (`read.py`)
 instead: no workspace write lock, and API/MCP call it directly with no delegate left on
-`NoteService` (#223). Shared batch reads use the neutral `locate_many` helper in `locator.py`,
-which returns `workspace.LocatedNote` values and leaves validation policy with its callers.
+`NoteService` (#223). History reads — `get_history`, `get_version` — got the same treatment
+onto `NoteVersionService` (#231); `restore_version` is the one version-domain method that
+stays on `NoteService`, because restoring is a write (it proves the current HEAD, then enters
+the write pipeline) — `NoteVersionService` itself has no write-side dependency back on
+`NoteService`, which is what keeps this a one-way collaboration, not a cycle. Shared batch
+reads use the neutral `locate_many` helper in `locator.py`, which returns
+`workspace.LocatedNote` values and leaves validation policy with its callers.
 `NoteTagService`, `NoteFolderService`, and `NoteLinkService` are collaborators that, by default,
 operate on metadata only — `NoteFolderService.move_folder` needs no indexer because a folder
 move never touches note bodies. A method on one of these collaborators that starts writing note

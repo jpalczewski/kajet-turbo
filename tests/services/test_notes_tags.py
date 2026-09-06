@@ -43,7 +43,9 @@ def test_save_does_not_promote_inline_to_frontmatter(service, read_service, tag_
 
 def test_update_resyncs_tags(service, tag_service, workspace):
     res = service.save(workspace_target("u1", "ws", workspace), "Note", "body #old", ["keep"])
-    sha = service.get_history(note_target("u1", "ws", workspace, res["note_id"]))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, res["note_id"]))[
+        0
+    ]["sha"]
     service.update(
         note_target("u1", "ws", workspace, res["note_id"]),
         expected_sha=sha,
@@ -142,12 +144,12 @@ def test_add_tags_idempotent_no_extra_commit(service, tag_service, workspace):
     note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"])[
         "note_id"
     ]
-    before = len(service.get_history(note_target("u1", "ws", workspace, note_id)))
+    before = len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id)))
 
     result = tag_service.add_tags(note_target("u1", "ws", workspace, note_id), ["python"])
 
     assert result["frontmatter_tags"] == ["python"]
-    after = len(service.get_history(note_target("u1", "ws", workspace, note_id)))
+    after = len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id)))
     assert after == before  # no-op: identical list produced no new commit
 
 
@@ -179,12 +181,12 @@ def test_remove_absent_tag_is_noop(service, tag_service, workspace):
     note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"])[
         "note_id"
     ]
-    before = len(service.get_history(note_target("u1", "ws", workspace, note_id)))
+    before = len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id)))
 
     result = tag_service.remove_tags(note_target("u1", "ws", workspace, note_id), ["nope"])
 
     assert result["frontmatter_tags"] == ["python"]
-    after = len(service.get_history(note_target("u1", "ws", workspace, note_id)))
+    after = len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id)))
     assert after == before
 
 
@@ -192,7 +194,7 @@ def test_remove_inline_only_tag_warns_and_keeps_it(service, tag_service, workspa
     note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "body #work here", [])[
         "note_id"
     ]
-    before = len(service.get_history(note_target("u1", "ws", workspace, note_id)))
+    before = len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id)))
 
     result = tag_service.remove_tags(note_target("u1", "ws", workspace, note_id), ["work"])
 
@@ -200,7 +202,7 @@ def test_remove_inline_only_tag_warns_and_keeps_it(service, tag_service, workspa
     assert result["frontmatter_tags"] == []
     assert "work" in result["tags"]
     assert any("work" in w and "#work" in w for w in result["warnings"])
-    after = len(service.get_history(note_target("u1", "ws", workspace, note_id)))
+    after = len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id)))
     assert after == before
 
 
@@ -237,7 +239,9 @@ def test_apply_tag_change_db_failure_leaves_file_and_row_untouched(
     note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"])[
         "note_id"
     ]
-    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
     flaky_update = make_flaky_db_write(service._crud_repo.update_in_session)
 
     with (
@@ -246,7 +250,10 @@ def test_apply_tag_change_db_failure_leaves_file_and_row_untouched(
     ):
         tag_service.add_tags(note_target("u1", "ws", workspace, note_id), ["work"])
 
-    assert service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"] == sha
+    assert (
+        service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+        == sha
+    )
     note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert note.tags == ["python"]
 
@@ -328,8 +335,12 @@ def test_rename_tag_writes_one_commit_for_the_whole_workspace(service, tag_servi
     a = service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
     b = service.save(workspace_target("u1", "ws", workspace), "B", "body", ["work"])
     _rename(tag_service, workspace, "work", "job")
-    head_a = service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[0]
-    head_b = service.get_history(note_target("u1", "ws", workspace, b["note_id"]))[0]
+    head_a = service._version_service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[
+        0
+    ]
+    head_b = service._version_service.get_history(note_target("u1", "ws", workspace, b["note_id"]))[
+        0
+    ]
     assert head_a["sha"] == head_b["sha"]
     assert head_a["message"] == "tag: rename work -> job"
 
@@ -396,7 +407,9 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(
     a_path = note_filepath(str(workspace), "", "A")
     a_meta, a_content = read_note_file(a_path)
     write_note_file(a_path, replace(a_meta, extras={"aliases": ["Old A"]}), a_content)
-    head_before = service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[0]["sha"]
+    head_before = service._version_service.get_history(
+        note_target("u1", "ws", workspace, a["note_id"])
+    )[0]["sha"]
 
     real_write = service_module.write_note_file
     calls = {"n": 0}
@@ -417,9 +430,9 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(
         assert on_disk.tags == ["work"]
     a_meta_after, _ = read_note_file(a_path)
     assert a_meta_after.extras == {"aliases": ["Old A"]}
-    assert service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[0]["sha"] == (
-        head_before
-    )
+    assert service._version_service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[
+        0
+    ]["sha"] == (head_before)
     # #155: since this fix, the DB row is written and flushed *before* the failing file
     # write runs (write_rows precedes staged_workspace_change's apply phase inside
     # commit_rows_then_tree) — it reaches the DB and then rolls back with the transaction,
@@ -435,7 +448,9 @@ def test_rename_tag_db_failure_leaves_tree_and_all_rows_untouched(
     must never reach the git commit at all."""
     a = service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
     b = service.save(workspace_target("u1", "ws", workspace), "B", "body", ["work"])
-    head_before = service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[0]["sha"]
+    head_before = service._version_service.get_history(
+        note_target("u1", "ws", workspace, a["note_id"])
+    )[0]["sha"]
 
     flaky_update = make_flaky_db_write(service._crud_repo.update_in_session, fail_on_call=2)
 
@@ -445,9 +460,9 @@ def test_rename_tag_db_failure_leaves_tree_and_all_rows_untouched(
     ):
         _rename(tag_service, workspace, "work", "job")
 
-    assert service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[0]["sha"] == (
-        head_before
-    )
+    assert service._version_service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[
+        0
+    ]["sha"] == (head_before)
     assert read_service.get(a["note_id"], owner_id="u1")["tags"] == ["work"]
     assert read_service.get(b["note_id"], owner_id="u1")["tags"] == ["work"]
     for title in ("A", "B"):
@@ -470,7 +485,9 @@ def test_rename_tag_join_table_sync_failure_rolls_back_the_whole_chunk(
     note_id = service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])[
         "note_id"
     ]
-    sha_before = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha_before = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[
+        0
+    ]["sha"]
 
     with (
         patch.object(
@@ -482,9 +499,9 @@ def test_rename_tag_join_table_sync_failure_rolls_back_the_whole_chunk(
     ):
         _rename(tag_service, workspace, "work", "job")
 
-    assert service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"] == (
-        sha_before
-    )
+    assert service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ] == (sha_before)
     assert read_service.get(note_id, owner_id="u1")["tags"] == ["work"]
     on_disk, _ = read_note_file(note_filepath(str(workspace), "", "A"))
     assert on_disk.tags == ["work"]
@@ -565,7 +582,7 @@ def test_rename_tag_chunks_large_batches_logging_note_ids_per_chunk(
     # chunks land as distinct git commits, unlike the single-chunk case where every note's
     # most recent commit is the same sha.
     shas = {
-        service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+        service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
         for note_id in note_ids
     }
     assert len(shas) > 1

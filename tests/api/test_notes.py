@@ -319,7 +319,7 @@ def test_create_note_returns_403_when_no_access(no_access_client):
 def test_update_note_content(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save(_ws(ws_path), "Orig", "old content", [])["note_id"]
-    sha = note_svc.get_history(_note(ws_path, note_id))[0]["sha"]
+    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"content": "new content", "expected_sha": sha},
@@ -336,7 +336,7 @@ def test_update_note_response_matches_declared_schema(auth_client):
     # response must stay pinned to UpdateNoteResponse's documented shape, not leak them.
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save(_ws(ws_path), "Orig", "old content", [])["note_id"]
-    sha = note_svc.get_history(_note(ws_path, note_id))[0]["sha"]
+    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"content": "new content", "expected_sha": sha},
@@ -347,7 +347,7 @@ def test_update_note_response_matches_declared_schema(auth_client):
 def test_update_note_rejects_malformed_period_with_422_not_404(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save(_ws(ws_path), "Period Note", "c", [])["note_id"]
-    sha = note_svc.get_history(_note(ws_path, note_id))[0]["sha"]
+    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"period": "not-a-period", "expected_sha": sha},
@@ -360,7 +360,7 @@ def test_update_note_explicit_null_occurred_at_leaves_it_unchanged(auth_client):
     note_id = note_svc.save(_ws(ws_path), "Dated Note", "c", [], occurred_at="2026-03-22")[
         "note_id"
     ]
-    sha = note_svc.get_history(_note(ws_path, note_id))[0]["sha"]
+    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"title": "Renamed", "occurred_at": None, "expected_sha": sha},
@@ -373,7 +373,7 @@ def test_update_note_explicit_null_occurred_at_leaves_it_unchanged(auth_client):
 def test_update_note_title(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save(_ws(ws_path), "Old Title", "c", [])["note_id"]
-    sha = note_svc.get_history(_note(ws_path, note_id))[0]["sha"]
+    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"title": "New Title", "expected_sha": sha},
@@ -397,7 +397,7 @@ def test_update_note_tags_and_folder_patch_semantics(
 ):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save(_ws(ws_path), "Patched", "c", ["a"], folder="docs")["note_id"]
-    sha = note_svc.get_history(_note(ws_path, note_id))[0]["sha"]
+    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={**patch_body, "expected_sha": sha},
@@ -411,7 +411,7 @@ def test_update_note_tags_and_folder_patch_semantics(
 def test_update_note_content_omitted_leaves_body_untouched(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save(_ws(ws_path), "Patched", "original body", [])["note_id"]
-    sha = note_svc.get_history(_note(ws_path, note_id))[0]["sha"]
+    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"title": "Renamed", "expected_sha": sha},
@@ -636,7 +636,7 @@ def test_create_note_case_corrected_wikilink_returns_warning(auth_client):
 def test_update_note_broken_wikilink_returns_422(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save(_ws(ws_path), "Note", "body", [])["note_id"]
-    sha = note_svc.get_history(_note(ws_path, note_id))[0]["sha"]
+    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"content": "[[Ghost]]", "expected_sha": sha},
@@ -649,7 +649,7 @@ def test_update_note_broken_wikilink_returns_422(auth_client):
 def test_update_note_stale_sha_returns_409(auth_client):
     client, note_svc, ws_path = auth_client
     note_id = note_svc.save(_ws(ws_path), "Note", "v1", [])["note_id"]
-    stale_sha = note_svc.get_history(_note(ws_path, note_id))[0]["sha"]
+    stale_sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"content": "v2", "expected_sha": stale_sha},

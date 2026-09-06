@@ -15,7 +15,7 @@ def _note(ws_path, note_id) -> NoteTarget:
 def test_note_history_returns_commits(auth_client):
     client, note_service, workspace = auth_client
     note_id = note_service.save(_ws(workspace), "History", "v1", [])["note_id"]
-    sha = note_service.get_history(_note(workspace, note_id))[0]["sha"]
+    sha = note_service._version_service.get_history(_note(workspace, note_id))[0]["sha"]
     note_service.update(_note(workspace, note_id), expected_sha=sha, edit=EditSpec(content="v2"))
 
     response = client.get(f"/api/workspaces/test-ws/notes/{note_id}/history")
@@ -41,7 +41,7 @@ def test_note_history_requires_access(no_access_client):
 def test_note_version_returns_historical_content(auth_client):
     client, note_service, workspace = auth_client
     note_id = note_service.save(_ws(workspace), "Version", "old content", [])["note_id"]
-    version = note_service.get_history(_note(workspace, note_id))[0]["sha"]
+    version = note_service._version_service.get_history(_note(workspace, note_id))[0]["sha"]
     note_service.update(
         _note(workspace, note_id),
         expected_sha=version,
@@ -57,7 +57,7 @@ def test_note_version_returns_historical_content(auth_client):
 def test_restore_note_version_reverts_content(auth_client):
     client, note_service, workspace = auth_client
     note_id = note_service.save(_ws(workspace), "Restore", "original", [])["note_id"]
-    version = note_service.get_history(_note(workspace, note_id))[0]["sha"]
+    version = note_service._version_service.get_history(_note(workspace, note_id))[0]["sha"]
     note_service.update(
         _note(workspace, note_id),
         expected_sha=version,
@@ -78,7 +78,7 @@ def test_restore_note_version_response_matches_declared_schema(auth_client):
     # RestoreVersionResponse's documented shape, not leak them.
     client, note_service, workspace = auth_client
     note_id = note_service.save(_ws(workspace), "Restore", "original", [])["note_id"]
-    version = note_service.get_history(_note(workspace, note_id))[0]["sha"]
+    version = note_service._version_service.get_history(_note(workspace, note_id))[0]["sha"]
     note_service.update(
         _note(workspace, note_id),
         expected_sha=version,

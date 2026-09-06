@@ -147,7 +147,9 @@ def test_rename_does_not_rewrite_cross_workspace_backlink(service, read_service,
     )["note_id"]
 
     # Rename the ws-b note — rewrite_backlinks must not touch the ws-a file.
-    sha = service.get_history(note_target("u1", "ws", workspace, target_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, target_id))[0][
+        "sha"
+    ]
     service.update(
         note_target("u1", "ws", workspace, target_id), expected_sha=sha, title="New Title"
     )

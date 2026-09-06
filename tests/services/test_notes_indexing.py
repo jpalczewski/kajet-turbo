@@ -64,7 +64,7 @@ def test_update_reindexes_with_new_content(database, git_workspace_factory):
     ws = git_workspace_factory("ws")
     res = service.save(workspace_target("u1", "ws", ws), "Title", "# Title\n\nold\n", tags=[])
     target = note_target("u1", "ws", ws, res["note_id"])
-    sha = service.get_history(target)[0]["sha"]
+    sha = service._version_service.get_history(target)[0]["sha"]
     service.update(
         target,
         expected_sha=sha,

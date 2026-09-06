@@ -45,7 +45,9 @@ def test_update_fresh_sha_applies_content_overwrite(service, read_service, works
     note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "stara treść", [])[
         "note_id"
     ]
-    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
 
     result = service.update(
         note_target("u1", "ws", workspace, note_id),
@@ -67,7 +69,9 @@ def test_update_fresh_sha_applies_content_overwrite(service, read_service, works
 
 def test_update_no_gate_on_empty_body_overwrite(service, read_service, workspace):
     note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "", [])["note_id"]
-    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
 
     result = service.update(
         note_target("u1", "ws", workspace, note_id),
@@ -91,7 +95,9 @@ def test_update_no_gate_on_surgical_append(service, workspace):
     note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "## H\n\n- a", [])[
         "note_id"
     ]
-    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
 
     result = service.update(
         note_target("u1", "ws", workspace, note_id),
@@ -113,7 +119,9 @@ def test_update_fresh_sha_applies_tag_drop(service, read_service, workspace):
     note_id = service.save(
         workspace_target("u1", "ws", workspace), "Notka", "treść", ["python", "work"]
     )["note_id"]
-    sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
 
     service.update(note_target("u1", "ws", workspace, note_id), expected_sha=sha, tags=["python"])
 
@@ -123,7 +131,9 @@ def test_update_fresh_sha_applies_tag_drop(service, read_service, workspace):
 
 def test_update_rejects_stale_expected_sha(service, read_service, workspace):
     note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "v1", [])["note_id"]
-    stale_sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    stale_sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[
+        0
+    ]["sha"]
     service.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=stale_sha,
@@ -181,7 +191,9 @@ def test_update_stale_sha_rejected_even_for_pure_append(service, read_service, w
     note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "## H\n\n- a", [])[
         "note_id"
     ]
-    stale_sha = service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    stale_sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[
+        0
+    ]["sha"]
     service.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=stale_sha,

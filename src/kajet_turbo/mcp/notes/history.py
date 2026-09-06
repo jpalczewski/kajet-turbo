@@ -12,7 +12,7 @@ from kajet_turbo.mcp.notes.types import (
     StaleVersion,
 )
 from kajet_turbo.mcp.tooling import read_tool, require_found, write_tool
-from kajet_turbo.services.notes import NoteData, NoteLinkService, NoteService
+from kajet_turbo.services.notes import NoteData, NoteLinkService, NoteService, NoteVersionService
 from kajet_turbo.services.targets import NoteTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.shared.notes import HistoryEntry
@@ -20,6 +20,7 @@ from kajet_turbo.shared.notes import HistoryEntry
 
 def build_history(
     note_service: NoteService,
+    note_version_service: NoteVersionService,
     link_service: NoteLinkService,
     workspace_service: WorkspaceService,
 ) -> FastMCP:
@@ -33,7 +34,7 @@ def build_history(
     ) -> list[HistoryEntry]:
         """Returns the note's version history.
         Each entry: {sha, message, timestamp}."""
-        entries = await run_sync(note_service.get_history, target, limit)
+        entries = await run_sync(note_version_service.get_history, target, limit)
         return [HistoryEntry.model_validate(e) for e in entries]
 
     @srv.tool(**read_tool(tags={"notes", "history"}))
@@ -44,7 +45,7 @@ def build_history(
     ) -> NoteData:
         """Returns the note's content at a specific git commit.
         sha: full or short commit hash from get_note_history."""
-        version = await run_sync(note_service.get_version, target, sha)
+        version = await run_sync(note_version_service.get_version, target, sha)
         return NoteData.model_validate(version)
 
     @srv.tool(**write_tool(tags={"notes", "history"}, destructive=True))

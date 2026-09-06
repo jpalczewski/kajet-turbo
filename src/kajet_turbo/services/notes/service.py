@@ -1057,9 +1057,3 @@ class NoteService:
             occurred_at=version["occurred_at"],
             period=version["period"],
         )
-
-    def get_history(self, target: NoteTarget, limit: int = 50) -> list[dict]:
-        return self._version_service.get_history(target, limit)
-
-    def get_version(self, target: NoteTarget, sha: str) -> dict:
-        return self._version_service.get_version(target, sha)

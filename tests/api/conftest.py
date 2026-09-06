@@ -19,6 +19,7 @@ from kajet_turbo.dependencies import (
     get_note_service,
     get_note_tag_service,
     get_note_temporal_service,
+    get_note_version_service,
     get_required_user,
     get_target_resolver,
     get_workspace_service,
@@ -151,6 +152,7 @@ def api_client_factory(
         app.dependency_overrides[get_note_link_service] = lambda: note_link_service
         app.dependency_overrides[get_note_folder_service] = lambda: note_folder_service
         app.dependency_overrides[get_note_temporal_service] = lambda: note_temporal_service
+        app.dependency_overrides[get_note_version_service] = lambda: note_service._version_service
         app.dependency_overrides[get_note_read_service] = lambda: note_read_service
         app.dependency_overrides[get_workspace_service] = lambda: workspace_service
         app.dependency_overrides[get_target_resolver] = lambda: TargetResolver(
