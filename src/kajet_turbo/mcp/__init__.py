@@ -121,6 +121,8 @@ def build_mcp(resources: AppResources) -> FastMCP:
     mcp.mount(
         build_notes(
             resources.note_service,
+            resources.note_tag_service,
+            resources.note_link_service,
             resources.note_temporal_service,
             resources.note_read_service,
             resources.workspace_service,

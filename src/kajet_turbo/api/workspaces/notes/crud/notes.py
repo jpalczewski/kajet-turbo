@@ -16,6 +16,7 @@ from kajet_turbo.dependencies import (
     CurrentUser,
     get_note_read_service,
     get_note_service,
+    get_note_tag_service,
     get_required_user,
     resolve_note_target,
     resolve_workspace_target,
@@ -23,7 +24,7 @@ from kajet_turbo.dependencies import (
 from kajet_turbo.errors import FolderError, NoteError
 from kajet_turbo.markdown import BrokenWikilinkError, EditSpec
 from kajet_turbo.repositories.git import GitError  # exception class, not errors.GitError StrEnum
-from kajet_turbo.services.notes import NoteReadService, NoteService
+from kajet_turbo.services.notes import NoteReadService, NoteService, NoteTagService
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import InvalidFolderError, TemporalMetadataError, temporal_kwargs
 
@@ -44,13 +45,14 @@ def api_list_notes(
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     note_service: NoteService = Depends(get_note_service),
+    tag_service: NoteTagService = Depends(get_note_tag_service),
     note_read_service: NoteReadService = Depends(get_note_read_service),
     folder: str | None = None,
     tag: str | None = None,
     include_descendants: bool = True,
 ) -> JSONResponse:
     if tag is not None:
-        notes = note_service.notes_by_tag(
+        notes = tag_service.notes_by_tag(
             name, user.id, tag, include_descendants=include_descendants
         )
     else:

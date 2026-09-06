@@ -1,7 +1,8 @@
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
+from itertools import batched
 
 from sqlmodel import Session
 
@@ -9,19 +10,25 @@ from kajet_turbo.log import logger
 from kajet_turbo.markdown import (
     extract_inline_tags,
     normalize,
+    remap_path,
+    rewrite_inline_tags,
 )
 from kajet_turbo.repositories.git import (
     GitRepository,
+    defer_workspace_postprocess,
     target_write_transaction,
 )
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.services.notes.staged_change import (
+    MAX_BATCH_COMMIT_SIZE,
     StagedChange,
     commit_rows_then_tree,
 )
 from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
-from kajet_turbo.services.targets import NoteTarget
+from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import (
+    LocatedNote,
+    NoteFrontmatter,
     locate_note,
     read_note_file,
     temporal_drop_warnings,
@@ -31,10 +38,32 @@ from kajet_turbo.workspace import (
 type TaggedPairs = list[tuple[str, str]]
 
 
+@dataclass(frozen=True, slots=True)
+class _RenamedNote:
+    """One note staged for a tag rename: what to write and whether its body changed."""
+
+    loc: LocatedNote
+    meta: NoteFrontmatter
+    new_tags: list[str]
+    new_body: str
+    old_body: str
+
+    @property
+    def note(self):
+        return self.loc.note
+
+    @property
+    def body_changed(self) -> bool:
+        return self.new_body != self.old_body
+
+
 class NoteTagService:
-    def __init__(self, crud_repo: NoteRepository, tag_repo: NoteTagRepository) -> None:
+    def __init__(
+        self, crud_repo: NoteRepository, tag_repo: NoteTagRepository, indexer=None
+    ) -> None:
         self._crud_repo = crud_repo
         self._tag_repo = tag_repo
+        self._indexer = indexer
 
     @staticmethod
     def normalize_tags(raw: list[str]) -> list[str]:
@@ -241,3 +270,184 @@ class NoteTagService:
         ):
             return stale_payload(note_id)
         return self._apply_tag_change(target, lambda current, content: (normalized, warnings))
+
+    @target_write_transaction
+    def rename_tag(
+        self,
+        old: str,
+        new: str,
+        target: WorkspaceTarget,
+        *,
+        merge: bool = False,
+    ) -> dict:
+        """Rename a tag and its subtree across a workspace, optionally merging its target."""
+        owner_id = target.owner_id
+        ws_name = target.name
+        ws_path = str(target.path)
+        old_n = normalize(old)
+        new_n = normalize(new)
+        if old_n is None:
+            raise ValueError(f"{old!r}: niepoprawny tag.")
+        if new_n is None:
+            raise ValueError(f"{new!r}: niepoprawny tag.")
+        if old_n == new_n:
+            return self._rename_result(old_n, new_n, 0, 0, False, [])
+        if new_n.startswith(old_n + "/"):
+            raise ValueError(f"Nie można przenieść taga '{old_n}' do jego własnego poddrzewa.")
+
+        source_ids = self._tag_repo.note_ids_for_tags(ws_name, owner_id, [old_n])
+        if not source_ids:
+            raise ValueError(f"Tag '{old_n}' nie istnieje.")
+        target_ids = self._tag_repo.note_ids_for_tags(ws_name, owner_id, [new_n])
+        if target_ids and not merge:
+            return {
+                "error": f"Tag '{new_n}' już istnieje — powtórz z merge=true, żeby scalić.",
+                "target": new_n,
+                "target_notes": len(target_ids),
+                "source_notes": len(source_ids),
+            }
+
+        def remap(tag: str) -> str | None:
+            return remap_path(tag, old_n, new_n)
+
+        warnings: list[str] = []
+        staged: list[_RenamedNote] = []
+        for note in self._crud_repo.get_many(sorted(source_ids), owner_id):
+            loc = locate_note(note, ws_path)
+            if not loc.file_exists:
+                warnings.append(f"{note.title}: plik notatki nie istnieje — pominięta")
+                continue
+            existing_meta, content = read_note_file(loc.filepath)
+            old_tags = self.normalize_tags(existing_meta.tags)
+            new_tags = list(dict.fromkeys(remap(tag) or tag for tag in old_tags))
+            new_body, _ = rewrite_inline_tags(content, remap)
+            if new_tags != old_tags or new_body != content:
+                staged.append(_RenamedNote(loc, existing_meta, new_tags, new_body, content))
+        if not staged:
+            return self._rename_result(old_n, new_n, 0, 0, bool(target_ids), warnings)
+
+        now = datetime.now(UTC).isoformat()
+        git_repo = GitRepository(ws_path)
+        message = f"tag: rename {old_n} -> {new_n}"
+        rewritten_ids: list[str] = []
+        for chunk in batched(staged, MAX_BATCH_COMMIT_SIZE, strict=False):
+            items = [
+                StagedChange(
+                    add=item.loc.relative,
+                    remove=None,
+                    apply=partial(
+                        write_note_file,
+                        item.loc.filepath,
+                        replace(
+                            item.meta,
+                            id=item.note.id,
+                            title=item.note.title,
+                            tags=item.new_tags,
+                            created_at=item.note.created_at,
+                            updated_at=now,
+                        ),
+                        item.new_body,
+                    ),
+                )
+                for item in chunk
+            ]
+
+            def write_rows(session: Session, chunk: tuple[_RenamedNote, ...] = chunk) -> None:
+                for item in chunk:
+                    self._crud_repo.update_in_session(
+                        session,
+                        item.note.id,
+                        owner_id=owner_id,
+                        title=item.note.title,
+                        tags=item.new_tags,
+                        updated_at=now,
+                        folder=item.note.folder,
+                        occurred_at=item.meta.occurred_at,
+                        period=item.meta.period,
+                        bump_index_generation=item.body_changed,
+                    )
+                self._tag_repo.sync_note_tags_many_in_session(
+                    session,
+                    ws_name,
+                    owner_id,
+                    {item.note.id: self.tagged(item.new_tags, item.new_body) for item in chunk},
+                    now,
+                )
+
+            commit_rows_then_tree(
+                self._crud_repo,
+                git_repo,
+                items,
+                message,
+                operation="rename_tag",
+                write_rows=write_rows,
+                owner_id=owner_id,
+                old=old_n,
+                new=new_n,
+                count=len(chunk),
+                note_ids=[item.note.id for item in chunk],
+            )
+            rewritten_ids.extend(item.note.id for item in chunk if item.body_changed)
+        with (
+            self._tag_repo.operation(
+                "sweep_orphan_tags", workspace=ws_name, owner_id=owner_id
+            ) as op,
+            op.session.begin(),
+        ):
+            self._tag_repo.sweep_orphan_tags_in_session(op.session, ws_name, owner_id)
+        if self._indexer is not None and rewritten_ids:
+            defer_workspace_postprocess(
+                ws_path,
+                partial(
+                    self._indexer.index_many,
+                    ws_name,
+                    owner_id,
+                    [{"id": note_id} for note_id in rewritten_ids],
+                ),
+            )
+        logger.info(
+            "tag_renamed",
+            old=old_n,
+            new=new_n,
+            renamed=len(staged),
+            merged=bool(target_ids),
+            inline_rewritten=len(rewritten_ids),
+        )
+        return self._rename_result(
+            old_n, new_n, len(staged), len(rewritten_ids), bool(target_ids), warnings
+        )
+
+    @staticmethod
+    def _rename_result(
+        old: str, new: str, renamed: int, inline_rewritten: int, merged: bool, warnings: list[str]
+    ) -> dict:
+        return {
+            "old": old,
+            "new": new,
+            "renamed": renamed,
+            "merged": merged,
+            "inline_rewritten": inline_rewritten,
+            "warnings": warnings,
+        }
+
+    def tag_tree(self, ws_name: str, owner_id: str) -> list[dict]:
+        return self._tag_repo.tag_tree(ws_name, owner_id)
+
+    def tag_counts(
+        self,
+        ws_name: str,
+        owner_id: str,
+        folder: str | None = None,
+        include_subfolders: bool = True,
+    ) -> list[dict]:
+        return self._tag_repo.tag_counts(ws_name, owner_id, folder, include_subfolders)
+
+    def notes_by_tag(
+        self,
+        ws_name: str,
+        owner_id: str,
+        path: str,
+        include_descendants: bool = True,
+        limit: int | None = None,
+    ) -> list[dict]:
+        return self._tag_repo.notes_by_tag(ws_name, owner_id, path, include_descendants, limit)

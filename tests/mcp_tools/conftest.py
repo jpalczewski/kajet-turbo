@@ -14,13 +14,18 @@ from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.mcp import build_mcp
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.git import PostCommitHooks
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository, NoteTagRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.indexing import NoteIndexer
-from kajet_turbo.services.notes import NoteService, NoteTemporalService
+from kajet_turbo.services.notes import (
+    NoteLinkService,
+    NoteService,
+    NoteTagService,
+    NoteTemporalService,
+)
 from kajet_turbo.services.targets import TargetResolver
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -62,8 +67,22 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         resolve_backend=lambda o: None,
         jobs=JobRepository(database.engine),
     )
+    note_link_service_inst = NoteLinkService(
+        note_repository,
+        NoteLinkRepository(database.engine),
+        NoteTagRepository(database.engine),
+        None,
+        None,
+        JobRepository(database.engine),
+    )
     note_service_inst = build_note_service(
-        database, indexer=indexer, chunk_repo=note_chunk_repository
+        database,
+        indexer=indexer,
+        chunk_repo=note_chunk_repository,
+        link_service=note_link_service_inst,
+    )
+    note_tag_service_inst = NoteTagService(
+        note_repository, NoteTagRepository(database.engine), indexer
     )
     note_temporal_service_inst = NoteTemporalService(note_repository)
     note_read_service = build_note_read_service(database, indexer=indexer)
@@ -81,6 +100,8 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
     # so isolated MCP tool tests don't need a full application resource graph.
     resources = SimpleNamespace(
         note_service=note_service_inst,
+        note_tag_service=note_tag_service_inst,
+        note_link_service=note_link_service_inst,
         note_temporal_service=note_temporal_service_inst,
         note_read_service=note_read_service,
         workspace_service=workspace_service,

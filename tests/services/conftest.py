@@ -66,6 +66,7 @@ def build_note_service(
     async_build_embedder=None,
     reconcile_repo: LinkReconcileRepository | None = None,
     jobs: JobRepository | None = None,
+    link_service: NoteLinkService | None = None,
 ) -> NoteService:
     """Construct a fully-wired NoteService from a Database for tests."""
     engine = database.engine
@@ -77,10 +78,11 @@ def build_note_service(
     if jobs is None:
         jobs = JobRepository(engine)
 
-    tag_service = NoteTagService(crud_repo, tag_repo)
-    link_service = NoteLinkService(
-        crud_repo, link_repo, tag_repo, dangling_repo, link_validation_enabled, jobs
-    )
+    tag_service = NoteTagService(crud_repo, tag_repo, indexer)
+    if link_service is None:
+        link_service = NoteLinkService(
+            crud_repo, link_repo, tag_repo, dangling_repo, link_validation_enabled, jobs
+        )
     search_service = NoteSearchService(
         chunk_repo,
         query_resolver,
@@ -147,7 +149,20 @@ def workspace(git_workspace_factory: Callable[[str], Path]) -> Path:
 
 
 @pytest.fixture
-def service(database: Database) -> NoteService:
+def link_service(database: Database) -> NoteLinkService:
+    engine = database.engine
+    return NoteLinkService(
+        NoteRepository(engine),
+        NoteLinkRepository(engine),
+        NoteTagRepository(engine),
+        None,
+        None,
+        JobRepository(engine),
+    )
+
+
+@pytest.fixture
+def service(database: Database, link_service: NoteLinkService) -> NoteService:
     chunk_repo = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
         chunk_repo,
@@ -155,7 +170,13 @@ def service(database: Database) -> NoteService:
         resolve_backend=lambda owner_id: None,  # FTS-only in tests (no network)
         jobs=JobRepository(database.engine),
     )
-    return build_note_service(database, indexer=indexer)
+    return build_note_service(database, indexer=indexer, link_service=link_service)
+
+
+@pytest.fixture
+def tag_service(service: NoteService) -> NoteTagService:
+    """The concrete tag boundary paired with the note writer in service tests."""
+    return service._tag_service
 
 
 @pytest.fixture

@@ -133,6 +133,8 @@ class AppResources:
     folder_meta_repo: FolderMetaRepository
     job_repo: JobRepository
     note_service: NoteService
+    note_tag_service: NoteTagService
+    note_link_service: NoteLinkService
     note_temporal_service: NoteTemporalService
     note_read_service: NoteReadService
     workspace_service: WorkspaceService
@@ -229,7 +231,7 @@ def build_resources(config: AppConfig) -> AppResources:
         workspace_meta_repo = WorkspaceMetaRepository(db.engine)
         dangling_repo = DanglingLinkRepository(db.engine)
         reconcile_repo = LinkReconcileRepository(db.engine, job_repo)
-        tag_service = NoteTagService(note_repo, note_tag_repo)
+        tag_service = NoteTagService(note_repo, note_tag_repo, indexer)
         workspace_service: WorkspaceService
         link_service = NoteLinkService(
             note_repo,
@@ -314,6 +316,8 @@ def build_resources(config: AppConfig) -> AppResources:
             folder_meta_repo,
             job_repo,
             note_service,
+            tag_service,
+            link_service,
             note_temporal_service,
             note_read_service,
             workspace_service,
@@ -377,6 +381,14 @@ def get_note_repo(request: Request) -> NoteRepository:
 
 def get_note_service(request: Request) -> NoteService:
     return _resources(request).note_service
+
+
+def get_note_tag_service(request: Request) -> NoteTagService:
+    return _resources(request).note_tag_service
+
+
+def get_note_link_service(request: Request) -> NoteLinkService:
+    return _resources(request).note_link_service
 
 
 def get_note_temporal_service(request: Request) -> NoteTemporalService:

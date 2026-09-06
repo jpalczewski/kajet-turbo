@@ -21,13 +21,13 @@ from kajet_turbo.mcp.tooling import (
     read_tool,
     write_tool,
 )
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import NoteTagService
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 
 
 def build_tags(
-    note_service: NoteService,
+    tag_service: NoteTagService,
     workspace_service: WorkspaceService,
 ) -> FastMCP:
     srv = FastMCP("notes-tags")
@@ -40,7 +40,7 @@ def build_tags(
     ) -> TagOperationResult:
         """Adds tags to the note's frontmatter (idempotently), without touching content.
         Note: this only touches frontmatter tags; inline #hashtags live in the content."""
-        result = await run_sync(note_service.add_tags, target, tags)
+        result = await run_sync(tag_service.add_tags, target, tags)
         if result["changed"]:
             await publish_note_updated(target.workspace, note_id)
         return TagOperationResult.model_validate(result)
@@ -53,7 +53,7 @@ def build_tags(
     ) -> TagOperationResult:
         """Removes tags from the note's frontmatter (idempotently), without touching content.
         A tag present only as an inline #hashtag will not disappear — it comes back as a warning."""
-        result = await run_sync(note_service.remove_tags, target, tags)
+        result = await run_sync(tag_service.remove_tags, target, tags)
         if result["changed"]:
             await publish_note_updated(target.workspace, note_id)
         return TagOperationResult.model_validate(result)
@@ -77,7 +77,7 @@ def build_tags(
         get_note/get_note_history; a mismatch returns StaleVersion — re-read the note and
         retry with the fresh sha.
         Success: TagOperationResult {note_id, tags, frontmatter_tags, warnings}."""
-        result = await run_sync(note_service.set_tags, target, tags, expected_sha)
+        result = await run_sync(tag_service.set_tags, target, tags, expected_sha)
         if result.get("stale_sha"):
             return StaleVersion.model_validate(result)
         if result["changed"]:
@@ -111,12 +111,10 @@ def build_tags(
         Search indexing (chunks/FTS/embeddings) is deferred to background jobs for every
         note whose body was rewritten."""
         result = await run_sync(
-            note_service.rename_tag,
+            tag_service.rename_tag,
             old,
             new,
-            owner_id=target.owner_id,
-            ws_name=target.name,
-            ws_path=str(target.path),
+            target,
             merge=merge,
         )
         if result.get("error"):
@@ -147,7 +145,7 @@ def build_tags(
         Use this to survey existing tags before tagging — optionally narrowed to a
         folder."""
         tags_result = await run_sync(
-            note_service.tag_counts,
+            tag_service.tag_counts,
             target.name,
             owner_id=target.owner_id,
             folder=folder,

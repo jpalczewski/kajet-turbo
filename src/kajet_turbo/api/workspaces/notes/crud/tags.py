@@ -5,12 +5,12 @@ from kajet_turbo.api.schemas import TagsResponse
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.dependencies import (
     CurrentUser,
-    get_note_service,
+    get_note_tag_service,
     get_required_user,
     get_workspace_service,
 )
 from kajet_turbo.errors import AuthError
-from kajet_turbo.services.notes import NoteService
+from kajet_turbo.services.notes import NoteTagService
 from kajet_turbo.services.workspaces import WorkspaceService
 
 router = APIRouter(
@@ -26,8 +26,8 @@ def api_list_tags(
     name: str,
     user: CurrentUser = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
-    note_service: NoteService = Depends(get_note_service),
+    tag_service: NoteTagService = Depends(get_note_tag_service),
 ) -> JSONResponse:
     if not ws_service.has_access(user.id, name):
         raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-    return JSONResponse({"tags": note_service.tag_tree(name, owner_id=user.id)})
+    return JSONResponse({"tags": tag_service.tag_tree(name, owner_id=user.id)})
