@@ -4,7 +4,6 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
-from itertools import batched
 from pathlib import Path
 from secrets import token_hex
 from typing import cast
@@ -21,9 +20,6 @@ from kajet_turbo.markdown import (
     LinkResolution,
     LinkResolver,
     apply_edit,
-    normalize,
-    remap_path,
-    rewrite_inline_tags,
 )
 from kajet_turbo.models import Note
 from kajet_turbo.repositories.git import (
@@ -53,7 +49,6 @@ from kajet_turbo.services.notes.paths import (
 from kajet_turbo.services.notes.persistence import NoteTeardown, new_note_row
 from kajet_turbo.services.notes.search import NoteSearchService
 from kajet_turbo.services.notes.staged_change import (
-    MAX_BATCH_COMMIT_SIZE,
     StagedChange,
     commit_rows_then_tree,
     staged_workspace_change,
@@ -72,7 +67,6 @@ from kajet_turbo.workspace import (
     LocatedNote,
     NoteFrontmatter,
     iter_note_paths,
-    locate_note,
     normalize_folder,
     normalize_temporal_metadata,
     note_filepath,

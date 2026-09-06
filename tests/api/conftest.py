@@ -14,6 +14,7 @@ from kajet_turbo.dependencies import (
     CurrentUser,
     get_note_read_service,
     get_note_service,
+    get_note_tag_service,
     get_note_temporal_service,
     get_required_user,
     get_target_resolver,
@@ -23,12 +24,17 @@ from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
-from kajet_turbo.repositories.notes import NoteRepository
+from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.indexing import NoteIndexer
-from kajet_turbo.services.notes import NoteReadService, NoteService, NoteTemporalService
+from kajet_turbo.services.notes import (
+    NoteReadService,
+    NoteService,
+    NoteTagService,
+    NoteTemporalService,
+)
 from kajet_turbo.services.targets import TargetResolver
 from kajet_turbo.services.workspaces import WorkspaceService
 
@@ -94,6 +100,9 @@ def api_client_factory(
         note_service = build_note_service(
             database, indexer=note_indexer, chunk_repo=note_chunk_repository
         )
+        note_tag_service = NoteTagService(
+            note_repository, NoteTagRepository(database.engine), note_indexer
+        )
         note_temporal_service = NoteTemporalService(note_repository)
         note_read_service = build_note_read_service(database, indexer=note_indexer)
         workspace_service = WorkspaceService(
@@ -114,6 +123,7 @@ def api_client_factory(
 
         app = build_test_app()
         app.dependency_overrides[get_note_service] = lambda: note_service
+        app.dependency_overrides[get_note_tag_service] = lambda: note_tag_service
         app.dependency_overrides[get_note_temporal_service] = lambda: note_temporal_service
         app.dependency_overrides[get_note_read_service] = lambda: note_read_service
         app.dependency_overrides[get_workspace_service] = lambda: workspace_service

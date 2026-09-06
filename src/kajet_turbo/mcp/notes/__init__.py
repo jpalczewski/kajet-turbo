@@ -3,6 +3,7 @@ from fastmcp import FastMCP
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.notes import (
+    NoteLinkService,
     NoteReadService,
     NoteService,
     NoteTagService,
@@ -24,6 +25,7 @@ from .write import build_write
 def build_notes(
     note_service: NoteService,
     note_tag_service: NoteTagService,
+    note_link_service: NoteLinkService,
     note_temporal_service: NoteTemporalService,
     note_read_service: NoteReadService,
     workspace_service: WorkspaceService,
