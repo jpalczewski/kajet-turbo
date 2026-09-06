@@ -3032,6 +3032,54 @@ export const apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestoreP
 
 
 
+export type apiGetPublicNoteApiPublicNotesTokenGetResponse200 = {
+  data: NoteHtmlResponse
+  status: 200
+}
+
+export type apiGetPublicNoteApiPublicNotesTokenGetResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type apiGetPublicNoteApiPublicNotesTokenGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiGetPublicNoteApiPublicNotesTokenGetResponseSuccess = (apiGetPublicNoteApiPublicNotesTokenGetResponse200) & {
+  headers: Headers;
+};
+export type apiGetPublicNoteApiPublicNotesTokenGetResponseError = (apiGetPublicNoteApiPublicNotesTokenGetResponse404 | apiGetPublicNoteApiPublicNotesTokenGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiGetPublicNoteApiPublicNotesTokenGetResponse = (apiGetPublicNoteApiPublicNotesTokenGetResponseSuccess | apiGetPublicNoteApiPublicNotesTokenGetResponseError)
+
+export const getApiGetPublicNoteApiPublicNotesTokenGetUrl = (token: string,) => {
+
+
+
+
+  return `/api/public/notes/${token}`
+}
+
+/**
+ * @summary Api Get Public Note
+ */
+export const apiGetPublicNoteApiPublicNotesTokenGet = async (token: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetPublicNoteApiPublicNotesTokenGetResponse> => {
+
+  return customFetch<apiGetPublicNoteApiPublicNotesTokenGetResponse>(getApiGetPublicNoteApiPublicNotesTokenGetUrl(token),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export type apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponse200 = {
   data: EmbeddingProfilesResponse
   status: 200
