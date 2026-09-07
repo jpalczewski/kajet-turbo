@@ -5,6 +5,7 @@ from kajet_turbo.services.notes.read import NoteReadService
 from kajet_turbo.services.notes.reconcile import NoteReconcileService
 from kajet_turbo.services.notes.search import NoteSearchService
 from kajet_turbo.services.notes.service import NoteService
+from kajet_turbo.services.notes.share_links import NoteShareLinkService
 from kajet_turbo.services.notes.tags import NoteTagService
 from kajet_turbo.services.notes.temporal import NoteTemporalService
 from kajet_turbo.services.notes.types import EditBatchItem, NoteData
@@ -18,6 +19,7 @@ __all__ = [
     "NoteReconcileService",
     "NoteSearchService",
     "NoteService",
+    "NoteShareLinkService",
     "NoteTagService",
     "NoteTemporalService",
     "NoteVersionService",

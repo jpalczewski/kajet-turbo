@@ -6,7 +6,8 @@
 
   let { children } = $props();
 
-  const showNavbar = $derived((page.route.id as string | null) !== '/login');
+  const CHROMELESS_ROUTES = ['/login', '/shared/[token]'];
+  const showNavbar = $derived(!CHROMELESS_ROUTES.includes(page.route.id ?? ''));
 </script>
 
 {#if showNavbar}

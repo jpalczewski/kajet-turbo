@@ -62,6 +62,7 @@ from kajet_turbo.services.notes import (
     NoteReconcileService,
     NoteSearchService,
     NoteService,
+    NoteShareLinkService,
     NoteTagService,
     NoteTemporalService,
     NoteVersionService,
@@ -150,6 +151,7 @@ class AppResources:
     collection_service: CollectionService
     embedding_profile_service: EmbeddingProfileService
     ssh_key_service: SshKeyService
+    note_share_link_service: NoteShareLinkService
     preferences_service: PreferencesService
     workspace_remote_service: WorkspaceRemoteService
     job_service: JobService
@@ -294,6 +296,7 @@ def build_resources(config: AppConfig) -> AppResources:
         ssh_key_service = SshKeyService(
             ssh_key_repo, lambda: cipher_for("ssh-key", config.secret_key)
         )
+        note_share_link_service = NoteShareLinkService(note_share_link_repo)
         workspace_remote_repo = WorkspaceRemoteRepository(db.engine)
         workspace_service = WorkspaceService(
             workspace_repo,
@@ -350,6 +353,7 @@ def build_resources(config: AppConfig) -> AppResources:
             CollectionService(note_repo, note_service),
             embedding_profile_service,
             ssh_key_service,
+            note_share_link_service,
             PreferencesService(user_repo),
             WorkspaceRemoteService(
                 workspace_remote_repo, ssh_key_repo, job_repo, config.workspaces_dir
@@ -409,6 +413,10 @@ def get_folder_meta_repo(conn: HTTPConnection) -> FolderMetaRepository:
 
 def get_note_share_link_repo(conn: HTTPConnection) -> NoteShareLinkRepository:
     return _resources(conn).note_share_link_repo
+
+
+def get_note_share_link_service(conn: HTTPConnection) -> NoteShareLinkService:
+    return _resources(conn).note_share_link_service
 
 
 def get_note_repo(conn: HTTPConnection) -> NoteRepository:

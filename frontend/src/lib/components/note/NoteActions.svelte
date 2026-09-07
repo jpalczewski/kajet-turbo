@@ -4,6 +4,7 @@
   import { apiErrorMessage } from '$lib/api/mutate';
   import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
   import MoveNoteDialog from '$lib/components/MoveNoteDialog.svelte';
+  import ShareDialog from '$lib/components/ShareDialog.svelte';
   import { noteChunksPath, noteEditPath, noteHistoryPath, notePath } from '$lib/routes';
 
   let {
@@ -44,6 +45,7 @@
   <a href={noteHistoryPath(slug, noteId)} class="actions__link">Historia</a>
   <a href={noteChunksPath(slug, noteId)} class="actions__link">Chunki</a>
   <MoveNoteDialog {slug} {noteId} currentFolder={folder} {onmoved} />
+  <ShareDialog {slug} {noteId} />
   <ConfirmDialog
     title="Usuń notatkę"
     message={`Usunąć "${noteTitle}"?`}

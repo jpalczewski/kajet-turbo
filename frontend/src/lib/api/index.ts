@@ -344,7 +344,14 @@ export const SshKeyError = {
   SSH_KEY_NOT_FOUND: 'SSH_KEY_NOT_FOUND',
 } as const;
 
-export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,...JobError,...PreferencesError,...RequestError,...TargetError,...WorkspaceRemoteError,...SshKeyError,...EmbeddingProfileError,} as const
+export type ShareLinkError = typeof ShareLinkError[keyof typeof ShareLinkError];
+
+
+export const ShareLinkError = {
+  SHARE_LINK_NOT_FOUND: 'SHARE_LINK_NOT_FOUND',
+} as const;
+
+export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,...JobError,...PreferencesError,...RequestError,...TargetError,...WorkspaceRemoteError,...SshKeyError,...EmbeddingProfileError,...ShareLinkError,} as const
 export type ErrorCode = typeof ErrorCode[keyof typeof ErrorCode];
 
 export interface ErrorResponse {
@@ -601,6 +608,15 @@ export interface SettingDefinition {
   label: string;
   description: string;
   default: unknown;
+}
+
+export interface ShareLinkItem {
+  token: string;
+  created_at: string;
+}
+
+export interface ShareLinksResponse {
+  links: ShareLinkItem[];
 }
 
 export interface SshKeyItem {
@@ -3025,6 +3041,188 @@ export const apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestoreP
   {
     ...options,
     method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse201 = {
+  data: ShareLinkItem
+  status: 201
+}
+
+export type apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponseSuccess = (apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse201) & {
+  headers: Headers;
+};
+export type apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponseError = (apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse401 | apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse403 | apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse404 | apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse422) & {
+  headers: Headers;
+};
+
+export type apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse = (apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponseSuccess | apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponseError)
+
+export const getApiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostUrl = (name: string,
+    noteId: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}/share-links`
+}
+
+/**
+ * @summary Api Create Share Link
+ */
+export const apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPost = async (name: string,
+    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse> => {
+
+  return customFetch<apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse>(getApiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostUrl(name,noteId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse200 = {
+  data: ShareLinksResponse
+  status: 200
+}
+
+export type apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponseSuccess = (apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse200) & {
+  headers: Headers;
+};
+export type apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponseError = (apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse401 | apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse403 | apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse404 | apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse = (apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponseSuccess | apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponseError)
+
+export const getApiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetUrl = (name: string,
+    noteId: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}/share-links`
+}
+
+/**
+ * @summary Api List Share Links
+ */
+export const apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGet = async (name: string,
+    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse> => {
+
+  return customFetch<apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse>(getApiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetUrl(name,noteId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse200 = {
+  data: OkResponse
+  status: 200
+}
+
+export type apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponseSuccess = (apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse200) & {
+  headers: Headers;
+};
+export type apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponseError = (apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse401 | apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse403 | apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse404 | apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse = (apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponseSuccess | apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponseError)
+
+export const getApiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteUrl = (name: string,
+    noteId: string,
+    token: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}/share-links/${token}`
+}
+
+/**
+ * @summary Api Revoke Share Link
+ */
+export const apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDelete = async (name: string,
+    noteId: string,
+    token: string, options?: Parameters<typeof customFetch>[1]): Promise<apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse> => {
+
+  return customFetch<apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse>(getApiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteUrl(name,noteId,token),
+  {
+    ...options,
+    method: 'DELETE'
 
 
   }

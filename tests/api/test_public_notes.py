@@ -40,6 +40,26 @@ def test_revoked_token_returns_404_not_403(auth_client):
     assert response.headers["cache-control"] == "no-store"
 
 
+def test_wikilink_to_a_private_note_never_leaks_a_link(auth_client):
+    # #348: the public render must omit wl_resolver/xws_resolver entirely, so a
+    # [[wikilink]] degrades to plain text -- even though the target note is real and
+    # would resolve to a live <a href> on any authenticated render path, an anonymous
+    # viewer of the shared note must not learn its folder/note_id or reach it.
+    client, note_service, workspace = auth_client
+    note_service.save(_ws(workspace), "Private Note", "secret content", [])
+    note_id = note_service.save(
+        _ws(workspace), "Shared Note", "See [[Private Note]] for details.", []
+    )["note_id"]
+    link = auth_client.share_link_repo.create(note_id, "test-ws", "u1")
+
+    response = client.get(f"/api/public/notes/{link.token}")
+
+    assert response.status_code == 200
+    html = response.json()["content_html"]
+    assert '<span class="wikilink-broken">Private Note</span>' in html
+    assert "<a" not in html
+
+
 def test_unknown_token_returns_404_with_no_identity_at_all(anon_client):
     # anon_client seeds no user, no note, and no share link -- this is the case that
     # proves the endpoint needs zero session/OAuth state, not merely "a bad token 404s".

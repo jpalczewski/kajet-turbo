@@ -32,6 +32,7 @@ from .crud import (
     WorkspaceContentsResponse,
 )
 from .history import NoteHistoryEntry, NoteHistoryResponse, RestoreVersionResponse
+from .share_links import ShareLinkItem, ShareLinksResponse
 
 __all__ = [
     "BatchCreateNotesRequest",
@@ -59,6 +60,8 @@ __all__ = [
     "NotesListResponse",
     "ReindexResponse",
     "RestoreVersionResponse",
+    "ShareLinkItem",
+    "ShareLinksResponse",
     "TagNode",
     "TagsResponse",
     "UpdateFolderMetaRequest",

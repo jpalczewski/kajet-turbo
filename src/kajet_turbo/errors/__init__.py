@@ -6,6 +6,7 @@ from .jobs import JobError
 from .notes import NoteError
 from .preferences import PreferencesError
 from .request import RequestError
+from .share_links import ShareLinkError
 from .ssh_keys import SshKeyError
 from .targets import TargetError
 from .workspace import WorkspaceError
@@ -24,6 +25,7 @@ type ErrorCode = (
     | WorkspaceRemoteError
     | SshKeyError
     | EmbeddingProfileError
+    | ShareLinkError
 )
 
 __all__ = [
@@ -38,6 +40,7 @@ __all__ = [
     "RequestError",
     "SecurityEvent",
     "SecurityReason",
+    "ShareLinkError",
     "SshKeyError",
     "TargetError",
     "WorkspaceError",

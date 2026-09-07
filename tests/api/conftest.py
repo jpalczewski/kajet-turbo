@@ -19,6 +19,7 @@ from kajet_turbo.dependencies import (
     get_note_reconcile_service,
     get_note_service,
     get_note_share_link_repo,
+    get_note_share_link_service,
     get_note_tag_service,
     get_note_temporal_service,
     get_note_version_service,
@@ -42,6 +43,7 @@ from kajet_turbo.services.notes import (
     NoteReadService,
     NoteReconcileService,
     NoteService,
+    NoteShareLinkService,
     NoteTagService,
     NoteTemporalService,
 )
@@ -162,6 +164,9 @@ def api_client_factory(
         app.dependency_overrides[get_note_read_service] = lambda: note_read_service
         app.dependency_overrides[get_workspace_service] = lambda: workspace_service
         app.dependency_overrides[get_note_share_link_repo] = lambda: share_link_repo
+        app.dependency_overrides[get_note_share_link_service] = lambda: NoteShareLinkService(
+            share_link_repo
+        )
         app.dependency_overrides[get_target_resolver] = lambda: TargetResolver(
             note_repository, workspace_service
         )
