@@ -15,6 +15,11 @@ def head_sha(workspace, relative_path: str) -> str:
     return GitRepository(str(workspace)).file_history(relative_path, limit=1)[0]["sha"]
 
 
+def rel_path(ws_path, filepath: str) -> str:
+    """``filepath`` relative to the workspace root, as a string."""
+    return str(Path(filepath).relative_to(ws_path))
+
+
 def corrupt_temporal_field(path: str, field: str, bad_value: str) -> None:
     """Hand-edit a saved note's file so ``field`` (``occurred_at``/``period``) becomes
     unparseable, bypassing ``NoteFrontmatter``'s own validation — simulates the external
@@ -241,7 +246,7 @@ def seed_full_workspace(database, *, user_id: str, name: str) -> None:
     )
     from kajet_turbo.repositories.ssh_keys import SshKeyRepository
     from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
-    from tests.services.conftest import seed_user
+    from tests.conftest import seed_user
 
     seed_user(database, user_id)
     with Session(database.engine) as session:
