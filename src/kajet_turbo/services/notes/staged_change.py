@@ -35,11 +35,38 @@ class StagedChange:
     rename sets both. ``apply`` owns the working tree and may do anything (write a file,
     unlink, ``Path.rename``); the byte snapshot below is what makes rollback correct
     regardless of what it does.
+
+    ``known_bytes`` and ``pure_rename`` are opt-in fast paths for two costs #165 identified
+    in that snapshot: neither lets a caller hand-supply restore data (the #106 regression
+    this primitive replaced) or makes the primitive infer what ``apply()`` does — both are
+    facts the caller asserts about its own ``apply()``, and restore stays fully derived.
+
+    ``known_bytes``, if given, is the pre-``apply`` bytes of this item's pre-existing path —
+    ``remove`` if set, else ``add`` — sparing the snapshot loop a second read of a file the
+    caller already read (to compute the new content) under the same write-lock acquisition
+    that will run ``apply()``. It is exactly the snapshot the primitive would otherwise take
+    itself, just captured once instead of twice.
+
+    ``pure_rename=True`` asserts ``apply()`` is a content-preserving rename from ``remove``
+    to ``add`` — nothing else changes. The snapshot loop skips this item's bytes entirely;
+    restore is a plain rename back (see ``staged_workspace_change``), not a byte round-trip.
+    Only a rename where content truly never changes qualifies — a rename that also rewrites
+    frontmatter (e.g. ``updated_at``) does not. A ``pure_rename`` item's paths must not
+    appear in any other item of the same batch, since its restore isn't guarded by a byte
+    snapshot the way an ordinary path collision across items would be.
     """
 
     add: str | None
     remove: str | None
     apply: Callable[[], None]
+    known_bytes: bytes | None = None
+    pure_rename: bool = False
+
+    def __post_init__(self) -> None:
+        if self.pure_rename and (self.add is None or self.remove is None):
+            raise ValueError("pure_rename requires both add and remove")
+        if self.pure_rename and self.known_bytes is not None:
+            raise ValueError("pure_rename and known_bytes are mutually exclusive")
 
 
 @contextmanager
@@ -53,11 +80,24 @@ def staged_workspace_change(
     ones already applied when a mid-batch failure hits. An item whose ``apply()`` never ran
     has an untouched path, so restoring it is a no-op; this is what makes a plain "restore
     everything snapshotted" correct without tracking which items actually applied.
+
+    A ``pure_rename`` item skips the byte snapshot altogether and restores via a plain rename
+    back instead (see the guard below) — see ``StagedChange`` for why this is still a
+    derived, automatic restore rather than caller-supplied data.
     """
     workspace_path = repo.workspace_path
     snapshots: list[tuple[str, bytes | None]] = []
+    rename_pairs: list[tuple[str, str]] = []
     for item in items:
+        if item.pure_rename:
+            assert item.add is not None and item.remove is not None  # __post_init__ enforces
+            rename_pairs.append((item.add, item.remove))
+            continue
+        existing_rel = item.remove if item.remove is not None else item.add
         for rel in filter(None, (item.add, item.remove)):
+            if rel == existing_rel and item.known_bytes is not None:
+                snapshots.append((rel, item.known_bytes))
+                continue
             full = Path(workspace_path, rel)
             snapshots.append((rel, full.read_bytes() if full.exists() else None))
     try:
@@ -79,6 +119,14 @@ def staged_workspace_change(
             else:
                 full.parent.mkdir(parents=True, exist_ok=True)
                 full.write_bytes(data)
+        for add, remove in rename_pairs:
+            full_add, full_remove = Path(workspace_path, add), Path(workspace_path, remove)
+            # A no-op unless apply() actually moved the file (add exists) AND nothing has
+            # since put remove back (e.g. apply()'s own internal rollback on a collision at
+            # add, before it ever raised) — blindly renaming add onto an existing remove
+            # would overwrite it with whatever unrelated content now sits at add.
+            if full_add.exists() and not full_remove.exists():
+                full_add.rename(full_remove)
         raise
 
 

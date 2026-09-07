@@ -8,6 +8,7 @@ from kajet_turbo.workspace import (
     normalize_folder,
     note_filepath,
     read_note_file,
+    read_note_file_raw,
     scan_notes,
     title_to_windows_filename,
     write_note_file,
@@ -197,6 +198,43 @@ def test_write_note_file_round_trips_hand_written_extras(workspace):
     reread_meta, reread_content = read_note_file(path)
     assert reread_meta.extras == {"aliases": ["Old Name"]}
     assert reread_content.strip() == "Body."
+
+
+def test_read_note_file_raw_returns_exact_disk_bytes(workspace):
+    path = note_filepath(str(workspace), "", "Test Note")
+    meta = NoteFrontmatter(
+        id="abc1234",
+        title="Test Note",
+        tags=[],
+        created_at="2026-06-08T12:00:00+00:00",
+        updated_at="2026-06-08T12:00:00+00:00",
+    )
+    write_note_file(path, meta, "Body.")
+    _, _, raw = read_note_file_raw(path)
+    assert raw == Path(path).read_bytes()
+
+
+def test_read_note_file_raw_parses_content_identically_to_read_note_file_for_crlf(workspace):
+    # frontmatter.load opens in text mode (universal newlines), so a raw-bytes read has to
+    # replicate that decoding by hand (#165) — otherwise a hand-edited CRLF note would parse
+    # to different `content` via read_note_file_raw than via read_note_file.
+    path = note_filepath(str(workspace), "", "Test Note")
+    Path(path).write_bytes(
+        b"---\r\n"
+        b"id: abc1234\r\n"
+        b"title: Test Note\r\n"
+        b"tags: []\r\n"
+        b"created_at: 2026-06-08T12:00:00+00:00\r\n"
+        b"updated_at: 2026-06-08T12:00:00+00:00\r\n"
+        b"---\r\n"
+        b"Line one.\r\n"
+        b"Line two.\r\n"
+    )
+    meta, content = read_note_file(path)
+    raw_meta, raw_content, raw_bytes = read_note_file_raw(path)
+    assert raw_content == content
+    assert raw_meta == meta
+    assert raw_bytes == Path(path).read_bytes()
 
 
 def test_write_note_file_key_order_is_deterministic(workspace):

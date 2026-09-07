@@ -30,7 +30,7 @@ from kajet_turbo.workspace import (
     LocatedNote,
     NoteFrontmatter,
     locate_note,
-    read_note_file,
+    read_note_file_raw,
     temporal_drop_warnings,
     write_note_file,
 )
@@ -47,6 +47,7 @@ class _RenamedNote:
     new_tags: list[str]
     new_body: str
     old_body: str
+    raw: bytes
 
     @property
     def note(self):
@@ -134,7 +135,7 @@ class NoteTagService:
         loc = locate_note(note, ws_path)
         if not loc.file_exists:
             raise FileNotFoundError(f"Note file not found: note_id={note_id}")
-        existing_meta, content = read_note_file(loc.filepath)
+        existing_meta, content, raw = read_note_file_raw(loc.filepath)
         current = NoteTagService.normalize_tags(existing_meta.tags)
         new_tags, warnings = mutate(current, content)
         changed = new_tags != current
@@ -167,6 +168,7 @@ class NoteTagService:
                 add=loc.relative,
                 remove=None,
                 apply=partial(write_note_file, loc.filepath, apply_meta, content),
+                known_bytes=raw,
             )
 
             def write_rows(session: Session) -> None:
@@ -317,12 +319,12 @@ class NoteTagService:
             if not loc.file_exists:
                 warnings.append(f"{note.title}: plik notatki nie istnieje — pominięta")
                 continue
-            existing_meta, content = read_note_file(loc.filepath)
+            existing_meta, content, raw = read_note_file_raw(loc.filepath)
             old_tags = self.normalize_tags(existing_meta.tags)
             new_tags = list(dict.fromkeys(remap(tag) or tag for tag in old_tags))
             new_body, _ = rewrite_inline_tags(content, remap)
             if new_tags != old_tags or new_body != content:
-                staged.append(_RenamedNote(loc, existing_meta, new_tags, new_body, content))
+                staged.append(_RenamedNote(loc, existing_meta, new_tags, new_body, content, raw))
         if not staged:
             return self._rename_result(old_n, new_n, 0, 0, bool(target_ids), warnings)
 
@@ -348,6 +350,7 @@ class NoteTagService:
                         ),
                         item.new_body,
                     ),
+                    known_bytes=item.raw,
                 )
                 for item in chunk
             ]

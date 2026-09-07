@@ -62,7 +62,7 @@ from kajet_turbo.workspace import (
     normalize_folder,
     normalize_temporal_metadata,
     note_filepath,
-    read_note_file,
+    read_note_file_raw,
     resolve_temporal_fields,
     temporal_drop_warnings,
     write_note_file,
@@ -95,6 +95,7 @@ class _PreparedEdit:
     period: str | None
     links: LinkResolution
     replaced: int | None
+    raw: bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -564,7 +565,7 @@ class NoteService:
             )
             if conflict is not None:
                 raise FileExistsError(conflict_message(new_title, new_path, conflict))
-        existing_meta, old_content = read_note_file(old_path)
+        existing_meta, old_content, old_raw = read_note_file_raw(old_path)
         if not clear_date_metadata and occurred_at is _UNCHANGED and period is _UNCHANGED:
             # The file is source of truth during a read-modify-write. This also repairs
             # a temporal value hand-edited since the last reconcile instead of overwriting
@@ -644,7 +645,10 @@ class NoteService:
             tmp_path.unlink(missing_ok=True)
 
         item = StagedChange(
-            add=new_rel, remove=old_rel if old_path != new_path else None, apply=apply_update
+            add=new_rel,
+            remove=old_rel if old_path != new_path else None,
+            apply=apply_update,
+            known_bytes=old_raw,
         )
 
         def write_row(session: Session) -> None:
@@ -742,7 +746,7 @@ class NoteService:
                 continue
             index, note_id, loc = item.index, item.note_id, item.loc
             edit_item = edits[index]
-            existing_meta, old_content = read_note_file(loc.filepath)
+            existing_meta, old_content, raw = read_note_file_raw(loc.filepath)
             # 'overwrite' without content is edit_note's metadata-only path, but this batch
             # cannot rename or move — so with no tags either, the item has nothing left to
             # change and would commit an untouched file while reporting success. Every other
@@ -815,6 +819,7 @@ class NoteService:
                     period=period,
                     links=links,
                     replaced=edit_result.replaced,
+                    raw=raw,
                 )
             )
 
@@ -842,6 +847,7 @@ class NoteService:
                     ),
                     p.new_content,
                 ),
+                known_bytes=p.raw,
             )
             for p in prepared
         ]

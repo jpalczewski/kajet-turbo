@@ -18,7 +18,7 @@ from kajet_turbo.workspace import (
     NoteFrontmatter,
     normalize_folder,
     note_filepath,
-    read_note_file,
+    read_note_file_raw,
     write_note_file,
 )
 
@@ -106,6 +106,7 @@ class _PreparedBackfill:
     content: str
     occurred_at: str | None
     period: str | None
+    raw: bytes
 
 
 class NoteTemporalService:
@@ -197,12 +198,17 @@ class NoteTemporalService:
             )
             if kind != "candidate" or {**expected, "sha": item["sha"]} != item:
                 raise BackfillStaleError("backfill preview is stale; run preview again")
-            meta, content = read_note_file(loc.filepath)
+            meta, content, raw = read_note_file_raw(loc.filepath)
             occurred_at = item["value"] if item["field"] == "occurred_at" else None
             period = item["value"] if item["field"] == "period" else None
             prepared.append(
                 _PreparedBackfill(
-                    loc=loc, meta=meta, content=content, occurred_at=occurred_at, period=period
+                    loc=loc,
+                    meta=meta,
+                    content=content,
+                    occurred_at=occurred_at,
+                    period=period,
+                    raw=raw,
                 )
             )
         items = [
@@ -215,6 +221,7 @@ class NoteTemporalService:
                     replace(p.meta, occurred_at=p.occurred_at, period=p.period),
                     p.content,
                 ),
+                known_bytes=p.raw,
             )
             for p in prepared
         ]

@@ -1,3 +1,4 @@
+import io
 import os
 import re
 import stat
@@ -470,7 +471,25 @@ def resolve_temporal_fields(
 
 
 def read_note_file(path: str) -> tuple[NoteFrontmatter, str]:
-    return parse_frontmatter(frontmatter.load(path))
+    meta, content, _raw = read_note_file_raw(path)
+    return meta, content
+
+
+def read_note_file_raw(path: str) -> tuple[NoteFrontmatter, str, bytes]:
+    """Like ``read_note_file``, but also returns the exact pre-parse bytes on disk.
+
+    For a caller that will hand those bytes to ``StagedChange(known_bytes=...)`` so
+    ``staged_workspace_change`` doesn't re-read the same file a second time just to build
+    its restore snapshot (#165). ``frontmatter.load`` opens in text mode (universal
+    newlines), so decoding is replicated by hand via ``io.TextIOWrapper`` instead of a bare
+    ``raw.decode()`` — otherwise a hand-edited CRLF note would parse to different ``content``
+    than ``frontmatter.load`` gives today. This changes nothing about the returned ``raw``
+    bytes themselves, which are kept exactly as read.
+    """
+    raw = Path(path).read_bytes()
+    text = io.TextIOWrapper(io.BytesIO(raw), encoding="utf-8", newline=None).read()
+    meta, content = parse_frontmatter(frontmatter.loads(text))
+    return meta, content, raw
 
 
 def iter_note_paths(workspace_path: str) -> list[str]:

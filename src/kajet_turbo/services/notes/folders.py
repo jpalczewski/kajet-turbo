@@ -143,7 +143,7 @@ class NoteFolderService:
                 tmp_path.rename(old_path)
                 raise GitError(str(e)) from e
 
-        item = StagedChange(add=new_rel, remove=old_rel, apply=apply_move)
+        item = StagedChange(add=new_rel, remove=old_rel, apply=apply_move, pure_rename=True)
         message = f"note: move {note.title} to {new_folder or 'root'}"
 
         def write_rows(session: Session) -> None:

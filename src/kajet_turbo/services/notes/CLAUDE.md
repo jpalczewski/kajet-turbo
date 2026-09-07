@@ -43,6 +43,10 @@ the filesystem-move phase), not because they write a note body but because the p
 one place that knows how to commit `add`/`remove` pairs atomically. `move()` is wrapped by
 `commit_rows_then_tree`, so its DB row update commits in the same transaction as the git commit,
 last, like every other write path here. `move_folder()` deliberately is NOT — see #155 below.
+`move()`'s item also passes `pure_rename=True` (#165): since `apply_move` never touches content,
+`staged_workspace_change` skips the byte snapshot for it entirely and restores via a guarded
+rename-back instead of a read+write of the whole file — see `staged_change.py` for the guard
+that keeps this safe against a rollback into a path a collision left occupied.
 
 ## The row transaction wraps the git commit, and commits last (#155)
 

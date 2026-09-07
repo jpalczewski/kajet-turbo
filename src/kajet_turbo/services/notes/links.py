@@ -31,7 +31,7 @@ from kajet_turbo.services.notes.staged_change import (
     commit_rows_then_tree,
 )
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
-from kajet_turbo.workspace import locate_note, path_segments, read_note_file, write_note_file
+from kajet_turbo.workspace import locate_note, path_segments, read_note_file_raw, write_note_file
 
 # (old, new) identity of a note that was moved and/or renamed.
 type NoteMove = tuple[IndexedNote, IndexedNote]
@@ -582,7 +582,7 @@ class NoteLinkService:
             loc = locate_note(src, ws_path)
             if not loc.file_exists:
                 continue
-            data_meta, old_content = read_note_file(loc.filepath)
+            data_meta, old_content, raw = read_note_file_raw(loc.filepath)
             # A source that moved along with its targets (folder move) must be ranked from
             # where it *was* when its links were written, not from its new folder.
             new_body, changed = rewrite_wikilinks(
@@ -614,6 +614,7 @@ class NoteLinkService:
                 add=loc.relative,
                 remove=None,
                 apply=partial(write_note_file, loc.filepath, meta, new_body),
+                known_bytes=raw,
             )
             paired.append((item, (src.id, src.updated_at)))
 
