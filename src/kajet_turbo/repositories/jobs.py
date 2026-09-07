@@ -5,6 +5,7 @@ values are epoch seconds; ``now`` is injectable so tests are deterministic."""
 import json
 import time
 from dataclasses import dataclass
+from itertools import batched
 
 from nanoid import generate
 from sqlalchemy import func, text
@@ -18,6 +19,12 @@ from kajet_turbo.repositories import DbRepository
 # PRIORITY_DEFAULT unless it opts into PRIORITY_BULK — see #151.
 PRIORITY_DEFAULT = 0
 PRIORITY_BULK = 10
+
+# Chunk size for the batched upsert in enqueue_many_in_session (#176). Each Job row binds
+# ~12 parameters; 80 rows * 12 = 960 stays safely under SQLite's conservative pre-3.32
+# SQLITE_MAX_VARIABLE_NUMBER of 999 without needing to detect the running SQLite version —
+# same posture as notes/crud.py's _IN_CLAUSE_CHUNK_SIZE.
+_ENQUEUE_UPSERT_CHUNK_SIZE = 80
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,24 +194,83 @@ class JobRepository(DbRepository):
         priority: int = PRIORITY_DEFAULT,
         now: float | None = None,
     ) -> list[str]:
-        """Enqueue N same-kind jobs without committing, one INSERT/upsert per entry, so a
-        fan-out lands in the caller's transaction instead of opening N write sessions
-        against SQLite while the caller may already hold the write lock."""
+        """Enqueue N same-kind jobs without committing, so a fan-out lands in the caller's
+        transaction instead of opening N write sessions against SQLite while the caller may
+        already hold the write lock. Entries without a dedup_key are added individually
+        (cheap, deferred to flush). Entries with a dedup_key are batched into
+        ``_ENQUEUE_UPSERT_CHUNK_SIZE``-row upsert statements with RETURNING (#176), so a
+        fan-out of hundreds of debounced entries costs O(N/chunksize) statements instead of
+        the 2 statements per entry ``enqueue_in_session`` needs standalone."""
         now = time.time() if now is None else now
-        return [
-            self.enqueue_in_session(
-                session,
-                kind,
-                entry.payload,
-                dedup_key=entry.dedup_key,
-                user_id=entry.user_id,
-                max_attempts=max_attempts,
-                delay=delay,
-                priority=priority,
-                now=now,
+        run_at = now + delay
+        job_ids: list[str] = [""] * len(entries)
+
+        dedup_indexed: list[tuple[int, JobEntry]] = []
+        for i, entry in enumerate(entries):
+            if entry.dedup_key is None:
+                job_id = generate()
+                session.add(
+                    Job(
+                        id=job_id,
+                        kind=kind,
+                        user_id=entry.user_id,
+                        dedup_key=None,
+                        payload=json.dumps(entry.payload),
+                        status="pending",
+                        attempts=0,
+                        max_attempts=max_attempts,
+                        next_run_at=run_at,
+                        priority=priority,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+                job_ids[i] = job_id
+            else:
+                dedup_indexed.append((i, entry))
+
+        for chunk in batched(dedup_indexed, _ENQUEUE_UPSERT_CHUNK_SIZE, strict=False):
+            rows = [
+                {
+                    "id": generate(),
+                    "kind": kind,
+                    "user_id": entry.user_id,
+                    "dedup_key": entry.dedup_key,
+                    "payload": json.dumps(entry.payload),
+                    "status": "pending",
+                    "attempts": 0,
+                    "max_attempts": max_attempts,
+                    "next_run_at": run_at,
+                    "priority": priority,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                for _, entry in chunk
+            ]
+            stmt = (
+                sqlite_insert(Job)
+                .values(rows)
+                .on_conflict_do_update(
+                    index_elements=[Job.kind, Job.dedup_key],  # ty: ignore[invalid-argument-type] — see enqueue_in_session
+                    index_where=(Job.status == "pending"),  # ty: ignore[invalid-argument-type] — see enqueue_in_session
+                    set_={
+                        "next_run_at": run_at,
+                        "priority": func.min(Job.priority, priority),
+                        "updated_at": now,
+                    },
+                )
+                .returning(Job.dedup_key, Job.id)  # ty: ignore[no-matching-overload] — SQLModel field descriptors don't satisfy the column-role protocols ty checks .returning() against; see enqueue_in_session's index_elements ignore above
             )
-            for entry in entries
-        ]
+            # RETURNING emits one row per input VALUES row, even when several rows in this
+            # chunk share a dedup_key and collapse onto the same table row: SQLite (unlike
+            # PostgreSQL) allows a later row in a multi-row INSERT to conflict against a row
+            # inserted earlier in the same statement, resolving in insertion order. Keying by
+            # dedup_key rather than RETURNING row position sidesteps relying on that ordering.
+            id_by_dedup_key = dict(session.exec(stmt).all())
+            for i, entry in chunk:
+                job_ids[i] = id_by_dedup_key[entry.dedup_key]
+
+        return job_ids
 
     def enqueue_many(
         self,

@@ -6,6 +6,7 @@ from sqlmodel import Session, select
 
 from kajet_turbo.db import Database
 from kajet_turbo.models import Job, User
+from kajet_turbo.repositories.jobs import _ENQUEUE_UPSERT_CHUNK_SIZE as ENQUEUE_UPSERT_CHUNK_SIZE
 from kajet_turbo.repositories.jobs import (
     PRIORITY_BULK,
     PRIORITY_DEFAULT,
@@ -133,6 +134,63 @@ def test_enqueue_many_in_session_shares_the_caller_transaction(database: Databas
         assert _count() == 0  # invisible to a separate session before commit
         session.commit()
     assert _count() == 2
+
+
+def test_enqueue_many_mixed_dedup_and_plain_preserves_order(database: Database):
+    # #176: dedup entries are batched into upsert-with-RETURNING statements while plain
+    # entries are added individually — this proves the two paths reassemble into the
+    # same order as `entries`, not just that N ids came back.
+    repo = JobRepository(database.engine)
+    entries = [
+        JobEntry(payload={"n": 1}, dedup_key=None),
+        JobEntry(payload={"n": 2}, dedup_key="k:a"),
+        JobEntry(payload={"n": 3}, dedup_key=None),
+        JobEntry(payload={"n": 4}, dedup_key="k:b"),
+    ]
+    job_ids = repo.enqueue_many("mixed", entries)
+    assert len(set(job_ids)) == 4
+    for job_id, entry in zip(job_ids, entries, strict=True):
+        job = _get_required(database.engine, job_id)
+        assert json.loads(job.payload) == entry.payload
+
+
+def test_enqueue_many_chunks_past_the_upsert_batch_size(database: Database):
+    # Proves the chunk boundary (_ENQUEUE_UPSERT_CHUNK_SIZE) doesn't drop or duplicate a
+    # row for a batch spanning more than one internal upsert statement.
+    repo = JobRepository(database.engine)
+    count = ENQUEUE_UPSERT_CHUNK_SIZE + 1
+    entries = [
+        JobEntry(payload={"note_id": f"n{i}"}, dedup_key=f"reindex:u1:ws:n{i}")
+        for i in range(count)
+    ]
+    job_ids = repo.enqueue_many("reindex_note", entries)
+    assert len(job_ids) == count
+    assert len(set(job_ids)) == count
+    with Session(database.engine) as session:
+        rows = session.exec(
+            select(Job).where(Job.kind == "reindex_note", Job.status == "pending")
+        ).all()
+    assert len(rows) == count
+
+
+def test_enqueue_many_duplicate_dedup_key_within_one_batch_collapses(database: Database):
+    # Two entries in the same call sharing a dedup_key: SQLite (unlike PostgreSQL) allows
+    # a later row in a multi-row INSERT to conflict against a row inserted earlier in the
+    # same statement. Both ids must resolve to the single collapsed row, and — matching
+    # the sequential enqueue_in_session semantics this replaces — only next_run_at/
+    # priority/updated_at come from the later entry; the surviving payload is the first's.
+    repo = JobRepository(database.engine)
+    job_ids = repo.enqueue_many(
+        "reindex_note",
+        [
+            JobEntry(payload={"note_id": "first"}, dedup_key="d"),
+            JobEntry(payload={"note_id": "second"}, dedup_key="d"),
+        ],
+    )
+    assert job_ids[0] == job_ids[1]
+    rows = _pending(database.engine, "reindex_note", "d")
+    assert len(rows) == 1
+    assert json.loads(rows[0].payload) == {"note_id": "first"}
 
 
 def test_enqueue_delay_sets_future_next_run_at(database: Database):
