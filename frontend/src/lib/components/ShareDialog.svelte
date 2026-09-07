@@ -7,7 +7,8 @@
   import type { ShareLinkItem } from '$lib/api';
   import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
-  import { sharedNotePath } from '$lib/routes';
+  import { sharedNoteUrl } from '$lib/routes';
+  import { copyToClipboard } from '$lib/utils/clipboard';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
   import { formatDate } from '$lib/utils/format';
 
@@ -17,14 +18,19 @@
   let links = $state<ShareLinkItem[]>([]);
   let copiedToken = $state('');
   let copyErrorToken = $state('');
+  let copyResetTimeout: ReturnType<typeof setTimeout> | undefined;
   const fetchAction = useAsyncAction();
   const createAction = useAsyncAction();
 
   function linkUrl(token: string): string {
-    return `${window.location.origin}${sharedNotePath(token)}`;
+    return sharedNoteUrl(window.location.origin, token);
   }
 
   async function openDialog() {
+    // Guard against a double-click re-entering while the first call's dialog.show()
+    // and fetch are still in flight: a second showModal() on an already-open <dialog>
+    // throws, and a second GET can race the first and clobber `links`.
+    if (fetchAction.busy) return;
     modal.show();
     await fetchAction.run(async () => {
       const result = await apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGet(slug, noteId);
@@ -50,30 +56,45 @@
       noteId,
       token,
     );
-    if (result.status !== 200) throw new Error();
+    if (result.status !== 200) throw new Error('Nie udało się wyłączyć linku');
     links = links.filter((link) => link.token !== token);
   }
 
   async function copyLink(token: string) {
     copyErrorToken = '';
-    try {
-      await navigator.clipboard.writeText(linkUrl(token));
-    } catch {
+    const ok = await copyToClipboard(linkUrl(token));
+    if (!ok) {
       // Clipboard access can be denied (permissions, insecure context, browser
       // policy) -- surface it instead of leaving the click looking like a no-op;
       // the read-only URL field above stays there as a manual-copy fallback.
       copyErrorToken = token;
       return;
     }
+    clearTimeout(copyResetTimeout);
     copiedToken = token;
-    setTimeout(() => (copiedToken = ''), 1500);
+    copyResetTimeout = setTimeout(() => {
+      // Only this call's own token clears the indicator -- otherwise copying a
+      // second link within the window would wipe the second link's confirmation
+      // early when the first link's timer fires.
+      if (copiedToken === token) copiedToken = '';
+    }, 1500);
+  }
+
+  function resetDialogState() {
+    fetchAction.clearError();
+    createAction.clearError();
+    copyErrorToken = '';
   }
 </script>
 
 <button class="share-trigger" onclick={openDialog}>Udostępnij</button>
 
-<Modal bind:this={modal} title="Linki do udostępniania">
-  <button class="btn btn--primary" onclick={createLink} disabled={createAction.busy}>
+<Modal bind:this={modal} title="Linki do udostępniania" onclose={resetDialogState}>
+  <button
+    class="btn btn--primary"
+    onclick={createLink}
+    disabled={createAction.busy || fetchAction.busy}
+  >
     {createAction.busy ? 'Tworzenie…' : 'Utwórz nowy link'}
   </button>
   {#if createAction.error}

@@ -33,6 +33,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   SSH_KEY_NOT_FOUND: 'Klucz nie istnieje.',
   EMBEDDING_PROFILE_NOT_FOUND: 'Profil nie istnieje.',
   EMBEDDING_PROFILE_PROBE_FAILED: 'Nie udało się połączyć z embedderem.',
+  SHARE_LINK_NOT_FOUND: 'Link nie istnieje.',
 };
 
 export function translateErrorCode(code: string | undefined): string | undefined {

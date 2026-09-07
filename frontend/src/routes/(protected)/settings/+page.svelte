@@ -12,6 +12,7 @@
     CreateSshKeyRequestAlgorithm,
   } from '$lib/api';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
+  import { copyToClipboard } from '$lib/utils/clipboard';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
   import { homePath } from '$lib/routes';
@@ -104,7 +105,7 @@
   }
 
   async function copyPublicKey(publicKey: string) {
-    await navigator.clipboard.writeText(publicKey);
+    await copyToClipboard(publicKey);
   }
 
   async function logoutEverywhere() {

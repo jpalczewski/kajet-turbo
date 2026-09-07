@@ -3,6 +3,7 @@
   import NoteBody from '$lib/components/note/NoteBody.svelte';
 
   const note = $derived(page.data.note);
+  const transientError = $derived(page.data.transientError);
 </script>
 
 <svelte:head>
@@ -13,6 +14,8 @@
   {#if note}
     <h1 class="shared__title">{note.title}</h1>
     <NoteBody slug="" noteId={note.note_id} html={note.content_html} mode="content" />
+  {:else if transientError}
+    <p class="shared__missing">Nie udało się wczytać notatki. Spróbuj ponownie za chwilę.</p>
   {:else}
     <p class="shared__missing">Ten link jest nieaktualny albo nigdy nie istniał.</p>
   {/if}

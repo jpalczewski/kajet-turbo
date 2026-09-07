@@ -10,6 +10,11 @@ const trimSlashes = (path: string) => path.replace(/^\/+|\/+$/g, '');
 export const homePath = () => resolve('/');
 export const loginPath = () => resolve('/login');
 export const sharedNotePath = (token: string) => resolve('/shared/[token]', { token });
+
+// Absolute, cross-origin-safe URL for sharing outside the app (e.g. into a clipboard).
+// Caller supplies `origin` (window.location.origin) -- this module stays free of any
+// window/browser dependency otherwise.
+export const sharedNoteUrl = (origin: string, token: string) => `${origin}${sharedNotePath(token)}`;
 export const workspacesPath = () => resolve('/(protected)/workspaces');
 export const settingsPath = () => resolve('/(protected)/settings');
 export const jobsPath = () => resolve('/(protected)/jobs');
