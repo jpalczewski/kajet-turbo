@@ -226,6 +226,15 @@ def _mount_spa(app: FastAPI, resources: AppResources) -> None:
 
 
 def _assemble(config: AppConfig | None) -> AppResources:
+    # build_resources() constructs KajetOAuthProvider, which logs from its __init__
+    # (oauth_provider_init, plus a repository_operation from delete_expired_tokens).
+    # That runs here, at factory-build time, before the ASGI lifespan ever starts —
+    # so without this call those lines would hit loguru's default text sink instead
+    # of the JSON one _logging_lifespan installs, and reach Loki unparsed. Calling
+    # setup_logging() again there is still required (it also swaps out FastMCP's own
+    # RichHandler, installed later by mcp_app.lifespan) — this call is redundant with
+    # that one, not a replacement for it.
+    setup_logging()
     return build_resources(config or AppConfig.from_env())
 
 
