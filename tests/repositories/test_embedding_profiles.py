@@ -1,17 +1,9 @@
-from sqlmodel import Session
-
-from kajet_turbo.models import User
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
-
-
-def _user(database, uid="u1"):
-    with Session(database.engine) as s:
-        s.add(User(id=uid, email=f"{uid}@e.com", created_at="2026-01-01"))
-        s.commit()
+from tests.conftest import seed_user
 
 
 def test_create_list_get(database):
-    _user(database)
+    seed_user(database, "u1")
     repo = EmbeddingProfileRepository(database.engine)
     p = repo.create(
         "u1",
@@ -30,7 +22,7 @@ def test_create_list_get(database):
 
 
 def test_second_profile_not_auto_active_and_activate_switches(database):
-    _user(database)
+    seed_user(database, "u1")
     repo = EmbeddingProfileRepository(database.engine)
     a = repo.create("u1", "A", "http://a/v1", "m", b"k", 3)
     b = repo.create("u1", "B", "http://b/v1", "m", b"k", 4)
@@ -45,7 +37,7 @@ def test_second_profile_not_auto_active_and_activate_switches(database):
 
 
 def test_update_and_delete(database):
-    _user(database)
+    seed_user(database, "u1")
     repo = EmbeddingProfileRepository(database.engine)
     p = repo.create("u1", "A", "http://a/v1", "m", b"k", 3)
     repo.update(
@@ -59,7 +51,7 @@ def test_update_and_delete(database):
 
 
 def test_delete_active_promotes_another(database):
-    _user(database)
+    seed_user(database, "u1")
     repo = EmbeddingProfileRepository(database.engine)
     a = repo.create("u1", "A", "http://a/v1", "m", b"k", 3)
     b = repo.create("u1", "B", "http://b/v1", "m", b"k", 4)
@@ -71,13 +63,13 @@ def test_delete_active_promotes_another(database):
 
 
 def test_get_active_none_when_no_profiles(database):
-    _user(database)
+    seed_user(database, "u1")
     assert EmbeddingProfileRepository(database.engine).get_active("u1") is None
 
 
 def test_owner_scoped(database):
-    _user(database, "u1")
-    _user(database, "u2")
+    seed_user(database, "u1")
+    seed_user(database, "u2")
     repo = EmbeddingProfileRepository(database.engine)
     p = repo.create("u1", "A", "http://a/v1", "m", b"k", 3)
     assert repo.get("u2", p.id) is None  # cannot read another user's profile

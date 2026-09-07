@@ -1,17 +1,9 @@
-from sqlmodel import Session
-
 from kajet_turbo.crypto import cipher_for
 from kajet_turbo.embedding.resolver import ProfileResolver
-from kajet_turbo.models import User
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
+from tests.conftest import seed_user
 
 _CIPHER = cipher_for("embedding", secret="server-secret")
-
-
-def _user(database, uid="u1"):
-    with Session(database.engine) as s:
-        s.add(User(id=uid, email=f"{uid}@e.com", created_at="2026-01-01"))
-        s.commit()
 
 
 def _resolver(database):
@@ -19,12 +11,12 @@ def _resolver(database):
 
 
 def test_no_profile_returns_none(database):
-    _user(database)
+    seed_user(database, "u1")
     assert _resolver(database).resolve_backend("u1") is None
 
 
 def test_resolves_active_profile(database):
-    _user(database)
+    seed_user(database, "u1")
     repo = EmbeddingProfileRepository(database.engine)
     repo.create(
         "u1",
@@ -44,7 +36,7 @@ def test_resolves_active_profile(database):
 
 
 def test_keyless_profile_yields_none_key(database):
-    _user(database)
+    seed_user(database, "u1")
     EmbeddingProfileRepository(database.engine).create(
         "u1", "local", "http://local/v1", "m", None, 8
     )

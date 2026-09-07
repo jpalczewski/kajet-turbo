@@ -5,9 +5,9 @@ from kajet_turbo.markdown import EditSpec
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
+from tests.conftest import seed_user
 from tests.services.conftest import (
     note_target,
-    seed_user,
     workspace_target,
 )
 from tests.services.helpers import (

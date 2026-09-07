@@ -7,7 +7,6 @@ import pytest
 from kajet_turbo.markdown import BrokenWikilinkError, EditSpec, IndexedNote, render_markdown
 from tests.services.conftest import (
     note_target,
-    seed_user,
     workspace_target,
 )
 from tests.services.helpers import (
@@ -18,11 +17,7 @@ from tests.services.helpers import (
     make_service_with_dangling,
 )
 
-
-@pytest.fixture(autouse=True)
-def _seed_default_owner(database):
-    # rewrite_backlinks now enqueues reindex_note jobs (user_id FK to users.id).
-    seed_user(database, "u1")
+pytestmark = pytest.mark.usefixtures("_seed_default_owner")
 
 
 def test_save_with_valid_wikilink_succeeds(service, workspace):

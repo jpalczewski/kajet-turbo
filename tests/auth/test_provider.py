@@ -17,7 +17,7 @@ def test_expired_access_token_preserves_refresh_token(monkeypatch, database):
 
     from kajet_turbo.auth import KajetOAuthProvider
     from kajet_turbo.repositories.oauth import OAuthRepository
-    from tests.services.conftest import seed_user
+    from tests.conftest import seed_user
 
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
     # Consent and issued tokens both reference users.id, so the flow needs a real user.
@@ -49,7 +49,7 @@ def test_access_token_outcomes_are_security_events(database, monkeypatch, capsys
     import asyncio
     import time
 
-    from tests.services.conftest import seed_user
+    from tests.conftest import seed_user
 
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
     seed_user(database, "u1")
@@ -101,7 +101,7 @@ def _make_split_brain_pair(database, monkeypatch):
     from mcp.server.auth.settings import ClientRegistrationOptions
 
     from kajet_turbo.repositories.oauth import OAuthRepository
-    from tests.services.conftest import seed_user
+    from tests.conftest import seed_user
 
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
     # Consent and issued tokens both reference users.id, so the flow needs a real user.
@@ -303,7 +303,7 @@ def test_exchange_refresh_token_deletes_old_tokens_from_db(monkeypatch, database
 
     from kajet_turbo.auth import KajetOAuthProvider
     from kajet_turbo.repositories.oauth import OAuthRepository
-    from tests.services.conftest import seed_user
+    from tests.conftest import seed_user
 
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
     # Consent and issued tokens both reference users.id, so the flow needs a real user.
@@ -357,7 +357,7 @@ def test_access_token_without_an_owner_is_rejected(database, monkeypatch):
     from mcp.server.auth.settings import ClientRegistrationOptions
 
     from kajet_turbo.repositories.oauth import OAuthRepository
-    from tests.services.conftest import seed_user
+    from tests.conftest import seed_user
 
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
     seed_user(database, "u1")
@@ -398,7 +398,7 @@ def test_access_token_subject_is_its_owner_for_shared_client(database, monkeypat
     import time
 
     from kajet_turbo.repositories.oauth import OAuthRepository
-    from tests.services.conftest import seed_user
+    from tests.conftest import seed_user
 
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
     seed_user(database, "user-a")

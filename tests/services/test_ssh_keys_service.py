@@ -1,16 +1,13 @@
 import pytest
-from sqlmodel import Session
 
 from kajet_turbo.crypto import cipher_for
-from kajet_turbo.models import User
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
 from kajet_turbo.services.ssh_keys import SshKeyService
+from tests.conftest import seed_user
 
 
 def _svc(database):
-    with Session(database.engine) as s:
-        s.add(User(id="u1", email="u@e.com", created_at="2026-01-01"))
-        s.commit()
+    seed_user(database, "u1")
     return SshKeyService(
         SshKeyRepository(database.engine),
         cipher_factory=lambda: cipher_for("ssh-key", secret="server-secret"),

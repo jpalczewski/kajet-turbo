@@ -21,7 +21,7 @@ from kajet_turbo.identity import (
 from kajet_turbo.models import UserSession
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.sessions import SessionRepository
-from tests.services.conftest import seed_user
+from tests.conftest import seed_user
 
 
 class ExplodingRepo:

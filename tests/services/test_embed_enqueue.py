@@ -4,11 +4,12 @@ from sqlmodel import Session
 
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
-from kajet_turbo.models import Note, User
+from kajet_turbo.models import Note
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.embed_enqueue import make_enqueue_embed
 from kajet_turbo.services.indexing import NoteIndexer
+from tests.conftest import seed_user
 
 
 def _cfg():
@@ -18,8 +19,8 @@ def _cfg():
 
 
 def _seed(database, note_ids=("n1",)):
+    seed_user(database, "u1")
     with Session(database.engine) as session:
-        session.add(User(id="u1", email="u@e.com", created_at="2026-01-01"))
         for note_id in note_ids:
             session.add(
                 Note(

@@ -492,7 +492,7 @@ def test_auth_db_time_lands_on_the_route_span(capsys, database):
 
     from kajet_turbo import identity
     from kajet_turbo.repositories.sessions import SessionRepository
-    from tests.services.conftest import seed_user
+    from tests.conftest import seed_user
 
     seed_user(database, "u1")
     repo = SessionRepository(database.engine)

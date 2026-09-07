@@ -1,15 +1,10 @@
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from kajet_turbo.workspace import read_note_file
 from tests.services.conftest import workspace_target
-from tests.services.helpers import head_sha, make_flaky_db_write
-
-
-def _rel(ws_path, filepath: str) -> str:
-    return str(Path(filepath).relative_to(ws_path))
+from tests.services.helpers import head_sha, make_flaky_db_write, rel_path
 
 
 def test_temporal_backfill_updates_metadata_without_bumping_index(
@@ -126,7 +121,7 @@ def test_temporal_backfill_applies_note_with_no_git_history(
     # so its preview candidate carries sha=None; apply must still accept it as fresh.
     path = note_file_factory(workspace, "2026-03-22 Daily", note_id="nogit1", content="body")
     reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=[_rel(workspace, path)]
+        "ws", owner_id="u1", ws_path=str(workspace), paths=[rel_path(workspace, path)]
     )
 
     preview = temporal_service.temporal_backfill_preview("ws", "u1", str(workspace))

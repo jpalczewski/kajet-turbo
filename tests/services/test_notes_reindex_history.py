@@ -3,14 +3,10 @@
 import pytest
 
 from kajet_turbo.markdown import EditSpec
-from tests.services.conftest import note_target, seed_user, workspace_target
+from tests.services.conftest import note_target, workspace_target
 from tests.services.helpers import build_reindex_handler, drain_reindex_jobs
 
-
-@pytest.fixture(autouse=True)
-def _seed_default_owner(database):
-    # reindex()/reconcile_paths now enqueues reindex_note jobs (user_id FK to users.id).
-    seed_user(database, "u1")
+pytestmark = pytest.mark.usefixtures("_seed_default_owner")
 
 
 def test_reindex_rebuilds_fts(service, reconcile_service, database, git_workspace_factory):

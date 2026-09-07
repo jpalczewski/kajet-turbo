@@ -1,4 +1,3 @@
-from sqlmodel import Session
 from starlette.testclient import TestClient
 
 from kajet_turbo.api.schemas.ssh_keys import SSH_KEY_ALGORITHMS
@@ -6,10 +5,10 @@ from kajet_turbo.api.ssh_keys import router
 from kajet_turbo.crypto import cipher_for
 from kajet_turbo.crypto.ssh_keys import ALGORITHMS
 from kajet_turbo.dependencies import CurrentUser, get_required_user, get_ssh_key_service
-from kajet_turbo.models import User
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
 from kajet_turbo.services.ssh_keys import SshKeyService
 from tests.api.conftest import build_test_app
+from tests.conftest import seed_user
 
 
 def test_schema_algorithms_match_crypto_module():
@@ -20,9 +19,7 @@ def test_schema_algorithms_match_crypto_module():
 
 def _app(database, monkeypatch, *, user_id="u1"):
     if user_id:
-        with Session(database.engine) as s:
-            s.add(User(id=user_id, email="u@e.com", created_at="2026-01-01"))
-            s.commit()
+        seed_user(database, user_id)
     svc = SshKeyService(
         SshKeyRepository(database.engine),
         cipher_factory=lambda: cipher_for("ssh-key", secret="server-secret"),

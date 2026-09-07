@@ -6,7 +6,8 @@ import pytest
 
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.notes import NoteRepository
-from tests.services.conftest import build_note_reconcile_service, seed_user
+from tests.conftest import seed_user
+from tests.services.conftest import build_note_reconcile_service
 from tests.services.helpers import make_flaky_db_write, seed_full_workspace, workspace_table_counts
 
 # Tables NoteTeardown.workspace_in_session actually touches — everything else

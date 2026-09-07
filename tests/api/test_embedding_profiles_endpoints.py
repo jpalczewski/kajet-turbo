@@ -1,20 +1,17 @@
-from sqlmodel import Session
 from starlette.testclient import TestClient
 
 from kajet_turbo.api.embedding import router
 from kajet_turbo.crypto import cipher_for
 from kajet_turbo.dependencies import CurrentUser, get_embedding_profile_service, get_required_user
-from kajet_turbo.models import User
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
 from tests.api.conftest import build_test_app
+from tests.conftest import seed_user
 
 
 def _app(database, monkeypatch, *, user_id="u1", probe_dim=3, probe_error=None):
     if user_id:
-        with Session(database.engine) as s:
-            s.add(User(id=user_id, email="u@e.com", created_at="2026-01-01"))
-            s.commit()
+        seed_user(database, user_id)
 
     def probe(base_url, model, api_key):
         if probe_error:
@@ -41,9 +38,7 @@ def test_create_with_asyncio_probe_offloads_to_thread(database, monkeypatch):
     # The route must offload via run_sync. A probe that itself uses asyncio.run reproduces it.
     import asyncio
 
-    with Session(database.engine) as s:
-        s.add(User(id="u1", email="u@e.com", created_at="2026-01-01"))
-        s.commit()
+    seed_user(database, "u1")
 
     def asyncio_probe(base_url, model, api_key):
         async def _run() -> int:

@@ -8,7 +8,8 @@ import pytest
 
 from kajet_turbo import perf
 from kajet_turbo.repositories.git import GitError, GitRepository
-from tests.services.conftest import note_target, seed_user, workspace_target
+from tests.conftest import seed_user
+from tests.services.conftest import note_target, workspace_target
 from tests.services.helpers import head_sha, make_flaky_db_write
 
 

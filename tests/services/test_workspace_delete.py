@@ -5,7 +5,8 @@ from sqlmodel import Session
 
 from kajet_turbo.models import Job
 from kajet_turbo.repositories.jobs import JobRepository
-from tests.services.conftest import build_workspace_service, seed_user
+from tests.conftest import seed_user
+from tests.services.conftest import build_workspace_service
 from tests.services.helpers import seed_full_workspace, workspace_table_counts
 
 

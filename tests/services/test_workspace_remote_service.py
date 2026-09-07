@@ -1,17 +1,17 @@
 import pytest
 from sqlmodel import Session
 
-from kajet_turbo.models import SshKey, User
+from kajet_turbo.models import SshKey
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.services.workspace_remote import WorkspaceRemoteService
+from tests.conftest import seed_user
 
 
 def _svc(database, tmp_path):
+    seed_user(database, "u1")
     with Session(database.engine) as s:
-        s.add(User(id="u1", email="u@e.com", created_at="2026-01-01"))
-        s.flush()
         s.add(
             SshKey(
                 id="k1",

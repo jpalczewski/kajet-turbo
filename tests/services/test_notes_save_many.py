@@ -5,14 +5,10 @@ from unittest.mock import patch
 import pytest
 
 from kajet_turbo.services.notes import service as service_module
-from tests.services.conftest import seed_user, workspace_target
+from tests.services.conftest import workspace_target
 from tests.services.helpers import make_flaky_db_write, make_flaky_write
 
-
-@pytest.fixture(autouse=True)
-def _seed_default_owner(database):
-    # save_many now enqueues reindex_note jobs (user_id FK to users.id).
-    seed_user(database, "u1")
+pytestmark = pytest.mark.usefixtures("_seed_default_owner")
 
 
 def _commit_count(workspace):

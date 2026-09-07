@@ -7,15 +7,12 @@ import pytest
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.services.collections import CollectionService
 from tests.services.conftest import note_target, workspace_target
+from tests.services.helpers import head_sha
 
 
 @pytest.fixture
 def collections(service) -> CollectionService:
     return CollectionService(service._crud_repo, service)
-
-
-def _head_sha(workspace):
-    return GitRepository(str(workspace)).file_history(".kajet/collections.yaml", limit=1)[0]["sha"]
 
 
 def test_define_collection_adds_and_commits(collections, workspace):
@@ -58,7 +55,7 @@ def test_define_collection_dry_run_writes_nothing(collections, workspace):
     collections.define_collection(
         str(workspace), "ws", "u1", "weekly", "week", "one", "weekly/{year}", "{key}"
     )
-    sha_before = _head_sha(workspace)
+    sha_before = head_sha(workspace, ".kajet/collections.yaml")
     text_before = (workspace / ".kajet" / "collections.yaml").read_text()
 
     result = collections.define_collection(
@@ -74,7 +71,7 @@ def test_define_collection_dry_run_writes_nothing(collections, workspace):
     )
 
     assert result["would_write"] is True
-    assert _head_sha(workspace) == sha_before
+    assert head_sha(workspace, ".kajet/collections.yaml") == sha_before
     assert (workspace / ".kajet" / "collections.yaml").read_text() == text_before
     # the on-disk definition is still the original pattern
     assert collections.list_collections(str(workspace))["weekly"].folder == "weekly/{year}"
@@ -84,7 +81,7 @@ def test_define_collection_rejects_colliding_folder_pattern(collections, workspa
     collections.define_collection(
         str(workspace), "ws", "u1", "weekly", "week", "one", "archive/{year}", "{key}"
     )
-    sha_before = _head_sha(workspace)
+    sha_before = head_sha(workspace, ".kajet/collections.yaml")
     text_before = (workspace / ".kajet" / "collections.yaml").read_text()
 
     with pytest.raises(ValueError, match="would collide with 'weekly'"):
@@ -93,7 +90,7 @@ def test_define_collection_rejects_colliding_folder_pattern(collections, workspa
         )
 
     # refusal proves nothing was written or committed, not just that it raised
-    assert _head_sha(workspace) == sha_before
+    assert head_sha(workspace, ".kajet/collections.yaml") == sha_before
     assert (workspace / ".kajet" / "collections.yaml").read_text() == text_before
     assert "yearly" not in collections.list_collections(str(workspace))
 

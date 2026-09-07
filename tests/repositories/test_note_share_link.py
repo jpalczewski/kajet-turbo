@@ -1,14 +1,9 @@
 from sqlmodel import Session
 
 from kajet_turbo.db import Database
-from kajet_turbo.models import Note, User
+from kajet_turbo.models import Note
 from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
-
-
-def _user(engine, user_id: str) -> None:
-    with Session(engine) as session:
-        session.add(User(id=user_id, email=f"{user_id}@e.com", created_at="2026-01-01"))
-        session.commit()
+from tests.conftest import seed_user
 
 
 def _note(engine, note_id: str, workspace: str, owner_id: str) -> None:
@@ -27,7 +22,7 @@ def _note(engine, note_id: str, workspace: str, owner_id: str) -> None:
 
 
 def test_create_and_resolve(database: Database):
-    _user(database.engine, "u1")
+    seed_user(database, "u1")
     _note(database.engine, "n1", "ws1", "u1")
     repo = NoteShareLinkRepository(database.engine)
     link = repo.create("n1", "ws1", "u1")
@@ -47,7 +42,7 @@ def test_resolve_unknown_token_returns_none(database: Database):
 
 
 def test_list_for_note_and_user(database: Database):
-    _user(database.engine, "u1")
+    seed_user(database, "u1")
     _note(database.engine, "n1", "ws1", "u1")
     _note(database.engine, "n2", "ws1", "u1")
     repo = NoteShareLinkRepository(database.engine)
@@ -63,8 +58,8 @@ def test_list_for_note_and_user(database: Database):
 
 
 def test_revoke_is_owner_scoped(database: Database):
-    _user(database.engine, "u1")
-    _user(database.engine, "u2")
+    seed_user(database, "u1")
+    seed_user(database, "u2")
     _note(database.engine, "n1", "ws1", "u1")
     repo = NoteShareLinkRepository(database.engine)
     link = repo.create("n1", "ws1", "u1")
@@ -84,7 +79,7 @@ def test_revoke_unknown_token_returns_false(database: Database):
 
 
 def test_delete_for_note_in_session_removes_only_that_notes_links(database: Database):
-    _user(database.engine, "u1")
+    seed_user(database, "u1")
     _note(database.engine, "n1", "ws1", "u1")
     _note(database.engine, "n2", "ws1", "u1")
     repo = NoteShareLinkRepository(database.engine)
@@ -101,8 +96,8 @@ def test_delete_for_note_in_session_removes_only_that_notes_links(database: Data
 
 
 def test_delete_for_workspace_in_session_is_owner_and_workspace_scoped(database: Database):
-    _user(database.engine, "u1")
-    _user(database.engine, "u2")
+    seed_user(database, "u1")
+    seed_user(database, "u2")
     _note(database.engine, "n1", "ws1", "u1")
     _note(database.engine, "n2", "ws2", "u1")
     _note(database.engine, "n3", "ws1", "u2")

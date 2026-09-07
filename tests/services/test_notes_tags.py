@@ -7,14 +7,10 @@ import pytest
 
 from kajet_turbo.markdown import EditSpec
 from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
-from tests.services.conftest import note_target, seed_user, workspace_target
-from tests.services.helpers import corrupt_temporal_field, make_flaky_db_write
+from tests.services.conftest import note_target, workspace_target
+from tests.services.helpers import corrupt_temporal_field, make_flaky_db_write, make_flaky_write
 
-
-@pytest.fixture(autouse=True)
-def _seed_default_owner(database):
-    # rename_tag now enqueues reindex_note jobs (user_id FK to users.id).
-    seed_user(database, "u1")
+pytestmark = pytest.mark.usefixtures("_seed_default_owner")
 
 
 def test_save_indexes_frontmatter_and_inline_tags(service, tag_service, workspace):
@@ -412,13 +408,8 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(
     )[0]["sha"]
 
     real_write = service_module.write_note_file
-    calls = {"n": 0}
-
-    def flaky_write(*args, **kwargs):
-        calls["n"] += 1
-        if calls["n"] == 2:  # second note of the batch; restores come after and go through
-            raise OSError("disk full")
-        return real_write(*args, **kwargs)
+    # second note of the batch; restores come after and go through
+    flaky_write = make_flaky_write(real_write, fail_on_call=2)
 
     monkeypatch.setattr(service_module, "write_note_file", flaky_write)
     with pytest.raises(OSError, match="disk full"):

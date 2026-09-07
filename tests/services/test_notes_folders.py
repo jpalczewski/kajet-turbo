@@ -4,14 +4,10 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.services.conftest import note_target, seed_user, workspace_target
+from tests.services.conftest import note_target, workspace_target
 from tests.services.helpers import head_sha, make_flaky_db_write
 
-
-@pytest.fixture(autouse=True)
-def _seed_default_owner(database):
-    # Folder moves rewrite backlinks, which now enqueue reindex_note jobs (user_id FK).
-    seed_user(database, "u1")
+pytestmark = pytest.mark.usefixtures("_seed_default_owner")
 
 
 def _mv(folder_service, workspace, src, dst):

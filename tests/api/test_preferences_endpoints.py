@@ -1,18 +1,15 @@
-from sqlmodel import Session
 from starlette.testclient import TestClient
 
 from kajet_turbo.api.preferences import router
 from kajet_turbo.dependencies import CurrentUser, get_preferences_service, get_required_user
-from kajet_turbo.models import User
 from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.services.preferences import PreferencesService
 from tests.api.conftest import build_test_app
+from tests.conftest import seed_user
 
 
 def _app(database, *, user_id="u1"):
-    with Session(database.engine) as s:
-        s.add(User(id=user_id, email=f"{user_id}@e.com", created_at="2026-01-01"))
-        s.commit()
+    seed_user(database, user_id)
     svc = PreferencesService(UserRepository(database.engine))
     app = build_test_app(routers=(router,))
     app.dependency_overrides[get_preferences_service] = lambda: svc

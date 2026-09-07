@@ -6,11 +6,12 @@ from dulwich.repo import Repo
 from sqlmodel import Session
 
 from kajet_turbo.crypto import cipher_for, generate_keypair
-from kajet_turbo.models import SshKey, User
+from kajet_turbo.models import SshKey
 from kajet_turbo.repositories.git import GitError
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.services.push_handler import PushHandler
+from tests.conftest import seed_user
 
 
 def _cipher():
@@ -29,9 +30,8 @@ def _handler(database, tmp_path) -> PushHandler:
 
 def _seed_key(database, *, user_id="u1", key_id="k1") -> None:
     kp = generate_keypair("ed25519")
+    seed_user(database, user_id)
     with Session(database.engine) as s:
-        s.add(User(id=user_id, email="u@e.com", created_at="2026-01-01"))
-        s.flush()  # ensure User row exists before FK reference
         s.add(
             SshKey(
                 id=key_id,

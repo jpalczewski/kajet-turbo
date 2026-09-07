@@ -16,8 +16,9 @@ from starlette.websockets import WebSocketDisconnect
 from kajet_turbo import identity
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import AppConfig
-from kajet_turbo.models import User, UserSession
+from kajet_turbo.models import UserSession
 from kajet_turbo.server import build_api_app
+from tests.conftest import seed_user
 
 
 def _api_app(database: Database, tmp_path):
@@ -32,8 +33,8 @@ def _api_app(database: Database, tmp_path):
 
 
 def test_ws_handshake_resolves_real_dependencies_and_accepts_a_session(database, tmp_path):
+    seed_user(database, "u1")
     with Session(database.engine) as s:
-        s.add(User(id="u1", email="u1@example.com", created_at="2026-01-01"))
         s.add(UserSession(token="good-token", user_id="u1", expires_at=int(time.time()) + 86400))
         s.commit()
     app = _api_app(database, tmp_path)

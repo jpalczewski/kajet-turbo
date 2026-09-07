@@ -1,15 +1,15 @@
 from sqlmodel import Session
 
-from kajet_turbo.models import SshKey, User
+from kajet_turbo.models import SshKey
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.services.push_enqueue import make_enqueue_push_on_commit
+from tests.conftest import seed_user
 
 
-def _seed(engine):
-    with Session(engine) as s:
-        s.add(User(id="u1", email="u@e.com", created_at="2026-01-01"))
-        s.flush()
+def _seed(database):
+    seed_user(database, "u1")
+    with Session(database.engine) as s:
         s.add(
             SshKey(
                 id="k1",
@@ -26,7 +26,7 @@ def _seed(engine):
 
 
 def test_enqueue_hook_enqueues_for_enabled_remote(database, tmp_path):
-    _seed(database.engine)
+    _seed(database)
     remotes = WorkspaceRemoteRepository(database.engine)
     jobs = JobRepository(database.engine)
     remotes.upsert("u1", "ws", origin_url="o", ssh_key_id="k1", enabled=True, now="t")
@@ -45,7 +45,7 @@ def test_enqueue_hook_enqueues_for_enabled_remote(database, tmp_path):
 
 
 def test_enqueue_hook_noop_without_remote(database, tmp_path):
-    _seed(database.engine)
+    _seed(database)
     remotes = WorkspaceRemoteRepository(database.engine)
     jobs = JobRepository(database.engine)
     workspaces_dir = tmp_path
@@ -59,7 +59,7 @@ def test_enqueue_hook_noop_without_remote(database, tmp_path):
 
 
 def test_enqueue_hook_noop_when_disabled(database, tmp_path):
-    _seed(database.engine)
+    _seed(database)
     remotes = WorkspaceRemoteRepository(database.engine)
     jobs = JobRepository(database.engine)
     remotes.upsert("u1", "ws", origin_url="o", ssh_key_id="k1", enabled=False, now="t")

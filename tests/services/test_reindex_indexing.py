@@ -3,10 +3,11 @@ import json
 from sqlmodel import Session
 
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
-from kajet_turbo.models import Note, User
+from kajet_turbo.models import Note
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
+from tests.conftest import seed_user
 
 
 def _indexer(database):
@@ -18,8 +19,8 @@ def _indexer(database):
 
 
 def _seed_notes(database, n=3):
+    seed_user(database, "u1")
     with Session(database.engine) as session:
-        session.add(User(id="u1", email="u1@test.com", created_at="2026-01-01"))
         for i in range(n):
             session.add(
                 Note(

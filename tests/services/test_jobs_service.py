@@ -1,14 +1,10 @@
-from sqlmodel import Session
-
-from kajet_turbo.models import User
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.services.jobs import JobService
+from tests.conftest import seed_user
 
 
 def _svc(database):
-    with Session(database.engine) as s:
-        s.add(User(id="u1", email="u@e.com", created_at="2026-01-01"))
-        s.commit()
+    seed_user(database, "u1")
     return JobService(JobRepository(database.engine))
 
 
@@ -30,9 +26,7 @@ def test_list_view_parses_workspace_from_payload(database):
 
 def test_list_scoped_and_status_filter(database):
     svc = _svc(database)
-    with Session(database.engine) as s:
-        s.add(User(id="u2", email="u2@e.com", created_at="2026-01-01"))
-        s.commit()
+    seed_user(database, "u2")
     repo = JobRepository(database.engine)
     repo.enqueue("k", {}, user_id="u1", now=1000.0)
     repo.enqueue("k", {}, user_id="u2", now=1000.0)

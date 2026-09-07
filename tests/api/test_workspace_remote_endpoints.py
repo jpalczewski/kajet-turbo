@@ -9,7 +9,7 @@ from kajet_turbo.dependencies import (
     get_target_resolver,
     get_workspace_remote_service,
 )
-from kajet_turbo.models import SshKey, User
+from kajet_turbo.models import SshKey
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
@@ -17,6 +17,7 @@ from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.services.targets import TargetResolver
 from kajet_turbo.services.workspace_remote import WorkspaceRemoteService
 from tests.api.conftest import build_test_app
+from tests.conftest import seed_user
 
 _REMOTE_FIELDS = {"origin_url", "ssh_key_id", "enabled", "dirty_at", "pushed_at", "last_error"}
 
@@ -38,9 +39,8 @@ class _FakeWorkspaceService:
 
 def _app(database, monkeypatch, tmp_path, *, user_id="u1", access=True):
     if user_id:
+        seed_user(database, user_id)
         with Session(database.engine) as s:
-            s.add(User(id=user_id, email="u@e.com", created_at="2026-01-01"))
-            s.flush()
             s.add(
                 SshKey(
                     id="k1",

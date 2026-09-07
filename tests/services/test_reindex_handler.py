@@ -12,7 +12,7 @@ from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository, NoteRepository
 from kajet_turbo.services.reindex_handler import ReindexNoteHandler
 from kajet_turbo.workspace import NoteFrontmatter, note_filepath, write_note_file
-from tests.services.conftest import seed_user
+from tests.conftest import seed_user
 
 _CFG = EmbedderConfig(
     backend_id="b", type="openai", model="m", dim=3, base_url="http://x", api_key="k"

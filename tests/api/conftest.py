@@ -93,10 +93,10 @@ def api_client_factory(
 
     def create(*, user_id: str | None = "u1", grant_access: bool = True) -> ApiTestContext:
         from kajet_turbo.repositories.notes import NoteChunkRepository as _NoteChunkRepo
+        from tests.conftest import seed_user
         from tests.services.conftest import (
             build_note_read_service,
             build_note_service,
-            seed_user,
         )
 
         monkeypatch.setenv("WORKSPACES_DIR", str(workspace.parent.parent))

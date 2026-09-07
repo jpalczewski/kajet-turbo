@@ -4,13 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from kajet_turbo.repositories.git import GitRepository
 from tests.services.conftest import note_target, workspace_target
-from tests.services.helpers import edit_item
-
-
-def _head_sha(workspace, relative_path: str) -> str:
-    return GitRepository(str(workspace)).file_history(relative_path, limit=1)[0]["sha"]
+from tests.services.helpers import edit_item, head_sha
 
 
 def _run(operation: str, service, workspace, items: list[dict]) -> dict:
@@ -82,7 +77,7 @@ def test_destructive_batches_share_validation_errors(
 ):
     saved = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     note_id = saved["note_id"]
-    sha = _head_sha(workspace, "First.md")
+    sha = head_sha(workspace, "First.md")
     if case == "missing_file":
         Path(workspace, "First.md").unlink()
 
@@ -113,7 +108,7 @@ def test_edit_many_preserves_mixed_validation_error_order(service, workspace):
         [
             edit_item(
                 first["note_id"],
-                _head_sha(workspace, "First.md"),
+                head_sha(workspace, "First.md"),
                 mode="replace_text",
                 old_str="missing",
                 new_str="x",

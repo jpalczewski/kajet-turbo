@@ -10,9 +10,10 @@ from kajet_turbo.api import ws
 from kajet_turbo.api.ws import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import get_event_repo, get_session_repo
-from kajet_turbo.models import Event, User, UserSession
+from kajet_turbo.models import Event, UserSession
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.sessions import SessionRepository
+from tests.conftest import seed_user
 from tests.helpers import entries_named, read_log_entries
 
 
@@ -36,9 +37,8 @@ def _make_app(database: Database, user_id: str | None) -> FastAPI:
     app.dependency_overrides[get_session_repo] = lambda: test_session_repo
 
     if user_id is not None:
+        seed_user(database, user_id)
         with Session(database.engine) as s:
-            if not s.get(User, user_id):
-                s.add(User(id=user_id, email=f"{user_id}@t.com", created_at="2026-01-01"))
             s.add(
                 UserSession(
                     token="good-token",

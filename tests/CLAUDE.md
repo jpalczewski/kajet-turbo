@@ -16,17 +16,34 @@ Never parametrize an expensive fixture over cases a fast test already covers.
 ## Reach for the existing fixture before writing a local one
 
 - `tests/conftest.py` — `database` / `database_factory` (copies a migrated template, so no
-  Alembic per test), `git_workspace_factory`, `note_file_factory`
-- `tests/services/conftest.py` — `service`, `reconcile_service`, `workspace`, `seed_user`,
-  `build_note_service`, `build_note_reconcile_service`, `build_workspace_service`
+  Alembic per test), `git_workspace_factory`, `note_file_factory`, `seed_user` (idempotent:
+  no-op if the id already exists)
+- `tests/services/conftest.py` — `service`, `reconcile_service`, `workspace`,
+  `build_note_service`, `build_note_reconcile_service`, `build_workspace_service`,
+  `_seed_default_owner` (opt in with
+  `pytestmark = pytest.mark.usefixtures("_seed_default_owner")`, not `autouse` at the
+  package level — most files need no `database` at all and shouldn't pay for one)
 - `tests/mcp_tools/conftest.py` — `mcp_server` (seeded user `u1`, patched access token),
   `tokenless_mcp_server` (for auth-rejection tests), `workspaces_dir`
 - `tests/mcp_tools/helpers.py` — `call_json` (never hand-roll
   `json.loads(result.content[0].text)`), `SHA_LIKE`
 
 A helper needed by a second file moves to the suite's `helpers.py` — it does not get copied.
-`_head_sha` exists three times across `tests/services/` and the save→`get_note`→sha dance
-exists in several `tests/mcp_tools/` files; that is the failure mode this rule prevents.
+`_head_sha` existed three times across `tests/services/`, and the save→`get_note`→sha dance
+existed in several `tests/mcp_tools/` files; both are fixed now, but that is the failure mode
+this rule prevents, and it recurs.
+
+**A `session.add(User(...))` (or any other row constructed by hand instead of through a
+repository/service) in a test file is a signal to stop and check for an existing shared
+helper first — `seed_user` almost certainly already does this.** This bit twice: #178 found
+16 files across `tests/services/` seeding a test user two incompatible ways — 9 idempotent
+(through `seed_user`), 7 raw `session.add(User(...))` with no existence check — and a first
+attempt at collapsing just the idempotent group into one shared `autouse` fixture broke the
+suite, because the fixture's "u1" landed first and the raw inserts elsewhere then hit
+`UNIQUE constraint failed: users.id`. Any hand-rolled row insert for a FK target (`User`,
+but the same reasoning applies to anything another fixture might also seed) has to be
+idempotent or it is only accidentally safe — it works only as long as nothing else seeds
+the same id, which a shared fixture is explicitly designed to stop being true.
 
 ## Tests run in parallel, against a fresh DB each
 
