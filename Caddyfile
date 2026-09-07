@@ -1,3 +1,14 @@
+# Trust X-Forwarded-For from the host Traefik hop (#351): Traefik's actual
+# address on Coolify's docker network isn't knowable from this repo (no
+# `networks:` block here, Traefik is entirely Coolify-managed), so
+# private_ranges is the pragmatic choice — it excludes the public internet
+# without pinning a specific subnet that could change on redeploy.
+{
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
 # Internal ingress for the kajet stack. Keeps the host proxy unaware of the
 # MCP/API split: it only needs Host -> this service.
 #

@@ -78,6 +78,11 @@ def test_access_token_outcomes_are_security_events(database, monkeypatch, capsys
         SecurityReason.NO_OWNER.value,
         SecurityReason.EXPIRED.value,
     ]
+    # #351: called directly here, outside any bound HTTP/MCP request -- client_ip_fields()
+    # must degrade to nothing rather than raise, so the security event still gets logged.
+    for event in [success, *failures]:
+        assert "client_ip" not in event
+        assert "user_agent" not in event
     serialized = str(entries)
     for token in (
         "at-valid-secret",

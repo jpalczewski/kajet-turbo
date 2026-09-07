@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from fastmcp.dependencies import CallArgument, Depends
 from fastmcp.exceptions import ToolError
-from fastmcp.server.dependencies import get_access_token
+from fastmcp.server.dependencies import get_access_token, get_http_request
 
 from kajet_turbo import identity
 from kajet_turbo.concurrency import run_sync
@@ -24,6 +24,30 @@ from kajet_turbo.services.targets import (
     audit_denied,
 )
 from kajet_turbo.services.workspaces import WorkspaceService
+
+
+def client_ip_fields() -> dict[str, str]:
+    """client_ip/user_agent off the live per-message HTTP request (#351).
+
+    Not an ambient ContextVar bound once in LoggingMiddleware: fastmcp's own
+    dispatcher rebinds get_http_request's context fresh for every inbound
+    JSON-RPC message (fastmcp.server.low_level.bind_request_context), unlike the
+    session-init-time capture #71 worked around for session_id/request_id — so
+    this is safe to call even mid tool-dispatch on a persistent session.
+    RuntimeError means no request context is bound (e.g. a unit test calling a
+    resolver directly outside any request), not a bug -- degrade to empty.
+    """
+    try:
+        request = get_http_request()
+    except RuntimeError:
+        return {}
+    fields: dict[str, str] = {}
+    if request.client:
+        fields["client_ip"] = request.client.host
+    user_agent = request.headers.get("user-agent")
+    if user_agent:
+        fields["user_agent"] = user_agent
+    return fields
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +117,7 @@ def _resolve_user() -> str:
             auth_method="oauth_token",
             reason=SecurityReason.NO_OWNER.value,
             client_id=token.client_id,
+            **client_ip_fields(),
         )
         raise ToolError("Authentication required.")
     return user_id

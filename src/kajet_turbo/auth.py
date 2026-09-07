@@ -353,6 +353,12 @@ class KajetOAuthProvider(OAuthProvider):
     # ty false positive: generic AccessTokenT vs concrete AccessToken — fastmcp's
     # own InMemoryOAuthProvider suppresses the same override diagnostics.
     async def load_access_token(self, token: str) -> AccessToken | None:  # ty: ignore[invalid-method-override]
+        # Local import: mcp.context pulls in the service/repository graph, and this
+        # module is imported early (KajetOAuthProvider construction) — a top-level
+        # import here risks a load-order cycle that a call-time import sidesteps.
+        from kajet_turbo.mcp.context import client_ip_fields
+
+        client_fields = client_ip_fields()
         row = await run_sync(self._oauth_repo.get_access_token, token)
         if row is None:
             log_security_event(
@@ -362,6 +368,7 @@ class KajetOAuthProvider(OAuthProvider):
                 auth_method="oauth_token",
                 reason=SecurityReason.UNKNOWN_TOKEN.value,
                 token_prefix=token[:8],
+                **client_fields,
             )
             return None
         if row["user_id"] is None:
@@ -377,6 +384,7 @@ class KajetOAuthProvider(OAuthProvider):
                 reason=SecurityReason.NO_OWNER.value,
                 token_prefix=token[:8],
                 client_id=row["client_id"],
+                **client_fields,
             )
             return None
         if identity.token_expired(row):
@@ -389,6 +397,7 @@ class KajetOAuthProvider(OAuthProvider):
                 token_prefix=token[:8],
                 expired_s=int(time.time() - row["expires_at"]),
                 client_id=row["client_id"],
+                **client_fields,
             )
             # Remove only the AT row — the paired RT must survive so the
             # client can refresh.
@@ -400,6 +409,7 @@ class KajetOAuthProvider(OAuthProvider):
             user_id=str(row["user_id"]),
             auth_method="oauth_token",
             client_id=row["client_id"],
+            **client_fields,
         )
         return AccessToken(
             token=row["token"],

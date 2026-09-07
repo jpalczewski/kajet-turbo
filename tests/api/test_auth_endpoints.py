@@ -256,6 +256,11 @@ def test_password_login_outcomes_are_audited_without_exposing_credentials(databa
     (success_event,) = entries_named(entries, SecurityEvent.AUTH_SUCCESS.value)
     assert success_event["auth_method"] == "password"
     assert success_event["user_id"] == user_id
+    # #351: every login outcome carries the caller's address/UA (TestClient's fixed
+    # peer here), not just the http record.
+    for event in [*events, success_event]:
+        assert event["client_ip"] == "testclient"
+        assert event["user_agent"] == "testclient"
     serialized = str([*events, success_event])
     for secret in (
         "missing@example.com",
@@ -287,6 +292,8 @@ def test_expired_pending_login_is_an_audited_failure(database, capsys):
     assert event["reason"] == SecurityReason.EXPIRED_PENDING.value
     assert event["user_id"] == user_id
     assert event["auth_method"] == "password"
+    assert event["client_ip"] == "testclient"
+    assert event["user_agent"] == "testclient"
 
 
 def test_failed_login_does_not_mark_its_http_record_as_security(database, capsys):

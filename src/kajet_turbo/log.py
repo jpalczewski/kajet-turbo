@@ -333,6 +333,14 @@ class LoggingMiddleware:
                         method=request.method,
                         status=status,
                         duration_ms=round((time.monotonic() - start) * 1000),
+                        # #351 verification step only: confirms a real address survives
+                        # the Traefik/Caddy hops. Not bound via contextualize (would leak
+                        # onto every unrelated line of the request) and not meant to stay
+                        # on every `http` line long-term — client_ip is PII, and #262's
+                        # durable placement for it is security-event records only. Drop
+                        # these two kwargs once verified against a live deployment.
+                        client_ip=request.client.host if request.client else None,
+                        user_agent=request.headers.get("user-agent"),
                         **_http_route_fields(scope),
                         **perf_fields,
                     )

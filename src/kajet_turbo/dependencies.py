@@ -514,6 +514,8 @@ def get_required_user(request: Request) -> CurrentUser:
             user_id=None,
             auth_method="session_cookie",
             reason=SecurityReason.NO_SESSION.value,
+            client_ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
         )
         raise HTTPException(status_code=401, detail=AuthError.NOT_AUTHENTICATED)
     return CurrentUser(

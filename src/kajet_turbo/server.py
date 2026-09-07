@@ -465,4 +465,12 @@ def main() -> None:
         factory=True,
         log_config=None,
         log_level="info",
+        # Caddy is the only peer that can reach this port (#351: kajet-api/kajet-mcp
+        # publish no ports at all, only Caddy proxies to them over the compose
+        # network) — trusting X-Forwarded-For from it is what lets request.client
+        # carry the real originating address instead of Caddy's own. Private ranges,
+        # not "*": a Docker bridge doesn't NAT through a single gateway IP, so there
+        # is no one address to pin, but this still formally excludes the internet
+        # without needing to know the exact Docker-assigned subnet.
+        forwarded_allow_ips="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1",
     )

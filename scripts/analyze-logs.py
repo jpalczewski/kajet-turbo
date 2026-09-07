@@ -211,8 +211,11 @@ def mode_http(events: list[dict]) -> None:
         status = e.get("status") or ""
         dur = e.get("duration_ms")
         dur_str = f"{dur}ms" if dur is not None else ""
+        # #351 verification only: client_ip is expected to disappear from this record
+        # once the proxy chain is confirmed and the field moves to security events only.
+        ip = (e.get("client_ip") or "")[:15]
         uid = (e.get("user_id") or "")[:30]
-        print(f"{ts}  {method:<6}  {status!s:>3}  {dur_str:>7}  {path:<60}  {uid}")
+        print(f"{ts}  {method:<6}  {status!s:>3}  {dur_str:>7}  {ip:<15}  {path:<60}  {uid}")
         found = True
     if not found:
         print("No HTTP request events found.")

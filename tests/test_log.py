@@ -196,6 +196,53 @@ async def test_tool_dispatch_binds_live_session_id_not_initialize_time(capsys):
     assert with_result.content[0].text == with_entry["session_id"]
 
 
+def test_tool_dispatch_binds_client_ip_per_call_not_per_session(capsys):
+    """#351: client_ip must reflect *this* call's originating address, not one cached
+    from an earlier call or a session-init-time snapshot — the exact hazard issue #71
+    already fixed for session_id/request_id (see test above), which client_ip_fields()
+    avoids by reading fastmcp's own per-message request context (get_http_request())
+    rather than an ambient contextvar. Uses the real stateless HTTP transport (#244 is
+    the production mode) instead of fastmcp's in-memory Client, since only a real ASGI
+    request carries anything for get_http_request() to read."""
+    from fastmcp import FastMCP
+    from starlette.testclient import TestClient
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    from kajet_turbo.log import setup_logging
+    from kajet_turbo.mcp.tooling import ToolDispatchMiddleware
+
+    setup_logging()
+    server = FastMCP("logged-tools")
+    server.add_middleware(ToolDispatchMiddleware())
+
+    @server.tool
+    def ping() -> str:
+        return "pong"
+
+    app = server.http_app(path="/", stateless_http=True)
+    # ty false positive: uvicorn's ASGI3Application protocol vs starlette's ASGIApp —
+    # both are plain ASGI callables at runtime, just typed against different stubs.
+    wrapped = ProxyHeadersMiddleware(app, trusted_hosts="testclient")  # ty: ignore[invalid-argument-type]
+    rpc_headers = {"Accept": "application/json, text/event-stream"}
+
+    with TestClient(wrapped) as client:  # ty: ignore[invalid-argument-type]
+        for call_id, ip in ((1, "203.0.113.5"), (2, "198.51.100.9")):
+            client.post(
+                "/",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": call_id,
+                    "method": "tools/call",
+                    "params": {"name": "ping", "arguments": {}},
+                },
+                headers={**rpc_headers, "X-Forwarded-For": ip},
+            )
+
+    (first, second) = entries_named(read_log_entries(capsys), "ping")
+    assert first["client_ip"] == "203.0.113.5"
+    assert second["client_ip"] == "198.51.100.9"
+
+
 def test_logging_middleware_logs_http_entry(capsys):
     from starlette.testclient import TestClient
 
@@ -216,6 +263,39 @@ def test_logging_middleware_logs_http_entry(capsys):
     assert e["status"] == 200
     assert e["user_id"] is None
     assert "duration_ms" in e
+    # TestClient's default peer/UA, absent any proxy trust config -- see
+    # test_logging_middleware_resolves_forwarded_client_ip_through_trusted_proxy
+    # for the case where a trusted hop's X-Forwarded-For is honored instead.
+    assert e["client_ip"] == "testclient"
+    assert e["user_agent"] == "testclient"
+
+
+def test_logging_middleware_resolves_forwarded_client_ip_through_trusted_proxy(capsys):
+    """#351: uvicorn's ProxyHeadersMiddleware (wired via forwarded_allow_ips in
+    server.py) rewrites scope["client"] from X-Forwarded-For when the immediate peer
+    is trusted -- LoggingMiddleware must log whatever request.client ends up being,
+    not assume it always sees the raw TCP peer."""
+    from starlette.testclient import TestClient
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    app = make_logging_app()
+
+    @app.get("/ping")
+    def ping():
+        return {"ok": True}
+
+    # TestClient's peer is always ("testclient", 50000) -- trust it explicitly so the
+    # middleware honors the forwarded header the same way it would trust Caddy's peer
+    # address in production.
+    wrapped = ProxyHeadersMiddleware(app, trusted_hosts="testclient")
+
+    # ty false positive: uvicorn's ASGI3Application protocol vs starlette's ASGIApp —
+    # both are plain ASGI callables at runtime, just typed against different stubs.
+    with TestClient(wrapped) as client:  # ty: ignore[invalid-argument-type]
+        client.get("/ping", headers={"X-Forwarded-For": "203.0.113.5"})
+
+    (entry,) = entries_named(read_log_entries(capsys), "http")
+    assert entry["client_ip"] == "203.0.113.5"
 
 
 def test_logging_middleware_logs_route_template_and_only_safe_path_params(capsys):

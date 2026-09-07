@@ -17,7 +17,11 @@ def test_get_required_user_raises_401_when_no_session(tmp_path, monkeypatch, cap
             "type": "http",
             "method": "GET",
             "path": "/",
-            "headers": [(b"cookie", b"kajet_session=private-session-cookie")],
+            "client": ("203.0.113.5", 12345),
+            "headers": [
+                (b"cookie", b"kajet_session=private-session-cookie"),
+                (b"user-agent", b"pytest-client/1.0"),
+            ],
             "query_string": b"",
         }
         request = Request(scope)
@@ -29,6 +33,8 @@ def test_get_required_user_raises_401_when_no_session(tmp_path, monkeypatch, cap
     (event,) = entries_named(read_log_entries(capsys), SecurityEvent.AUTH_FAILURE.value)
     assert event["reason"] == SecurityReason.NO_SESSION.value
     assert event["auth_method"] == "session_cookie"
+    assert event["client_ip"] == "203.0.113.5"
+    assert event["user_agent"] == "pytest-client/1.0"
     assert "private-session-cookie" not in str(event)
 
 

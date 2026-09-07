@@ -14,6 +14,7 @@ from kajet_turbo.concurrency import run_sync
 from kajet_turbo.log import logger
 from kajet_turbo.mcp.context import (
     McpDependencies,
+    client_ip_fields,
     current_mcp_dependencies,
     use_mcp_context,
 )
@@ -130,6 +131,12 @@ class ToolDispatchMiddleware(Middleware):
     async def on_call_tool(self, context: MiddlewareContext, call_next: CallNext):
         tool = context.message.name
         start = time.monotonic()
+        # Read once per call, passed explicitly into each log call below — never
+        # folded into the contextualize() scope above, which covers every line of
+        # the dispatch (including anything a tool body itself logs). client_ip/
+        # user_agent are PII (#351); session_id/request_id are correlation-only
+        # and safe on every line, which is why only those go through contextualize.
+        client_fields = client_ip_fields()
         with logger.contextualize(**_correlation_ids(context)), perf_span() as span:
             try:
                 result = await self._dispatch(context, call_next)
@@ -142,9 +149,11 @@ class ToolDispatchMiddleware(Middleware):
                     tool,
                     start,
                     span,
+                    exception=None,
                     level="WARNING",
                     error_type="ValidationError",
                     rejected_params=_rejected_params(exc),
+                    **client_fields,
                 )
                 raise
             except PydanticValidationError as exc:
@@ -157,26 +166,35 @@ class ToolDispatchMiddleware(Middleware):
                     tool,
                     start,
                     span,
+                    exception=None,
                     error_type="PydanticValidationError",
                     rejected_params=_param_paths(exc),
+                    **client_fields,
                 )
                 raise
             except ToolError as exc:
                 cause = exc.__cause__
                 if isinstance(cause, SERVICE_ERRORS):
-                    self._log(tool, start, span, exception=cause)
+                    self._log(tool, start, span, exception=cause, **client_fields)
                     raise ToolError(str(cause)) from cause
                 # `cause is None` for a ToolError raised on purpose, by a tool body or
                 # by a dependency; otherwise it is an unexpected exception fastmcp
                 # wrapped, and its own type is the informative one to record.
-                self._log(tool, start, span, exception=cause or exc)
+                self._log(tool, start, span, exception=cause or exc, **client_fields)
                 raise
             except Exception as exc:
-                self._log(tool, start, span, exception=exc)
+                self._log(tool, start, span, exception=exc, **client_fields)
                 raise
             duration_ms = _elapsed_ms(start)
             level = "WARNING" if _SLOW_TOOL_MS and duration_ms >= _SLOW_TOOL_MS else "INFO"
-            logger.log(level, tool, tool=tool, duration_ms=duration_ms, **_span_fields(span))
+            logger.log(
+                level,
+                tool,
+                tool=tool,
+                duration_ms=duration_ms,
+                **_span_fields(span),
+                **client_fields,
+            )
             return result
 
     async def _dispatch(self, context: MiddlewareContext, call_next: CallNext):

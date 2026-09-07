@@ -139,6 +139,40 @@ def test_grep_composes_with_json(monkeypatch, capsys):
     assert [e["note_id"] for e in lines] == ["n1"]
 
 
+def test_mode_http_renders_client_ip_column(monkeypatch, capsys):
+    """#351: client_ip travels with the rest of the fixed-width http columns."""
+    events = [
+        {
+            "ts": "2026-01-01T00:00:00Z",
+            "msg": "http",
+            "method": "GET",
+            "path": "/api/notes",
+            "status": 200,
+            "duration_ms": 12,
+            "client_ip": "203.0.113.5",
+            "user_id": "u1",
+        },
+        {
+            "ts": "2026-01-01T00:00:01Z",
+            "msg": "http",
+            "method": "GET",
+            "path": "/api/notes",
+            "status": 200,
+            "duration_ms": 5,
+            "user_id": None,
+        },
+    ]
+    monkeypatch.setattr(analyze_logs, "load_events", lambda **kwargs: events)
+    monkeypatch.setattr(sys, "argv", ["analyze-logs.py", "capture.log", "--mode", "http"])
+
+    analyze_logs.main()
+
+    lines = [line for line in capsys.readouterr().out.splitlines() if "/api/notes" in line]
+    assert "203.0.113.5" in lines[0]
+    # Second event has no client_ip at all -- degrades to blank, not a crash or "None".
+    assert "None" not in lines[1]
+
+
 def test_docker_banner_names_resolved_latest_file(monkeypatch, capsys, tmp_path):
     resolved = tmp_path / "actual-capture.jsonl"
     monkeypatch.setattr(analyze_logs, "latest_log", lambda role, env: resolved)
