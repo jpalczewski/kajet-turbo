@@ -27,7 +27,7 @@ from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbedding
 from kajet_turbo.embedding.client import SharedEmbedderClient
 from kajet_turbo.embedding.resolver import ProfileResolver
 from kajet_turbo.errors import AuthError, NoteError, SecurityEvent, SecurityReason
-from kajet_turbo.log import log_permission_denied, log_security_event
+from kajet_turbo.log import client_ip_fields, log_permission_denied, log_security_event
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 from kajet_turbo.repositories.events import EventRepository
@@ -514,8 +514,7 @@ def get_required_user(request: Request) -> CurrentUser:
             user_id=None,
             auth_method="session_cookie",
             reason=SecurityReason.NO_SESSION.value,
-            client_ip=request.client.host if request.client else None,
-            user_agent=request.headers.get("user-agent"),
+            **client_ip_fields(request),
         )
         raise HTTPException(status_code=401, detail=AuthError.NOT_AUTHENTICATED)
     return CurrentUser(

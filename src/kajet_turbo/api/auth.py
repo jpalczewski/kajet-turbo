@@ -15,7 +15,7 @@ from kajet_turbo.dependencies import (
     get_user_repo,
 )
 from kajet_turbo.errors import AuthError, SecurityEvent, SecurityReason
-from kajet_turbo.log import log_security_event, logger
+from kajet_turbo.log import client_ip_fields, log_security_event, logger
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.sessions import SessionRepository
 from kajet_turbo.repositories.users import UserRepository
@@ -43,8 +43,7 @@ async def api_login(
     session_repo: SessionRepository = Depends(get_session_repo),
     provider=Depends(get_provider),
 ) -> LoginResponse:
-    client_ip = request.client.host if request.client else None
-    user_agent = request.headers.get("user-agent")
+    client_fields = client_ip_fields(request)
     user = await run_sync(user_repo.get_by_email, body.email)
     password_hash = user.password_hash if user and user.password_hash else DUMMY_PASSWORD_HASH
     # Timing-safe: verify_password always runs, even for an unknown email, so a login
@@ -58,8 +57,7 @@ async def api_login(
             user_id=user.id if user else None,
             auth_method="password",
             reason=failure_reason.value,
-            client_ip=client_ip,
-            user_agent=user_agent,
+            **client_fields,
         )
         raise HTTPException(status_code=401, detail=AuthError.INVALID_CREDENTIALS)
 
@@ -76,8 +74,7 @@ async def api_login(
                 user_id=user.id,
                 auth_method="password",
                 reason=SecurityReason.EXPIRED_PENDING.value,
-                client_ip=client_ip,
-                user_agent=user_agent,
+                **client_fields,
             )
             # Session row is already created but the cookie below is never set -- matches
             # the pre-migration behavior of returning before Set-Cookie on this branch.
@@ -88,8 +85,7 @@ async def api_login(
         level="INFO",
         user_id=user.id,
         auth_method="password",
-        client_ip=client_ip,
-        user_agent=user_agent,
+        **client_fields,
     )
     response.set_cookie(
         _SESSION_COOKIE, session_token, max_age=_SESSION_MAX_AGE, httponly=True, samesite="lax"

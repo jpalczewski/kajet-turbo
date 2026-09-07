@@ -10,6 +10,7 @@ import uuid
 from dataclasses import dataclass
 
 from loguru import logger
+from starlette.requests import Request
 
 from kajet_turbo import identity
 from kajet_turbo.cache import TtlCache, cache_enabled
@@ -266,6 +267,24 @@ def log_permission_denied(
     )
 
 
+def client_ip_fields(request: Request) -> dict[str, str]:
+    """client_ip/user_agent off a Starlette Request (#351).
+
+    Shared by every HTTP-boundary call site (LoggingMiddleware, get_required_user,
+    api_login) that already has a Request in scope. The MCP surface has no Request to
+    pass in directly — kajet_turbo.mcp.context.client_ip_fields() fetches one via
+    fastmcp's get_http_request() and delegates here, so the actual field-extraction
+    logic (and any future change to it) lives in exactly one place.
+    """
+    fields: dict[str, str] = {}
+    if request.client:
+        fields["client_ip"] = request.client.host
+    user_agent = request.headers.get("user-agent")
+    if user_agent:
+        fields["user_agent"] = user_agent
+    return fields
+
+
 def _http_route_fields(scope) -> dict[str, str]:
     """Return a useful route identity without user-authored URL segments."""
     route_path = getattr(scope.get("route"), "path", None)
@@ -302,8 +321,6 @@ class LoggingMiddleware:
             await self._app(scope, receive, send)
             return
 
-        from starlette.requests import Request
-
         request = Request(scope)
         is_health_path = request.url.path in _HEALTH_PATHS
         request_id = str(uuid.uuid4())[:8]
@@ -338,9 +355,8 @@ class LoggingMiddleware:
                         # onto every unrelated line of the request) and not meant to stay
                         # on every `http` line long-term — client_ip is PII, and #262's
                         # durable placement for it is security-event records only. Drop
-                        # these two kwargs once verified against a live deployment.
-                        client_ip=request.client.host if request.client else None,
-                        user_agent=request.headers.get("user-agent"),
+                        # this once verified against a live deployment.
+                        **client_ip_fields(request),
                         **_http_route_fields(scope),
                         **perf_fields,
                     )

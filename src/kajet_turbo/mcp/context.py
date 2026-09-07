@@ -10,6 +10,7 @@ from fastmcp.server.dependencies import get_access_token, get_http_request
 from kajet_turbo import identity
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.errors import SecurityEvent, SecurityReason
+from kajet_turbo.log import client_ip_fields as _client_ip_fields_from_request
 from kajet_turbo.log import log_permission_denied, log_security_event
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.git import PostCommitHooks
@@ -35,19 +36,15 @@ def client_ip_fields() -> dict[str, str]:
     session-init-time capture #71 worked around for session_id/request_id — so
     this is safe to call even mid tool-dispatch on a persistent session.
     RuntimeError means no request context is bound (e.g. a unit test calling a
-    resolver directly outside any request), not a bug -- degrade to empty.
+    resolver directly outside any request), not a bug -- degrade to empty. The
+    actual field extraction is kajet_turbo.log.client_ip_fields — shared with every
+    HTTP-boundary call site that already has a Request in hand.
     """
     try:
         request = get_http_request()
     except RuntimeError:
         return {}
-    fields: dict[str, str] = {}
-    if request.client:
-        fields["client_ip"] = request.client.host
-    user_agent = request.headers.get("user-agent")
-    if user_agent:
-        fields["user_agent"] = user_agent
-    return fields
+    return _client_ip_fields_from_request(request)
 
 
 @dataclass(frozen=True, slots=True)

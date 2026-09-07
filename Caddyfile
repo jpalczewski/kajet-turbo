@@ -2,7 +2,10 @@
 # address on Coolify's docker network isn't knowable from this repo (no
 # `networks:` block here, Traefik is entirely Coolify-managed), so
 # private_ranges is the pragmatic choice — it excludes the public internet
-# without pinning a specific subnet that could change on redeploy.
+# without pinning a specific subnet that could change on redeploy. Syntax
+# confirmed against caddyserver.com/docs/caddyfile/options ("Configure Back
+# Caddy Instance" pattern uses this exact `servers { trusted_proxies static
+# private_ranges }` shape).
 {
 	servers {
 		trusted_proxies static private_ranges
