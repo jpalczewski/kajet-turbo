@@ -1072,10 +1072,10 @@ class NoteService:
         return self.update(
             target,
             expected_sha=current_sha,
-            edit=EditSpec(content=version["content"]),
-            tags=version["tags"],
-            extras=version["extras"],
+            edit=EditSpec(content=version.content),
+            tags=version.tags,
+            extras=version.extras,
             extras_replace=True,
-            occurred_at=version["occurred_at"],
-            period=version["period"],
+            occurred_at=version.occurred_at,
+            period=version.period,
         )

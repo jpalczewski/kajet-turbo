@@ -34,6 +34,19 @@ def entries_named(entries: list[dict[str, Any]], msg: str) -> list[dict[str, Any
     return [entry for entry in entries if entry.get("msg") == msg]
 
 
+def flatten_routes(routes: list) -> list:
+    """Every route object reachable from ``routes``, unwrapping FastAPI 0.141's nested
+    ``_IncludedRouter`` wrapper (it keeps an included router's routes as a wrapper object
+    instead of flattening them into the parent app's route list)."""
+    out: list = []
+    for route in routes:
+        out.append(route)
+        original_router = getattr(route, "original_router", None)
+        if original_router is not None:
+            out.extend(flatten_routes(original_router.routes))
+    return out
+
+
 def make_logging_app(resources=None):
     """A FastAPI app wrapped in LoggingMiddleware, with logging set up.
 

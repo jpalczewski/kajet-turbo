@@ -10,7 +10,9 @@ import type {
   LinksResponse,
   NoteHtmlResponse,
   NoteItem,
+  NotesListResponse,
   TagNode,
+  TagsResponse,
   WorkspaceContentsResponse,
 } from '$lib/api';
 import { loginPath, workspacesPath } from '$lib/routes';
@@ -18,6 +20,15 @@ import type { PageLoad } from './$types';
 
 function statusOf(e: unknown): number | undefined {
   return (e as { status?: number } | null)?.status;
+}
+
+// customFetch (fetcher.ts) throws on any non-2xx response, so a resolved result here is
+// always the 200 variant at runtime -- this narrows orval's per-status-code response union
+// down to that one. Not loadApi() (load.ts): that helper throws/redirects on a non-200
+// result, but every call site below needs the opposite -- soft-fail to `null`/a caller
+// -supplied default instead of erroring the whole page load.
+function dataOr<T>(result: { status: number; data: unknown } | null | undefined): T | null {
+  return result != null && result.status === 200 ? (result.data as T) : null;
 }
 
 export const load: PageLoad = async ({ params, url, depends }) => {
@@ -43,10 +54,8 @@ export const load: PageLoad = async ({ params, url, depends }) => {
     ]);
     if (statusOf(tagsError) === 401) redirect(307, loginPath());
     if (statusOf(tagsError) === 403) redirect(307, workspacesPath());
-    // customFetch (fetcher.ts) throws on any non-2xx response, so a resolved result is
-    // always the 200 variant at runtime -- narrow orval's per-status-code union to match.
-    const tags: TagNode[] = tagsResult?.status === 200 ? tagsResult.data.tags : [];
-    const notes: NoteItem[] = notesResult?.status === 200 ? notesResult.data.notes : [];
+    const tags: TagNode[] = dataOr<TagsResponse>(tagsResult)?.tags ?? [];
+    const notes: NoteItem[] = dataOr<NotesListResponse>(notesResult)?.notes ?? [];
     return {
       mode: 'tags' as const,
       slug,
@@ -94,9 +103,8 @@ export const load: PageLoad = async ({ params, url, depends }) => {
       ])
     : [null, null];
 
-  const note: NoteHtmlResponse | null = noteResult?.status === 200 ? noteResult.data : null;
-  const links: LinksResponse =
-    linksResult?.status === 200 ? linksResult.data : { backlinks: [], outlinks: [] };
+  const note = dataOr<NoteHtmlResponse>(noteResult);
+  const links = dataOr<LinksResponse>(linksResult) ?? { backlinks: [], outlinks: [] };
 
   return {
     mode: 'files' as const,

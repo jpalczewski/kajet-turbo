@@ -9,6 +9,7 @@ intent (returning a raw JSONResponse anyway) still gets caught.
 
 import inspect
 import json
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from pydantic import BaseModel
 from starlette.responses import Response
 
 from scripts.export_openapi import build_schema_app
+from tests.helpers import flatten_routes
 
 _BODY_METHODS = {"POST", "PUT", "PATCH"}
 _SNAPSHOT_PATH = Path(__file__).parent / "openapi_snapshot.json"
@@ -33,25 +35,16 @@ _EXEMPTIONS = {
 }
 
 
-def _collect_routes(routes: list, out: list) -> None:
-    for route in routes:
-        out.append(route)
-        # FastAPI 0.141 nests an included router's routes as a wrapper object instead of
-        # flattening them into the parent's route list -- same unwrap tests/test_server.py
-        # already needs for the same reason.
-        original_router = getattr(route, "original_router", None)
-        if original_router is not None:
-            _collect_routes(original_router.routes, out)
-
-
 def _api_routes() -> list[APIRoute]:
     app = build_schema_app()
-    all_routes: list = []
-    _collect_routes(app.routes, all_routes)
     # APIWebSocketRoute (/api/ws) is a different route class with no response_model/
     # body_field/dependant.request_param_name to check -- excluded by the isinstance guard,
     # not listed in _EXEMPTIONS, since it never had these properties to exempt.
-    return [r for r in all_routes if isinstance(r, APIRoute) and r.path.startswith("/api/")]
+    return [
+        r
+        for r in flatten_routes(app.routes)
+        if isinstance(r, APIRoute) and r.path.startswith("/api/")
+    ]
 
 
 def _route_id(route: APIRoute) -> str:
@@ -89,18 +82,15 @@ def test_route_follows_typed_endpoint_pattern(route: APIRoute) -> None:
     )
 
     body_field = route.body_field
-    body_is_typed_model = (
-        body_field is not None
-        and isinstance(body_field.field_info.annotation, type)
-        and issubclass(body_field.field_info.annotation, BaseModel)
-    )
     if body_field is not None:
-        assert body_is_typed_model, (
+        assert isinstance(body_field.field_info.annotation, type) and issubclass(
+            body_field.field_info.annotation, BaseModel
+        ), (
             f"{route.path}'s body is typed {body_field.field_info.annotation!r}, not a "
             "Pydantic model."
         )
 
-    if methods & _BODY_METHODS and not body_is_typed_model:
+    if methods & _BODY_METHODS and body_field is None:
         # No typed body at all on a route whose method conventionally carries a JSON body,
         # plus a bare Request parameter, is the fingerprint of manual `await
         # request.json()` parsing -- the exact pattern this issue retires. A route with no
@@ -112,7 +102,12 @@ def test_route_follows_typed_endpoint_pattern(route: APIRoute) -> None:
         )
 
 
+@lru_cache(maxsize=1)
 def _openapi_schema() -> dict:
+    # Shared across every test below that needs the schema (orphan-schema check, ErrorCode
+    # regression, snapshot diff) -- app.openapi() walks all ~58 routes and ~97 Pydantic
+    # models and measurably costs ~90ms per call, so recomputing it per test wastes real
+    # time for a value that's identical within one test run.
     return build_schema_app().openapi()
 
 
@@ -210,9 +205,10 @@ def test_openapi_schema_matches_committed_snapshot() -> None:
     """Pins schema names and operationIds so incidental client churn (a renamed schema, a
     changed operationId that regenerates every call site under a new function name) shows
     up in code review as a diff to this fixture instead of only surfacing downstream in the
-    generated frontend client. Update the fixture deliberately (rerun this file's snapshot
-    generation, review the diff, commit) whenever a route change is intentional -- it is
-    not meant to auto-update itself."""
+    generated frontend client. Update the fixture deliberately, review the diff, then
+    commit -- run `uv run python -m tests.api.test_endpoint_contract` to regenerate it (see
+    the `if __name__ == "__main__"` block at the bottom of this file); it is not meant to
+    auto-update itself."""
     current = _current_snapshot()
     saved = json.loads(_SNAPSHOT_PATH.read_text())
 
@@ -234,3 +230,11 @@ def test_openapi_schema_matches_committed_snapshot() -> None:
         f"  schemas removed:    {sorted(removed_schemas)}\n"
         "If this is a deliberate change, regenerate the fixture (see this test's docstring)."
     )
+
+
+if __name__ == "__main__":
+    # `uv run python -m tests.api.test_endpoint_contract` -- regenerates the committed
+    # snapshot from the current route table. Review the diff before committing; this
+    # script doesn't run as part of the pytest suite.
+    _SNAPSHOT_PATH.write_text(json.dumps(_current_snapshot(), indent=2, sort_keys=True) + "\n")
+    print(f"Wrote {_SNAPSHOT_PATH}")

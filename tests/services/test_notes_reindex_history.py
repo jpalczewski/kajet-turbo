@@ -126,8 +126,8 @@ def test_get_version_returns_historical_content(service, workspace):
         note_target("u1", "ws", workspace, note_id), sha_v1
     )
 
-    assert version["content"] == "treść oryginalna"
-    assert version["note_id"] == note_id
+    assert version.content == "treść oryginalna"
+    assert version.note_id == note_id
 
 
 def test_get_version_falls_back_to_db_title_for_explicit_null_frontmatter(service, workspace):
@@ -153,7 +153,7 @@ def test_get_version_falls_back_to_db_title_for_explicit_null_frontmatter(servic
 
     version = service._version_service.get_version(note_target("u1", "ws", workspace, note_id), sha)
 
-    assert version["title"] == "Historia"  # DB fallback, not the literal string "None"
+    assert version.title == "Historia"  # DB fallback, not the literal string "None"
 
 
 def test_restore_version_reverts_content(service, read_service, workspace):
