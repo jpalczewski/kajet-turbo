@@ -38,11 +38,10 @@ async def api_pending_info(
     id: str = Query(...),
     provider=Depends(get_provider),
 ) -> PendingInfoResponse:
-    """No auth dependency by design (docs/specs/rest-contracts.md) -- this is the
-    pre-login OAuth consent screen's client-name lookup. Exempt from the rest of the
-    #254 typed-endpoint migration per the issue (protocol-adjacent OAuth routes keep
-    their wire shape); the 404 case reuses PENDING_EXPIRED since it's the same
-    unknown/expired-pending_id condition as api_consent's."""
+    """No auth dependency by design -- this is the pre-login OAuth consent screen's
+    client-name lookup, called before the user has a session to authenticate with. The
+    404 case reuses PENDING_EXPIRED since it's the same unknown/expired-pending_id
+    condition as api_consent's."""
     client = await run_sync(provider.get_pending_client, id)
     if client is None:
         raise HTTPException(status_code=404, detail=AuthError.PENDING_EXPIRED)

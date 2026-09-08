@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import WorkspaceContentsResponse
 from kajet_turbo.api.schemas.errors import ErrorResponse
@@ -52,7 +51,7 @@ def api_workspace_contents(
     folder_service: NoteFolderService = Depends(get_note_folder_service),
     note_read_service: NoteReadService = Depends(get_note_read_service),
     path: str = "",
-) -> JSONResponse:
+) -> WorkspaceContentsResponse:
     requested_path = _clean_path(path)
     ws_path = str(workspace.path)
     ws_root = Path(ws_path).resolve()
@@ -97,15 +96,13 @@ def api_workspace_contents(
         None,
     )
 
-    return JSONResponse(
-        {
-            "path": requested_path,
-            "resolution": resolution,
-            "folder_path": folder_path,
-            "selected_note_id": selected_note_id,
-            "default_note_id": default_note_id,
-            "folders": folders,
-            "child_folders": _child_folders(folders, folder_path),
-            "notes": enriched_notes,
-        }
+    return WorkspaceContentsResponse(
+        path=requested_path,
+        resolution=resolution,
+        folder_path=folder_path,
+        selected_note_id=selected_note_id,
+        default_note_id=default_note_id,
+        folders=folders,
+        child_folders=_child_folders(folders, folder_path),
+        notes=enriched_notes,
     )

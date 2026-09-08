@@ -29,9 +29,10 @@ async def api_export_workspace(
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
 ) -> FileResponse:
     # Exempt from response_model / the JSON envelope (#254) -- this is a file download, not
-    # JSON. A local `except GitError` used to live here and shadow api/errors.py's global
-    # GitError handler with a version that leaked str(e) into the 500 body; removed rather
-    # than migrated, per rest-contracts.md's "Known inconsistencies" note for this file.
+    # JSON (see the exemption list in tests/api/test_endpoint_contract.py). A local
+    # `except GitError` used to live here and shadow api/errors.py's global GitError
+    # handler with a version that leaked str(e) into the 500 body; removed rather than
+    # migrated -- let the global handler map it instead.
     export = await run_sync(_exports.create, name, str(workspace.path), format)
     background_tasks.add_task(export.path.unlink, missing_ok=True)
     return FileResponse(export.path, media_type=export.media_type, filename=export.filename)

@@ -1142,11 +1142,10 @@ export const getApiPendingInfoApiPendingGetUrl = (params: ApiPendingInfoApiPendi
 }
 
 /**
- * No auth dependency by design (docs/specs/rest-contracts.md) -- this is the
- * pre-login OAuth consent screen's client-name lookup. Exempt from the rest of the
- * #254 typed-endpoint migration per the issue (protocol-adjacent OAuth routes keep
- * their wire shape); the 404 case reuses PENDING_EXPIRED since it's the same
- * unknown/expired-pending_id condition as api_consent's.
+ * No auth dependency by design -- this is the pre-login OAuth consent screen's
+ * client-name lookup, called before the user has a session to authenticate with. The
+ * 404 case reuses PENDING_EXPIRED since it's the same unknown/expired-pending_id
+ * condition as api_consent's.
  * @summary Api Pending Info
  */
 export const apiPendingInfoApiPendingGet = async (params: ApiPendingInfoApiPendingGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiPendingInfoApiPendingGetResponse> => {

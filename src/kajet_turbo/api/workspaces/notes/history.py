@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import NoteHistoryResponse, NoteHtmlResponse, RestoreVersionResponse
 from kajet_turbo.api.schemas.errors import ErrorResponse
@@ -37,12 +36,12 @@ def api_note_history(
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
     note_version_service: NoteVersionService = Depends(get_note_version_service),
-) -> JSONResponse:
+) -> NoteHistoryResponse:
     try:
         entries = note_version_service.get_history(target)
     except ValueError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
-    return JSONResponse({"entries": entries})
+    return NoteHistoryResponse(entries=entries)
 
 
 @router.get(
@@ -58,28 +57,28 @@ def api_note_version(
     target: NoteTarget = Depends(resolve_note_target),
     note_version_service: NoteVersionService = Depends(get_note_version_service),
     link_service: NoteLinkService = Depends(get_note_link_service),
-) -> JSONResponse:
+) -> NoteHtmlResponse:
     try:
         version = note_version_service.get_version(target, sha)
     except ValueError, RepoGitError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
-    return JSONResponse(
-        {
-            "note_id": version["note_id"],
-            "title": version["title"],
-            "folder": version["folder"],
-            "tags": version["tags"],
-            "created_at": version["created_at"],
-            "updated_at": version["updated_at"],
-            "occurred_at": version["occurred_at"],
-            "period": version["period"],
-            "content_html": _render_html(
-                version["content"],
-                resolver=link_service.link_resolver(target.workspace, version["folder"]),
-                slug=target.workspace.name,
-                xws_resolver=link_service.xws_link_resolver(target.workspace.owner_id),
-            ),
-        }
+    return NoteHtmlResponse(
+        note_id=version["note_id"],
+        title=version["title"],
+        folder=version["folder"],
+        tags=version["tags"],
+        created_at=version["created_at"],
+        updated_at=version["updated_at"],
+        occurred_at=version["occurred_at"],
+        period=version["period"],
+        extras=version["extras"],
+        sha=version["sha"],
+        content_html=_render_html(
+            version["content"],
+            resolver=link_service.link_resolver(target.workspace, version["folder"]),
+            slug=target.workspace.name,
+            xws_resolver=link_service.xws_link_resolver(target.workspace.owner_id),
+        ),
     )
 
 
@@ -95,9 +94,9 @@ async def api_restore_note_version(
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
     note_service: NoteService = Depends(get_note_service),
-) -> JSONResponse:
+) -> RestoreVersionResponse:
     try:
         result = await run_sync(note_service.restore_version, target, sha)
     except ValueError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
-    return JSONResponse({"note_id": result["note_id"], "warnings": result["warnings"]})
+    return RestoreVersionResponse(note_id=result["note_id"], warnings=result["warnings"])

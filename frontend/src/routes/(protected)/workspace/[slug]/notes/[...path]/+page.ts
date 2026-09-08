@@ -1,9 +1,26 @@
 import { error, redirect } from '@sveltejs/kit';
-import type { NoteItem, TagNode } from '$lib/api';
+import {
+  apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet,
+  apiListNotesApiWorkspacesNameNotesGet,
+  apiListTagsApiWorkspacesNameTagsGet,
+  apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGet,
+  apiWorkspaceContentsApiWorkspacesNameContentsGet,
+} from '$lib/api';
+import type {
+  LinksResponse,
+  NoteHtmlResponse,
+  NoteItem,
+  TagNode,
+  WorkspaceContentsResponse,
+} from '$lib/api';
 import { loginPath, workspacesPath } from '$lib/routes';
 import type { PageLoad } from './$types';
 
-export const load: PageLoad = async ({ params, url, fetch, depends }) => {
+function statusOf(e: unknown): number | undefined {
+  return (e as { status?: number } | null)?.status;
+}
+
+export const load: PageLoad = async ({ params, url, depends }) => {
   const slug = params.slug;
   depends('app:workspace-tree');
 
@@ -11,20 +28,25 @@ export const load: PageLoad = async ({ params, url, fetch, depends }) => {
   if (view === 'tags') {
     const tagPath = params.path ? params.path.split('/').filter(Boolean).join('/') : '';
     const includeDescendants = url.searchParams.get('desc') !== '0';
+    let tagsError: unknown = null;
     const [tagsResult, notesResult] = await Promise.all([
-      fetch(`/api/workspaces/${slug}/tags`, { credentials: 'include' }).catch(() => null),
+      apiListTagsApiWorkspacesNameTagsGet(slug).catch((e) => {
+        tagsError = e;
+        return null;
+      }),
       tagPath
-        ? fetch(
-            `/api/workspaces/${slug}/notes?tag=${encodeURIComponent(tagPath)}` +
-              `&include_descendants=${includeDescendants}`,
-            { credentials: 'include' },
-          ).catch(() => null)
+        ? apiListNotesApiWorkspacesNameNotesGet(slug, {
+            tag: tagPath,
+            include_descendants: includeDescendants,
+          }).catch(() => null)
         : Promise.resolve(null),
     ]);
-    if (tagsResult?.status === 401) redirect(307, loginPath());
-    if (tagsResult?.status === 403) redirect(307, workspacesPath());
-    const tags: TagNode[] = tagsResult?.ok ? (await tagsResult.json()).tags : [];
-    const notes: NoteItem[] = notesResult?.ok ? (await notesResult.json()).notes : [];
+    if (statusOf(tagsError) === 401) redirect(307, loginPath());
+    if (statusOf(tagsError) === 403) redirect(307, workspacesPath());
+    // customFetch (fetcher.ts) throws on any non-2xx response, so a resolved result is
+    // always the 200 variant at runtime -- narrow orval's per-status-code union to match.
+    const tags: TagNode[] = tagsResult?.status === 200 ? tagsResult.data.tags : [];
+    const notes: NoteItem[] = notesResult?.status === 200 ? notesResult.data.notes : [];
     return {
       mode: 'tags' as const,
       slug,
@@ -45,42 +67,47 @@ export const load: PageLoad = async ({ params, url, fetch, depends }) => {
   const segments = params.path ? params.path.split('/').filter(Boolean) : [];
   const fullPath = segments.join('/');
 
-  const contentsUrl = fullPath
-    ? `/api/workspaces/${slug}/contents?path=${encodeURIComponent(fullPath)}`
-    : `/api/workspaces/${slug}/contents`;
-  const contentsResult = await fetch(contentsUrl, { credentials: 'include' }).catch(() => null);
+  let contents: WorkspaceContentsResponse;
+  try {
+    const result = await apiWorkspaceContentsApiWorkspacesNameContentsGet(
+      slug,
+      fullPath ? { path: fullPath } : undefined,
+    );
+    if (result.status !== 200) error(500, 'Błąd serwera.');
+    contents = result.data;
+  } catch (e) {
+    const status = statusOf(e);
+    if (status === 401) redirect(307, loginPath());
+    if (status === 403) redirect(307, workspacesPath());
+    if (status === 400) error(400, 'Nieprawidłowa ścieżka.');
+    error(500, 'Błąd serwera.');
+  }
 
-  if (contentsResult?.status === 401) redirect(307, loginPath());
-  if (contentsResult?.status === 403) redirect(307, workspacesPath());
-  if (contentsResult?.status === 400) error(400, 'Nieprawidłowa ścieżka.');
-  if (!contentsResult?.ok) error(500, 'Błąd serwera.');
-
-  const contents = await contentsResult.json();
   const folderPath = contents.folder_path;
   const noteId = contents.selected_note_id ?? contents.default_note_id;
   const noteSelected = contents.resolution === 'note';
 
   const [noteResult, linksResult] = noteId
     ? await Promise.all([
-        fetch(`/api/workspaces/${slug}/notes/${noteId}/html`, {
-          credentials: 'include',
-        }).catch(() => null),
-        fetch(`/api/workspaces/${slug}/notes/${noteId}/links`, {
-          credentials: 'include',
-        }).catch(() => null),
+        apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet(slug, noteId).catch(() => null),
+        apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGet(slug, noteId).catch(() => null),
       ])
     : [null, null];
 
+  const note: NoteHtmlResponse | null = noteResult?.status === 200 ? noteResult.data : null;
+  const links: LinksResponse =
+    linksResult?.status === 200 ? linksResult.data : { backlinks: [], outlinks: [] };
+
   return {
     mode: 'files' as const,
-    notes: contents.notes as NoteItem[],
-    tree: { folders: contents.folders as string[] },
+    notes: contents.notes,
+    tree: { folders: contents.folders },
     folderPath,
     noteId,
     noteSelected,
     slug,
-    note: noteResult?.ok ? await noteResult.json() : null,
-    links: linksResult?.ok ? await linksResult.json() : { backlinks: [], outlinks: [] },
+    note,
+    links,
     // tag-mode fields kept so both branches share the same key set (clean union)
     tags: [] as TagNode[],
     tagPath: '',

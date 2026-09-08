@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import ReindexResponse
 from kajet_turbo.api.schemas.errors import ErrorResponse
@@ -31,7 +30,7 @@ def api_reindex_workspace(
     user: CurrentUser = Depends(get_required_user),
     ws_service: WorkspaceService = Depends(get_workspace_service),
     note_reconcile_service: NoteReconcileService = Depends(get_note_reconcile_service),
-) -> JSONResponse:
+) -> ReindexResponse:
     if not ws_service.has_access(user.id, name):
         raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
     ws_path = ws_service.workspace_path(user.id, name)
@@ -42,4 +41,4 @@ def api_reindex_workspace(
             status_code=409,
             detail={"error": str(NoteError.RECONCILE_REFUSED), "detail": str(e)},
         ) from e
-    return JSONResponse(result)
+    return ReindexResponse(**result)

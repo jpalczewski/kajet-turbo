@@ -2,7 +2,6 @@ from typing import Annotated
 
 import bleach
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import (
     ChunkPreviewResponse,
@@ -118,12 +117,12 @@ def api_get_note_html(
     target: NoteTarget = Depends(resolve_note_target),
     note_read_service: NoteReadService = Depends(get_note_read_service),
     link_service: NoteLinkService = Depends(get_note_link_service),
-) -> JSONResponse:
+) -> NoteHtmlResponse:
     note = note_read_service.get_with_content(target)
     if note is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
-    return JSONResponse(
-        note_html_fields(
+    return NoteHtmlResponse(
+        **note_html_fields(
             note,
             resolver=link_service.link_resolver(target.workspace, note.folder),
             slug=target.workspace.name,
@@ -143,24 +142,22 @@ def api_get_note_markdown(
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
     note_read_service: NoteReadService = Depends(get_note_read_service),
-) -> JSONResponse:
+) -> NoteMarkdownResponse:
     note = note_read_service.get_with_content(target)
     if note is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
-    return JSONResponse(
-        {
-            "note_id": note.note_id,
-            "title": note.title,
-            "folder": note.folder,
-            "tags": note.tags,
-            "created_at": note.created_at,
-            "updated_at": note.updated_at,
-            "occurred_at": note.occurred_at,
-            "period": note.period,
-            "extras": note.extras,
-            "content": note.content,
-            "sha": note.sha,
-        }
+    return NoteMarkdownResponse(
+        note_id=note.note_id,
+        title=note.title,
+        folder=note.folder,
+        tags=note.tags,
+        created_at=note.created_at,
+        updated_at=note.updated_at,
+        occurred_at=note.occurred_at,
+        period=note.period,
+        extras=note.extras,
+        content=note.content,
+        sha=note.sha,
     )
 
 
@@ -175,7 +172,7 @@ def api_get_note_chunks(
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
     note_read_service: NoteReadService = Depends(get_note_read_service),
-) -> JSONResponse:
+) -> ChunkPreviewResponse:
     preview = note_read_service.preview_chunks(
         target.note_id,
         owner_id=target.workspace.owner_id,
@@ -183,7 +180,7 @@ def api_get_note_chunks(
     )
     if preview is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
-    return JSONResponse(preview)
+    return ChunkPreviewResponse(**preview)
 
 
 @router.get(
@@ -197,11 +194,11 @@ def api_note_links(
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
     link_service: NoteLinkService = Depends(get_note_link_service),
-) -> JSONResponse:
+) -> LinksResponse:
     result = link_service.links(target)
     if result is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
-    return JSONResponse(result)
+    return LinksResponse(**result)
 
 
 @router.get(
@@ -218,7 +215,7 @@ def api_note_neighborhood(
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
     link_service: NoteLinkService = Depends(get_note_link_service),
-) -> JSONResponse:
+) -> GraphResponse:
     result = link_service.neighborhood(
         target,
         depth,
@@ -227,7 +224,7 @@ def api_note_neighborhood(
     )
     if result is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
-    return JSONResponse(result)
+    return GraphResponse(**result)
 
 
 @router.get(
@@ -240,5 +237,5 @@ def api_note_graph(
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     link_service: NoteLinkService = Depends(get_note_link_service),
-) -> JSONResponse:
-    return JSONResponse(link_service.graph(workspace, include_tags=include_tags))
+) -> GraphResponse:
+    return GraphResponse(**link_service.graph(workspace, include_tags=include_tags))

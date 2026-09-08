@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
 
 from kajet_turbo.api.schemas import EntriesInResponse
 from kajet_turbo.api.schemas.errors import ErrorResponse
@@ -8,12 +7,11 @@ from kajet_turbo.dependencies import (
     CurrentUser,
     get_note_temporal_service,
     get_required_user,
-    get_workspace_service,
+    resolve_workspace_target,
 )
-from kajet_turbo.errors import AuthError
+from kajet_turbo.errors import NoteError
 from kajet_turbo.services.notes import NoteTemporalService
-from kajet_turbo.services.workspaces import WorkspaceService
-from kajet_turbo.workspace import InvalidFolderError
+from kajet_turbo.services.targets import WorkspaceTarget
 
 router = APIRouter(responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse}})
 
@@ -28,14 +26,11 @@ def api_entries_in(
     period: str,
     folder: str | None = None,
     user: CurrentUser = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
     note_temporal_service: NoteTemporalService = Depends(get_note_temporal_service),
-) -> JSONResponse:
-    if not ws_service.has_access(user.id, name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
+) -> EntriesInResponse:
     try:
         notes = note_temporal_service.entries_in(name, user.id, period, folder)
-    except ValueError, InvalidFolderError:
-        raise HTTPException(status_code=422, detail="period or folder is invalid") from None
-    ws_path = ws_service.workspace_path(user.id, name)
-    return JSONResponse({"notes": enrich_note_items(ws_path, notes)})
+    except ValueError:
+        raise HTTPException(status_code=422, detail=NoteError.INVALID_INPUT) from None
+    return EntriesInResponse(notes=enrich_note_items(str(workspace.path), notes))

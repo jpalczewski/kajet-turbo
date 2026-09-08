@@ -68,6 +68,7 @@ Do not bypass repository or locking helpers for convenience.
 - Prefer structured parsing and typed helpers over ad hoc string manipulation.
 - A `ValueError` raised in `services/` or `markdown/` reaches the calling LLM verbatim — `ToolDispatchMiddleware` (`src/kajet_turbo/mcp/tooling.py`) maps it straight to `ToolError`. Write those messages in English and name the parameter at fault.
 - MCP tool text and parameter naming have their own rules in `src/kajet_turbo/mcp/CLAUDE.md`. Read it before adding or renaming a tool parameter.
+- REST endpoints follow the typed request/dependency/service/response pattern documented in `src/kajet_turbo/api/CLAUDE.md`, mechanically enforced by `tests/api/test_endpoint_contract.py`. Read it before adding or changing a route.
 - Keep errors actionable. Include enough context for debugging, but do not expose secrets.
 - Comments should explain non-obvious decisions, concurrency constraints, or domain rules. Do not narrate obvious code.
 - Write code comments and ordinary test data in English.

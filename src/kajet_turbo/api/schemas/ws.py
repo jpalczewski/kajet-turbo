@@ -18,10 +18,3 @@ class WorkspaceChangedEvent(BaseModel):
 
 
 ServerEvent = Annotated[NoteUpdatedEvent | WorkspaceChangedEvent, Field(discriminator="type")]
-
-
-class PingMessage(BaseModel):
-    type: Literal["ping"]
-
-
-ClientMessage = Annotated[PingMessage, Field(discriminator="type")]

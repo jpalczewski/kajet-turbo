@@ -64,7 +64,8 @@ def test_patch_requires_auth_401(anon_client):
 
 def test_patch_wrong_type_422(auth_client):
     # tags must be a list -- a string reaches Pydantic validation now, not an isinstance
-    # guard that used to silently drop it (#254 behavior change, see rest-contracts.md).
+    # guard that used to silently drop it (#254 behavior change: UpdateWorkspaceRequest
+    # replaced the hand-rolled type check with a typed `tags: list[str] | None` field).
     r = auth_client.patch("/api/workspaces/test-ws", json={"tags": "not-a-list"})
     assert r.status_code == 422
 
@@ -89,7 +90,7 @@ def test_patch_omitted_key_is_a_no_op(auth_client):
 
 def test_patch_explicit_null_is_also_a_no_op(auth_client):
     # An explicit JSON null for a field carries the same "leave it unchanged" contract as
-    # omitting the key entirely (see the route's own comment and rest-contracts.md) --
+    # omitting the key entirely (see the route's own comment in workspace_meta.py) --
     # exercise that branch directly instead of only the omitted-key case above.
     auth_client.patch("/api/workspaces/test-ws", json={"description": "d", "folder": "A"})
     r = auth_client.patch("/api/workspaces/test-ws", json={"description": None, "folder": None})

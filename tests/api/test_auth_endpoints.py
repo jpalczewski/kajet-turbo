@@ -426,7 +426,7 @@ def test_pending_info_unknown_id_returns_pending_expired(database):
 
 def test_pending_info_has_no_auth_dependency(database):
     """No auth by design -- /api/pending is the pre-login OAuth consent screen's
-    client-name lookup (docs/specs/rest-contracts.md)."""
+    client-name lookup, called before the user has a session to authenticate with."""
     client, _users, _sessions, _oauth, provider = _client(database, user_id=None)
     provider.register_pending("pend-1", "unused")
 

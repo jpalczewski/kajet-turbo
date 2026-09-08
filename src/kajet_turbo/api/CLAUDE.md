@@ -2,8 +2,9 @@
 
 `src/kajet_turbo/api/workspaces/notes/crud/notes.py` is the canonical shape every route
 under `src/kajet_turbo/api/` should follow (#253, Phase R2 of the FastAPI endpoint epic
-#239). New endpoints should copy this pattern rather than the pre-#253 style still visible
-in unmigrated families (`docs/specs/rest-contracts.md` tracks what's left).
+#239, completed by #255). New endpoints should copy this pattern.
+`tests/api/test_endpoint_contract.py` walks every route and fails if a new one skips it
+(no `response_model`, a raw `Response`/`JSONResponse` return, or a hand-parsed body).
 
 ## Request model, dependency, service call, response model
 
