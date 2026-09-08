@@ -2,9 +2,38 @@ from unittest.mock import patch
 
 import pytest
 
+from kajet_turbo.services.notes.temporal import BackfillStaleError, _classify_temporal_note
 from kajet_turbo.workspace import read_note_file
 from tests.services.conftest import workspace_target
 from tests.services.helpers import head_sha, make_flaky_db_write, rel_path
+
+
+@pytest.mark.parametrize(
+    ("title", "folder", "expected_kind", "expected_reason"),
+    [
+        # A whole-title year stands on its own, undated folder or not (#143's yearly
+        # note convention: a title that IS the token is what backfill exists to catch).
+        ("2026", "", "candidate", None),
+        ("2026", "journal/yearly", "candidate", None),
+        ("2026", "archive/2026", "candidate", None),
+        # A bare year alongside other words has no structure distinguishing it from an
+        # invoice/room/version number, and an undated folder never corroborates it.
+        ("Invoice 2026", "", "ambiguous", "bare year in title has no corroborating folder date"),
+        ("Invoice 2026", "archive/2026", "candidate", None),
+        ("Invoice 2026", "archive/2025", "ambiguous", "folder date conflicts with title"),
+        # Non-year grains are unaffected: they already carry month/day structure.
+        ("2026-03-22 Daily", "", "candidate", None),
+        ("2026-03 Report", "", "candidate", None),
+    ],
+)
+def test_classify_temporal_note_bare_year_corroboration(
+    title, folder, expected_kind, expected_reason
+):
+    kind, payload = _classify_temporal_note("n1", title, folder, None, None)
+
+    assert kind == expected_kind
+    if expected_reason is not None:
+        assert payload["reason"] == expected_reason
 
 
 def test_temporal_backfill_updates_metadata_without_bumping_index(
@@ -84,6 +113,58 @@ def test_temporal_backfill_git_error_rolls_back_row_and_file(service, temporal_s
     assert head_sha(workspace, "2026-03-22 Daily.md") == head_before
     meta, body = read_note_file(str(workspace / "2026-03-22 Daily.md"))
     assert (meta.occurred_at, body) == (None, "body")
+
+
+def test_temporal_backfill_reports_uncorroborated_bare_year(service, temporal_service, workspace):
+    """#143: a bare year alongside other words (an invoice/room/version number that
+    happens to look like a year) must not become a silently bulk-applicable candidate
+    just because its folder is undated — undated means "no conflict", not "corroborated"."""
+    service.save(workspace_target("u1", "ws", workspace), "Invoice 2026", "body", [])
+    preview = temporal_service.temporal_backfill_preview("ws", "u1", str(workspace))
+    assert preview["candidates"] == []
+    assert (
+        preview["ambiguous"][0]["reason"] == "bare year in title has no corroborating folder date"
+    )
+
+
+def test_temporal_backfill_rejects_uncorroborated_bare_year_candidate(
+    service, temporal_service, workspace
+):
+    """A hand-crafted candidate for an uncorroborated bare year must be refused by
+    apply, not just filtered out of preview — the server-side re-classify in
+    apply_temporal_backfill is the actual enforcement point, not the preview list.
+
+    A genuine candidate is saved alongside it and its preview sha is cross-checked
+    against the same head_sha() helper used to forge the bare-year candidate's sha —
+    proving the helper matches what locate_many's freshness check expects, so the
+    raise below can only come from the re-classify check, not a coincidentally stale
+    sha for an unrelated reason.
+    """
+    note_id = service.save(workspace_target("u1", "ws", workspace), "Invoice 2026", "body", [])[
+        "note_id"
+    ]
+    service.save(workspace_target("u1", "ws", workspace), "2026-03-22 Daily", "body", [])
+
+    preview = temporal_service.temporal_backfill_preview("ws", "u1", str(workspace))
+    assert preview["ambiguous"][0]["note_id"] == note_id
+    assert preview["candidates"][0]["sha"] == head_sha(workspace, "2026-03-22 Daily.md")
+
+    forged_candidate = {
+        "note_id": note_id,
+        "title": "Invoice 2026",
+        "folder": "",
+        "field": "period",
+        "value": "2026",
+        "sha": head_sha(workspace, "Invoice 2026.md"),
+    }
+
+    with pytest.raises(BackfillStaleError):
+        temporal_service.apply_temporal_backfill("ws", "u1", str(workspace), [forged_candidate])
+
+    after = service._crud_repo.get(note_id, owner_id="u1")
+    assert after is not None and after.period is None
+    meta, body = read_note_file(str(workspace / "Invoice 2026.md"))
+    assert (meta.period, body) == (None, "body")
 
 
 def test_temporal_backfill_reports_conflicting_folder(service, temporal_service, workspace):

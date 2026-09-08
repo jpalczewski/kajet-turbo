@@ -36,14 +36,18 @@ class BackfillStaleError(ValueError):
     """
 
 
+def _folder_year_components(folder: str) -> set[str]:
+    return {part for part in folder.split("/") if re.fullmatch(r"\d{4}", part)}
+
+
 def _folder_conflicts_with_period(folder: str, period) -> bool:
     """Treat calendar-looking folder components only as corroboration, never a source."""
-    parts = folder.split("/")
-    years = {part for part in parts if re.fullmatch(r"\d{4}", part)}
+    years = _folder_year_components(folder)
     if years and period.key[:4] not in years:
         return True
     if period.kind == "year":
         return False
+    parts = folder.split("/")
     months = {part for part in parts if re.fullmatch(r"\d{2}", part)}
     if not months:
         return False
@@ -86,6 +90,22 @@ def _classify_temporal_note(
             "title": title,
             "folder": folder,
             "reason": "folder date conflicts with title",
+        }
+    # A bare 4-digit year has no structure of its own to distinguish "2026" (a year)
+    # from "Invoice 2026" or "Room 2026" (a number that happens to look like one).
+    # Require either the token to BE the whole title, or the folder to actively
+    # corroborate it — absence of conflict above isn't corroboration, since an
+    # undated folder never conflicts with anything (#143).
+    if (
+        period.kind == "year"
+        and title.strip() != matches[0]
+        and period.key not in _folder_year_components(folder)
+    ):
+        return "ambiguous", {
+            "note_id": note_id,
+            "title": title,
+            "folder": folder,
+            "reason": "bare year in title has no corroborating folder date",
         }
     field = "occurred_at" if period.kind == "day" else "period"
     return "candidate", {
