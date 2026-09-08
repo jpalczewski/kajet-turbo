@@ -27,6 +27,9 @@ Never parametrize an expensive fixture over cases a fast test already covers.
   `tokenless_mcp_server` (for auth-rejection tests), `workspaces_dir`
 - `tests/mcp_tools/helpers.py` — `call_json` (never hand-roll
   `json.loads(result.content[0].text)`), `SHA_LIKE`
+- `tests/helpers.py` — root-level helpers: `flatten_routes` (unwraps FastAPI 0.141's
+  nested `original_router` wrapping — needed by anything walking `app.routes`),
+  `read_log_entries`/`entries_named` (JSONL log assertions), `make_logging_app`
 
 A helper needed by a second file moves to the suite's `helpers.py` — it does not get copied.
 `_head_sha` existed three times across `tests/services/`, and the save→`get_note`→sha dance
@@ -58,6 +61,10 @@ the same id, which a shared fixture is explicitly designed to stop being true.
   directories as arguments can drop the repo root off `sys.path`, and modules doing
   `from tests.services.conftest import ...` then fail collection with
   `ModuleNotFoundError: No module named 'tests'` — a path artifact, not a real breakage
+- running a test file directly as a script (`uv run python tests/api/foo.py`) does **not**
+  get the repo root on `sys.path` the way pytest's `pythonpath = ["."]` does — a module
+  doing `from tests.helpers import ...` or `from scripts.x import ...` needs
+  `uv run python -m tests.api.foo` instead
 
 `asyncio_mode = "auto"`, so async tests need no `@pytest.mark.asyncio`.
 

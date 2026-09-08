@@ -80,6 +80,8 @@ Do not bypass repository or locking helpers for convenience.
 
 Keep Svelte components focused and typed. Put shared UI helpers under `frontend/src/lib/`. Use the generated API client instead of duplicating fetch logic. When backend contracts change, regenerate the client and update call sites together.
 
+The app builds with `ssr = false` (root `+layout.ts`) — every `load` runs client-side only, so a loader never needs SvelteKit's per-request `fetch` for cookie/dedup forwarding; the generated client's global `fetch` (`lib/api/fetcher.ts`) is equivalent. `invalidate()` calls everywhere use explicit string keys (`app:workspace-tree`, `app:session`, ...) via `depends()`, never URL-based tracking.
+
 ## Testing Guidelines
 
 Use `uv run pytest` for backend tests. Place tests under `tests/<area>/` and name files `test_*.py`. Prefer focused tests near the affected layer: services in `tests/services/`, repositories in `tests/repositories/`, API behavior in `tests/api/`, and MCP tools in `tests/mcp_tools/`.
