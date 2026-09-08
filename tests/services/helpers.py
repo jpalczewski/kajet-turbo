@@ -287,7 +287,9 @@ def seed_full_workspace(database, *, user_id: str, name: str) -> None:
         f"{user_id}-n1", name, user_id, [("", "Missing Note")]
     )
 
-    NoteShareLinkRepository(database.engine).create(f"{user_id}-n1", name, user_id)
+    share_link_repo = NoteShareLinkRepository(database.engine)
+    share_link = share_link_repo.create(f"{user_id}-n1", name, user_id)
+    share_link_repo.record_visit(share_link.token, "203.0.113.1", "Browser/1")
 
     FolderMetaRepository(database.engine).set(user_id, name, "proj", description="Project folder")
 
@@ -334,6 +336,7 @@ def workspace_table_counts(database, *, workspace: str, owner_id: str) -> dict[s
         Note,
         NoteLink,
         NoteShareLink,
+        NoteShareLinkVisit,
         NoteTag,
         Tag,
         WorkspaceAccess,
@@ -371,6 +374,16 @@ def workspace_table_counts(database, *, workspace: str, owner_id: str) -> dict[s
             "tags": count(Tag, workspace=workspace, owner_id=owner_id),
             "note_links": count(NoteLink, workspace=workspace, owner_id=owner_id),
             "note_share_links": count(NoteShareLink, workspace=workspace, owner_id=owner_id),
+            "note_share_link_visits": len(
+                session.exec(
+                    select(NoteShareLinkVisit)
+                    .join(NoteShareLink)
+                    .where(
+                        NoteShareLink.workspace == workspace,
+                        NoteShareLink.owner_id == owner_id,
+                    )
+                ).all()
+            ),
             "dangling_links": count(DanglingLink, workspace=workspace, owner_id=owner_id),
             "folder_meta": count(FolderMeta, workspace=workspace, owner_id=owner_id),
             "workspace_remote": count(WorkspaceRemote, workspace=workspace, user_id=owner_id),

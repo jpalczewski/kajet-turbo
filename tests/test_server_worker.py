@@ -3,28 +3,69 @@ in-process worker thread for the combined (role=all) app."""
 
 import time
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from kajet_turbo.db import Database
-from kajet_turbo.models import Job
+from kajet_turbo.models import Job, Note, NoteShareLinkVisit
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.jobs import JobRepository
+from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
 from kajet_turbo.server import _make_sweep_handler, register_job_handlers
 
 
 def test_sweep_handler_purges_old_done_jobs(database: Database):
     events = EventRepository(database.engine)
     jobs = JobRepository(database.engine)
+    share_links = NoteShareLinkRepository(database.engine)
     old_done = jobs.enqueue("k", {}, now=1000.0)
     jobs.claim("w1", now=1000.0)
     jobs.complete(old_done, "w1", now=1000.0)  # updated_at in 1970 → far older than 24h
 
-    _make_sweep_handler(events, jobs)({})
+    _make_sweep_handler(events, jobs, share_links)({})
 
     with Session(database.engine) as session:
         assert session.get(Job, old_done) is None
         rearmed = session.exec(select(Job).where(Job.kind == "sweep_outbox")).all()
     assert len(rearmed) == 1 and rearmed[0].status == "pending"
+
+
+def test_sweep_handler_purges_expired_share_link_visits(database: Database):
+    from tests.conftest import seed_user
+
+    seed_user(database, "u1")
+    with Session(database.engine) as session:
+        session.add(
+            Note(
+                id="n1",
+                workspace="ws",
+                owner_id="u1",
+                title="Shared",
+                created_at="2026-01-01",
+                updated_at="2026-01-01",
+            )
+        )
+        session.commit()
+    share_links = NoteShareLinkRepository(database.engine)
+    link = share_links.create("n1", "ws", "u1")
+    share_links.record_visit(link.token, "203.0.113.1", "Old browser")
+    share_links.record_visit(link.token, "203.0.113.2", "Fresh browser")
+    with Session(database.engine) as session:
+        visit = session.exec(
+            select(NoteShareLinkVisit).order_by(col(NoteShareLinkVisit.id))
+        ).first()
+        assert visit is not None
+        visit.created_at = "1970-01-01T00:00:00+00:00"
+        session.add(visit)
+        session.commit()
+
+    _make_sweep_handler(
+        EventRepository(database.engine), JobRepository(database.engine), share_links
+    )({})
+
+    with Session(database.engine) as session:
+        visits = session.exec(select(NoteShareLinkVisit)).all()
+    assert len(visits) == 1
+    assert visits[0].user_agent == "Fresh browser"
 
 
 def test_register_job_handlers_covers_all_kinds(database: Database):

@@ -5,8 +5,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from sqlmodel import Session, select
 
 from kajet_turbo import perf
+from kajet_turbo.models import NoteShareLinkVisit
 from kajet_turbo.repositories.git import GitError, GitRepository
 from tests.conftest import seed_user
 from tests.services.conftest import note_target, workspace_target
@@ -214,12 +216,15 @@ def test_delete_note_with_share_link_succeeds(service, workspace, database):
     note_id = service.save(workspace_target("u1", "ws", workspace), "Shared", "content", [])[
         "note_id"
     ]
-    service._share_link_repo.create(note_id, "ws", "u1")
+    link = service._share_link_repo.create(note_id, "ws", "u1")
+    service._share_link_repo.record_visit(link.token, "203.0.113.1", "Browser/1")
 
     service.delete(note_target("u1", "ws", workspace, note_id))
 
     assert service._crud_repo.get(note_id, owner_id="u1") is None
     assert service._share_link_repo.list_for_note(note_id) == []
+    with Session(database.engine) as session:
+        assert session.exec(select(NoteShareLinkVisit)).all() == []
 
 
 def test_delete_note_with_revoked_share_link_succeeds(service, workspace, database):

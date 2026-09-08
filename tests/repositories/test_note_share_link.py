@@ -1,7 +1,7 @@
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from kajet_turbo.db import Database
-from kajet_turbo.models import Note
+from kajet_turbo.models import Note, NoteShareLinkVisit
 from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
 from tests.conftest import seed_user
 
@@ -55,6 +55,25 @@ def test_list_for_note_and_user(database: Database):
 
     for_user = repo.list_for_user("u1")
     assert {link.token for link in for_user} == {link1.token, link2.token, link3.token}
+
+
+def test_visit_summary_aggregates_only_active_links(database: Database):
+    seed_user(database, "u1")
+    _note(database.engine, "n1", "ws1", "u1")
+    repo = NoteShareLinkRepository(database.engine)
+    live = repo.create("n1", "ws1", "u1")
+    revoked = repo.create("n1", "ws1", "u1")
+    repo.record_visit(live.token, "203.0.113.1", "Browser/1")
+    repo.record_visit(live.token, "203.0.113.2", "Browser/2")
+    repo.record_visit(revoked.token, "203.0.113.3", "Browser/3")
+    assert repo.revoke("u1", "n1", revoked.token)
+
+    summaries = repo.list_active_with_visit_summary("n1")
+
+    assert len(summaries) == 1
+    assert summaries[0].link.token == live.token
+    assert summaries[0].visit_count == 2
+    assert summaries[0].last_visited_at is not None
 
 
 def test_revoke_is_owner_scoped(database: Database):
@@ -126,3 +145,28 @@ def test_delete_for_workspace_in_session_is_owner_and_workspace_scoped(database:
     assert repo.resolve(same_ws_same_owner.token) is None
     assert repo.resolve(other_ws_same_owner.token) is not None
     assert repo.resolve(same_ws_other_owner.token) is not None
+
+
+def test_delete_visits_for_note_and_workspace_are_scoped(database: Database):
+    seed_user(database, "u1")
+    seed_user(database, "u2")
+    _note(database.engine, "n1", "ws1", "u1")
+    _note(database.engine, "n2", "ws2", "u1")
+    _note(database.engine, "n3", "ws1", "u2")
+    repo = NoteShareLinkRepository(database.engine)
+    note_link = repo.create("n1", "ws1", "u1")
+    other_workspace_link = repo.create("n2", "ws2", "u1")
+    other_owner_link = repo.create("n3", "ws1", "u2")
+    for link in (note_link, other_workspace_link, other_owner_link):
+        repo.record_visit(link.token, None, None)
+
+    with Session(database.engine) as session:
+        repo.delete_visits_for_note_in_session(session, "n1")
+        repo.delete_for_note_in_session(session, "n1")
+        repo.delete_visits_for_workspace_in_session(session, "ws1", "u2")
+        repo.delete_for_workspace_in_session(session, "ws1", "u2")
+        session.commit()
+
+    with Session(database.engine) as session:
+        visits = session.exec(select(NoteShareLinkVisit)).all()
+    assert [visit.token for visit in visits] == [other_workspace_link.token]

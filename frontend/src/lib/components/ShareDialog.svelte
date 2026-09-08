@@ -10,7 +10,7 @@
   import { sharedNoteUrl } from '$lib/routes';
   import { copyToClipboard } from '$lib/utils/clipboard';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
-  import { formatDate } from '$lib/utils/format';
+  import { formatDate, formatDateTime } from '$lib/utils/format';
 
   let { slug, noteId }: { slug: string; noteId: string } = $props();
 
@@ -120,6 +120,11 @@
               onclick={(e) => e.currentTarget.select()}
             />
             <span class="share-list__date">Utworzono: {formatDate(link.created_at)}</span>
+            <span class="share-list__date">Wyświetlenia: {link.visit_count}</span>
+            <span class="share-list__date">
+              Ostatnia wizyta:
+              {link.last_visited_at ? formatDateTime(link.last_visited_at) : 'nigdy'}
+            </span>
             {#if copyErrorToken === link.token}
               <span class="share-error">
                 Nie udało się skopiować automatycznie — zaznacz link powyżej i skopiuj (Ctrl/Cmd+C).

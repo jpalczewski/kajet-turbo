@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from kajet_turbo.api.schemas import NoteHtmlResponse
 from kajet_turbo.api.schemas.errors import ErrorResponse
@@ -24,6 +24,8 @@ _NO_STORE = {"Cache-Control": "no-store"}
 
 def _load_public_note(
     token: str,
+    ip: str | None,
+    user_agent: str | None,
     share_link_repo: NoteShareLinkRepository,
     workspace_service: WorkspaceService,
     note_read_service: NoteReadService,
@@ -34,6 +36,7 @@ def _load_public_note(
     link = share_link_repo.resolve(token)
     if link is None:
         return None
+    share_link_repo.record_visit(token, ip, user_agent)
     # The token is the sole authorization gate here -- workspace/note are trusted from the
     # resolved share-link row, never from has_access, unlike every other note read route.
     ws_path = workspace_service.workspace_path(link.owner_id, link.workspace)
@@ -58,6 +61,7 @@ def _load_public_note(
 )
 async def api_get_public_note(
     token: str,
+    request: Request,
     response: Response,
     share_link_repo: NoteShareLinkRepository = Depends(get_note_share_link_repo),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
@@ -66,8 +70,16 @@ async def api_get_public_note(
     # A revoked token must 404 on the very next request even through a caching proxy.
     # HTTPException(headers=...) below covers the 404 branch; this covers the 200 one.
     response.headers.update(_NO_STORE)
+    ip = request.client.host if request.client is not None else None
+    user_agent = request.headers.get("user-agent")
     fields = await run_sync(
-        _load_public_note, token, share_link_repo, workspace_service, note_read_service
+        _load_public_note,
+        token,
+        ip,
+        user_agent,
+        share_link_repo,
+        workspace_service,
+        note_read_service,
     )
     if fields is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND, headers=_NO_STORE)

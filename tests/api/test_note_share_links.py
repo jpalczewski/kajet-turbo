@@ -19,8 +19,10 @@ def test_create_share_link_returns_token(auth_client):
 
     assert response.status_code == 201
     body = response.json()
-    assert set(body.keys()) == {"token", "created_at"}
+    assert set(body.keys()) == {"token", "created_at", "visit_count", "last_visited_at"}
     assert body["token"]
+    assert body["visit_count"] == 0
+    assert body["last_visited_at"] is None
 
 
 def test_list_share_links_omits_revoked(auth_client):
@@ -35,6 +37,26 @@ def test_list_share_links_omits_revoked(auth_client):
     assert response.status_code == 200
     tokens = [link["token"] for link in response.json()["links"]]
     assert tokens == [kept["token"]]
+
+
+def test_list_share_links_includes_visit_summary(auth_client):
+    client, note_service, workspace = auth_client
+    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    link = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links").json()
+    client.get(f"/api/public/notes/{link['token']}")
+
+    response = client.get(f"/api/workspaces/test-ws/notes/{note_id}/share-links")
+
+    assert response.status_code == 200
+    assert response.json()["links"] == [
+        {
+            "token": link["token"],
+            "created_at": link["created_at"],
+            "visit_count": 1,
+            "last_visited_at": response.json()["links"][0]["last_visited_at"],
+        }
+    ]
+    assert response.json()["links"][0]["last_visited_at"] is not None
 
 
 def test_revoke_share_link_404s_the_public_endpoint(auth_client):

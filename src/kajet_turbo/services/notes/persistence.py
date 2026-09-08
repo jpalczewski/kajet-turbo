@@ -70,6 +70,7 @@ class NoteTeardown:
         """Remove every DB artifact of ``note`` inside the caller's transaction."""
         self.tag_repo.delete_note_tags_in_session(session, note.id, note.workspace, note.owner_id)
         self.chunk_repo.delete_chunks(note.id, session)
+        self.share_link_repo.delete_visits_for_note_in_session(session, note.id)
         self.share_link_repo.delete_for_note_in_session(session, note.id)
         self.crud_repo.delete_in_session(session, note.id, owner_id=note.owner_id)
         self.link_repo.delete_links_from_in_session(session, note.id)
@@ -82,6 +83,7 @@ class NoteTeardown:
         (``note_chunks.note_id``/``note_share_links.note_id`` FKs)."""
         self.tag_repo.delete_workspace_tags_in_session(session, ws_name, owner_id)
         self.chunk_repo.delete_for_workspace_in_session(ws_name, owner_id, session)
+        self.share_link_repo.delete_visits_for_workspace_in_session(session, ws_name, owner_id)
         self.share_link_repo.delete_for_workspace_in_session(session, ws_name, owner_id)
         self.crud_repo.delete_for_workspace_in_session(ws_name, owner_id, session)
         self.link_repo.delete_workspace_links_in_session(session, ws_name, owner_id)

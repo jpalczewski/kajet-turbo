@@ -19,6 +19,7 @@ _NOTE_DOMAIN_TABLES = {
     "tags",
     "note_links",
     "note_share_links",
+    "note_share_link_visits",
     "dangling_links",
 }
 

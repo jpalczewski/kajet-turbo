@@ -27,3 +27,15 @@ def test_note_share_links_indexes(database: Database):
     indexed_columns = {tuple(ix["column_names"]) for ix in indexes}
     assert ("note_id",) in indexed_columns
     assert ("owner_id",) in indexed_columns
+
+
+def test_note_share_link_visits_table_columns_foreign_key_and_index(database: Database):
+    cols = {c["name"] for c in inspect(database.engine).get_columns("note_share_link_visits")}
+    assert cols == {"id", "token", "ip", "user_agent", "created_at"}
+
+    fks = inspect(database.engine).get_foreign_keys("note_share_link_visits")
+    targets = {(tuple(fk["constrained_columns"]), fk["referred_table"]) for fk in fks}
+    assert (("token",), "note_share_links") in targets
+
+    indexes = inspect(database.engine).get_indexes("note_share_link_visits")
+    assert ("token", "created_at") in {tuple(ix["column_names"]) for ix in indexes}

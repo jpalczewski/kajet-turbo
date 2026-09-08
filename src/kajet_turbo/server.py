@@ -20,17 +20,25 @@ from kajet_turbo.mcp import build_mcp
 from kajet_turbo.repositories.git import use_post_commit_hooks
 
 _SPA_EXPLORER_PATH = re.compile(r"^workspace/[A-Za-z0-9][A-Za-z0-9_-]{0,49}/notes(?:/.*)?$")
+SHARE_LINK_VISIT_RETENTION_S = 30 * 24 * 60 * 60
 
 
-def _make_sweep_handler(event_repo, job_repo):
+def _make_sweep_handler(event_repo, job_repo, note_share_link_repo):
     def _sweep(payload: dict) -> None:
         swept = event_repo.sweep(3600.0)
         purged = job_repo.sweep_done(86400.0)
+        visits_purged = note_share_link_repo.sweep_visits(SHARE_LINK_VISIT_RETENTION_S)
         # jobs_purged is normally 1 (this sweep job's own predecessor from 24h ago);
         # only log at INFO when something beyond that steady state happened, so a
         # quiet system doesn't emit a zeroed line every 15 minutes.
-        level = "info" if swept or purged > 1 else "debug"
-        logger.log(level.upper(), "outbox_sweep", swept=swept, jobs_purged=purged)
+        level = "info" if swept or purged > 1 or visits_purged else "debug"
+        logger.log(
+            level.upper(),
+            "outbox_sweep",
+            swept=swept,
+            jobs_purged=purged,
+            share_link_visits_purged=visits_purged,
+        )
         job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox", delay=900.0)
 
     return _sweep
@@ -44,7 +52,9 @@ def register_job_handlers(resources: AppResources) -> dict[str, Any]:
         "reconcile_links": resources.reconcile_links_handler,
         # Drain jobs written before deployment with the new idempotent implementation.
         "heal_dangling": resources.reconcile_links_handler,
-        "sweep_outbox": _make_sweep_handler(resources.event_repo, resources.job_repo),
+        "sweep_outbox": _make_sweep_handler(
+            resources.event_repo, resources.job_repo, resources.note_share_link_repo
+        ),
         "embed_note": resources.embed_handler,
         "reindex_note": resources.reindex_handler,
     }

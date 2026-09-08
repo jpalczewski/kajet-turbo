@@ -20,6 +20,8 @@ from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.m
     Note,
     NoteChunk,
     NoteLink,
+    NoteShareLink,
+    NoteShareLinkVisit,
     NoteTag,
     OAuthAccessToken,
     OAuthAuthorizationCode,
