@@ -54,7 +54,7 @@ jobs:
         with:
           enable-cache: true
 
-      # Installs the interpreter named in .python-version (3.14.3t, free-threaded)
+      # Installs the interpreter named in .python-version (3.14.7t, free-threaded)
       # and the dev dependency group.
       - run: uv sync --locked
 
