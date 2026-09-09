@@ -36,7 +36,6 @@ def _load_public_note(
     link = share_link_repo.resolve(token)
     if link is None:
         return None
-    share_link_repo.record_visit(token, ip, user_agent)
     # The token is the sole authorization gate here -- workspace/note are trusted from the
     # resolved share-link row, never from has_access, unlike every other note read route.
     ws_path = workspace_service.workspace_path(link.owner_id, link.workspace)
@@ -51,7 +50,9 @@ def _load_public_note(
     # <span> instead of a real <a href> pointing at the note's folder/id -- the link text
     # itself (a note title) still renders, only the location it would otherwise expose does
     # not. See #348 for the full wikilink-leak scope this endpoint intentionally defers to.
-    return note_html_fields(note)
+    fields = note_html_fields(note)
+    share_link_repo.record_visit(token, ip, user_agent)
+    return fields
 
 
 @router.get(

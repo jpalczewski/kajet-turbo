@@ -1,7 +1,9 @@
 from pathlib import Path
 
+import pytest
 from sqlmodel import Session, select
 
+from kajet_turbo.api import public_notes
 from kajet_turbo.models import NoteShareLinkVisit
 from kajet_turbo.services.targets import WorkspaceTarget
 
@@ -34,6 +36,40 @@ def test_valid_token_returns_note_html(auth_client):
     assert visits[0].token == link.token
     assert visits[0].ip == "testclient"
     assert visits[0].user_agent == "Share-reader/1.0"
+
+
+def test_missing_note_file_does_not_record_visit(auth_client):
+    client, note_service, workspace = auth_client
+    note_id = note_service.save(_ws(workspace), "Missing Note", "content", [])["note_id"]
+    link = auth_client.share_link_repo.create(note_id, "test-ws", "u1")
+    (Path(workspace) / "Missing Note.md").unlink()
+
+    response = client.get(f"/api/public/notes/{link.token}")
+
+    assert response.status_code == 404
+    with Session(auth_client.share_link_repo._engine) as session:
+        assert session.exec(select(NoteShareLinkVisit)).all() == []
+
+
+@pytest.mark.parametrize("failure_stage", ["read", "render"])
+def test_failed_public_read_does_not_record_visit(auth_client, monkeypatch, failure_stage):
+    client, note_service, workspace = auth_client
+    note_id = note_service.save(_ws(workspace), "Shared Note", "content", [])["note_id"]
+    link = auth_client.share_link_repo.create(note_id, "test-ws", "u1")
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("injected public read failure")
+
+    if failure_stage == "read":
+        monkeypatch.setattr(auth_client.note_read_service, "get_with_content", fail)
+    else:
+        monkeypatch.setattr(public_notes, "note_html_fields", fail)
+
+    with pytest.raises(RuntimeError, match="injected public read failure"):
+        client.get(f"/api/public/notes/{link.token}")
+
+    with Session(auth_client.share_link_repo._engine) as session:
+        assert session.exec(select(NoteShareLinkVisit)).all() == []
 
 
 def test_revoked_token_returns_404_not_403(auth_client):
