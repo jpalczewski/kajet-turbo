@@ -92,6 +92,10 @@ vulnerabilities:
     purls: ["pkg:deb/debian/libexpat1"]
     expired_at: 2026-09-30
     statement: Debian 13 has not published a fixed libexpat package.
+  - id: CVE-2026-76957
+    purls: ["pkg:deb/debian/libexpat1"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed libexpat package.
   - id: CVE-2026-58050
     purls: ["pkg:deb/debian/libssh2-1t64"]
     expired_at: 2026-09-30
