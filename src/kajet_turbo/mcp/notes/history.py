@@ -12,14 +12,19 @@ from kajet_turbo.mcp.notes.types import (
     StaleVersion,
 )
 from kajet_turbo.mcp.tooling import read_tool, require_found, write_tool
-from kajet_turbo.services.notes import NoteData, NoteLinkService, NoteService, NoteVersionService
+from kajet_turbo.services.notes import (
+    NoteData,
+    NoteEditService,
+    NoteLinkService,
+    NoteVersionService,
+)
 from kajet_turbo.services.targets import NoteTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 from kajet_turbo.shared.notes import HistoryEntry
 
 
 def build_history(
-    note_service: NoteService,
+    note_edit_service: NoteEditService,
     note_version_service: NoteVersionService,
     link_service: NoteLinkService,
     workspace_service: WorkspaceService,
@@ -67,7 +72,7 @@ def build_history(
         expected_sha: HEAD sha — proof you saw the current version before it is
         overwritten; a mismatch returns StaleVersion."""
         result = await run_sync(
-            note_service.restore_version,
+            note_edit_service.restore_version,
             target,
             sha,
             expected_sha=expected_sha,

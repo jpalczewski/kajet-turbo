@@ -1,4 +1,4 @@
-"""update() mode/replace_all coverage for NoteService."""
+"""update() mode/replace_all coverage for NoteEditService."""
 
 import time
 from unittest.mock import patch
@@ -15,15 +15,13 @@ def test_update_perf_span_excludes_git_commit_from_db_ms(service, workspace):
     """#155's observability decision: commit_rows_then_tree runs the git commit under
     perf.excluded_from("db_ms"), so db_ms and git_ms never double-count the same window
     and their sum never exceeds the call's actual wall time."""
-    result = service.save(workspace_target("u1", "ws", workspace), "Perf update", "body", [])
+    result = service.create.save(workspace_target("u1", "ws", workspace), "Perf update", "body", [])
     note_id = result["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
     started = time.monotonic()
     with perf.perf_span() as span:
-        service.update(
+        service.edit.update(
             note_target("u1", "ws", workspace, note_id),
             expected_sha=sha,
             edit=EditSpec(content="new body"),
@@ -37,7 +35,7 @@ def test_update_perf_span_excludes_git_commit_from_db_ms(service, workspace):
 
 
 def test_update_merges_extras_into_existing(service, read_service, workspace):
-    result = service.save(
+    result = service.create.save(
         workspace_target("u1", "ws", workspace),
         "Title",
         "body",
@@ -45,11 +43,9 @@ def test_update_merges_extras_into_existing(service, read_service, workspace):
         extras={"mood": "great", "weather": "sunny"},
     )
     note_id = result["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    service.update(
+    service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         extras={"weather": "rainy", "new_field": "added"},
@@ -60,15 +56,13 @@ def test_update_merges_extras_into_existing(service, read_service, workspace):
 
 
 def test_update_extras_none_leaves_existing_extras_untouched(service, read_service, workspace):
-    result = service.save(
+    result = service.create.save(
         workspace_target("u1", "ws", workspace), "Title", "body", [], extras={"mood": "great"}
     )
     note_id = result["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    service.update(
+    service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         edit=EditSpec(content="new body"),
@@ -82,16 +76,14 @@ def test_update_extras_none_leaves_existing_extras_untouched(service, read_servi
 def test_update_rejects_extras_shadowing_reserved_key(service, read_service, workspace):
     from kajet_turbo.workspace import ExtrasReservedKeyError
 
-    result = service.save(
+    result = service.create.save(
         workspace_target("u1", "ws", workspace), "Title", "body", [], extras={"mood": "great"}
     )
     note_id = result["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
     with pytest.raises(ExtrasReservedKeyError, match="period"):
-        service.update(
+        service.edit.update(
             note_target("u1", "ws", workspace, note_id),
             expected_sha=sha,
             extras={"period": "evil"},
@@ -104,22 +96,22 @@ def test_update_rejects_extras_shadowing_reserved_key(service, read_service, wor
 
 
 def test_restore_version_replaces_extras_fully_not_merge(service, read_service, workspace):
-    result = service.save(
+    result = service.create.save(
         workspace_target("u1", "ws", workspace), "Title", "v1 body", [], extras={"tag_v1": "yes"}
     )
     note_id = result["note_id"]
-    sha_v1 = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+    sha_v1 = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
         "sha"
     ]
 
-    service.update(
+    service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha_v1,
         edit=EditSpec(content="v2 body"),
         extras={"tag_v2": "added_later"},
     )
 
-    service.restore_version(note_target("u1", "ws", workspace, note_id), sha_v1)
+    service.edit.restore_version(note_target("u1", "ws", workspace, note_id), sha_v1)
 
     note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert note.content == "v1 body"
@@ -131,11 +123,11 @@ def test_restore_version_replaces_extras_fully_not_merge(service, read_service, 
 def test_update_git_error_reverts_file(service, read_service, workspace):
     from kajet_turbo.repositories.git import GitError
 
-    result = service.save(workspace_target("u1", "ws", workspace), "Oryginał", "stara treść", [])
+    result = service.create.save(
+        workspace_target("u1", "ws", workspace), "Oryginał", "stara treść", []
+    )
     note_id = result["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
     # update()'s write leg commits through staged_workspace_change, which always calls
     # commit_changes (even for a single file) so single- and multi-file writes share one
     # rollback path.
@@ -146,7 +138,7 @@ def test_update_git_error_reverts_file(service, read_service, workspace):
         ),
         pytest.raises(GitError),
     ):
-        service.update(
+        service.edit.update(
             note_target("u1", "ws", workspace, note_id),
             expected_sha=sha,
             edit=EditSpec(content="nowa treść"),
@@ -162,11 +154,11 @@ def test_update_rename_git_error_reverts_to_old_path(service, read_service, work
     are now one commit, so a failure anywhere rolls back to the old path entirely."""
     from kajet_turbo.repositories.git import GitError
 
-    result = service.save(workspace_target("u1", "ws", workspace), "Original", "old content", [])
+    result = service.create.save(
+        workspace_target("u1", "ws", workspace), "Original", "old content", []
+    )
     note_id = result["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
     original_bytes = (workspace / "Original.md").read_bytes()
 
     with (
@@ -176,7 +168,7 @@ def test_update_rename_git_error_reverts_to_old_path(service, read_service, work
         ),
         pytest.raises(GitError, match="fail"),
     ):
-        service.update(
+        service.edit.update(
             note_target("u1", "ws", workspace, note_id),
             expected_sha=sha,
             title="New title",
@@ -195,18 +187,18 @@ def test_update_db_failure_leaves_file_and_row_untouched(service, read_service, 
     """#155: the row write runs before the git commit, so a DB-side failure must abort
     before the tree or HEAD ever change."""
 
-    result = service.save(workspace_target("u1", "ws", workspace), "Stable", "old content", [])
+    result = service.create.save(
+        workspace_target("u1", "ws", workspace), "Stable", "old content", []
+    )
     note_id = result["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
-    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session)
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    flaky_update = make_flaky_db_write(service.crud_repo.update_in_session)
 
     with (
-        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        patch.object(service.crud_repo, "update_in_session", flaky_update),
         pytest.raises(RuntimeError, match="db exploded"),
     ):
-        service.update(
+        service.edit.update(
             note_target("u1", "ws", workspace, note_id),
             expected_sha=sha,
             edit=EditSpec(content="new content"),
@@ -219,14 +211,14 @@ def test_update_db_failure_leaves_file_and_row_untouched(service, read_service, 
 
 
 def test_update_title_renames_file(service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Old title", "content", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Old title", "content", []
+    )["note_id"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    service.update(note_target("u1", "ws", workspace, note_id), expected_sha=sha, title="New title")
+    service.edit.update(
+        note_target("u1", "ws", workspace, note_id), expected_sha=sha, title="New title"
+    )
 
     assert not (workspace / "Old title.md").exists()
     assert (workspace / "New title.md").exists()
@@ -234,12 +226,14 @@ def test_update_title_renames_file(service, workspace):
 
 def test_update_rejects_rename_onto_normalization_collision(service, read_service, workspace):
     """ "X" renamed to "A:B" would land on "A B.md", already used by "A B"."""
-    x_id = service.save(workspace_target("u1", "ws", workspace), "X", "x content", [])["note_id"]
-    service.save(workspace_target("u1", "ws", workspace), "A B", "a b content", [])
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, x_id))[0]["sha"]
+    x_id = service.create.save(workspace_target("u1", "ws", workspace), "X", "x content", [])[
+        "note_id"
+    ]
+    service.create.save(workspace_target("u1", "ws", workspace), "A B", "a b content", [])
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, x_id))[0]["sha"]
 
     with pytest.raises(FileExistsError, match="A B"):
-        service.update(note_target("u1", "ws", workspace, x_id), expected_sha=sha, title="A:B")
+        service.edit.update(note_target("u1", "ws", workspace, x_id), expected_sha=sha, title="A:B")
 
     x_note = read_service.get_with_content(note_target("u1", "ws", workspace, x_id))
     assert x_note.title == "X"
@@ -254,12 +248,16 @@ def test_update_rejects_rename_onto_case_only_collision(service, read_service, w
     """ "X" renamed to "readme" collides with an existing "Readme" — same file on a
     case-insensitive checkout filesystem (Windows/macOS), even though prod's own
     case-sensitive filesystem would happily keep both."""
-    x_id = service.save(workspace_target("u1", "ws", workspace), "X", "x content", [])["note_id"]
-    service.save(workspace_target("u1", "ws", workspace), "Readme", "readme content", [])
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, x_id))[0]["sha"]
+    x_id = service.create.save(workspace_target("u1", "ws", workspace), "X", "x content", [])[
+        "note_id"
+    ]
+    service.create.save(workspace_target("u1", "ws", workspace), "Readme", "readme content", [])
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, x_id))[0]["sha"]
 
     with pytest.raises(FileExistsError, match="readme"):
-        service.update(note_target("u1", "ws", workspace, x_id), expected_sha=sha, title="readme")
+        service.edit.update(
+            note_target("u1", "ws", workspace, x_id), expected_sha=sha, title="readme"
+        )
 
     x_note = read_service.get_with_content(note_target("u1", "ws", workspace, x_id))
     assert x_note.title == "X"
@@ -272,14 +270,14 @@ def test_update_case_only_title_rename_succeeds(service, read_service, workspace
     The fix routes the rename leg through a temp name, which produces the same
     correct end state regardless of the filesystem's case sensitivity — so this
     passes on a case-sensitive CI runner just as meaningfully as on local dev."""
-    note_id = service.save(workspace_target("u1", "ws", workspace), "readme", "content", [])[
+    note_id = service.create.save(workspace_target("u1", "ws", workspace), "readme", "content", [])[
         "note_id"
     ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    service.update(note_target("u1", "ws", workspace, note_id), expected_sha=sha, title="README")
+    service.edit.update(
+        note_target("u1", "ws", workspace, note_id), expected_sha=sha, title="README"
+    )
 
     assert (workspace / "README.md").exists()
     assert [p.name for p in workspace.glob("*.md")] == ["README.md"]
@@ -291,12 +289,12 @@ def test_update_case_only_title_rename_succeeds(service, read_service, workspace
 def test_update_case_only_rename_with_content_edit_succeeds(service, read_service, workspace):
     """A case-only rename combined with a content edit in the same call must land
     both: the new casing and the new content."""
-    note_id = service.save(workspace_target("u1", "ws", workspace), "readme", "old", [])["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
+    note_id = service.create.save(workspace_target("u1", "ws", workspace), "readme", "old", [])[
+        "note_id"
     ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    service.update(
+    service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         title="README",
@@ -314,11 +312,15 @@ def test_update_rejects_rename_onto_orphan_file_on_disk(service, read_service, w
     block the rename — this collision is now detected from inside the temp-routed
     rename leg (#181) rather than a pre-check, and the source must come back intact."""
     (workspace / "target.md").write_text("orphan content\n")
-    x_id = service.save(workspace_target("u1", "ws", workspace), "X", "x content", [])["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, x_id))[0]["sha"]
+    x_id = service.create.save(workspace_target("u1", "ws", workspace), "X", "x content", [])[
+        "note_id"
+    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, x_id))[0]["sha"]
 
     with pytest.raises(FileExistsError, match="target"):
-        service.update(note_target("u1", "ws", workspace, x_id), expected_sha=sha, title="target")
+        service.edit.update(
+            note_target("u1", "ws", workspace, x_id), expected_sha=sha, title="target"
+        )
 
     assert (workspace / "X.md").exists()
     assert (workspace / "target.md").read_text() == "orphan content\n"
@@ -327,14 +329,12 @@ def test_update_rejects_rename_onto_orphan_file_on_disk(service, read_service, w
 
 
 def test_update_append_mode_adds_to_section(service, read_service, workspace):
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace), "Dziennik", "## Zadania\n\n- Pierwsze", []
     )["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    service.update(
+    service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         edit=EditSpec(content="- Drugie", mode="append", target_heading="## Zadania"),
@@ -344,19 +344,17 @@ def test_update_append_mode_adds_to_section(service, read_service, workspace):
     assert "- Pierwsze\n- Drugie" in note.content
     # Edit produced a second commit (history grows).
     assert (
-        len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id))) == 2
+        len(service.version_service.get_history(note_target("u1", "ws", workspace, note_id))) == 2
     )
 
 
 def test_update_replace_text_mode(service, read_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notatka", "Hello world.", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notatka", "Hello world.", []
+    )["note_id"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    service.update(
+    service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         edit=EditSpec(mode="replace_text", old_str="world", new_str="earth"),
@@ -367,14 +365,12 @@ def test_update_replace_text_mode(service, read_service, workspace):
 
 
 def test_update_insert_after_mode(service, read_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Lista", "- A\n- B\n", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Lista", "- A\n- B\n", []
+    )["note_id"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    service.update(
+    service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         edit=EditSpec(mode="insert_after", old_str="- A", new_str="- A.5"),
@@ -385,15 +381,13 @@ def test_update_insert_after_mode(service, read_service, workspace):
 
 
 def test_update_edit_mode_requires_content(service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notatka", "treść", [])[
+    note_id = service.create.save(workspace_target("u1", "ws", workspace), "Notatka", "treść", [])[
         "note_id"
     ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
     with pytest.raises(ValueError, match="content"):
-        service.update(
+        service.edit.update(
             note_target("u1", "ws", workspace, note_id),
             expected_sha=sha,
             edit=EditSpec(mode="append", target_heading=None),
@@ -401,15 +395,13 @@ def test_update_edit_mode_requires_content(service, workspace):
 
 
 def test_update_replace_text_requires_new_str(service, read_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notatka", "Hello world.", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notatka", "Hello world.", []
+    )["note_id"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
     with pytest.raises(ValueError, match="requires new_str"):
-        service.update(
+        service.edit.update(
             note_target("u1", "ws", workspace, note_id),
             expected_sha=sha,
             edit=EditSpec(mode="replace_text", old_str="world"),
@@ -420,14 +412,12 @@ def test_update_replace_text_requires_new_str(service, read_service, workspace):
 
 
 def test_update_delete_text_mode(service, read_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Lista", "- A\n- B\n- C\n", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Lista", "- A\n- B\n- C\n", []
+    )["note_id"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    service.update(
+    service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         edit=EditSpec(mode="delete_text", old_str="- B\n"),
@@ -438,15 +428,13 @@ def test_update_delete_text_mode(service, read_service, workspace):
 
 
 def test_update_replace_text_ambiguous_raises(service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notatka", "foo bar foo", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notatka", "foo bar foo", []
+    )["note_id"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
     with pytest.raises(ValueError):
-        service.update(
+        service.edit.update(
             note_target("u1", "ws", workspace, note_id),
             expected_sha=sha,
             edit=EditSpec(mode="replace_text", old_str="foo", new_str="qux"),
@@ -454,11 +442,13 @@ def test_update_replace_text_ambiguous_raises(service, workspace):
 
 
 def test_update_replace_text_replace_all_reports_count(service, read_service, workspace):
-    result = service.save(workspace_target("u1", "ws", workspace), "Doc", "foo bar foo baz foo", [])
-    sha = service._version_service.get_history(
+    result = service.create.save(
+        workspace_target("u1", "ws", workspace), "Doc", "foo bar foo baz foo", []
+    )
+    sha = service.version_service.get_history(
         note_target("u1", "ws", workspace, result["note_id"])
     )[0]["sha"]
-    updated = service.update(
+    updated = service.edit.update(
         note_target("u1", "ws", workspace, result["note_id"]),
         expected_sha=sha,
         edit=EditSpec(mode="replace_text", old_str="foo", new_str="qux", replace_all=True),
@@ -469,11 +459,13 @@ def test_update_replace_text_replace_all_reports_count(service, read_service, wo
 
 
 def test_update_without_replace_all_replaced_is_none(service, workspace):
-    result = service.save(workspace_target("u1", "ws", workspace), "Doc", "unique text here", [])
-    sha = service._version_service.get_history(
+    result = service.create.save(
+        workspace_target("u1", "ws", workspace), "Doc", "unique text here", []
+    )
+    sha = service.version_service.get_history(
         note_target("u1", "ws", workspace, result["note_id"])
     )[0]["sha"]
-    updated = service.update(
+    updated = service.edit.update(
         note_target("u1", "ws", workspace, result["note_id"]),
         expected_sha=sha,
         edit=EditSpec(mode="replace_text", old_str="unique", new_str="new"),
@@ -482,12 +474,12 @@ def test_update_without_replace_all_replaced_is_none(service, workspace):
 
 
 def test_update_replace_all_wrong_mode_raises(service, workspace):
-    result = service.save(workspace_target("u1", "ws", workspace), "Doc", "body text", [])
-    sha = service._version_service.get_history(
+    result = service.create.save(workspace_target("u1", "ws", workspace), "Doc", "body text", [])
+    sha = service.version_service.get_history(
         note_target("u1", "ws", workspace, result["note_id"])
     )[0]["sha"]
     with pytest.raises(ValueError, match="replace_all"):
-        service.update(
+        service.edit.update(
             note_target("u1", "ws", workspace, result["note_id"]),
             expected_sha=sha,
             edit=EditSpec(mode="overwrite", content="new body", replace_all=True),

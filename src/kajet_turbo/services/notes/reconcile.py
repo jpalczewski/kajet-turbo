@@ -14,22 +14,12 @@ from typing import cast
 from nanoid import generate
 
 from kajet_turbo.log import logger
-from kajet_turbo.models import Note
-from kajet_turbo.repositories.git import (
-    GitRepository,
-    defer_workspace_postprocess,
-    workspace_write_transaction,
-)
+from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
-from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
-from kajet_turbo.repositories.notes import (
-    NoteChunkRepository,
-    NoteLinkRepository,
-    NoteRepository,
-    NoteTagRepository,
-)
+from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
+from kajet_turbo.services.indexing import Indexer
 from kajet_turbo.services.notes.links import NoteLinkService
-from kajet_turbo.services.notes.persistence import NoteTeardown, new_note_row
+from kajet_turbo.services.notes.persistence import NoteTeardown, defer_index_many, new_note_row
 from kajet_turbo.services.notes.staged_change import StagedChange, staged_workspace_change
 from kajet_turbo.services.notes.tags import NoteTagService
 from kajet_turbo.workspace import (
@@ -51,14 +41,20 @@ class _PresentFile:
     tags: list[str]
     created_at: str
     updated_at: str
-    occurred_at: str | None
-    period: str | None
     content: str
     folder: str
     relative: str
-    # Fields read_note_file had to drop as unparseable (see NoteFrontmatter.temporal_dropped)
-    # — the reconcile drift check must not treat these as a genuine clear (#132 follow-up).
-    temporal_dropped: frozenset[str]
+    # The parsed frontmatter, kept whole (not just occurred_at/period/temporal_dropped)
+    # so temporal_or() is available at the drift-check/write-back call sites below.
+    meta: NoteFrontmatter
+
+    @property
+    def occurred_at(self) -> str | None:
+        return self.meta.occurred_at
+
+    @property
+    def period(self) -> str | None:
+        return self.meta.period
 
 
 def _present_file(
@@ -70,22 +66,10 @@ def _present_file(
         tags=NoteTagService.normalize_tags(cast(list[str], meta.tags or [])),
         created_at=str(meta.created_at or ""),
         updated_at=str(meta.updated_at or ""),
-        occurred_at=meta.occurred_at,
-        period=meta.period,
         content=content,
         folder=folder,
         relative=relative,
-        temporal_dropped=meta.temporal_dropped,
-    )
-
-
-def _reconciled_temporal(pf: _PresentFile, existing: Note) -> tuple[str | None, str | None]:
-    """``pf``'s occurred_at/period, but falling back to ``existing``'s (DB) value for any
-    field ``read_note_file`` had to drop as unparseable — a dropped field must never look
-    like an intentional clear during reconcile's drift check or write-back (#132 follow-up)."""
-    return (
-        pf.occurred_at if "occurred_at" not in pf.temporal_dropped else existing.occurred_at,
-        pf.period if "period" not in pf.temporal_dropped else existing.period,
+        meta=meta,
     )
 
 
@@ -127,25 +111,18 @@ class NoteReconcileService:
     def __init__(
         self,
         crud_repo: NoteRepository,
-        link_repo: NoteLinkRepository,
         tag_repo: NoteTagRepository,
-        chunk_repo: NoteChunkRepository,
         link_service: NoteLinkService,
-        share_link_repo: NoteShareLinkRepository,
-        indexer=None,
+        teardown: NoteTeardown,
+        indexer: Indexer | None = None,
         reconcile_repo: LinkReconcileRepository | None = None,
     ) -> None:
         self._crud_repo = crud_repo
-        self._link_repo = link_repo
         self._tag_repo = tag_repo
-        self._chunk_repo = chunk_repo
         self._link_service = link_service
-        self._share_link_repo = share_link_repo
+        self._teardown = teardown
         self._indexer = indexer
         self._reconcile_repo = reconcile_repo
-        self._teardown = NoteTeardown(
-            tag_repo, chunk_repo, crud_repo, link_repo, link_service, share_link_repo
-        )
 
     def clear_workspace_data(self, ws_name: str, owner_id: str) -> None:
         """Delete every note-related row for a workspace: tags, chunks (+ FTS/vec),
@@ -313,7 +290,7 @@ class NoteReconcileService:
                 changed_titles.add(pf.title)
                 continue
             identity_changed = existing.folder != pf.folder or existing.title != pf.title
-            pf_occurred_at, pf_period = _reconciled_temporal(pf, existing)
+            pf_occurred_at, pf_period = pf.meta.temporal_or(existing.occurred_at, existing.period)
             drifted = (
                 identity_changed
                 or json.loads(existing.tags or "[]") != pf.tags
@@ -376,7 +353,10 @@ class NoteReconcileService:
                 )
             for note_id in updated:
                 pf = present[note_id]
-                pf_occurred_at, pf_period = _reconciled_temporal(pf, existing_by_id[note_id])
+                existing = existing_by_id[note_id]
+                pf_occurred_at, pf_period = pf.meta.temporal_or(
+                    existing.occurred_at, existing.period
+                )
                 self._crud_repo.update_in_session(
                     session,
                     note_id,
@@ -402,18 +382,10 @@ class NoteReconcileService:
         self._tag_repo.sync_note_tags_many(ws_name, owner_id, tagged_by_note)
         self._link_service.persist_many(ws_name, owner_id, resolutions)
 
-        if self._indexer is not None:
-
-            def _reindex_chunks() -> None:
-                assert self._indexer is not None  # narrowed by the outer guard
-                self._indexer.index_many(
-                    ws_name, owner_id, [{"id": note_id} for note_id in present]
-                )
-
-            # Deferred past lock release, like save()'s _index call. index_many only
-            # enqueues a reindex_note job per note now — it no longer chunks inline — but
-            # deferral still keeps job-queue I/O for a whole workspace off the git lock.
-            defer_workspace_postprocess(ws_path, _reindex_chunks)
+        # Deferred past lock release, like save()'s indexing call. index_many only
+        # enqueues a reindex_note job per note now — it no longer chunks inline — but
+        # deferral still keeps job-queue I/O for a whole workspace off the git lock.
+        defer_index_many(self._indexer, ws_path, ws_name, owner_id, list(present))
 
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(owner_id, ws_name, affected)

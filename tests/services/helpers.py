@@ -117,30 +117,29 @@ def drain_reindex_jobs(
     return drained
 
 
-def build_note_reconcile_service_from(service):
-    """A NoteReconcileService sharing every repo/collaborator instance a NoteService
+def build_note_reconcile_service_from(wiring):
+    """A NoteReconcileService sharing every repo/collaborator instance a NoteWiring
     already holds — mirrors production wiring (dependencies.py builds both from the
-    same repo set), so a test's monkeypatch on one of `service`'s repo instances is
-    visible to the reconcile side too, and reconcile_paths/save() see the same DB
-    state without needing a second, independently-constructed set of repos."""
+    same repo set and the same NoteTeardown instance, #388), so a test's monkeypatch on
+    one of `wiring`'s repo instances is visible to the reconcile side too, and
+    reconcile_paths/save() see the same DB state without needing a second,
+    independently-constructed set of repos."""
     from kajet_turbo.services.notes import NoteReconcileService
 
     return NoteReconcileService(
-        service._crud_repo,
-        service._link_repo,
-        service._tag_repo,
-        service._chunk_repo,
-        service._link_service,
-        service._share_link_repo,
-        indexer=service._indexer,
-        reconcile_repo=service._reconcile_repo,
+        wiring.crud_repo,
+        wiring.tag_repo,
+        wiring.link_service,
+        wiring.teardown,
+        indexer=wiring.indexer,
+        reconcile_repo=wiring.reconcile_repo,
     )
 
 
-def build_note_folder_service_from(service):
-    """A NoteFolderService sharing every repo/collaborator instance a NoteService already
+def build_note_folder_service_from(wiring):
+    """A NoteFolderService sharing every repo/collaborator instance a NoteWiring already
     holds — mirrors production wiring (dependencies.py builds both from the same repo set),
-    so a test that patches one of `service`'s repo instances (the #155/#170 ordering tests
+    so a test that patches one of `wiring`'s repo instances (the #155/#170 ordering tests
     patch `update_in_session` and assert it is *not* called) still intercepts the folder
     move made here; a separately constructed folder service would pass those negatives
     vacuously.
@@ -151,14 +150,14 @@ def build_note_folder_service_from(service):
     from kajet_turbo.services.notes import NoteFolderService
 
     return NoteFolderService(
-        service._crud_repo,
-        service._link_service,
-        reconcile_repo=service._reconcile_repo,
+        wiring.crud_repo,
+        wiring.link_service,
+        reconcile_repo=wiring.reconcile_repo,
     )
 
 
 def build_reconcile_wiring(database, base: Path):
-    """A NoteService wired with a real LinkReconcileRepository + DanglingLinkRepository,
+    """A NoteWiring wired with a real LinkReconcileRepository + DanglingLinkRepository,
     plus the ReconcileLinksHandler that can drain the jobs it enqueues — for tests that
     need to observe dangling-link healing end to end (mark_and_enqueue -> handler ->
     link graph), not just that a job got queued."""
@@ -185,11 +184,11 @@ def build_reconcile_wiring(database, base: Path):
         dirty,
         str(base),
     )
-    return wiring.service, wiring.link_service, jobs, dirty, dangling, handler
+    return wiring, wiring.link_service, jobs, dirty, dangling, handler
 
 
 def make_service_with_dangling(database, link_validation_enabled=None):
-    """Build a NoteService wired with a real DanglingLinkRepository on the same engine,
+    """Build a NoteWiring wired with a real DanglingLinkRepository on the same engine,
     returning the link boundary alongside it for tests that assert on the link graph."""
     from kajet_turbo.embedding.cache import EmbeddingCacheRepository
     from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
@@ -212,7 +211,7 @@ def make_service_with_dangling(database, link_validation_enabled=None):
         link_validation_enabled=link_validation_enabled,
         dangling_repo=dangling,
     )
-    return wiring.service, wiring.link_service, dangling
+    return wiring, wiring.link_service, dangling
 
 
 def make_flaky_write(real_write, *, fail_on_call: int = 2, message: str = "disk full"):

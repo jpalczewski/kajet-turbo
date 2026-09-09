@@ -56,17 +56,20 @@ from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.jobs import JobService
 from kajet_turbo.services.notes import (
+    NoteCreateService,
+    NoteDeleteService,
+    NoteEditService,
     NoteFolderService,
     NoteLinkService,
     NoteReadService,
     NoteReconcileService,
     NoteSearchService,
-    NoteService,
     NoteShareLinkService,
     NoteTagService,
     NoteTemporalService,
     NoteVersionService,
 )
+from kajet_turbo.services.notes.persistence import NoteTeardown
 from kajet_turbo.services.push_enqueue import make_enqueue_push_on_commit
 from kajet_turbo.services.push_handler import PushHandler
 from kajet_turbo.services.reconcile_links_handler import ReconcileLinksHandler
@@ -137,7 +140,9 @@ class AppResources:
     folder_meta_repo: FolderMetaRepository
     note_share_link_repo: NoteShareLinkRepository
     job_repo: JobRepository
-    note_service: NoteService
+    note_create_service: NoteCreateService
+    note_edit_service: NoteEditService
+    note_delete_service: NoteDeleteService
     note_tag_service: NoteTagService
     note_link_service: NoteLinkService
     note_folder_service: NoteFolderService
@@ -252,13 +257,19 @@ def build_resources(config: AppConfig) -> AppResources:
             lambda ws, owner: workspace_service.get_settings(owner, ws)["validate_links"],
             job_repo,
         )
-        note_reconcile_service = NoteReconcileService(
-            note_repo,
-            note_link_repo,
+        note_teardown = NoteTeardown(
             note_tag_repo,
             note_chunk_repo,
+            note_repo,
+            note_link_repo,
             link_service,
             note_share_link_repo,
+        )
+        note_reconcile_service = NoteReconcileService(
+            note_repo,
+            note_tag_repo,
+            link_service,
+            note_teardown,
             indexer=indexer,
             reconcile_repo=reconcile_repo,
         )
@@ -278,16 +289,26 @@ def build_resources(config: AppConfig) -> AppResources:
             note_repo, link_service, folder_meta_repo, reconcile_repo
         )
         note_version_service = NoteVersionService(note_repo)
-        note_service = NoteService(
+        note_create_service = NoteCreateService(
             note_repo,
-            note_link_repo,
-            note_tag_repo,
-            note_chunk_repo,
-            tag_service,
             link_service,
-            note_version_service,
-            note_share_link_repo,
+            tag_service,
             indexer=indexer,
+            reconcile_repo=reconcile_repo,
+        )
+        note_edit_service = NoteEditService(
+            note_repo,
+            link_service,
+            tag_service,
+            note_version_service,
+            indexer=indexer,
+            reconcile_repo=reconcile_repo,
+        )
+        note_delete_service = NoteDeleteService(
+            note_repo,
+            note_tag_repo,
+            link_service,
+            note_teardown,
             reconcile_repo=reconcile_repo,
         )
         note_temporal_service = NoteTemporalService(note_repo)
@@ -339,7 +360,9 @@ def build_resources(config: AppConfig) -> AppResources:
             folder_meta_repo,
             note_share_link_repo,
             job_repo,
-            note_service,
+            note_create_service,
+            note_edit_service,
+            note_delete_service,
             tag_service,
             link_service,
             folder_service,
@@ -350,7 +373,7 @@ def build_resources(config: AppConfig) -> AppResources:
             note_search_service,
             workspace_service,
             TargetResolver(note_repo, workspace_service),
-            CollectionService(note_repo, note_service),
+            CollectionService(note_repo, note_create_service),
             embedding_profile_service,
             ssh_key_service,
             note_share_link_service,
@@ -423,8 +446,16 @@ def get_note_repo(conn: HTTPConnection) -> NoteRepository:
     return _resources(conn).note_repo
 
 
-def get_note_service(conn: HTTPConnection) -> NoteService:
-    return _resources(conn).note_service
+def get_note_create_service(conn: HTTPConnection) -> NoteCreateService:
+    return _resources(conn).note_create_service
+
+
+def get_note_edit_service(conn: HTTPConnection) -> NoteEditService:
+    return _resources(conn).note_edit_service
+
+
+def get_note_delete_service(conn: HTTPConnection) -> NoteDeleteService:
+    return _resources(conn).note_delete_service
 
 
 def get_note_reconcile_service(conn: HTTPConnection) -> NoteReconcileService:

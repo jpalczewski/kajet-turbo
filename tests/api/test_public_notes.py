@@ -14,7 +14,7 @@ def _ws(ws_path) -> WorkspaceTarget:
 
 def test_valid_token_returns_note_html(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared Note", "# Hello\n\nBody text.", [])[
+    note_id = note_service.create.save(_ws(workspace), "Shared Note", "# Hello\n\nBody text.", [])[
         "note_id"
     ]
     link = auth_client.share_link_repo.create(note_id, "test-ws", "u1")
@@ -40,7 +40,7 @@ def test_valid_token_returns_note_html(auth_client):
 
 def test_missing_note_file_does_not_record_visit(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Missing Note", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Missing Note", "content", [])["note_id"]
     link = auth_client.share_link_repo.create(note_id, "test-ws", "u1")
     (Path(workspace) / "Missing Note.md").unlink()
 
@@ -54,7 +54,7 @@ def test_missing_note_file_does_not_record_visit(auth_client):
 @pytest.mark.parametrize("failure_stage", ["read", "render"])
 def test_failed_public_read_does_not_record_visit(auth_client, monkeypatch, failure_stage):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared Note", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared Note", "content", [])["note_id"]
     link = auth_client.share_link_repo.create(note_id, "test-ws", "u1")
 
     def fail(*args, **kwargs):
@@ -74,7 +74,7 @@ def test_failed_public_read_does_not_record_visit(auth_client, monkeypatch, fail
 
 def test_revoked_token_returns_404_not_403(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Revoked Note", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Revoked Note", "content", [])["note_id"]
     link = auth_client.share_link_repo.create(note_id, "test-ws", "u1")
     assert auth_client.share_link_repo.revoke("u1", note_id, link.token) is True
 
@@ -95,8 +95,8 @@ def test_wikilink_to_a_private_note_never_leaks_a_link(auth_client):
     # would resolve to a live <a href> on any authenticated render path, an anonymous
     # viewer of the shared note must not learn its folder/note_id or reach it.
     client, note_service, workspace = auth_client
-    note_service.save(_ws(workspace), "Private Note", "secret content", [])
-    note_id = note_service.save(
+    note_service.create.save(_ws(workspace), "Private Note", "secret content", [])
+    note_id = note_service.create.save(
         _ws(workspace), "Shared Note", "See [[Private Note]] for details.", []
     )["note_id"]
     link = auth_client.share_link_repo.create(note_id, "test-ws", "u1")

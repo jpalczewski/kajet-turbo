@@ -40,14 +40,14 @@ def test_reconcile_inserts_new_file_not_yet_in_db(
     assert report.inserted == ["new1"]
     assert report.updated == []
     assert report.removed == []
-    note = service._crud_repo.get("new1", owner_id="u1")
+    note = service.crud_repo.get("new1", owner_id="u1")
     assert note is not None and note.title == "New note"
 
     jobs = JobRepository(database.engine)
     handler = build_reindex_handler(database, workspaces_dir, jobs=jobs)
     assert drain_reindex_jobs(jobs, handler, "u1", "ws") == 1
 
-    assert service._chunk_repo.search_fts("New note", "ws", owner_id="u1")
+    assert service.chunk_repo.search_fts("New note", "ws", owner_id="u1")
 
 
 def test_reconcile_removes_row_whose_file_is_gone(
@@ -56,7 +56,7 @@ def test_reconcile_removes_row_whose_file_is_gone(
     path = note_file_factory(workspace, "Gone", note_id="gone1")
     relative = rel_path(workspace, path)
     reconcile_service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=[relative])
-    assert service._crud_repo.get("gone1", owner_id="u1") is not None
+    assert service.crud_repo.get("gone1", owner_id="u1") is not None
 
     Path(path).unlink()
     report = reconcile_service.reconcile_paths(
@@ -64,8 +64,8 @@ def test_reconcile_removes_row_whose_file_is_gone(
     )
 
     assert report.removed == ["gone1"]
-    assert service._crud_repo.get("gone1", owner_id="u1") is None
-    assert service._chunk_repo.get_chunks("gone1") == []
+    assert service.crud_repo.get("gone1", owner_id="u1") is None
+    assert service.chunk_repo.get_chunks("gone1") == []
 
 
 def test_reconcile_sweeps_orphan_tags_once_for_a_batch_of_removed_files(
@@ -84,11 +84,11 @@ def test_reconcile_sweeps_orphan_tags_once_for_a_batch_of_removed_files(
     )
 
     assert set(report.removed) == {"gonea", "goneb"}
-    paths = {row["path"] for row in service._tag_repo.tag_tree("ws", "u1")}
+    paths = {row["path"] for row in service.tag_repo.tag_tree("ws", "u1")}
     # "only-a" had no other holder and is gone; "shared" survives via the note that stayed.
     assert "only-a" not in paths
     assert "shared" in paths
-    assert service._crud_repo.get("stays1", owner_id="u1") is not None
+    assert service.crud_repo.get("stays1", owner_id="u1") is not None
 
 
 def test_reconcile_updates_drifted_metadata_without_touching_other_notes(
@@ -98,7 +98,7 @@ def test_reconcile_updates_drifted_metadata_without_touching_other_notes(
     path = note_file_factory(workspace, "Old title", note_id="drift1", tags=["a"], folder="")
     paths = [rel_path(workspace, untouched_path), rel_path(workspace, path)]
     reconcile_service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=paths)
-    before = service._crud_repo.get("drift1", owner_id="u1")
+    before = service.crud_repo.get("drift1", owner_id="u1")
     assert before is not None
     generation_before = before.index_generation
 
@@ -134,12 +134,12 @@ def test_reconcile_updates_drifted_metadata_without_touching_other_notes(
     assert report.updated == ["drift1"]
     assert report.inserted == []
     assert report.removed == []
-    after = service._crud_repo.get("drift1", owner_id="u1")
+    after = service.crud_repo.get("drift1", owner_id="u1")
     assert after is not None
     assert (after.folder, after.title) == ("moved", "New title")
     assert after.index_generation == generation_before + 1
     # The untouched note's row is exactly as it was — no wipe side effect.
-    stay = service._crud_repo.get("stay1", owner_id="u1")
+    stay = service.crud_repo.get("stay1", owner_id="u1")
     assert stay is not None and stay.title == "Untouched"
 
 
@@ -156,10 +156,10 @@ def test_reconcile_tag_only_drift_does_not_requeue_backlinks(database, git_works
     )
     reconcile = build_note_reconcile_service_from(service)
 
-    target_id = service.save(workspace_target("u1", "ws", ws), "Target", "treść", ["old"])[
+    target_id = service.create.save(workspace_target("u1", "ws", ws), "Target", "treść", ["old"])[
         "note_id"
     ]
-    service.save(workspace_target("u1", "ws", ws), "Source", "[[Target]]", [])
+    service.create.save(workspace_target("u1", "ws", ws), "Source", "[[Target]]", [])
     assert dangling.exists("u1", "ws") is False
 
     from kajet_turbo.workspace import NoteFrontmatter, note_filepath, write_note_file
@@ -205,7 +205,7 @@ def test_reconcile_safety_valve_refuses_mass_deletion_and_leaves_db_untouched(
 
     # Nothing changed: every one of the 10 rows, including the "missing" ones, is intact.
     for i in range(10):
-        assert service._crud_repo.get(f"n{i}", owner_id="u1") is not None
+        assert service.crud_repo.get(f"n{i}", owner_id="u1") is not None
 
 
 def test_reconcile_below_floor_deletes_without_refusing(
@@ -246,7 +246,7 @@ def test_reconcile_skips_unreadable_file_without_deleting_its_row(
     assert report.removed == []
     assert report.inserted == []
     # The row survives — a parse hiccup must never look like a missing file.
-    assert service._crud_repo.get("broken1", owner_id="u1") is not None
+    assert service.crud_repo.get("broken1", owner_id="u1") is not None
 
 
 def test_reconcile_reports_duplicate_id_and_keeps_the_first(service, reconcile_service, workspace):
@@ -277,7 +277,7 @@ def test_reconcile_reports_duplicate_id_and_keeps_the_first(service, reconcile_s
 
     assert report.duplicate_ids == ["dup1"]
     assert report.inserted == ["dup1"]
-    note = service._crud_repo.get("dup1", owner_id="u1")
+    note = service.crud_repo.get("dup1", owner_id="u1")
     assert note is not None
     # The kept copy is whichever file sorts first by path.
     assert note.title == "A first"
@@ -292,14 +292,14 @@ def test_reindex_removes_orphan_row_with_no_matching_disk_path(
     from datetime import UTC, datetime
 
     now = datetime.now(UTC).isoformat()
-    service._crud_repo.insert("phantom1", "ws", "u1", "Phantom", [], now, now, folder="")
+    service.crud_repo.insert("phantom1", "ws", "u1", "Phantom", [], now, now, folder="")
     note_file_factory(workspace, "Real note", note_id="real1")
 
     result = reconcile_service.reindex("ws", owner_id="u1", ws_path=str(workspace))
 
     assert result["count"] == 1
-    assert service._crud_repo.get("phantom1", owner_id="u1") is None
-    assert service._crud_repo.get("real1", owner_id="u1") is not None
+    assert service.crud_repo.get("phantom1", owner_id="u1") is None
+    assert service.crud_repo.get("real1", owner_id="u1") is not None
 
 
 def test_reconcile_heals_dangling_link_when_target_appears(database, git_workspace_factory):
@@ -314,7 +314,7 @@ def test_reconcile_heals_dangling_link_when_target_appears(database, git_workspa
     )
     reconcile = build_note_reconcile_service_from(service)
 
-    service.save(workspace_target("u1", "ws", ws), "Source", "[[Target]]", [])
+    service.create.save(workspace_target("u1", "ws", ws), "Source", "[[Target]]", [])
     assert dangling.exists("u1", "ws") is True
 
     from kajet_turbo.workspace import NoteFrontmatter, note_filepath, write_note_file
@@ -353,8 +353,10 @@ def test_reconcile_heals_link_to_old_title_when_target_renamed(database, git_wor
     )
     reconcile = build_note_reconcile_service_from(service)
 
-    target_id = service.save(workspace_target("u1", "ws", ws), "Old title", "treść", [])["note_id"]
-    service.save(workspace_target("u1", "ws", ws), "Source", "[[Old title]]", [])
+    target_id = service.create.save(workspace_target("u1", "ws", ws), "Old title", "treść", [])[
+        "note_id"
+    ]
+    service.create.save(workspace_target("u1", "ws", ws), "Source", "[[Old title]]", [])
     assert dangling.exists("u1", "ws") is False
 
     from kajet_turbo.workspace import NoteFrontmatter, note_filepath, write_note_file
@@ -398,8 +400,10 @@ def test_reconcile_heals_dangling_link_when_target_removed(database, git_workspa
     )
     reconcile = build_note_reconcile_service_from(service)
 
-    target_id = service.save(workspace_target("u1", "ws", ws), "Target", "treść", [])["note_id"]
-    service.save(workspace_target("u1", "ws", ws), "Source", "[[Target]]", [])
+    target_id = service.create.save(workspace_target("u1", "ws", ws), "Target", "treść", [])[
+        "note_id"
+    ]
+    service.create.save(workspace_target("u1", "ws", ws), "Source", "[[Target]]", [])
     assert dangling.exists("u1", "ws") is False
 
     from kajet_turbo.workspace import note_filepath
@@ -443,7 +447,7 @@ def test_reconcile_adopts_headless_file_preserving_extras_in_one_commit(
     assert meta.id == new_id
     assert meta.extras == {"aliases": ["hw"]}
 
-    note = service._crud_repo.get(new_id, owner_id="u1")
+    note = service.crud_repo.get(new_id, owner_id="u1")
     assert note is not None and note.title == "Hand-written"
 
     history = GitRepository(str(workspace)).file_history(relative, limit=5)
@@ -498,7 +502,7 @@ def test_reconcile_adoption_failure_restores_file_and_skips_db_insert(
     # Nothing changed: the file is byte-identical to before, no id was left half-written.
     assert Path(path).read_bytes() == original_bytes
     # No DB row exists for any id — the only candidate id was never committed.
-    assert service._crud_repo.list_paths("ws", "u1") == []
+    assert service.crud_repo.list_paths("ws", "u1") == []
 
 
 def test_reconcile_holds_workspace_lock_against_concurrent_save(
@@ -515,7 +519,7 @@ def test_reconcile_holds_workspace_lock_against_concurrent_save(
     reconcile_started = Event()
     release_reconcile = Event()
     save_acquired = Event()
-    real_insert_in_session = service._crud_repo.insert_in_session
+    real_insert_in_session = service.crud_repo.insert_in_session
 
     def dispatched_insert(session, note):
         # save() and reconcile_paths's adoption path both go through insert_in_session
@@ -532,7 +536,7 @@ def test_reconcile_holds_workspace_lock_against_concurrent_save(
 
     # service and reconcile_service share the same NoteRepository instance (see
     # build_note_reconcile_service_from), so patching it here affects both.
-    monkeypatch.setattr(service._crud_repo, "insert_in_session", dispatched_insert)
+    monkeypatch.setattr(service.crud_repo, "insert_in_session", dispatched_insert)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         reconcile_future = pool.submit(
@@ -545,7 +549,7 @@ def test_reconcile_holds_workspace_lock_against_concurrent_save(
         assert reconcile_started.wait(timeout=5)
 
         save_future = pool.submit(
-            service.save, workspace_target("u1", "ws", workspace), "Concurrent", "body", []
+            service.create.save, workspace_target("u1", "ws", workspace), "Concurrent", "body", []
         )
         assert not save_acquired.wait(timeout=0.1)
 

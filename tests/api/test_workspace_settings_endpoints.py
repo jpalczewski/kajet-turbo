@@ -116,7 +116,7 @@ def test_patch_settings_omitted_key_is_a_no_op(client, ws_name):
 
 def test_temporal_backfill_preview_and_apply(client, ws_name):
     target = WorkspaceTarget(owner_id="u1", name=ws_name, path=Path(client.workspace))
-    note_id = client.note_service.save(target, "2026-03-22", "body", [])["note_id"]
+    note_id = client.note_service.create.save(target, "2026-03-22", "body", [])["note_id"]
 
     preview = client.post(f"/api/workspaces/{ws_name}/settings/temporal-backfill/preview")
 
@@ -171,7 +171,7 @@ def test_temporal_backfill_apply_rejects_empty_candidates_422(client, ws_name):
 
 def test_temporal_backfill_apply_stale_preview_409(client, ws_name):
     target = WorkspaceTarget(owner_id="u1", name=ws_name, path=Path(client.workspace))
-    client.note_service.save(target, "2026-03-22", "body", [])
+    client.note_service.create.save(target, "2026-03-22", "body", [])
 
     preview = client.post(f"/api/workspaces/{ws_name}/settings/temporal-backfill/preview")
     candidates = preview.json()["candidates"]

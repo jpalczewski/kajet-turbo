@@ -18,9 +18,11 @@ from kajet_turbo.api.workspaces.notes._views import enrich_note_items
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_create_service,
+    get_note_delete_service,
+    get_note_edit_service,
     get_note_folder_service,
     get_note_read_service,
-    get_note_service,
     get_note_tag_service,
     get_required_user,
     resolve_note_target,
@@ -29,9 +31,11 @@ from kajet_turbo.dependencies import (
 from kajet_turbo.errors import NoteError
 from kajet_turbo.markdown import BrokenWikilinkError, EditSpec
 from kajet_turbo.services.notes import (
+    NoteCreateService,
+    NoteDeleteService,
+    NoteEditService,
     NoteFolderService,
     NoteReadService,
-    NoteService,
     NoteTagService,
 )
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
@@ -58,7 +62,6 @@ def api_list_notes(
     name: str,
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
-    note_service: NoteService = Depends(get_note_service),
     tag_service: NoteTagService = Depends(get_note_tag_service),
     note_read_service: NoteReadService = Depends(get_note_read_service),
     folder: str | None = None,
@@ -85,14 +88,14 @@ async def api_create_note(
     body: CreateNoteRequest,
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
-    note_service: NoteService = Depends(get_note_service),
+    note_create_service: NoteCreateService = Depends(get_note_create_service),
 ) -> CreateNoteResponse:
     # BrokenWikilinkError/TemporalMetadataError are ValueError subclasses with their own
     # app-level handlers (api/errors.py) -- letting them propagate rather than catching
     # ValueError here keeps them mapped to their specific codes instead of ALREADY_EXISTS.
     try:
         result = await run_sync(
-            note_service.save,
+            note_create_service.save,
             workspace,
             body.title,
             body.content,
@@ -117,10 +120,10 @@ async def api_create_notes_batch(
     body: BatchCreateNotesRequest,
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
-    note_service: NoteService = Depends(get_note_service),
+    note_create_service: NoteCreateService = Depends(get_note_create_service),
 ) -> BatchCreateNotesResponse:
     results = await run_sync(
-        note_service.save_many, workspace, [note.model_dump() for note in body.notes]
+        note_create_service.save_many, workspace, [note.model_dump() for note in body.notes]
     )
     return BatchCreateNotesResponse(results=[NoteResult(**r) for r in results])
 
@@ -140,11 +143,11 @@ async def api_update_note(
     body: UpdateNoteRequest,
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
-    note_service: NoteService = Depends(get_note_service),
+    note_edit_service: NoteEditService = Depends(get_note_edit_service),
 ) -> UpdateNoteResponse:
     try:
         result = await run_sync(
-            note_service.update,
+            note_edit_service.update,
             target,
             expected_sha=body.expected_sha,
             title=body.title,
@@ -217,10 +220,10 @@ async def api_delete_note(
     note_id: str,
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
-    note_service: NoteService = Depends(get_note_service),
+    note_delete_service: NoteDeleteService = Depends(get_note_delete_service),
 ) -> DeleteNoteResponse:
     try:
-        await run_sync(note_service.delete, target)
+        await run_sync(note_delete_service.delete, target)
     except ValueError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
     return DeleteNoteResponse(ok=True)

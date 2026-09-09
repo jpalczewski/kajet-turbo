@@ -6,8 +6,8 @@ Collections are a single Git-tracked file, ``.kajet/collections.yaml`` — no DB
 read-modify-write-commit sequence, the same primitive ``api/workspaces/notes/crud/folders.py``
 uses for its one-file ``.gitkeep`` marker — not ``staged_workspace_change``, which is built
 for multi-file note-body batches with per-item rollback. ``open_entry`` writes a note body
-instead of the collections file, so it delegates to ``NoteService.save`` (which does use
-``staged_workspace_change``) under the same reentrant workspace lock.
+instead of the collections file, so it delegates to ``NoteCreateService.save`` (which does
+use ``staged_workspace_change``) under the same reentrant workspace lock.
 """
 
 import os
@@ -31,7 +31,7 @@ from kajet_turbo.log import logger
 from kajet_turbo.periods import Period, PeriodKind
 from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
 from kajet_turbo.repositories.notes import NoteRepository, note_to_list_item
-from kajet_turbo.services.notes.service import NoteService
+from kajet_turbo.services.notes.create import NoteCreateService
 from kajet_turbo.services.targets import WorkspaceTarget
 
 
@@ -71,7 +71,7 @@ def _serialize(definition: CollectionDefinition) -> dict:
 def _temporal_for(grain: PeriodKind, when: date) -> tuple[date | None, str | None]:
     """The (occurred_at, period) frontmatter pair an entry addressed by ``when`` at
     ``grain`` should carry — day grain is a point in time, everything coarser is a
-    period. Mutually exclusive by construction, matching NoteService.save's contract.
+    period. Mutually exclusive by construction, matching NoteCreateService.save's contract.
     """
     if grain == "day":
         return when, None
@@ -79,9 +79,9 @@ def _temporal_for(grain: PeriodKind, when: date) -> tuple[date | None, str | Non
 
 
 class CollectionService:
-    def __init__(self, note_repo: NoteRepository, note_service: NoteService):
+    def __init__(self, note_repo: NoteRepository, note_create_service: NoteCreateService):
         self._note_repo = note_repo
-        self._note_service = note_service
+        self._note_create_service = note_create_service
 
     def list_collections(self, ws_path: str) -> dict[str, CollectionDefinition]:
         return load_collections(ws_path)
@@ -240,8 +240,9 @@ class CollectionService:
         the next ordinal (see ``_next_ordinal``).
 
         ``workspace_write_transaction`` makes "does it already exist" and "create it" one
-        atomic step under the same reentrant, cross-process workspace lock ``NoteService.save``
-        itself takes (``git.py:_workspace_lock``) — no other writer can land a colliding note
+        atomic step under the same reentrant, cross-process workspace lock
+        ``NoteCreateService.save`` itself takes (``git.py:_workspace_lock``) — no other
+        writer can land a colliding note
         between the check and the create, so the ``FileExistsError`` ``save`` can still raise
         stays a defensive backstop (a ghost DB row, a case-fold collision), not the normal
         control path for concurrent callers.
@@ -272,7 +273,7 @@ class CollectionService:
 
         if payload is None:
             occurred_at, period = _temporal_for(definition.grain, when)
-            result = self._note_service.save(
+            result = self._note_create_service.save(
                 WorkspaceTarget(owner_id=owner_id, name=ws_name, path=Path(ws_path)),
                 title,
                 "",

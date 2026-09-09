@@ -20,17 +20,20 @@ from kajet_turbo.repositories.notes import (
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
-from kajet_turbo.services.indexing import NoteIndexer
+from kajet_turbo.services.indexing import Indexer, NoteIndexer
 from kajet_turbo.services.notes import (
+    NoteCreateService,
+    NoteDeleteService,
+    NoteEditService,
     NoteFolderService,
     NoteLinkService,
     NoteReadService,
     NoteSearchService,
-    NoteService,
     NoteTagService,
     NoteTemporalService,
     NoteVersionService,
 )
+from kajet_turbo.services.notes.persistence import NoteTeardown
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 from tests.conftest import seed_user
@@ -48,15 +51,28 @@ def _seed_default_owner(database: Database) -> None:
 
 @dataclass(frozen=True)
 class NoteWiring:
-    """The concrete note service graph, with the boundaries a test may need as its subject.
+    """The concrete note write-service graph (#388: split into create/edit/delete), plus
+    the shared repos/collaborators a test may need to address directly.
 
-    A test that drives writes through ``NoteService`` but asserts on the link graph takes
-    ``link_service`` from here rather than from a second, separately built one: the builder
-    hands both services the same ``NoteRepository``, so patching ``service._crud_repo`` —
-    to count workspace snapshots, say — still intercepts the link service's reads."""
+    A test drives writes through ``.create``/``.edit``/``.delete`` and asserts on, say,
+    ``.link_service`` — the builder hands every one of these the same repo/collaborator
+    instances, so patching ``wiring.crud_repo`` to count workspace snapshots still
+    intercepts every one of the three write services alike."""
 
-    service: NoteService
+    create: NoteCreateService
+    edit: NoteEditService
+    delete: NoteDeleteService
     link_service: NoteLinkService
+    tag_service: NoteTagService
+    version_service: NoteVersionService
+    crud_repo: NoteRepository
+    tag_repo: NoteTagRepository
+    chunk_repo: NoteChunkRepository
+    link_repo: NoteLinkRepository
+    share_link_repo: NoteShareLinkRepository
+    teardown: NoteTeardown
+    indexer: Indexer | None
+    reconcile_repo: LinkReconcileRepository | None
 
 
 def build_note_wiring(
@@ -70,8 +86,8 @@ def build_note_wiring(
     link_service: NoteLinkService | None = None,
     share_link_repo: NoteShareLinkRepository | None = None,
 ) -> NoteWiring:
-    """Construct a fully-wired NoteService from a Database for tests, plus the peer
-    boundaries a test may need to address directly."""
+    """Construct the fully-wired note write services (create/edit/delete) from a Database
+    for tests, plus the peer boundaries a test may need to address directly."""
     engine = database.engine
     crud_repo = NoteRepository(engine)
     link_repo = NoteLinkRepository(engine)
@@ -89,27 +105,37 @@ def build_note_wiring(
             crud_repo, link_repo, tag_repo, dangling_repo, link_validation_enabled, jobs
         )
     version_service = NoteVersionService(crud_repo)
+    teardown = NoteTeardown(
+        tag_repo, chunk_repo, crud_repo, link_repo, link_service, share_link_repo
+    )
 
     return NoteWiring(
-        service=NoteService(
+        create=NoteCreateService(
+            crud_repo, link_service, tag_service, indexer=indexer, reconcile_repo=reconcile_repo
+        ),
+        edit=NoteEditService(
             crud_repo,
-            link_repo,
-            tag_repo,
-            chunk_repo,
-            tag_service,
             link_service,
+            tag_service,
             version_service,
-            share_link_repo,
             indexer=indexer,
             reconcile_repo=reconcile_repo,
         ),
+        delete=NoteDeleteService(
+            crud_repo, tag_repo, link_service, teardown, reconcile_repo=reconcile_repo
+        ),
         link_service=link_service,
+        tag_service=tag_service,
+        version_service=version_service,
+        crud_repo=crud_repo,
+        tag_repo=tag_repo,
+        chunk_repo=chunk_repo,
+        link_repo=link_repo,
+        share_link_repo=share_link_repo,
+        teardown=teardown,
+        indexer=indexer,
+        reconcile_repo=reconcile_repo,
     )
-
-
-def build_note_service(database: Database, **kwargs) -> NoteService:
-    """The note writer alone — for callers that need no other boundary."""
-    return build_note_wiring(database, **kwargs).service
 
 
 def build_note_search_service(
@@ -120,10 +146,10 @@ def build_note_search_service(
     chunk_repo: NoteChunkRepository | None = None,
     async_build_embedder=None,
 ) -> NoteSearchService:
-    """Construct a NoteSearchService reading the same Database as build_note_service.
+    """Construct a NoteSearchService reading the same Database as build_note_wiring.
 
     Fresh repo instances on the same engine — stateless, so they see everything a
-    NoteService built against the same Database has already written."""
+    NoteWiring built against the same Database has already written."""
     engine = database.engine
     crud_repo = NoteRepository(engine)
     tag_repo = NoteTagRepository(engine)
@@ -141,11 +167,11 @@ def build_note_search_service(
 
 
 def build_note_read_service(database: Database, indexer=None) -> NoteReadService:
-    """Construct a NoteReadService reading the same Database as build_note_service.
+    """Construct a NoteReadService reading the same Database as build_note_wiring.
 
     NoteLinkService.for_workspace takes a fresh DB snapshot on every call (no
     per-instance caching), so a separately-constructed NoteLinkService here sees
-    everything a NoteService built against the same Database has already written."""
+    everything a NoteWiring built against the same Database has already written."""
     engine = database.engine
     crud_repo = NoteRepository(engine)
     tag_repo = NoteTagRepository(engine)
@@ -166,8 +192,8 @@ def build_note_reconcile_service(
     reconcile_repo: LinkReconcileRepository | None = None,
     share_link_repo: NoteShareLinkRepository | None = None,
 ):
-    """Construct a NoteReconcileService from a Database for tests, without building a
-    full NoteService — the point of #225's split."""
+    """Construct a NoteReconcileService from a Database for tests, without building the
+    full note write graph — the point of #225's split."""
     from kajet_turbo.services.notes import NoteReconcileService
 
     engine = database.engine
@@ -184,13 +210,14 @@ def build_note_reconcile_service(
         )
     if share_link_repo is None:
         share_link_repo = NoteShareLinkRepository(engine)
+    teardown = NoteTeardown(
+        tag_repo, chunk_repo, crud_repo, link_repo, link_service, share_link_repo
+    )
     return NoteReconcileService(
         crud_repo,
-        link_repo,
         tag_repo,
-        chunk_repo,
         link_service,
-        share_link_repo,
+        teardown,
         indexer=indexer,
         reconcile_repo=reconcile_repo,
     )
@@ -220,7 +247,7 @@ def workspace(git_workspace_factory: Callable[[str], Path]) -> Path:
 
 
 @pytest.fixture
-def service(database: Database) -> NoteService:
+def service(database: Database) -> NoteWiring:
     chunk_repo = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
         chunk_repo,
@@ -228,11 +255,11 @@ def service(database: Database) -> NoteService:
         resolve_backend=lambda owner_id: None,  # FTS-only in tests (no network)
         jobs=JobRepository(database.engine),
     )
-    return build_note_service(database, indexer=indexer)
+    return build_note_wiring(database, indexer=indexer)
 
 
 @pytest.fixture
-def reconcile_service(service: NoteService):
+def reconcile_service(service: NoteWiring):
     """A NoteReconcileService sharing every repo/collaborator instance the `service`
     fixture already holds (see build_note_reconcile_service_from) — reconcile_paths/
     reindex on this fixture and save()/update() on `service` operate on the same DB
@@ -243,26 +270,26 @@ def reconcile_service(service: NoteService):
 
 
 @pytest.fixture
-def tag_service(service: NoteService) -> NoteTagService:
-    """The concrete tag boundary paired with the note writer in service tests."""
-    return service._tag_service
+def tag_service(service: NoteWiring) -> NoteTagService:
+    """The concrete tag boundary paired with the note writers in service tests."""
+    return service.tag_service
 
 
 @pytest.fixture
-def folder_service(service: NoteService) -> NoteFolderService:
+def folder_service(service: NoteWiring) -> NoteFolderService:
     """A NoteFolderService sharing every repo/collaborator instance the `service` fixture
     already holds (see build_note_folder_service_from) — so a test that patches a method on
-    `service._crud_repo` also intercepts the folder move made here."""
+    `service.crud_repo` also intercepts the folder move made here."""
     from tests.services.helpers import build_note_folder_service_from
 
     return build_note_folder_service_from(service)
 
 
 @pytest.fixture
-def temporal_service(service: NoteService) -> NoteTemporalService:
+def temporal_service(service: NoteWiring) -> NoteTemporalService:
     """Shares `service`'s NoteRepository instance, not a fresh one, so a test that
-    patches a method on `service._crud_repo` also affects backfill calls made here."""
-    return NoteTemporalService(service._crud_repo)
+    patches a method on `service.crud_repo` also affects backfill calls made here."""
+    return NoteTemporalService(service.crud_repo)
 
 
 @pytest.fixture
@@ -290,7 +317,7 @@ def link_service(database: Database) -> NoteLinkService:
 
 
 def workspace_target(owner_id: str, name: str, path) -> WorkspaceTarget:
-    """Build a WorkspaceTarget by hand for tests that call NoteService entry points
+    """Build a WorkspaceTarget by hand for tests that call note write entry points
     directly, bypassing the real TargetResolver (already covered by test_targets.py)."""
     return WorkspaceTarget(owner_id=owner_id, name=name, path=Path(path))
 

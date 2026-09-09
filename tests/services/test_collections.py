@@ -12,7 +12,7 @@ from tests.services.helpers import head_sha
 
 @pytest.fixture
 def collections(service) -> CollectionService:
-    return CollectionService(service._crud_repo, service)
+    return CollectionService(service.crud_repo, service.create)
 
 
 def test_define_collection_adds_and_commits(collections, workspace):
@@ -34,7 +34,7 @@ def test_define_collection_redefine_reports_affected_without_moving_notes(
     collections.define_collection(
         str(workspace), "ws", "u1", "weekly", "week", "one", "weekly/{year}", "{key}"
     )
-    saved = service.save(
+    saved = service.create.save(
         workspace_target("u1", "ws", workspace), "2026-W23", "content\n", [], folder="weekly/2026"
     )
     before = read_service.get_with_content(note_target("u1", "ws", workspace, saved["note_id"]))
@@ -113,7 +113,7 @@ def test_delete_collection_removes_entry_without_touching_notes(
     collections.define_collection(
         str(workspace), "ws", "u1", "weekly", "week", "one", "weekly/{year}", "{key}"
     )
-    saved = service.save(
+    saved = service.create.save(
         workspace_target("u1", "ws", workspace), "2026-W23", "content\n", [], folder="weekly/2026"
     )
 
@@ -232,7 +232,7 @@ def test_open_entry_many_cardinality_skips_gap_never_reuses_ordinal(
     when = date(2026, 6, 15)
     # A note that already occupies ordinal 3, created outside open_entry entirely —
     # _next_ordinal must still see it and skip past it, not just count its own writes.
-    service.save(
+    service.create.save(
         workspace_target("u1", "ws", workspace), "2026-06-15 3", "", [], folder="sessions/2026/06"
     )
 
@@ -298,7 +298,7 @@ def test_list_entries_excludes_non_member_note_in_same_folder(collections, servi
         str(workspace), "ws", "u1", "journal", "day", "one", "journal/{year}/{month}", "{date}"
     )
     member = collections.open_entry(str(workspace), "ws", "u1", "journal", date(2026, 6, 15))
-    service.save(
+    service.create.save(
         workspace_target("u1", "ws", workspace), "Not a date", "", [], folder="journal/2026/06"
     )
 

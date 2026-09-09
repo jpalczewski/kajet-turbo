@@ -17,6 +17,7 @@ For ``index_many``, an enqueue failure is logged and swallowed — the affected 
 the job queue."""
 
 from collections.abc import Callable, Iterable
+from typing import Protocol, runtime_checkable
 
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
@@ -53,6 +54,26 @@ def safe_resolve_backend(
     except Exception as e:
         logger.opt(exception=e).warning("index_resolve_failed", owner_id=owner_id)
         return None
+
+
+@runtime_checkable
+class Indexer(Protocol):
+    """The subset of ``NoteIndexer`` the write/reconcile pipelines depend on — lets a
+    service constructor accept "something that can index a note or a batch" without
+    importing the concrete ``NoteIndexer`` class."""
+
+    def index_note(
+        self,
+        note_id: str,
+        workspace: str,
+        owner_id: str,
+        title: str,
+        content: str,
+        *,
+        expected_generation: int | None = None,
+    ) -> None: ...
+
+    def index_many(self, workspace: str, owner_id: str, notes: list[str]) -> None: ...
 
 
 class NoteIndexer:
@@ -175,11 +196,11 @@ class NoteIndexer:
             for i, c in enumerate(chunks)
         ]
 
-    def index_many(self, workspace: str, owner_id: str, notes: list[dict]) -> None:
+    def index_many(self, workspace: str, owner_id: str, notes: list[str]) -> None:
         """Fan out a batch reindex as durable ``reindex_note`` jobs, one per note, in a
         single commit — no request-path chunking. The handler (``ReindexNoteHandler``) reads
         each note's file, chunks it, and chains into ``embed_note`` when a backend resolves.
-        ``notes`` items need only ``id``.
+        ``notes`` is a list of note ids.
 
         Best-effort like the rest of this module: enqueue failure (e.g. a DB hiccup) must
         not surface to callers that already committed the note rows via
@@ -188,7 +209,7 @@ class NoteIndexer:
         if not notes:
             return
         try:
-            entries = reindex_job_entries(owner_id, workspace, (note["id"] for note in notes))
+            entries = reindex_job_entries(owner_id, workspace, notes)
             self._jobs.enqueue_many("reindex_note", entries, priority=PRIORITY_BULK)
         except Exception as e:
             logger.opt(exception=e).error(

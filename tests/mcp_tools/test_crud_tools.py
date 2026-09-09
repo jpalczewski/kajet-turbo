@@ -197,8 +197,12 @@ async def test_save_note_reports_ambiguous_wikilink_warning(workspaces_dir, mcp_
     service = mcp_server.note_service
     assert service is not None
     ws_path = str(workspaces_dir / "test-ws")
-    service.save(workspace_target("u1", "test-ws", ws_path), "README", "near", [], folder="Project")
-    service.save(workspace_target("u1", "test-ws", ws_path), "README", "far", [], folder="Archive")
+    service.create.save(
+        workspace_target("u1", "test-ws", ws_path), "README", "near", [], folder="Project"
+    )
+    service.create.save(
+        workspace_target("u1", "test-ws", ws_path), "README", "far", [], folder="Archive"
+    )
 
     async with Client(mcp) as client:
         result = await client.call_tool(
@@ -357,7 +361,7 @@ async def test_edit_note_echoes_temporal_fields_without_leaking_content_in_slow_
         assert result["period"] is None
 
         slow = entries_named(read_log_entries(capsys), "slow_sync")
-        update_entries = [e for e in slow if e["op"] == "NoteService.update"]
+        update_entries = [e for e in slow if e["op"] == "NoteEditService.update"]
         assert update_entries  # partial(...) previously had no __qualname__, falling to repr(fn)
         for entry in slow:
             dumped = json.dumps(entry)
@@ -458,14 +462,14 @@ async def test_get_note_by_title_takes_folder_as_a_path_suffix(workspaces_dir, m
     service = mcp_server.note_service
     assert service is not None
     ws_path = str(workspaces_dir / "test-ws")
-    service.save(
+    service.create.save(
         workspace_target("u1", "test-ws", ws_path),
         "README",
         "backlog",
         [],
         folder="Project/backlog",
     )
-    service.save(
+    service.create.save(
         workspace_target("u1", "test-ws", ws_path), "README", "archive", [], folder="Archive"
     )
 
@@ -482,8 +486,12 @@ async def test_get_note_by_ambiguous_title_lists_the_candidates(workspaces_dir, 
     service = mcp_server.note_service
     assert service is not None
     ws_path = str(workspaces_dir / "test-ws")
-    service.save(workspace_target("u1", "test-ws", ws_path), "README", "near", [], folder="Project")
-    service.save(workspace_target("u1", "test-ws", ws_path), "README", "far", [], folder="Archive")
+    service.create.save(
+        workspace_target("u1", "test-ws", ws_path), "README", "near", [], folder="Project"
+    )
+    service.create.save(
+        workspace_target("u1", "test-ws", ws_path), "README", "far", [], folder="Archive"
+    )
 
     async with Client(mcp) as client:
         with pytest.raises(ToolError, match="Niejednoznaczne") as excinfo:
@@ -500,8 +508,8 @@ async def test_get_note_by_ambiguous_title_still_errors_when_one_candidate_is_at
     service = mcp_server.note_service
     assert service is not None
     ws_path = str(workspaces_dir / "test-ws")
-    service.save(workspace_target("u1", "test-ws", ws_path), "README", "root", [])
-    service.save(
+    service.create.save(workspace_target("u1", "test-ws", ws_path), "README", "root", [])
+    service.create.save(
         workspace_target("u1", "test-ws", ws_path), "README", "nested", [], folder="Project"
     )
 

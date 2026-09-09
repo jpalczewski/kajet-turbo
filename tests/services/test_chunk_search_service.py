@@ -4,13 +4,13 @@ from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
-from tests.services.conftest import build_note_search_service, build_note_service, workspace_target
+from tests.services.conftest import build_note_search_service, build_note_wiring, workspace_target
 
 
 def _service(database):
-    """A NoteService for seeding (via .save()) plus the NoteSearchService reading the
+    """A NoteCreateService for seeding (via .save()) plus the NoteSearchService reading the
     same chunk_repo, so a save is visible to search — the two are separate collaborators
-    now that NoteService no longer delegates to NoteSearchService."""
+    now that the note write services no longer delegate to NoteSearchService."""
     chunk_repo = NoteChunkRepository(database.engine)
     indexer = NoteIndexer(
         chunk_repo,
@@ -18,7 +18,7 @@ def _service(database):
         resolve_backend=lambda o: None,
         jobs=JobRepository(database.engine),
     )
-    note_service = build_note_service(database, indexer=indexer, chunk_repo=chunk_repo)
+    note_service = build_note_wiring(database, indexer=indexer, chunk_repo=chunk_repo).create
     search_service = build_note_search_service(database, chunk_repo=chunk_repo)
     return note_service, search_service
 
@@ -90,7 +90,7 @@ def test_search_survives_backend_switch_with_no_vectors_at_new_dim(database, git
             return [1.0, 0.0, 0.0]
 
     state: dict = {"cfg": None}
-    svc = build_note_service(database, indexer=indexer, chunk_repo=chunk_repo)
+    svc = build_note_wiring(database, indexer=indexer, chunk_repo=chunk_repo).create
     search_svc = build_note_search_service(
         database,
         query_resolver=lambda o: state["cfg"],
@@ -216,7 +216,7 @@ def test_search_reflects_deferred_embed_once_attached(database, git_workspace_fa
         base_url="http://x",
         api_key="k",
     )
-    svc = build_note_service(database, indexer=indexer, chunk_repo=chunk_repo)
+    svc = build_note_wiring(database, indexer=indexer, chunk_repo=chunk_repo).create
     search_svc = build_note_search_service(
         database,
         query_resolver=lambda o: cfg,
@@ -258,7 +258,7 @@ class _AsyncCountingEmbedder:
 
 
 def _async_service(database, chunk_repo=None, *, query_cache=None):
-    """A NoteService for seeding plus a NoteSearchService wired for async query
+    """A NoteCreateService for seeding plus a NoteSearchService wired for async query
     embedding; the sync build_embedder seam raises so a regression back to the
     run_sync-slot path is loud."""
     if chunk_repo is None:
@@ -282,7 +282,7 @@ def _async_service(database, chunk_repo=None, *, query_cache=None):
     def _sync_seam_must_not_be_used(c):
         raise AssertionError("sync build_embedder used on the async path")
 
-    svc = build_note_service(database, indexer=indexer, chunk_repo=chunk_repo)
+    svc = build_note_wiring(database, indexer=indexer, chunk_repo=chunk_repo).create
     search_svc = build_note_search_service(
         database,
         query_resolver=lambda o: cfg,

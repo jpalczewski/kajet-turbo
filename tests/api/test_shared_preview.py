@@ -13,7 +13,7 @@ _SHELL = '<html><head><title>kajet</title></head><body><div id="app"></div></bod
 
 def test_page_and_content_statistics_are_separate(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared", "content", [])["note_id"]
     repo = auth_client.share_link_repo
     link = repo.create(note_id, "test-ws", "u1")
     assert (
@@ -61,7 +61,9 @@ def fake_dist(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 def test_valid_token_renders_title_and_og_tags(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "My Shared Note", "some content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "My Shared Note", "some content", [])[
+        "note_id"
+    ]
     token = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links", json={}).json()[
         "token"
     ]
@@ -83,7 +85,7 @@ def test_valid_token_renders_title_and_og_tags(auth_client):
 
 def test_preview_description_off_by_default_leaks_no_note_content(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(
+    note_id = note_service.create.save(
         _ws(workspace), "Shared", "a very secret sentence nobody should see", []
     )["note_id"]
     token = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links", json={}).json()[
@@ -97,7 +99,7 @@ def test_preview_description_off_by_default_leaks_no_note_content(auth_client):
 
 def test_preview_description_on_includes_excerpt(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(
+    note_id = note_service.create.save(
         _ws(workspace), "Shared", "a very secret sentence everyone should see", []
     )["note_id"]
     token = client.post(
@@ -112,7 +114,7 @@ def test_preview_description_on_includes_excerpt(auth_client):
 
 def test_preview_description_excerpt_drops_leading_heading(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(
+    note_id = note_service.create.save(
         _ws(workspace), "Shared", "# Shared\n\nthe actual body text starts here", []
     )["note_id"]
     token = client.post(
@@ -130,7 +132,7 @@ def test_preview_description_excerpt_drops_leading_heading(auth_client):
 def test_title_with_special_characters_is_escaped(auth_client):
     client, note_service, workspace = auth_client
     title = 'Tom & Jerry <script>"quoted"</script>'
-    note_id = note_service.save(_ws(workspace), title, "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), title, "content", [])["note_id"]
     token = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links", json={}).json()[
         "token"
     ]
@@ -144,7 +146,7 @@ def test_title_with_special_characters_is_escaped(auth_client):
 
 def test_unknown_and_revoked_token_render_identical_neutral_bodies(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared", "content", [])["note_id"]
     token = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links", json={}).json()[
         "token"
     ]
@@ -170,7 +172,7 @@ def test_no_build_present_404s_instead_of_crashing(auth_client, tmp_path, monkey
     # An API-role deployment run without a frontend build (no `dist/index.html`) must not
     # crash the route -- it's a deployment-wide config gap, not a token-related signal.
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared", "content", [])["note_id"]
     token = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links", json={}).json()[
         "token"
     ]
@@ -196,7 +198,7 @@ def test_head_request_is_served(auth_client):
     # A HEAD-only crawler must not 405 into falling through to the SPA mount instead --
     # @router.get alone doesn't get HEAD for free the way a plain Starlette Route does.
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared", "content", [])["note_id"]
     token = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links", json={}).json()[
         "token"
     ]

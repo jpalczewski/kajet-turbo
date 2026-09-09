@@ -9,7 +9,7 @@ def _ws(ws_path) -> WorkspaceTarget:
 
 def test_reindex_endpoint_runs(auth_client):
     client, note_svc, ws_path = auth_client
-    note_svc.save(_ws(ws_path), "A", "# A\n\nbody\n", [])
+    note_svc.create.save(_ws(ws_path), "A", "# A\n\nbody\n", [])
     resp = client.post("/api/workspaces/test-ws/reindex")
     assert resp.status_code == 200
     assert resp.json()["count"] >= 1
@@ -20,7 +20,7 @@ def test_reindex_endpoint_refuses_mass_deletion(auth_client):
     not a bare 500 — pins the reindex.py `except ValueError` wiring added for #107."""
     client, note_svc, ws_path = auth_client
     for i in range(10):
-        note_svc.save(_ws(ws_path), f"Note {i}", "body", [])
+        note_svc.create.save(_ws(ws_path), f"Note {i}", "body", [])
     for path in Path(ws_path).glob("*.md"):
         path.unlink()
 

@@ -1,4 +1,4 @@
-"""Tag indexing plus add/remove/set-tags/rename_tag coverage for NoteService."""
+"""Tag indexing plus add/remove/set-tags/rename_tag coverage for NoteTagService."""
 
 from dataclasses import replace
 from unittest.mock import patch
@@ -14,52 +14,54 @@ pytestmark = pytest.mark.usefixtures("_seed_default_owner")
 
 
 def test_save_indexes_frontmatter_and_inline_tags(service, tag_service, workspace):
-    service.save(
+    service.create.save(
         workspace_target("u1", "ws", workspace),
         "Note",
         "body with #inline/tag here",
         ["Work/Projects"],
     )
-    paths = {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")}
+    paths = {r["path"] for r in service.tag_repo.tag_tree("ws", "u1")}
     assert paths == {"work", "work/projects", "inline", "inline/tag"}
 
 
 def test_save_normalizes_frontmatter_tags_in_file(service, read_service, tag_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Note", "body", ["Work/Projects"])
-    note_id = service._crud_repo.list_notes("ws", "u1", limit=None)[0]["note_id"]
+    service.create.save(workspace_target("u1", "ws", workspace), "Note", "body", ["Work/Projects"])
+    note_id = service.crud_repo.list_notes("ws", "u1", limit=None)[0]["note_id"]
     fetched = read_service.get(note_id, owner_id="u1")
     assert fetched["tags"] == ["work/projects"]  # normalized, frontmatter-only
 
 
 def test_save_does_not_promote_inline_to_frontmatter(service, read_service, tag_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Note", "see #inline", [])
-    note_id = service._crud_repo.list_notes("ws", "u1", limit=None)[0]["note_id"]
+    service.create.save(workspace_target("u1", "ws", workspace), "Note", "see #inline", [])
+    note_id = service.crud_repo.list_notes("ws", "u1", limit=None)[0]["note_id"]
     assert read_service.get(note_id, owner_id="u1")["tags"] == []  # inline stays out of frontmatter
 
 
 def test_update_resyncs_tags(service, tag_service, workspace):
-    res = service.save(workspace_target("u1", "ws", workspace), "Note", "body #old", ["keep"])
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, res["note_id"]))[
+    res = service.create.save(
+        workspace_target("u1", "ws", workspace), "Note", "body #old", ["keep"]
+    )
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, res["note_id"]))[
         0
     ]["sha"]
-    service.update(
+    service.edit.update(
         note_target("u1", "ws", workspace, res["note_id"]),
         expected_sha=sha,
         edit=EditSpec(content="body #new"),
     )
-    paths = {r["path"] for r in service._tag_repo.tag_tree("ws", "u1")}
+    paths = {r["path"] for r in service.tag_repo.tag_tree("ws", "u1")}
     assert paths == {"keep", "new"}  # #old gone, #new added, frontmatter 'keep' stays
 
 
 def test_delete_removes_tags(service, tag_service, workspace):
-    res = service.save(workspace_target("u1", "ws", workspace), "Note", "#x", ["y"])
-    service.delete(note_target("u1", "ws", workspace, res["note_id"]))
-    assert service._tag_repo.tag_tree("ws", "u1") == []
+    res = service.create.save(workspace_target("u1", "ws", workspace), "Note", "#x", ["y"])
+    service.delete.delete(note_target("u1", "ws", workspace, res["note_id"]))
+    assert service.tag_repo.tag_tree("ws", "u1") == []
 
 
 def test_tag_tree_and_notes_by_tag_service(service, tag_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work/projects"])
-    service.save(workspace_target("u1", "ws", workspace), "B", "body", ["work"])
+    service.create.save(workspace_target("u1", "ws", workspace), "A", "body", ["work/projects"])
+    service.create.save(workspace_target("u1", "ws", workspace), "B", "body", ["work"])
     tree = tag_service.tag_tree("ws", "u1")
     assert {t["path"] for t in tree} == {"work", "work/projects"}
     with_desc = tag_service.notes_by_tag("ws", "u1", "work", include_descendants=True)
@@ -76,10 +78,10 @@ def test_normalize_with_warnings_drops_invalid_and_dedups():
 
 
 def test_add_tags_unions_into_frontmatter(service, read_service, tag_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"])[
-        "note_id"
-    ]
-    before = service._crud_repo.get(note_id, owner_id="u1")
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"]
+    )["note_id"]
+    before = service.crud_repo.get(note_id, owner_id="u1")
     assert before is not None
 
     result = tag_service.add_tags(note_target("u1", "ws", workspace, note_id), ["work", "python"])
@@ -89,7 +91,7 @@ def test_add_tags_unions_into_frontmatter(service, read_service, tag_service, wo
     assert result["warnings"] == []
     note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert set(note.tags) == {"python", "work"}
-    after = service._crud_repo.get(note_id, owner_id="u1")
+    after = service.crud_repo.get(note_id, owner_id="u1")
     assert after is not None
     assert after.index_generation == before.index_generation
 
@@ -101,7 +103,7 @@ def test_add_tags_keeps_db_occurred_at_when_file_value_is_corrupted(
     hand-edit made the on-disk copy unparseable — it should fall back to the DB's
     last-known-good value (in both file and DB) instead of persisting the drop, and
     surface it as a warning (#132 follow-up)."""
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace),
         "Corrupt Tag",
         "treść",
@@ -114,7 +116,7 @@ def test_add_tags_keeps_db_occurred_at_when_file_value_is_corrupted(
     result = tag_service.add_tags(note_target("u1", "ws", workspace, note_id), ["work"])
 
     assert any("occurred_at" in w for w in result["warnings"])
-    row = service._crud_repo.get(note_id, owner_id="u1")
+    row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and row.occurred_at == "2026-03-22"
     after_meta, _ = read_note_file(path)
     assert after_meta.occurred_at == "2026-03-22"
@@ -123,9 +125,9 @@ def test_add_tags_keeps_db_occurred_at_when_file_value_is_corrupted(
 def test_add_tags_preserves_hand_written_extras(service, tag_service, workspace):
     """#105: _apply_tag_change only ever changed tags, but reconstructed the whole
     file from five scalars — any other frontmatter key was silently dropped."""
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"])[
-        "note_id"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"]
+    )["note_id"]
     path = note_filepath(str(workspace), "", "Notka")
     meta, content = read_note_file(path)
     write_note_file(path, replace(meta, extras={"aliases": ["Old Name"]}), content)
@@ -137,20 +139,20 @@ def test_add_tags_preserves_hand_written_extras(service, tag_service, workspace)
 
 
 def test_add_tags_idempotent_no_extra_commit(service, tag_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"])[
-        "note_id"
-    ]
-    before = len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id)))
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"]
+    )["note_id"]
+    before = len(service.version_service.get_history(note_target("u1", "ws", workspace, note_id)))
 
     result = tag_service.add_tags(note_target("u1", "ws", workspace, note_id), ["python"])
 
     assert result["frontmatter_tags"] == ["python"]
-    after = len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id)))
+    after = len(service.version_service.get_history(note_target("u1", "ws", workspace, note_id)))
     assert after == before  # no-op: identical list produced no new commit
 
 
 def test_add_tags_includes_inline_in_effective(service, tag_service, workspace):
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace), "Notka", "body #inline here", []
     )["note_id"]
 
@@ -161,7 +163,7 @@ def test_add_tags_includes_inline_in_effective(service, tag_service, workspace):
 
 
 def test_remove_tags_drops_from_frontmatter(service, read_service, tag_service, workspace):
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace), "Notka", "treść", ["python", "work"]
     )["note_id"]
 
@@ -174,23 +176,23 @@ def test_remove_tags_drops_from_frontmatter(service, read_service, tag_service, 
 
 
 def test_remove_absent_tag_is_noop(service, tag_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"])[
-        "note_id"
-    ]
-    before = len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id)))
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"]
+    )["note_id"]
+    before = len(service.version_service.get_history(note_target("u1", "ws", workspace, note_id)))
 
     result = tag_service.remove_tags(note_target("u1", "ws", workspace, note_id), ["nope"])
 
     assert result["frontmatter_tags"] == ["python"]
-    after = len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id)))
+    after = len(service.version_service.get_history(note_target("u1", "ws", workspace, note_id)))
     assert after == before
 
 
 def test_remove_inline_only_tag_warns_and_keeps_it(service, tag_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "body #work here", [])[
-        "note_id"
-    ]
-    before = len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id)))
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notka", "body #work here", []
+    )["note_id"]
+    before = len(service.version_service.get_history(note_target("u1", "ws", workspace, note_id)))
 
     result = tag_service.remove_tags(note_target("u1", "ws", workspace, note_id), ["work"])
 
@@ -198,12 +200,12 @@ def test_remove_inline_only_tag_warns_and_keeps_it(service, tag_service, workspa
     assert result["frontmatter_tags"] == []
     assert "work" in result["tags"]
     assert any("work" in w and "#work" in w for w in result["warnings"])
-    after = len(service._version_service.get_history(note_target("u1", "ws", workspace, note_id)))
+    after = len(service.version_service.get_history(note_target("u1", "ws", workspace, note_id)))
     assert after == before
 
 
 def test_set_tags_overwrites_frontmatter(service, read_service, tag_service, workspace):
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace), "Notka", "treść", ["python", "work"]
     )["note_id"]
 
@@ -218,9 +220,9 @@ def test_set_tags_overwrites_frontmatter(service, read_service, tag_service, wor
 
 
 def test_set_tags_no_gate_when_superset(service, tag_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"])[
-        "note_id"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"]
+    )["note_id"]
 
     result = tag_service.set_tags(note_target("u1", "ws", workspace, note_id), ["python", "work"])
 
@@ -232,22 +234,20 @@ def test_apply_tag_change_db_failure_leaves_file_and_row_untouched(
 ):
     """#155: _apply_tag_change now writes its row before the git commit, inside one
     transaction that commits last — a DB-side failure must abort before either changes."""
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
-    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session)
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notka", "treść", ["python"]
+    )["note_id"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    flaky_update = make_flaky_db_write(service.crud_repo.update_in_session)
 
     with (
-        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        patch.object(service.crud_repo, "update_in_session", flaky_update),
         pytest.raises(RuntimeError, match="db exploded"),
     ):
         tag_service.add_tags(note_target("u1", "ws", workspace, note_id), ["work"])
 
     assert (
-        service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+        service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
         == sha
     )
     note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
@@ -263,8 +263,10 @@ def _tag_paths(tag_service) -> set[str]:
 
 
 def test_rename_tag_moves_the_subtree_and_spares_lookalikes(service, tag_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work", "work/projects"])
-    service.save(workspace_target("u1", "ws", workspace), "B", "body", ["workflow"])
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "A", "body", ["work", "work/projects"]
+    )
+    service.create.save(workspace_target("u1", "ws", workspace), "B", "body", ["workflow"])
     result = _rename(tag_service, workspace, "work", "job")
     assert result["renamed"] == 1
     paths = _tag_paths(tag_service)
@@ -274,7 +276,7 @@ def test_rename_tag_moves_the_subtree_and_spares_lookalikes(service, tag_service
 def test_rename_tag_preserves_hand_written_extras(service, tag_service, workspace):
     """#105: rename_tag builds its own frontmatter from five scalars, dropping any
     other key — pinned separately from _apply_tag_change's shared path."""
-    service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
+    service.create.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
     path = note_filepath(str(workspace), "", "A")
     meta, content = read_note_file(path)
     write_note_file(path, replace(meta, extras={"aliases": ["Old A"]}), content)
@@ -290,7 +292,9 @@ def test_rename_tag_rewrites_inline_hashtags_so_the_old_tag_stays_gone(
     service, read_service, tag_service, workspace
 ):
     # Without the body rewrite, sync_tags would union '#cwiczenia' straight back in.
-    saved = service.save(workspace_target("u1", "ws", workspace), "A", "patrz #cwiczenia tutaj", [])
+    saved = service.create.save(
+        workspace_target("u1", "ws", workspace), "A", "patrz #cwiczenia tutaj", []
+    )
     result = _rename(tag_service, workspace, "cwiczenia", "ćwiczenia")
     assert result["inline_rewritten"] == 1
     note = read_service.get_with_content(note_target("u1", "ws", workspace, saved["note_id"]))
@@ -310,31 +314,35 @@ def test_rename_tag_reindexes_only_notes_whose_body_changed(
     workspace = git_workspace_factory("u1/ws")
     workspaces_dir = str(workspace.parent.parent)
 
-    inline = service.save(workspace_target("u1", "ws", workspace), "A", "patrz #work tutaj", [])
-    frontmatter = service.save(workspace_target("u1", "ws", workspace), "B", "body", ["work"])
+    inline = service.create.save(
+        workspace_target("u1", "ws", workspace), "A", "patrz #work tutaj", []
+    )
+    frontmatter = service.create.save(
+        workspace_target("u1", "ws", workspace), "B", "body", ["work"]
+    )
     _rename(tag_service, workspace, "work", "job")
 
     jobs = JobRepository(database.engine)
     handler = build_reindex_handler(database, workspaces_dir, jobs=jobs)
     drain_reindex_jobs(jobs, handler, "u1", "ws")
 
-    rewritten = " ".join(c["content"] for c in service._chunk_repo.get_chunks(inline["note_id"]))
+    rewritten = " ".join(c["content"] for c in service.chunk_repo.get_chunks(inline["note_id"]))
     assert "#job" in rewritten
     # The frontmatter-only note is not rechunked — tags never reach a chunk.
     untouched = " ".join(
-        c["content"] for c in service._chunk_repo.get_chunks(frontmatter["note_id"])
+        c["content"] for c in service.chunk_repo.get_chunks(frontmatter["note_id"])
     )
     assert untouched.strip() == "body"
 
 
 def test_rename_tag_writes_one_commit_for_the_whole_workspace(service, tag_service, workspace):
-    a = service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
-    b = service.save(workspace_target("u1", "ws", workspace), "B", "body", ["work"])
+    a = service.create.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
+    b = service.create.save(workspace_target("u1", "ws", workspace), "B", "body", ["work"])
     _rename(tag_service, workspace, "work", "job")
-    head_a = service._version_service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[
+    head_a = service.version_service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[
         0
     ]
-    head_b = service._version_service.get_history(note_target("u1", "ws", workspace, b["note_id"]))[
+    head_b = service.version_service.get_history(note_target("u1", "ws", workspace, b["note_id"]))[
         0
     ]
     assert head_a["sha"] == head_b["sha"]
@@ -344,8 +352,8 @@ def test_rename_tag_writes_one_commit_for_the_whole_workspace(service, tag_servi
 def test_rename_tag_onto_an_existing_tag_reports_a_conflict_and_changes_nothing(
     service, tag_service, workspace
 ):
-    service.save(workspace_target("u1", "ws", workspace), "A", "body", ["osoba"])
-    service.save(workspace_target("u1", "ws", workspace), "B", "body", ["osoby"])
+    service.create.save(workspace_target("u1", "ws", workspace), "A", "body", ["osoba"])
+    service.create.save(workspace_target("u1", "ws", workspace), "B", "body", ["osoby"])
     conflict = _rename(tag_service, workspace, "osoba", "osoby")
     assert conflict["target"] == "osoby"
     assert (conflict["target_notes"], conflict["source_notes"]) == (1, 1)
@@ -353,8 +361,10 @@ def test_rename_tag_onto_an_existing_tag_reports_a_conflict_and_changes_nothing(
 
 
 def test_rename_tag_merges_when_asked(service, read_service, tag_service, workspace):
-    a = service.save(workspace_target("u1", "ws", workspace), "A", "body", ["osoba", "ludzie"])
-    service.save(workspace_target("u1", "ws", workspace), "B", "body", ["osoby"])
+    a = service.create.save(
+        workspace_target("u1", "ws", workspace), "A", "body", ["osoba", "ludzie"]
+    )
+    service.create.save(workspace_target("u1", "ws", workspace), "B", "body", ["osoby"])
     result = _rename(tag_service, workspace, "osoba", "osoby", merge=True)
     assert (result["merged"], result["renamed"]) == (True, 1)
     assert read_service.get(a["note_id"], owner_id="u1")["tags"] == ["osoby", "ludzie"]
@@ -364,30 +374,32 @@ def test_rename_tag_merges_when_asked(service, read_service, tag_service, worksp
 def test_rename_tag_merge_dedupes_within_a_single_note(
     service, read_service, tag_service, workspace
 ):
-    note = service.save(workspace_target("u1", "ws", workspace), "A", "body", ["osoba", "osoby"])
+    note = service.create.save(
+        workspace_target("u1", "ws", workspace), "A", "body", ["osoba", "osoby"]
+    )
     _rename(tag_service, workspace, "osoba", "osoby", merge=True)
     assert read_service.get(note["note_id"], owner_id="u1")["tags"] == ["osoby"]
 
 
 def test_rename_tag_is_a_noop_when_nothing_moves(service, tag_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
+    service.create.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
     assert _rename(tag_service, workspace, "work", "work")["renamed"] == 0
 
 
 def test_rename_tag_rejects_an_unknown_tag(service, tag_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
+    service.create.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
     with pytest.raises(ValueError, match="nie istnieje"):
         _rename(tag_service, workspace, "wrok", "job")
 
 
 def test_rename_tag_rejects_moving_a_tag_into_its_own_subtree(service, tag_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
+    service.create.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
     with pytest.raises(ValueError, match="poddrzewa"):
         _rename(tag_service, workspace, "work", "work/sub")
 
 
 def test_rename_tag_rejects_an_invalid_target(service, tag_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
+    service.create.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
     with pytest.raises(ValueError, match="niepoprawny tag"):
         _rename(tag_service, workspace, "work", "dwa slowa")
 
@@ -397,13 +409,13 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(
 ):
     from kajet_turbo.services.notes import tags as service_module
 
-    a = service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
-    service.save(workspace_target("u1", "ws", workspace), "B", "body", ["work"])
+    a = service.create.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
+    service.create.save(workspace_target("u1", "ws", workspace), "B", "body", ["work"])
     # A hand-written extra key must survive the rollback exactly like the tags do (#105).
     a_path = note_filepath(str(workspace), "", "A")
     a_meta, a_content = read_note_file(a_path)
     write_note_file(a_path, replace(a_meta, extras={"aliases": ["Old A"]}), a_content)
-    head_before = service._version_service.get_history(
+    head_before = service.version_service.get_history(
         note_target("u1", "ws", workspace, a["note_id"])
     )[0]["sha"]
 
@@ -421,9 +433,9 @@ def test_rename_tag_restores_every_touched_file_when_a_write_fails(
         assert on_disk.tags == ["work"]
     a_meta_after, _ = read_note_file(a_path)
     assert a_meta_after.extras == {"aliases": ["Old A"]}
-    assert service._version_service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[
-        0
-    ]["sha"] == (head_before)
+    assert service.version_service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[0][
+        "sha"
+    ] == (head_before)
     # #155: since this fix, the DB row is written and flushed *before* the failing file
     # write runs (write_rows precedes staged_workspace_change's apply phase inside
     # commit_rows_then_tree) — it reaches the DB and then rolls back with the transaction,
@@ -437,23 +449,23 @@ def test_rename_tag_db_failure_leaves_tree_and_all_rows_untouched(
     """#155: rename_tag's row writes are now batched into one transaction that commits
     last — a DB-side failure on note k must roll back every note's row, not just k's, and
     must never reach the git commit at all."""
-    a = service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
-    b = service.save(workspace_target("u1", "ws", workspace), "B", "body", ["work"])
-    head_before = service._version_service.get_history(
+    a = service.create.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])
+    b = service.create.save(workspace_target("u1", "ws", workspace), "B", "body", ["work"])
+    head_before = service.version_service.get_history(
         note_target("u1", "ws", workspace, a["note_id"])
     )[0]["sha"]
 
-    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session, fail_on_call=2)
+    flaky_update = make_flaky_db_write(service.crud_repo.update_in_session, fail_on_call=2)
 
     with (
-        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        patch.object(service.crud_repo, "update_in_session", flaky_update),
         pytest.raises(RuntimeError, match="db exploded"),
     ):
         _rename(tag_service, workspace, "work", "job")
 
-    assert service._version_service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[
-        0
-    ]["sha"] == (head_before)
+    assert service.version_service.get_history(note_target("u1", "ws", workspace, a["note_id"]))[0][
+        "sha"
+    ] == (head_before)
     assert read_service.get(a["note_id"], owner_id="u1")["tags"] == ["work"]
     assert read_service.get(b["note_id"], owner_id="u1")["tags"] == ["work"]
     for title in ("A", "B"):
@@ -473,16 +485,16 @@ def test_rename_tag_join_table_sync_failure_rolls_back_the_whole_chunk(
     tag while note_tags (what note_ids_for_tags reads) still says the old one — the shape
     that made a note permanently unrepairable by a retry, since the retry's dedup check
     skips a note whose file already matches the target."""
-    note_id = service.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])[
+    note_id = service.create.save(workspace_target("u1", "ws", workspace), "A", "body", ["work"])[
         "note_id"
     ]
-    sha_before = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[
+    sha_before = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[
         0
     ]["sha"]
 
     with (
         patch.object(
-            service._tag_repo,
+            service.tag_repo,
             "sync_note_tags_many_in_session",
             side_effect=RuntimeError("tag sync exploded"),
         ),
@@ -490,7 +502,7 @@ def test_rename_tag_join_table_sync_failure_rolls_back_the_whole_chunk(
     ):
         _rename(tag_service, workspace, "work", "job")
 
-    assert service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+    assert service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
         "sha"
     ] == (sha_before)
     assert read_service.get(note_id, owner_id="u1")["tags"] == ["work"]
@@ -506,9 +518,9 @@ def test_rename_tag_serializes_with_a_concurrent_tag_edit(
 
     from kajet_turbo.services.notes import tags as service_module
 
-    note_id = service.save(workspace_target("u1", "ws", workspace), "A", "body #work", ["work"])[
-        "note_id"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "A", "body #work", ["work"]
+    )["note_id"]
     rename_read = Event()
     release_rename = Event()
     real_rewrite = service_module.rewrite_inline_tags
@@ -550,7 +562,9 @@ def test_rename_tag_chunks_large_batches_logging_note_ids_per_chunk(
     monkeypatch.setattr(service_module, "MAX_BATCH_COMMIT_SIZE", 2)
     setup_logging()
     note_ids = {
-        service.save(workspace_target("u1", "ws", workspace), title, "body", ["work"])["note_id"]
+        service.create.save(workspace_target("u1", "ws", workspace), title, "body", ["work"])[
+            "note_id"
+        ]
         for title in ("A", "B", "C", "D", "E")
     }
 
@@ -573,7 +587,7 @@ def test_rename_tag_chunks_large_batches_logging_note_ids_per_chunk(
     # chunks land as distinct git commits, unlike the single-chunk case where every note's
     # most recent commit is the same sha.
     shas = {
-        service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+        service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
         for note_id in note_ids
     }
     assert len(shas) > 1
@@ -591,16 +605,16 @@ def test_rename_tag_resumes_after_a_mid_batch_chunk_failure(
     monkeypatch.setattr(service_module, "MAX_BATCH_COMMIT_SIZE", 2)
     titles = ("A", "B", "C", "D")
     note_ids = {
-        title: service.save(workspace_target("u1", "ws", workspace), title, "body", ["work"])[
-            "note_id"
-        ]
+        title: service.create.save(
+            workspace_target("u1", "ws", workspace), title, "body", ["work"]
+        )["note_id"]
         for title in titles
     }
     # Two chunks of 2; fail partway through the second chunk's write (3rd note overall).
-    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session, fail_on_call=3)
+    flaky_update = make_flaky_db_write(service.crud_repo.update_in_session, fail_on_call=3)
 
     with (
-        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        patch.object(service.crud_repo, "update_in_session", flaky_update),
         pytest.raises(RuntimeError, match="db exploded"),
     ):
         _rename(tag_service, workspace, "work", "job")
@@ -628,9 +642,9 @@ def test_rename_tag_releases_workspace_before_reindexing(
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
 
-    note_id = service.save(workspace_target("u1", "ws", workspace), "A", "body #work", ["work"])[
-        "note_id"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "A", "body #work", ["work"]
+    )["note_id"]
     index_started = Event()
     release_index = Event()
 
@@ -638,7 +652,7 @@ def test_rename_tag_releases_workspace_before_reindexing(
         index_started.set()
         assert release_index.wait(timeout=5)
 
-    monkeypatch.setattr(service._indexer, "index_many", paused_index)
+    monkeypatch.setattr(service.indexer, "index_many", paused_index)
     with ThreadPoolExecutor(max_workers=2) as pool:
         rename = pool.submit(_rename, tag_service, workspace, "work", "job")
         assert index_started.wait(timeout=5)

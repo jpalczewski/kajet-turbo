@@ -38,7 +38,7 @@ def _seed_notes(database, n=3):
 def test_index_many_enqueues_one_reindex_note_job_per_note(database):
     _seed_notes(database, 3)
     indexer, jobs = _indexer(database)
-    notes = [{"id": f"n{i}"} for i in range(3)]
+    notes = [f"n{i}" for i in range(3)]
 
     indexer.index_many("ws", "u1", notes)
 
@@ -68,7 +68,7 @@ def test_index_many_swallows_enqueue_failure(database, monkeypatch):
 
     monkeypatch.setattr(jobs, "enqueue_many", boom)
 
-    indexer.index_many("ws", "u1", [{"id": "n0"}])  # must not raise
+    indexer.index_many("ws", "u1", ["n0"])  # must not raise
 
 
 def test_index_many_dedupes_repeated_note_into_one_pending_job(database):
@@ -77,8 +77,8 @@ def test_index_many_dedupes_repeated_note_into_one_pending_job(database):
     _seed_notes(database, 1)
     indexer, jobs = _indexer(database)
 
-    indexer.index_many("ws", "u1", [{"id": "n0"}])
-    indexer.index_many("ws", "u1", [{"id": "n0"}])
+    indexer.index_many("ws", "u1", ["n0"])
+    indexer.index_many("ws", "u1", ["n0"])
 
     pending = jobs.list_jobs("u1", status="pending", kind="reindex_note")
     assert len(pending) == 1

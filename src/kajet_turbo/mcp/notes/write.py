@@ -33,12 +33,22 @@ from kajet_turbo.mcp.tooling import (
     publish_workspace_changed,
     write_tool,
 )
-from kajet_turbo.services.notes import EditBatchItem, NoteService
+from kajet_turbo.services.notes import (
+    DeleteBatchItem,
+    EditBatchItem,
+    NoteCreateService,
+    NoteDeleteService,
+    NoteEditService,
+)
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import temporal_kwargs
 
 
-def build_write(note_service: NoteService) -> FastMCP:
+def build_write(
+    note_create_service: NoteCreateService,
+    note_edit_service: NoteEditService,
+    note_delete_service: NoteDeleteService,
+) -> FastMCP:
     srv = FastMCP("notes-write")
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
@@ -65,7 +75,7 @@ def build_write(note_service: NoteService) -> FastMCP:
         folder: optional path, e.g. 'Projects/Client A'.
         content must contain real newline characters (\\n), not literal \\\\n."""
         result = await run_sync(
-            note_service.save,
+            note_create_service.save,
             target,
             title,
             content,
@@ -93,7 +103,7 @@ def build_write(note_service: NoteService) -> FastMCP:
         search_notes immediately.
         content needs real newline characters (\\n), not literal \\\\n."""
         results = await run_sync(
-            note_service.save_many,
+            note_create_service.save_many,
             target,
             [n.model_dump() for n in notes],
         )
@@ -193,7 +203,7 @@ def build_write(note_service: NoteService) -> FastMCP:
         version. A mismatch returns StaleVersion: call get_note to re-read the note, then retry
         with the fresh sha."""
         result = await run_sync(
-            note_service.update,
+            note_edit_service.update,
             target,
             expected_sha=expected_sha,
             title=title,
@@ -239,7 +249,7 @@ def build_write(note_service: NoteService) -> FastMCP:
         check_batch(edits, "edits", "edits")
         workspace, _ = await resolve_notes_in_one_workspace(user_id, [e.note_id for e in edits])
         result = await run_sync(
-            note_service.edit_many,
+            note_edit_service.edit_many,
             workspace,
             [
                 EditBatchItem(
@@ -276,7 +286,7 @@ def build_write(note_service: NoteService) -> FastMCP:
         get_note/get_note_history; on a mismatch returns StaleVersion — re-read the current
         version and retry with the fresh sha."""
         result = await run_sync(
-            note_service.delete,
+            note_delete_service.delete,
             target,
             expected_sha=expected_sha,
         )
@@ -300,9 +310,9 @@ def build_write(note_service: NoteService) -> FastMCP:
         check_batch(deletes, "deletes", "deletes")
         workspace, _ = await resolve_notes_in_one_workspace(user_id, [d.note_id for d in deletes])
         result = await run_sync(
-            note_service.delete_many,
+            note_delete_service.delete_many,
             workspace,
-            [d.model_dump() for d in deletes],
+            [DeleteBatchItem(note_id=d.note_id, expected_sha=d.expected_sha) for d in deletes],
         )
         if not result.get("applied"):
             return DeleteNotesRejected.model_validate(result)

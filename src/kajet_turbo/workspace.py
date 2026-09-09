@@ -38,7 +38,7 @@ class TemporalMetadataError(ValueError):
 class ExtrasReservedKeyError(ValueError):
     """extras shadows a reserved frontmatter key. Distinct from a bare ValueError so
     callers (the API layer) can map it to 422 instead of the generic not-found 404 that
-    NoteService.update()'s other ValueErrors mean."""
+    NoteEditService.update()'s other ValueErrors mean."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +73,17 @@ class NoteFrontmatter:
         occurred_at, period = normalize_temporal_metadata(self.occurred_at, self.period)
         if (occurred_at, period) != (self.occurred_at, self.period):
             raise ValueError("occurred_at and period must use canonical string values.")
+
+    def temporal_or(
+        self, db_occurred_at: str | None, db_period: str | None
+    ) -> tuple[str | None, str | None]:
+        """This frontmatter's occurred_at/period, falling back to the DB's last-known-good
+        value for any field parse_frontmatter had to drop as unparseable — never treat a
+        drop as an intentional clear (#132 follow-up)."""
+        return (
+            self.occurred_at if "occurred_at" not in self.temporal_dropped else db_occurred_at,
+            self.period if "period" not in self.temporal_dropped else db_period,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -432,8 +443,8 @@ def temporal_kwargs(occurred_at: str | None, period: str | None) -> dict[str, st
     """Keyword args for occurred_at/period, omitting unset fields entirely.
 
     Shared by every caller that must distinguish "leave unchanged" (omitted) from
-    "set to this value" before calling NoteService.update, which treats an omitted
-    kwarg differently from an explicit None (see NoteService._UNCHANGED).
+    "set to this value" before calling NoteEditService.update, which treats an omitted
+    kwarg differently from an explicit None (see NoteEditService._UNCHANGED).
     """
     return {
         key: value
@@ -453,7 +464,7 @@ def resolve_temporal_fields(
 ) -> tuple[str | None, str | None]:
     """The shared occurred_at/period resolution rule for a note update: clear both,
     set one or both explicitly, or fall back to the caller-supplied unchanged values.
-    Used by both NoteService.update and NoteService.edit_many, which differ only in
+    Used by both NoteEditService.update and NoteEditService.edit_many, which differ only in
     how "was this field passed" is detected and what the fallback source is."""
     if clear and (has_occurred_at or has_period):
         raise TemporalMetadataError(

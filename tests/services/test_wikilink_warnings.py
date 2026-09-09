@@ -8,12 +8,16 @@ pytestmark = pytest.mark.usefixtures("_seed_default_owner")
 
 
 def _seed_ambiguous(service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "README", "near", [], folder="Project")
-    service.save(workspace_target("u1", "ws", workspace), "README", "far", [], folder="Archive")
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "README", "near", [], folder="Project"
+    )
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "README", "far", [], folder="Archive"
+    )
 
 
 def _seed_case_corrected(service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Plan projektu", "cel", [])
+    service.create.save(workspace_target("u1", "ws", workspace), "Plan projektu", "cel", [])
 
 
 def _warning():
@@ -52,7 +56,7 @@ def test_save_reports_warning_without_rejecting(
 ):
     seed(service, workspace)
 
-    result = service.save(
+    result = service.create.save(
         workspace_target("u1", "ws", workspace), "Source", content, [], folder=folder
     )
 
@@ -65,19 +69,19 @@ def test_update_and_batch_writes_report_warning(
     service, workspace, seed, folder, content, expected
 ):
     seed(service, workspace)
-    source = service.save(
+    source = service.create.save(
         workspace_target("u1", "ws", workspace), "Source", "body", [], folder=folder
     )
-    sha = service._version_service.get_history(
+    sha = service.version_service.get_history(
         note_target("u1", "ws", workspace, source["note_id"])
     )[0]["sha"]
 
-    updated = service.update(
+    updated = service.edit.update(
         note_target("u1", "ws", workspace, source["note_id"]),
         sha,
         edit=EditSpec(content=content),
     )
-    created = service.save_many(
+    created = service.create.save_many(
         workspace_target("u1", "ws", workspace),
         [{"title": "Batch", "folder": folder, "content": content}],
     )
@@ -85,10 +89,10 @@ def test_update_and_batch_writes_report_warning(
     assert updated["warnings"] == [expected]
     assert created[0]["warnings"] == [expected]
 
-    latest_sha = service._version_service.get_history(
+    latest_sha = service.version_service.get_history(
         note_target("u1", "ws", workspace, source["note_id"])
     )[0]["sha"]
-    edited = service.edit_many(
+    edited = service.edit.edit_many(
         workspace_target("u1", "ws", workspace),
         [edit_item(source["note_id"], latest_sha, mode="overwrite", content=f"again {content}")],
     )

@@ -4,7 +4,7 @@ from tests.services.conftest import workspace_target
 
 
 def test_grep_finds_literal_match_with_line_number(service, read_service, workspace):
-    service.save(
+    service.create.save(
         workspace_target("u1", "ws", workspace), "Notes", "line one\nmatch here\nline three\n", []
     )
     result = read_service.grep("ws", str(workspace), "match here")
@@ -17,19 +17,25 @@ def test_grep_finds_literal_match_with_line_number(service, read_service, worksp
 
 
 def test_grep_is_case_insensitive_by_default(service, read_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Notes", "MAFIOSO appears here\n", [])
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "Notes", "MAFIOSO appears here\n", []
+    )
     result = read_service.grep("ws", str(workspace), "mafioso")
     assert len(result["matches"]) == 1
 
 
 def test_grep_case_sensitive_excludes_different_case(service, read_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Notes", "MAFIOSO appears here\n", [])
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "Notes", "MAFIOSO appears here\n", []
+    )
     result = read_service.grep("ws", str(workspace), "mafioso", case_sensitive=True)
     assert result["matches"] == []
 
 
 def test_grep_matches_frontmatter_tags(service, read_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Notes", "unrelated body\n", ["alice"])
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "Notes", "unrelated body\n", ["alice"]
+    )
     result = read_service.grep("ws", str(workspace), "alice")
     assert len(result["matches"]) == 1
     assert result["matches"][0]["title"] == "Notes"
@@ -41,7 +47,7 @@ def test_grep_multiple_matches_in_one_note(service, read_service, workspace):
     # so a bare "foo" collides with it in roughly 1 run in 6000 (measured: 33 of 200k ids
     # contain "foo" case-insensitively). '.' is outside the nanoid alphabet, which makes
     # the collision impossible rather than merely unlikely.
-    service.save(
+    service.create.save(
         workspace_target("u1", "ws", workspace),
         "Notes",
         "foo.\nfoo. again\nbar\nfoo. once more\n",
@@ -52,10 +58,10 @@ def test_grep_multiple_matches_in_one_note(service, read_service, workspace):
 
 
 def test_grep_scoped_to_folder_subtree(service, read_service, workspace):
-    service.save(
+    service.create.save(
         workspace_target("u1", "ws", workspace), "In scope", "needle here\n", [], folder="a/b"
     )
-    service.save(
+    service.create.save(
         workspace_target("u1", "ws", workspace), "Out of scope", "needle here\n", [], folder="c"
     )
     result = read_service.grep("ws", str(workspace), "needle", folder="a")
@@ -63,7 +69,7 @@ def test_grep_scoped_to_folder_subtree(service, read_service, workspace):
 
 
 def test_grep_respects_max_results_and_sets_truncated(service, read_service, workspace):
-    service.save(
+    service.create.save(
         workspace_target("u1", "ws", workspace),
         "Notes",
         "\n".join(f"needle {i}" for i in range(10)),

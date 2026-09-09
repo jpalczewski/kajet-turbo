@@ -11,8 +11,8 @@ from kajet_turbo.log import log_permission_denied
 from kajet_turbo.repositories.notes import NoteRepository
 
 if TYPE_CHECKING:
-    # Deferred: services.workspaces imports services.notes (NoteService), which imports
-    # this module for the NoteTarget/WorkspaceTarget entry-point signatures -- a
+    # Deferred: services.workspaces imports services.notes (NoteCreateService et al.),
+    # which imports this module for the NoteTarget/WorkspaceTarget entry-point signatures -- a
     # module-level import here would cycle back through that partially-initialized
     # package. Type-only; TargetResolver never constructs a WorkspaceService itself.
     from kajet_turbo.services.workspaces import WorkspaceService

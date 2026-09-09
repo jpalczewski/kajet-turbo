@@ -1,26 +1,62 @@
 # Notes Service Layer
 
-This package (`NoteService` plus its collaborators `NoteTagService`, `NoteFolderService`,
-`NoteLinkService`, `NoteVersionService`, `NoteSearchService`, `NoteTemporalService`) is the
-synchronous, request-facing CRUD layer for notes — called directly from API routes and MCP
-tools, not dispatched by job kind. That is the boundary between this package and the flat
-`services/` directory: background job handlers (`embed_handler.py`, `push_handler.py`,
-`reconcile_links_handler.py`, `reindex_handler.py`) live there regardless of which domain they
-touch, registered once in `register_job_handlers()` (`server.py:48`). A new background handler
-does not belong in this package even if it operates on notes.
+This package (`NoteCreateService`/`NoteEditService`/`NoteDeleteService` — the write pipeline,
+split by #388 from a single former `NoteService` — plus their collaborators `NoteTagService`,
+`NoteFolderService`, `NoteLinkService`, `NoteVersionService`, `NoteSearchService`,
+`NoteTemporalService`) is the synchronous, request-facing CRUD layer for notes — called
+directly from API routes and MCP tools, not dispatched by job kind. That is the boundary
+between this package and the flat `services/` directory: background job handlers
+(`embed_handler.py`, `push_handler.py`, `reconcile_links_handler.py`, `reindex_handler.py`)
+live there regardless of which domain they touch, registered once in `register_job_handlers()`
+(`server.py:48`). A new background handler does not belong in this package even if it operates
+on notes.
+
+## The write pipeline is split by operation, not by method count (#388)
+
+`NoteCreateService` (`create.py`: `save`, `save_many`), `NoteEditService` (`edit.py`: `update`,
+`edit_many`, `restore_version`), and `NoteDeleteService` (`delete.py`: `delete`,
+`delete_many`) replace the former single `NoteService` — #156 had already pulled every other
+domain (reads, tags, links, folders, search, temporal, reconcile, history) off it, leaving one
+class holding three genuinely independent pipelines with no method using more than 6 of its 10
+constructor deps. This continues that trend one step further, deliberately superseding #232's
+"keep it one class" target — #232 is closed as superseded by #388, not reopened.
+
+Two pieces are shared, not duplicated per file:
+- `batch.py` holds `_validate_destructive_items` and its two result dataclasses
+  (`_ValidatedDestructiveItem`, `_BatchValidationError`) as free functions — the validation
+  `edit_many` and `delete_many` share (missing note, duplicate note_id, stale expected_sha).
+  It touches no `self`: a shared *check*, not a shared base class, since `NoteCreateService`
+  has no destructive-batch method to share it with in the first place.
+- `NoteTeardown` (`persistence.py`) is built exactly once in `dependencies.py` and injected
+  into both `NoteDeleteService` and `NoteReconcileService` — not built twice from the same
+  6 repos in two constructors, which is what let their teardown ordering drift apart before.
+  `defer_index_note`/`defer_index_many` (`persistence.py`) collapse the 4 near-identical
+  `defer_workspace_postprocess(...)` call sites this split would otherwise have copied one
+  more time each (`save`/`update` call the former, `save_many`/`edit_many`/`reconcile_paths`
+  call the latter).
+
+Batch state is typed, not a `list[dict]`: `save_many` builds `_SaveCandidate`/`_PreparedSave`
+(private to `create.py`, mirroring `edit_many`'s pre-existing `_ValidatedDestructiveItem`/
+`_PreparedEdit` two-stage shape — Phase 1 can still fail and skip an item before Phase 2 adds
+its validated links), and `delete_many` takes `deletes: list[DeleteBatchItem]` instead of
+`list[dict]`, matching `edit_many(edits: list[EditBatchItem])`'s existing shape
+(`types.py`). The `indexer` constructor param on all three write services (and on
+`NoteReconcileService`) is typed `Indexer | None` — a small `Protocol` in `services/indexing.py`
+declaring just `index_note`/`index_many`, not the concrete `NoteIndexer` class — mirroring the
+one other `Protocol` in the codebase (`embedding/base.py`'s `Embedder`).
 
 `NoteTemporalService` (`temporal.py`) was a deliberate exception to how every other
 collaborator here used to be exposed: REST and MCP call `NoteTemporalService.entries_in`/
-`temporal_backfill_preview`/`apply_temporal_backfill` directly — `NoteService` carries no
-delegating wrappers for this domain at all (#224). Its constructor takes only
+`temporal_backfill_preview`/`apply_temporal_backfill` directly — none of the three write
+services carries delegating wrappers for this domain at all (#224). Its constructor takes only
 `NoteRepository`, same as `NoteVersionService`. `NoteTagService` (#306), `NoteLinkService`
 (#307), `NoteSearchService` (#230), `NoteFolderService` (#229), and `NoteVersionService`
 (#231) have since moved to the same direct-call shape, each removing its one-line delegate
-methods from `NoteService`. `NoteVersionService` keeps one caller-facing difference from
-the rest: `NoteService.restore_version` still depends on it directly
+methods from the write side. `NoteVersionService` keeps one caller-facing difference from
+the rest: `NoteEditService.restore_version` still depends on it directly
 (`self._version_service`), since restoring a past version is a write-pipeline operation, not
 a read — the read/write split in this package (see "Service boundaries" below) is what
-decides whether a collaborator gets a `NoteService` delegate, not whether it has one at all.
+decides whether a collaborator gets a write-service delegate, not whether it has one at all.
 
 ## Note-body writes go through `staged_workspace_change`
 
@@ -62,10 +98,10 @@ index ahead of the tree.
 `insert_in_session`/`update_in_session` — SQL is cheap to fail before anything touches disk),
 `flush()`s so a constraint violation surfaces before the tree write rather than at COMMIT, then
 commits the git tree via `staged_workspace_change` inside the same transaction. `save`,
-`save_many`, `update`, and `edit_many` (all in `NoteService`) plus `NoteTemporalService.
-apply_temporal_backfill` all call it — this is the shared batch skeleton #144 asked for;
-`edit_many` and `apply_temporal_backfill` are two of its callers, not two parallel
-implementations, even though the latter now lives in a different class in this package.
+`save_many`, `update`, and `edit_many` (across `NoteCreateService`/`NoteEditService`) plus
+`NoteTemporalService.apply_temporal_backfill` all call it — this is the shared batch skeleton
+#144 asked for; `edit_many` and `apply_temporal_backfill` are two of its callers, not two
+parallel implementations, even though they live in different classes in this package.
 `delete`/`delete_many` predate this helper and use
 `GitRepository.delete_file(s)` directly instead of `staged_workspace_change`, but follow the
 same rows-first-commit-last ordering.
@@ -144,7 +180,7 @@ in the background (`reconcile_links_handler.py`). Code reading `note_links` dire
 query, a graph view, anything outside the single-note `backlinks`/`outlinks` path) must account
 for this: right after a rename elsewhere, a stale edge can briefly still be there.
 
-## `_rewrite_backlinks` deliberately bypasses `NoteService.update()`
+## `_rewrite_backlinks` deliberately bypasses `NoteEditService.update()`
 
 `NoteLinkService._rewrite_backlinks` (`links.py:356-460`) rewrites wikilink text in every note
 that links to something just moved/renamed, then writes the DB row and commits directly (rows
@@ -158,23 +194,24 @@ nothing enforces it automatically.
 
 ## Service boundaries
 
-`NoteService` owns the indexer and the write pipeline. General note reads — `get`,
+`NoteCreateService`, `NoteEditService`, and `NoteDeleteService` own the indexer and the write
+pipeline between them (see #388 above for the split itself). General note reads — `get`,
 `get_with_content`, `get_with_content_by_title`, `get_many`, `resolve_note_id`, `get_outline`,
 `export_folder`, `grep`, `preview_chunks`, `list_notes` — live on `NoteReadService` (`read.py`)
-instead: no workspace write lock, and API/MCP call it directly with no delegate left on
-`NoteService` (#223). History reads — `get_history`, `get_version` — got the same treatment
+instead: no workspace write lock, and API/MCP call it directly with no delegate left on the
+write side (#223). History reads — `get_history`, `get_version` — got the same treatment
 onto `NoteVersionService` (#231); `restore_version` is the one version-domain method that
-stays on `NoteService`, because restoring is a write (it proves the current HEAD, then enters
-the write pipeline) — `NoteVersionService` itself has no write-side dependency back on
-`NoteService`, which is what keeps this a one-way collaboration, not a cycle. Shared batch
-reads use the neutral `locate_many` helper in `locator.py`, which returns
-`workspace.LocatedNote` values and leaves validation policy with its callers.
+stays on the write side (`NoteEditService`), because restoring is a write (it proves the
+current HEAD, then enters the write pipeline) — `NoteVersionService` itself has no write-side
+dependency back onto the write services, which is what keeps this a one-way collaboration,
+not a cycle. Shared batch reads use the neutral `locate_many` helper in `locator.py`, which
+returns `workspace.LocatedNote` values and leaves validation policy with its callers.
 `NoteTagService`, `NoteFolderService`, and `NoteLinkService` are collaborators that, by default,
 operate on metadata only — `NoteFolderService.move_folder` needs no indexer because a folder
 move never touches note bodies. A method on one of these collaborators that starts writing note
 *bodies* (not just frontmatter/DB rows) is a signal that its placement needs a deliberate call,
-not a default. #57 (`rename_tag` moving from `NoteTagService` to `NoteService`) is the worked
-example of how that call gets made and what tips it one way or the other.
+not a default. #57 (`rename_tag` moving from `NoteTagService` toward the note-write side) is
+the worked example of how that call gets made and what tips it one way or the other.
 
 ## Errors
 

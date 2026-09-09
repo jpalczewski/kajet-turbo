@@ -1,10 +1,10 @@
-"""save_many() batch coverage for NoteService."""
+"""save_many() batch coverage for NoteCreateService."""
 
 from unittest.mock import patch
 
 import pytest
 
-from kajet_turbo.services.notes import service as service_module
+from kajet_turbo.services.notes import create as service_module
 from tests.services.conftest import workspace_target
 from tests.services.helpers import make_flaky_db_write, make_flaky_write
 
@@ -27,7 +27,7 @@ def test_save_many_happy_path_single_commit(service, workspace):
         {"title": "Batch B", "content": "beta", "tags": ["x"]},
         {"title": "Batch C", "content": "gamma", "folder": "docs"},
     ]
-    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
+    results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert [r["index"] for r in results] == [0, 1, 2]
     assert all("note_id" in r for r in results)
@@ -38,14 +38,14 @@ def test_save_many_happy_path_single_commit(service, workspace):
 
 
 def test_save_many_best_effort_reports_per_note(service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Existing", "x", [])
+    service.create.save(workspace_target("u1", "ws", workspace), "Existing", "x", [])
     notes = [
         {"title": "Fresh One", "content": "a"},
         {"title": "Existing", "content": "dup"},  # collides with DB
         {"title": "", "content": "no title"},  # empty title
         {"title": "Fresh Two", "content": "b"},
     ]
-    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
+    results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert "note_id" in results[0]
     assert "error" in results[1]
@@ -58,7 +58,7 @@ def test_save_many_intra_batch_duplicate(service, workspace):
         {"title": "Same", "content": "first"},
         {"title": "Same", "content": "second"},  # same (folder, title) within batch
     ]
-    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
+    results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert "note_id" in results[0]
     assert "error" in results[1]
@@ -66,7 +66,7 @@ def test_save_many_intra_batch_duplicate(service, workspace):
 
 
 def test_save_many_empty_list(service, workspace):
-    assert service.save_many(workspace_target("u1", "ws", workspace), []) == []
+    assert service.create.save_many(workspace_target("u1", "ws", workspace), []) == []
 
 
 def test_save_many_cross_batch_wikilink_order_independent(service, link_service, workspace):
@@ -75,7 +75,7 @@ def test_save_many_cross_batch_wikilink_order_independent(service, link_service,
         {"title": "A note", "content": "links to [[B note]]"},
         {"title": "B note", "content": "target"},
     ]
-    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
+    results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert "note_id" in results[0]
     assert "note_id" in results[1]
@@ -90,7 +90,7 @@ def test_save_many_non_cascading_drop(service, workspace):
         {"title": "A links B", "content": "see [[B broken]]"},
         {"title": "B broken", "content": "see [[Does Not Exist]]"},
     ]
-    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
+    results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert "note_id" in results[0]  # A still saved
     assert "error" in results[1]  # B dropped for its own broken link
@@ -107,13 +107,13 @@ def test_save_many_git_error_rolls_back_all_files(service, workspace):
         ),
         pytest.raises(GitError),
     ):
-        service.save_many(workspace_target("u1", "ws", workspace), notes)
+        service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
     assert md_files == []
     # #155: rows are inserted before the git commit inside the same transaction, so a
     # git-side failure must roll the already-flushed rows back too, not just the files.
-    assert service._crud_repo.list_notes("ws", "u1", limit=None) == []
+    assert service.crud_repo.list_notes("ws", "u1", limit=None) == []
 
 
 def test_save_many_write_failing_partway_rolls_back_and_makes_no_commit(service, workspace):
@@ -128,7 +128,7 @@ def test_save_many_write_failing_partway_rolls_back_and_makes_no_commit(service,
         patch.object(service_module, "write_note_file", flaky_write),
         pytest.raises(OSError, match="disk full"),
     ):
-        service.save_many(
+        service.create.save_many(
             workspace_target("u1", "ws", workspace),
             [{"title": "Flaky One", "content": "a"}, {"title": "Flaky Two", "content": "b"}],
         )
@@ -136,20 +136,20 @@ def test_save_many_write_failing_partway_rolls_back_and_makes_no_commit(service,
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
     assert md_files == []
     assert _commit_count(workspace) == before
-    assert service._crud_repo.list_notes("ws", "u1", limit=None) == []
+    assert service.crud_repo.list_notes("ws", "u1", limit=None) == []
 
 
 def test_save_many_db_failure_leaves_no_files_and_no_commit(service, workspace):
     """#155: rows are written before the tree, so a DB-side failure must abort before
     anything touches disk or git — not just roll back after the fact."""
     before = _commit_count(workspace)
-    flaky_insert = make_flaky_db_write(service._crud_repo.insert_in_session, fail_on_call=2)
+    flaky_insert = make_flaky_db_write(service.crud_repo.insert_in_session, fail_on_call=2)
 
     with (
-        patch.object(service._crud_repo, "insert_in_session", flaky_insert),
+        patch.object(service.crud_repo, "insert_in_session", flaky_insert),
         pytest.raises(RuntimeError, match="db exploded"),
     ):
-        service.save_many(
+        service.create.save_many(
             workspace_target("u1", "ws", workspace),
             [{"title": "DB One", "content": "a"}, {"title": "DB Two", "content": "b"}],
         )
@@ -157,16 +157,16 @@ def test_save_many_db_failure_leaves_no_files_and_no_commit(service, workspace):
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
     assert md_files == []
     assert _commit_count(workspace) == before
-    assert service._crud_repo.list_notes("ws", "u1", limit=None) == []
+    assert service.crud_repo.list_notes("ws", "u1", limit=None) == []
 
 
 def test_save_many_indexes_every_valid_note(service, workspace):
     notes = [{"title": "Idx A", "content": "a"}, {"title": "Idx B", "content": "b"}]
-    with patch.object(service._indexer, "index_many") as idx:
-        results = service.save_many(workspace_target("u1", "ws", workspace), notes)
+    with patch.object(service.indexer, "index_many") as idx:
+        results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
     idx.assert_called_once()
     passed = idx.call_args.args[2]
-    assert {n["id"] for n in passed} == {r["note_id"] for r in results}
+    assert set(passed) == {r["note_id"] for r in results}
 
 
 def test_save_many_filename_collision_dedup(service, workspace):
@@ -175,7 +175,7 @@ def test_save_many_filename_collision_dedup(service, workspace):
         {"title": "A:B", "content": "first"},
         {"title": "A B", "content": "second"},
     ]
-    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
+    results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert "note_id" in results[0]
     assert "error" in results[1]
@@ -192,7 +192,7 @@ def test_save_many_filename_collision_dedup(service, workspace):
     assert content.strip() == "first"
 
     # DB row for the first note exists; no second row for "A B".
-    note = service._crud_repo.get(results[0]["note_id"], owner_id="u1")
+    note = service.crud_repo.get(results[0]["note_id"], owner_id="u1")
     assert note is not None
     assert note.title == "A:B"
 
@@ -200,13 +200,13 @@ def test_save_many_filename_collision_dedup(service, workspace):
 def test_save_many_item_rejects_collision_with_pre_existing_file(service, workspace):
     """Not just intra-batch: an item colliding with a note saved before this batch,
     outside of it, must also be rejected — the other items in the batch still succeed."""
-    service.save(workspace_target("u1", "ws", workspace), "A B", "existing", [])
+    service.create.save(workspace_target("u1", "ws", workspace), "A B", "existing", [])
     notes = [
         {"title": "A:B", "content": "collides via normalization"},
         {"title": "Fresh", "content": "unrelated"},
     ]
 
-    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
+    results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
     assert "error" in results[0]
     assert "note_id" in results[1]

@@ -15,10 +15,10 @@ from kajet_turbo.markdown import (
 )
 from kajet_turbo.repositories.git import (
     GitRepository,
-    defer_workspace_postprocess,
     target_write_transaction,
 )
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
+from kajet_turbo.services.notes.persistence import defer_index_many
 from kajet_turbo.services.notes.staged_change import (
     MAX_BATCH_COMMIT_SIZE,
     StagedChange,
@@ -144,16 +144,7 @@ class NoteTagService:
             # A field read_note_file had to drop as unparseable falls back to the DB's
             # last-known-good value instead of the file's (now None) one, so a tag-only
             # edit never silently persists the drop into file and DB (#132 follow-up).
-            safe_occurred_at = (
-                existing_meta.occurred_at
-                if "occurred_at" not in existing_meta.temporal_dropped
-                else note.occurred_at
-            )
-            safe_period = (
-                existing_meta.period
-                if "period" not in existing_meta.temporal_dropped
-                else note.period
-            )
+            safe_occurred_at, safe_period = existing_meta.temporal_or(note.occurred_at, note.period)
             apply_meta = replace(
                 existing_meta,
                 id=note_id,
@@ -398,16 +389,8 @@ class NoteTagService:
             op.session.begin(),
         ):
             self._tag_repo.sweep_orphan_tags_in_session(op.session, ws_name, owner_id)
-        if self._indexer is not None and rewritten_ids:
-            defer_workspace_postprocess(
-                ws_path,
-                partial(
-                    self._indexer.index_many,
-                    ws_name,
-                    owner_id,
-                    [{"id": note_id} for note_id in rewritten_ids],
-                ),
-            )
+        if rewritten_ids:
+            defer_index_many(self._indexer, ws_path, ws_name, owner_id, rewritten_ids)
         logger.info(
             "tag_renamed",
             old=old_n,

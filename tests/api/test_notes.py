@@ -15,9 +15,9 @@ def _note(ws_path, note_id) -> NoteTarget:
 
 def test_html_returns_rendered_content(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Testowa notatka", "# Nagłówek\n\nAkapit.", ["python"])[
-        "note_id"
-    ]
+    note_id = note_svc.create.save(
+        _ws(ws_path), "Testowa notatka", "# Nagłówek\n\nAkapit.", ["python"]
+    )["note_id"]
 
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/html")
 
@@ -50,7 +50,7 @@ def test_html_returns_404_when_note_missing(auth_client):
 
 def test_markdown_returns_raw_content(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "MD notatka", "# Hello\n\nŚwiat.", [])["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "MD notatka", "# Hello\n\nŚwiat.", [])["note_id"]
 
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/markdown")
 
@@ -64,7 +64,7 @@ def test_markdown_returns_raw_content(auth_client):
 
 def test_html_returns_extras(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Nastrój", "body", [], extras={"mood": "great"})[
+    note_id = note_svc.create.save(_ws(ws_path), "Nastrój", "body", [], extras={"mood": "great"})[
         "note_id"
     ]
 
@@ -76,7 +76,7 @@ def test_html_returns_extras(auth_client):
 
 def test_markdown_returns_extras(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Nastrój", "body", [], extras={"mood": "great"})[
+    note_id = note_svc.create.save(_ws(ws_path), "Nastrój", "body", [], extras={"mood": "great"})[
         "note_id"
     ]
 
@@ -106,7 +106,7 @@ def test_markdown_survives_hand_corrupted_period(auth_client):
     """A hand-edited/otherwise corrupted `period` in frontmatter must not turn a plain
     read into a 500 (#132) — the note stays readable, with the bad value dropped."""
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Corrupt Period", "Body", [])["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "Corrupt Period", "Body", [])["note_id"]
     path = Path(ws_path) / "Corrupt Period.md"
     corrupted = path.read_text().replace("period: null\n", "period: banana\n", 1)
     assert corrupted.count("period:") == 1 and "period: banana\n" in corrupted
@@ -120,7 +120,7 @@ def test_markdown_survives_hand_corrupted_period(auth_client):
 
 def test_html_survives_hand_corrupted_occurred_at(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Corrupt Date", "Body", [])["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "Corrupt Date", "Body", [])["note_id"]
     path = Path(ws_path) / "Corrupt Date.md"
     corrupted = path.read_text().replace("occurred_at: null\n", "occurred_at: 32-13-2026\n", 1)
     assert corrupted.count("occurred_at:") == 1 and "occurred_at: 32-13-2026\n" in corrupted
@@ -134,7 +134,7 @@ def test_html_survives_hand_corrupted_occurred_at(auth_client):
 
 def test_html_strips_script_tags(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(
+    note_id = note_svc.create.save(
         _ws(ws_path),
         "XSS test",
         "<script>alert(1)</script>\n\n## Bezpieczny nagłówek",
@@ -152,9 +152,9 @@ def test_html_strips_script_tags(auth_client):
 
 def test_html_strips_javascript_urls(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "JS URL test", "[kliknij](javascript:alert(1))", [])[
-        "note_id"
-    ]
+    note_id = note_svc.create.save(
+        _ws(ws_path), "JS URL test", "[kliknij](javascript:alert(1))", []
+    )["note_id"]
 
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/html")
 
@@ -168,7 +168,7 @@ def test_html_strips_javascript_urls(auth_client):
 
 def test_list_notes_returns_folder(auth_client):
     client, note_svc, ws_path = auth_client
-    note_svc.save(_ws(ws_path), "Lista notatka", "content", [], folder="Projekty")
+    note_svc.create.save(_ws(ws_path), "Lista notatka", "content", [], folder="Projekty")
     resp = client.get("/api/workspaces/test-ws/notes")
     assert resp.status_code == 200
     notes = resp.json()["notes"]
@@ -178,8 +178,8 @@ def test_list_notes_returns_folder(auth_client):
 
 def test_list_notes_folder_filter(auth_client):
     client, note_svc, ws_path = auth_client
-    note_svc.save(_ws(ws_path), "W folderze", "content", [], folder="A")
-    note_svc.save(_ws(ws_path), "W rootu", "content", [])
+    note_svc.create.save(_ws(ws_path), "W folderze", "content", [], folder="A")
+    note_svc.create.save(_ws(ws_path), "W rootu", "content", [])
     resp = client.get("/api/workspaces/test-ws/notes?folder=A")
     assert resp.status_code == 200
     notes = resp.json()["notes"]
@@ -189,7 +189,9 @@ def test_list_notes_folder_filter(auth_client):
 
 def test_html_returns_folder(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "HTML folder", "treść", [], folder="Docs")["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "HTML folder", "treść", [], folder="Docs")[
+        "note_id"
+    ]
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/html")
     assert resp.status_code == 200
     assert resp.json()["folder"] == "Docs"
@@ -197,7 +199,7 @@ def test_html_returns_folder(auth_client):
 
 def test_markdown_returns_folder(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "MD folder", "treść", [], folder="Arch")["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "MD folder", "treść", [], folder="Arch")["note_id"]
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/markdown")
     assert resp.status_code == 200
     assert resp.json()["folder"] == "Arch"
@@ -205,7 +207,7 @@ def test_markdown_returns_folder(auth_client):
 
 def test_list_notes_includes_size_bytes(auth_client):
     client, note_svc, ws_path = auth_client
-    note_svc.save(_ws(ws_path), "Sized Note", "hello world", [])
+    note_svc.create.save(_ws(ws_path), "Sized Note", "hello world", [])
     resp = client.get("/api/workspaces/test-ws/notes")
     assert resp.status_code == 200
     note = resp.json()["notes"][0]
@@ -362,8 +364,8 @@ def test_create_note_returns_403_when_no_access(no_access_client):
 
 def test_update_note_content(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Orig", "old content", [])["note_id"]
-    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+    note_id = note_svc.create.save(_ws(ws_path), "Orig", "old content", [])["note_id"]
+    sha = note_svc.version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"content": "new content", "expected_sha": sha},
@@ -379,8 +381,8 @@ def test_update_note_response_matches_declared_schema(auth_client):
     # replace_all support) that this REST endpoint doesn't expose via request params — the
     # response must stay pinned to UpdateNoteResponse's documented shape, not leak them.
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Orig", "old content", [])["note_id"]
-    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+    note_id = note_svc.create.save(_ws(ws_path), "Orig", "old content", [])["note_id"]
+    sha = note_svc.version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"content": "new content", "expected_sha": sha},
@@ -390,10 +392,10 @@ def test_update_note_response_matches_declared_schema(auth_client):
 
 def test_update_note_merges_extras(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(
+    note_id = note_svc.create.save(
         _ws(ws_path), "Nastrój", "body", [], extras={"mood": "great", "weather": "sunny"}
     )["note_id"]
-    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+    sha = note_svc.version_service.get_history(_note(ws_path, note_id))[0]["sha"]
 
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
@@ -407,10 +409,10 @@ def test_update_note_merges_extras(auth_client):
 
 def test_update_note_without_extras_leaves_existing_extras_untouched(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Nastrój", "body", [], extras={"mood": "great"})[
+    note_id = note_svc.create.save(_ws(ws_path), "Nastrój", "body", [], extras={"mood": "great"})[
         "note_id"
     ]
-    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+    sha = note_svc.version_service.get_history(_note(ws_path, note_id))[0]["sha"]
 
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
@@ -425,10 +427,10 @@ def test_update_note_without_extras_leaves_existing_extras_untouched(auth_client
 
 def test_update_note_rejects_extras_shadowing_reserved_key_with_422_not_404(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Nastrój", "body", [], extras={"mood": "great"})[
+    note_id = note_svc.create.save(_ws(ws_path), "Nastrój", "body", [], extras={"mood": "great"})[
         "note_id"
     ]
-    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+    sha = note_svc.version_service.get_history(_note(ws_path, note_id))[0]["sha"]
 
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
@@ -444,8 +446,8 @@ def test_update_note_rejects_extras_shadowing_reserved_key_with_422_not_404(auth
 
 def test_update_note_rejects_malformed_period_with_422_not_404(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Period Note", "c", [])["note_id"]
-    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+    note_id = note_svc.create.save(_ws(ws_path), "Period Note", "c", [])["note_id"]
+    sha = note_svc.version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"period": "not-a-period", "expected_sha": sha},
@@ -455,10 +457,10 @@ def test_update_note_rejects_malformed_period_with_422_not_404(auth_client):
 
 def test_update_note_explicit_null_occurred_at_leaves_it_unchanged(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Dated Note", "c", [], occurred_at="2026-03-22")[
+    note_id = note_svc.create.save(_ws(ws_path), "Dated Note", "c", [], occurred_at="2026-03-22")[
         "note_id"
     ]
-    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+    sha = note_svc.version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"title": "Renamed", "occurred_at": None, "expected_sha": sha},
@@ -470,8 +472,8 @@ def test_update_note_explicit_null_occurred_at_leaves_it_unchanged(auth_client):
 
 def test_update_note_title(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Old Title", "c", [])["note_id"]
-    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+    note_id = note_svc.create.save(_ws(ws_path), "Old Title", "c", [])["note_id"]
+    sha = note_svc.version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"title": "New Title", "expected_sha": sha},
@@ -494,8 +496,8 @@ def test_update_note_tags_and_folder_patch_semantics(
     auth_client, patch_body, expected_tags, expected_folder
 ):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Patched", "c", ["a"], folder="docs")["note_id"]
-    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+    note_id = note_svc.create.save(_ws(ws_path), "Patched", "c", ["a"], folder="docs")["note_id"]
+    sha = note_svc.version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={**patch_body, "expected_sha": sha},
@@ -508,8 +510,8 @@ def test_update_note_tags_and_folder_patch_semantics(
 
 def test_update_note_content_omitted_leaves_body_untouched(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Patched", "original body", [])["note_id"]
-    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+    note_id = note_svc.create.save(_ws(ws_path), "Patched", "original body", [])["note_id"]
+    sha = note_svc.version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"title": "Renamed", "expected_sha": sha},
@@ -522,7 +524,7 @@ def test_update_note_content_omitted_leaves_body_untouched(auth_client):
 def test_move_note_to_existing_folder(auth_client):
     client, note_svc, ws_path = auth_client
     (Path(ws_path) / "archive").mkdir()
-    note_id = note_svc.save(_ws(ws_path), "Move me", "c", [])["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "Move me", "c", [])["note_id"]
 
     resp = client.post(f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": "archive"})
 
@@ -533,7 +535,7 @@ def test_move_note_to_existing_folder(auth_client):
 
 def test_move_note_to_root(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Move me", "c", [], folder="docs")["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "Move me", "c", [], folder="docs")["note_id"]
 
     resp = client.post(f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": ""})
 
@@ -543,7 +545,7 @@ def test_move_note_to_root(auth_client):
 
 def test_move_note_creates_missing_folder_path(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Move me", "c", [])["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "Move me", "c", [])["note_id"]
 
     resp = client.post(
         f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": "new/nested"}
@@ -556,8 +558,8 @@ def test_move_note_creates_missing_folder_path(auth_client):
 def test_move_note_collision_returns_409(auth_client):
     client, note_svc, ws_path = auth_client
     (Path(ws_path) / "archive").mkdir()
-    note_id = note_svc.save(_ws(ws_path), "Same", "source", [])["note_id"]
-    note_svc.save(_ws(ws_path), "Same", "destination", [], folder="archive")
+    note_id = note_svc.create.save(_ws(ws_path), "Same", "source", [])["note_id"]
+    note_svc.create.save(_ws(ws_path), "Same", "destination", [], folder="archive")
 
     resp = client.post(f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": "archive"})
 
@@ -566,7 +568,7 @@ def test_move_note_collision_returns_409(auth_client):
 
 def test_move_note_invalid_path_returns_422(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Move me", "c", [])["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "Move me", "c", [])["note_id"]
 
     resp = client.post(
         f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": "../outside"}
@@ -578,7 +580,7 @@ def test_move_note_invalid_path_returns_422(auth_client):
 
 def test_move_note_missing_folder_key_returns_422(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Move me", "c", [])["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "Move me", "c", [])["note_id"]
 
     resp = client.post(f"/api/workspaces/test-ws/notes/{note_id}/move", json={})
 
@@ -593,7 +595,7 @@ def test_move_note_wrong_type_folder_returns_422(auth_client):
     # own table (RequestModel.legacy_error_codes, api/errors.py) keeps the two "folder"
     # fields from ever colliding on one code, unlike the pre-#341 global by-field-name table.
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Move me", "c", [])["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "Move me", "c", [])["note_id"]
 
     resp = client.post(f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": 123})
 
@@ -625,7 +627,7 @@ def test_update_note_outside_workspace_returns_404(auth_client):
     # through this URL's workspace name -- resolve_note_target's contract (#246).
     client, note_svc, ws_path = auth_client
     other_ws = WorkspaceTarget(owner_id="u1", name="other", path=Path(ws_path))
-    note_id = note_svc.save(other_ws, "Elsewhere", "c", [])["note_id"]
+    note_id = note_svc.create.save(other_ws, "Elsewhere", "c", [])["note_id"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"content": "x", "expected_sha": "deadbeef"},
@@ -645,7 +647,7 @@ def test_update_note_returns_403_when_no_access(no_access_client):
 
 def test_delete_note_removes_it(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "To Delete", "c", [])["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "To Delete", "c", [])["note_id"]
     resp = client.delete(f"/api/workspaces/test-ws/notes/{note_id}")
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
@@ -661,7 +663,7 @@ def test_delete_note_not_found_returns_404(auth_client):
 def test_delete_note_outside_workspace_returns_404(auth_client):
     client, note_svc, ws_path = auth_client
     other_ws = WorkspaceTarget(owner_id="u1", name="other", path=Path(ws_path))
-    note_id = note_svc.save(other_ws, "Elsewhere", "c", [])["note_id"]
+    note_id = note_svc.create.save(other_ws, "Elsewhere", "c", [])["note_id"]
     resp = client.delete(f"/api/workspaces/test-ws/notes/{note_id}")
     assert resp.status_code == 404
 
@@ -669,7 +671,7 @@ def test_delete_note_outside_workspace_returns_404(auth_client):
 def test_move_note_outside_workspace_returns_404(auth_client):
     client, note_svc, ws_path = auth_client
     other_ws = WorkspaceTarget(owner_id="u1", name="other", path=Path(ws_path))
-    note_id = note_svc.save(other_ws, "Elsewhere", "c", [])["note_id"]
+    note_id = note_svc.create.save(other_ws, "Elsewhere", "c", [])["note_id"]
     resp = client.post(f"/api/workspaces/test-ws/notes/{note_id}/move", json={"folder": "docs"})
     assert resp.status_code == 404
 
@@ -697,7 +699,7 @@ def test_create_note_broken_wikilink_returns_422(auth_client):
 
 def test_create_note_valid_wikilink_succeeds(auth_client):
     client, note_svc, ws_path = auth_client
-    note_svc.save(_ws(ws_path), "Target", "t", [])
+    note_svc.create.save(_ws(ws_path), "Target", "t", [])
     resp = client.post(
         "/api/workspaces/test-ws/notes",
         json={"title": "Source", "content": "see [[Target|t]]"},
@@ -707,8 +709,8 @@ def test_create_note_valid_wikilink_succeeds(auth_client):
 
 def test_create_note_ambiguous_wikilink_returns_warning(auth_client):
     client, note_svc, ws_path = auth_client
-    note_svc.save(_ws(ws_path), "README", "near", [], folder="Project")
-    note_svc.save(_ws(ws_path), "README", "far", [], folder="Archive")
+    note_svc.create.save(_ws(ws_path), "README", "near", [], folder="Project")
+    note_svc.create.save(_ws(ws_path), "README", "far", [], folder="Archive")
 
     resp = client.post(
         "/api/workspaces/test-ws/notes",
@@ -728,7 +730,7 @@ def test_create_note_ambiguous_wikilink_returns_warning(auth_client):
 
 def test_create_note_case_corrected_wikilink_returns_warning(auth_client):
     client, note_svc, ws_path = auth_client
-    note_svc.save(_ws(ws_path), "Plan projektu", "cel", [])
+    note_svc.create.save(_ws(ws_path), "Plan projektu", "cel", [])
 
     resp = client.post(
         "/api/workspaces/test-ws/notes",
@@ -748,8 +750,8 @@ def test_create_note_case_corrected_wikilink_returns_warning(auth_client):
 
 def test_update_note_broken_wikilink_returns_422(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Note", "body", [])["note_id"]
-    sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+    note_id = note_svc.create.save(_ws(ws_path), "Note", "body", [])["note_id"]
+    sha = note_svc.version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"content": "[[Ghost]]", "expected_sha": sha},
@@ -761,8 +763,8 @@ def test_update_note_broken_wikilink_returns_422(auth_client):
 
 def test_update_note_stale_sha_returns_409(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Note", "v1", [])["note_id"]
-    stale_sha = note_svc._version_service.get_history(_note(ws_path, note_id))[0]["sha"]
+    note_id = note_svc.create.save(_ws(ws_path), "Note", "v1", [])["note_id"]
+    stale_sha = note_svc.version_service.get_history(_note(ws_path, note_id))[0]["sha"]
     client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
         json={"content": "v2", "expected_sha": stale_sha},
@@ -782,7 +784,7 @@ def test_update_note_stale_sha_returns_409(auth_client):
 
 def test_update_note_missing_expected_sha_returns_409_not_500(auth_client):
     client, note_svc, ws_path = auth_client
-    note_id = note_svc.save(_ws(ws_path), "Note", "v1", [])["note_id"]
+    note_id = note_svc.create.save(_ws(ws_path), "Note", "v1", [])["note_id"]
 
     resp = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}",
@@ -797,9 +799,9 @@ def test_update_note_missing_expected_sha_returns_409_not_500(auth_client):
 
 def test_html_renders_clickable_wikilink(auth_client):
     client, note_svc, ws_path = auth_client
-    note_svc.save(_ws(ws_path), "Target", "t", [], folder="A")
-    sid = note_svc.save(_ws(ws_path), "Source", "go [[A/Target|here]]", [])["note_id"]
-    tid = note_svc._crud_repo.get_by_path("test-ws", "u1", "A", "Target").id
+    note_svc.create.save(_ws(ws_path), "Target", "t", [], folder="A")
+    sid = note_svc.create.save(_ws(ws_path), "Source", "go [[A/Target|here]]", [])["note_id"]
+    tid = note_svc.crud_repo.get_by_path("test-ws", "u1", "A", "Target").id
 
     resp = client.get(f"/api/workspaces/test-ws/notes/{sid}/html")
 
@@ -810,9 +812,9 @@ def test_html_renders_clickable_wikilink(auth_client):
 
 def test_html_renders_broken_wikilink_when_target_deleted(auth_client):
     client, note_svc, ws_path = auth_client
-    tid = note_svc.save(_ws(ws_path), "Target", "t", [])["note_id"]
-    sid = note_svc.save(_ws(ws_path), "Source", "go [[Target]]", [])["note_id"]
-    note_svc.delete(_note(ws_path, tid))
+    tid = note_svc.create.save(_ws(ws_path), "Target", "t", [])["note_id"]
+    sid = note_svc.create.save(_ws(ws_path), "Source", "go [[Target]]", [])["note_id"]
+    note_svc.delete.delete(_note(ws_path, tid))
 
     resp = client.get(f"/api/workspaces/test-ws/notes/{sid}/html")
 
@@ -823,10 +825,10 @@ def test_html_renders_broken_wikilink_when_target_deleted(auth_client):
 
 def test_links_returns_backlinks_and_outlinks(auth_client):
     client, note_svc, ws_path = auth_client
-    note_svc.save(_ws(ws_path), "Target", "t", [])
-    note_svc.save(_ws(ws_path), "Source", "[[Target]]", [])
-    tid = note_svc._crud_repo.get_by_path("test-ws", "u1", "", "Target").id
-    sid = note_svc._crud_repo.get_by_path("test-ws", "u1", "", "Source").id
+    note_svc.create.save(_ws(ws_path), "Target", "t", [])
+    note_svc.create.save(_ws(ws_path), "Source", "[[Target]]", [])
+    tid = note_svc.crud_repo.get_by_path("test-ws", "u1", "", "Target").id
+    sid = note_svc.crud_repo.get_by_path("test-ws", "u1", "", "Source").id
 
     # Target sees Source as a backlink, no outlinks.
     target = client.get(f"/api/workspaces/test-ws/notes/{tid}/links").json()
@@ -841,7 +843,7 @@ def test_links_returns_backlinks_and_outlinks(auth_client):
 
 def test_links_empty(auth_client):
     client, note_svc, ws_path = auth_client
-    tid = note_svc.save(_ws(ws_path), "Lonely", "t", [])["note_id"]
+    tid = note_svc.create.save(_ws(ws_path), "Lonely", "t", [])["note_id"]
     resp = client.get(f"/api/workspaces/test-ws/notes/{tid}/links")
     assert resp.status_code == 200
     assert resp.json() == {"backlinks": [], "outlinks": []}
@@ -854,11 +856,11 @@ def test_links_returns_403_when_no_access(no_access_client):
 
 def test_graph_returns_nodes_and_edges(auth_client):
     client, note_svc, ws_path = auth_client
-    note_svc.save(_ws(ws_path), "Target", "t", [])
-    note_svc.save(_ws(ws_path), "Source", "[[Target]]", [])
-    note_svc.save(_ws(ws_path), "Lonely", "no links", [])
-    tid = note_svc._crud_repo.get_by_path("test-ws", "u1", "", "Target").id
-    sid = note_svc._crud_repo.get_by_path("test-ws", "u1", "", "Source").id
+    note_svc.create.save(_ws(ws_path), "Target", "t", [])
+    note_svc.create.save(_ws(ws_path), "Source", "[[Target]]", [])
+    note_svc.create.save(_ws(ws_path), "Lonely", "no links", [])
+    tid = note_svc.crud_repo.get_by_path("test-ws", "u1", "", "Target").id
+    sid = note_svc.crud_repo.get_by_path("test-ws", "u1", "", "Source").id
 
     resp = client.get("/api/workspaces/test-ws/notes/graph")
     assert resp.status_code == 200
@@ -870,7 +872,7 @@ def test_graph_returns_nodes_and_edges(auth_client):
 
 def test_graph_includes_tag_hubs_when_requested(auth_client):
     client, note_svc, ws_path = auth_client
-    source_id = note_svc.save(_ws(ws_path), "Source", "", ["work/projects"])["note_id"]
+    source_id = note_svc.create.save(_ws(ws_path), "Source", "", ["work/projects"])["note_id"]
 
     resp = client.get("/api/workspaces/test-ws/notes/graph?include_tags=true")
 
@@ -887,8 +889,8 @@ def test_graph_returns_403_when_no_access(no_access_client):
 
 def test_neighborhood_returns_local_graph_and_validates_depth(auth_client):
     client, note_svc, ws_path = auth_client
-    target_id = note_svc.save(_ws(ws_path), "Target", "", [])["note_id"]
-    source_id = note_svc.save(_ws(ws_path), "Source", "[[Target]]", [])["note_id"]
+    target_id = note_svc.create.save(_ws(ws_path), "Target", "", [])["note_id"]
+    source_id = note_svc.create.save(_ws(ws_path), "Source", "[[Target]]", [])["note_id"]
 
     resp = client.get(f"/api/workspaces/test-ws/notes/{source_id}/neighborhood")
     assert resp.status_code == 200
@@ -905,7 +907,7 @@ def test_neighborhood_returns_local_graph_and_validates_depth(auth_client):
 def test_neighborhood_returns_404_for_note_outside_workspace(auth_client):
     client, note_svc, ws_path = auth_client
     other_ws = WorkspaceTarget(owner_id="u1", name="other", path=Path(ws_path))
-    note_id = note_svc.save(other_ws, "Elsewhere", "", [])["note_id"]
+    note_id = note_svc.create.save(other_ws, "Elsewhere", "", [])["note_id"]
     resp = client.get(f"/api/workspaces/test-ws/notes/{note_id}/neighborhood")
     assert resp.status_code == 404
 
@@ -929,7 +931,7 @@ def test_batch_create_returns_results(auth_client):
 
 def test_batch_create_best_effort_mixed(auth_client):
     client, note_svc, ws_path = auth_client
-    note_svc.save(_ws(str(ws_path)), "Dup", "x", [])
+    note_svc.create.save(_ws(str(ws_path)), "Dup", "x", [])
     resp = client.post(
         "/api/workspaces/test-ws/notes/batch",
         json={"notes": [{"title": "Dup", "content": "x"}, {"title": "OK", "content": "y"}]},

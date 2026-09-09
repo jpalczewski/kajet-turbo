@@ -7,10 +7,12 @@ from tests.services.conftest import note_target, workspace_target
 
 
 def test_links_returns_outlinks_and_backlinks(service, link_service, workspace):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "content", [])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "see [[Target]]", [])[
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "content", [])[
         "note_id"
     ]
+    sid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "see [[Target]]", []
+    )["note_id"]
     result = link_service.links(note_target("u1", "ws", workspace, tid))
     assert result is not None
     assert result["backlinks"] == [
@@ -20,10 +22,12 @@ def test_links_returns_outlinks_and_backlinks(service, link_service, workspace):
 
 
 def test_links_outlinks_populated(service, link_service, workspace):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "content", [])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "see [[Target]]", [])[
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "content", [])[
         "note_id"
     ]
+    sid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "see [[Target]]", []
+    )["note_id"]
     result = link_service.links(note_target("u1", "ws", workspace, sid))
     assert result is not None
     assert result["outlinks"] == [
@@ -33,9 +37,9 @@ def test_links_outlinks_populated(service, link_service, workspace):
 
 
 def test_links_empty_when_no_links(service, link_service, workspace):
-    nid = service.save(workspace_target("u1", "ws", workspace), "Lonely", "no links here", [])[
-        "note_id"
-    ]
+    nid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Lonely", "no links here", []
+    )["note_id"]
     result = link_service.links(note_target("u1", "ws", workspace, nid))
     assert result == {"outlinks": [], "backlinks": []}
 
@@ -45,14 +49,16 @@ def test_links_returns_none_for_unknown_note(link_service, workspace):
 
 
 def test_links_returns_none_for_wrong_owner(service, link_service, workspace):
-    nid = service.save(workspace_target("u1", "ws", workspace), "Note", "content", [])["note_id"]
+    nid = service.create.save(workspace_target("u1", "ws", workspace), "Note", "content", [])[
+        "note_id"
+    ]
     assert link_service.links(note_target("u2", "ws", workspace, nid)) is None
 
 
 def test_links_orphaned_target_skipped(service, link_service, database, workspace):
     # Save source and target, establish a real NoteLink row
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
     # Bypass FK constraints by directly inserting a stale NoteLink row to a nonexistent target
@@ -80,8 +86,10 @@ def test_links_orphaned_target_skipped(service, link_service, database, workspac
 
 
 def test_links_include_meta_adds_tags_and_updated_at(service, link_service, workspace):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", ["work"])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", ["work"])[
+        "note_id"
+    ]
+    sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
     result = link_service.links(note_target("u1", "ws", workspace, sid), include_meta=True)
@@ -96,8 +104,8 @@ def test_links_include_meta_adds_tags_and_updated_at(service, link_service, work
 
 
 def test_links_default_excludes_meta(service, link_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Target", "t", ["work"])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
+    service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", ["work"])["note_id"]
+    sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
     result = link_service.links(note_target("u1", "ws", workspace, sid))
@@ -108,8 +116,10 @@ def test_links_default_excludes_meta(service, link_service, workspace):
 
 
 def test_backlinks_include_cross_workspace_by_default(service, link_service, workspace):
-    target_id = service.save(workspace_target("u1", "ws-b", workspace), "Target", "", [])["note_id"]
-    source_id = service.save(
+    target_id = service.create.save(workspace_target("u1", "ws-b", workspace), "Target", "", [])[
+        "note_id"
+    ]
+    source_id = service.create.save(
         workspace_target("u1", "ws-a", workspace), "Source", f"[[note:{target_id}]]", []
     )["note_id"]
     result = link_service.links(note_target("u1", "ws-b", workspace, target_id))
@@ -118,8 +128,12 @@ def test_backlinks_include_cross_workspace_by_default(service, link_service, wor
 
 
 def test_backlinks_exclude_cross_workspace_when_flag_false(service, link_service, workspace):
-    target_id = service.save(workspace_target("u1", "ws-b", workspace), "Target", "", [])["note_id"]
-    service.save(workspace_target("u1", "ws-a", workspace), "Source", f"[[note:{target_id}]]", [])
+    target_id = service.create.save(workspace_target("u1", "ws-b", workspace), "Target", "", [])[
+        "note_id"
+    ]
+    service.create.save(
+        workspace_target("u1", "ws-a", workspace), "Source", f"[[note:{target_id}]]", []
+    )
     result = link_service.links(
         note_target("u1", "ws-b", workspace, target_id), include_cross_workspace=False
     )
@@ -128,8 +142,12 @@ def test_backlinks_exclude_cross_workspace_when_flag_false(service, link_service
 
 
 def test_link_item_includes_workspace_field(service, link_service, workspace):
-    target_id = service.save(workspace_target("u1", "ws-b", workspace), "Target", "", [])["note_id"]
-    service.save(workspace_target("u1", "ws-a", workspace), "Source", f"[[note:{target_id}]]", [])
+    target_id = service.create.save(workspace_target("u1", "ws-b", workspace), "Target", "", [])[
+        "note_id"
+    ]
+    service.create.save(
+        workspace_target("u1", "ws-a", workspace), "Source", f"[[note:{target_id}]]", []
+    )
     result = link_service.links(note_target("u1", "ws-b", workspace, target_id))
     assert result is not None
     backlink = result["backlinks"][0]
@@ -139,18 +157,18 @@ def test_link_item_includes_workspace_field(service, link_service, workspace):
 
 def test_rename_does_not_rewrite_cross_workspace_backlink(service, read_service, workspace):
     # ws-b note is the target; ws-a note links to it via [[note:ID]] (cross-workspace syntax).
-    target_id = service.save(workspace_target("u1", "ws-b", workspace), "Old Title", "content", [])[
-        "note_id"
-    ]
-    source_id = service.save(
+    target_id = service.create.save(
+        workspace_target("u1", "ws-b", workspace), "Old Title", "content", []
+    )["note_id"]
+    source_id = service.create.save(
         workspace_target("u1", "ws-a", workspace), "Linker", f"[[note:{target_id}]]", []
     )["note_id"]
 
     # Rename the ws-b note — rewrite_backlinks must not touch the ws-a file.
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, target_id))[0][
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, target_id))[0][
         "sha"
     ]
-    service.update(
+    service.edit.update(
         note_target("u1", "ws", workspace, target_id), expected_sha=sha, title="New Title"
     )
 
@@ -164,7 +182,7 @@ def test_rename_does_not_rewrite_cross_workspace_backlink(service, read_service,
 
 
 def test_xws_link_resolver_returns_title_and_url(service, link_service, workspace):
-    result = service.save(workspace_target("u1", "myws", workspace), "The Note", "", [])
+    result = service.create.save(workspace_target("u1", "myws", workspace), "The Note", "", [])
     note_id = result["note_id"]
     resolver = link_service.xws_link_resolver("u1")
     resolution = resolver(note_id)
@@ -180,7 +198,7 @@ def test_xws_link_resolver_returns_none_for_missing(link_service, workspace):
 
 
 def test_xws_link_resolver_encodes_folder_segments(service, link_service, workspace):
-    result = service.save(
+    result = service.create.save(
         workspace_target("u1", "myws", workspace), "Deep Note", "", [], folder="docs/sub"
     )
     note_id = result["note_id"]
@@ -192,7 +210,7 @@ def test_xws_link_resolver_encodes_folder_segments(service, link_service, worksp
 
 
 def test_xws_link_resolver_wrong_owner_returns_none(service, link_service, workspace):
-    result = service.save(workspace_target("u1", "myws", workspace), "Owned Note", "", [])
+    result = service.create.save(workspace_target("u1", "myws", workspace), "Owned Note", "", [])
     note_id = result["note_id"]
     resolver = link_service.xws_link_resolver("u2")  # different owner
     assert resolver(note_id) is None

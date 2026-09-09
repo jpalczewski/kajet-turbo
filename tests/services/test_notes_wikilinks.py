@@ -21,8 +21,8 @@ pytestmark = pytest.mark.usefixtures("_seed_default_owner")
 
 
 def test_save_with_valid_wikilink_succeeds(service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Target", "treść", [], folder="A")
-    result = service.save(
+    service.create.save(workspace_target("u1", "ws", workspace), "Target", "treść", [], folder="A")
+    result = service.create.save(
         workspace_target("u1", "ws", workspace), "Source", "see [[A/Target|t]]", []
     )
     assert "note_id" in result
@@ -30,14 +30,16 @@ def test_save_with_valid_wikilink_succeeds(service, workspace):
 
 
 def test_save_with_casefold_wikilink_succeeds(service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Target", "treść", [], folder="A")
-    result = service.save(workspace_target("u1", "ws", workspace), "Source", "see [[a/target]]", [])
+    service.create.save(workspace_target("u1", "ws", workspace), "Target", "treść", [], folder="A")
+    result = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "see [[a/target]]", []
+    )
     assert "note_id" in result
     assert (workspace / "Source.md").exists()
 
 
 def test_get_note_by_title_stays_exact_after_casefold_flip(service, read_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Plan projektu", "cel", [])
+    service.create.save(workspace_target("u1", "ws", workspace), "Plan projektu", "cel", [])
     note = read_service.get_with_content_by_title(
         "plan projektu", None, workspace_target("u1", "ws", workspace)
     )
@@ -46,7 +48,7 @@ def test_get_note_by_title_stays_exact_after_casefold_flip(service, read_service
 
 def test_save_with_broken_wikilink_rejected_and_no_file(service, workspace):
     with pytest.raises(BrokenWikilinkError) as exc:
-        service.save(
+        service.create.save(
             workspace_target("u1", "ws", workspace), "Source", "see [[Ghost]] and [[A/Nope]]", []
         )
     assert exc.value.broken == ["A/Nope", "Ghost"]
@@ -55,7 +57,7 @@ def test_save_with_broken_wikilink_rejected_and_no_file(service, workspace):
 
 def test_save_with_cross_workspace_link_succeeds(service, workspace):
     """[[note:ID]] never raises BrokenWikilinkError even when ID does not exist."""
-    result = service.save(
+    result = service.create.save(
         workspace_target("u1", "ws1", workspace),
         "Source",
         "link to [[note:nonexistent-id-xyz]]",
@@ -68,8 +70,10 @@ def test_save_with_cross_workspace_link_to_existing_note_records_edge(
     service, link_service, workspace
 ):
     """[[note:ID]] where ID exists is stored in note_links."""
-    target_id = service.save(workspace_target("u1", "ws2", workspace), "Target", "", [])["note_id"]
-    source_id = service.save(
+    target_id = service.create.save(workspace_target("u1", "ws2", workspace), "Target", "", [])[
+        "note_id"
+    ]
+    source_id = service.create.save(
         workspace_target("u1", "ws1", workspace), "Source", f"link to [[note:{target_id}]]", []
     )["note_id"]
     backlinks = link_service._link_repo.backlinks(target_id)
@@ -78,7 +82,7 @@ def test_save_with_cross_workspace_link_to_existing_note_records_edge(
 
 def test_save_cross_workspace_link_does_not_create_dangling(service, link_service, workspace):
     """[[note:nonexistent]] leaves no outgoing note_links row for source."""
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws1", workspace), "Source", "[[note:ghost-id-000]]", []
     )["note_id"]
     outlinks = link_service._link_repo.outlinks(note_id)
@@ -87,20 +91,18 @@ def test_save_cross_workspace_link_does_not_create_dangling(service, link_servic
 
 def test_save_wikilink_in_code_is_not_validated(service, workspace):
     # `[[Ghost]]` inside inline code must not trigger validation.
-    result = service.save(
+    result = service.create.save(
         workspace_target("u1", "ws", workspace), "Source", "code `[[Ghost]]` here", []
     )
     assert "note_id" in result
 
 
 def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, read_service, workspace):
-    result = service.save(workspace_target("u1", "ws", workspace), "Note", "original", [])
+    result = service.create.save(workspace_target("u1", "ws", workspace), "Note", "original", [])
     note_id = result["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
     with pytest.raises(BrokenWikilinkError):
-        service.update(
+        service.edit.update(
             note_target("u1", "ws", workspace, note_id),
             expected_sha=sha,
             edit=EditSpec(content="[[Ghost]]"),
@@ -110,13 +112,11 @@ def test_update_overwrite_broken_wikilink_rejected_keeps_content(service, read_s
 
 
 def test_update_append_mode_validates_after_apply_edit(service, workspace):
-    result = service.save(workspace_target("u1", "ws", workspace), "Note", "body", [])
+    result = service.create.save(workspace_target("u1", "ws", workspace), "Note", "body", [])
     note_id = result["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
     with pytest.raises(BrokenWikilinkError):
-        service.update(
+        service.edit.update(
             note_target("u1", "ws", workspace, note_id),
             expected_sha=sha,
             edit=EditSpec(content="[[Ghost]]", mode="append"),
@@ -124,13 +124,11 @@ def test_update_append_mode_validates_after_apply_edit(service, workspace):
 
 
 def test_update_to_valid_wikilink_succeeds(service, read_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])
-    result = service.save(workspace_target("u1", "ws", workspace), "Note", "body", [])
+    service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])
+    result = service.create.save(workspace_target("u1", "ws", workspace), "Note", "body", [])
     note_id = result["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
-    service.update(
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
+    service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         edit=EditSpec(content="link [[Target]]"),
@@ -140,20 +138,22 @@ def test_update_to_valid_wikilink_succeeds(service, read_service, workspace):
 
 
 def test_save_records_note_link(service, link_service, workspace):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "see [[Target]]", [])[
-        "note_id"
-    ]
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    sid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "see [[Target]]", []
+    )["note_id"]
     assert link_service._link_repo.backlinks(tid) == [sid]
 
 
 def test_update_replaces_links(service, link_service, workspace):
-    a = service.save(workspace_target("u1", "ws", workspace), "A", "a", [])["note_id"]
-    b = service.save(workspace_target("u1", "ws", workspace), "B", "b", [])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[A]]", [])["note_id"]
+    a = service.create.save(workspace_target("u1", "ws", workspace), "A", "a", [])["note_id"]
+    b = service.create.save(workspace_target("u1", "ws", workspace), "B", "b", [])["note_id"]
+    sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[A]]", [])[
+        "note_id"
+    ]
     assert link_service._link_repo.backlinks(a) == [sid]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, sid))[0]["sha"]
-    service.update(
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, sid))[0]["sha"]
+    service.edit.update(
         note_target("u1", "ws", workspace, sid),
         expected_sha=sha,
         edit=EditSpec(content="now [[B]]"),
@@ -163,26 +163,26 @@ def test_update_replaces_links(service, link_service, workspace):
 
 
 def test_delete_removes_outgoing_and_incoming_links(service, link_service, workspace):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
     # Source -> Target edge exists; deleting Source clears the edge.
-    service.delete(note_target("u1", "ws", workspace, sid))
+    service.delete.delete(note_target("u1", "ws", workspace, sid))
     assert link_service._link_repo.backlinks(tid) == []
 
 
 def test_delete_target_orphans_handled(service, link_service, workspace):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])
-    service.delete(note_target("u1", "ws", workspace, tid))
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])
+    service.delete.delete(note_target("u1", "ws", workspace, tid))
     # Incoming edge to the deleted target is removed.
     assert link_service._link_repo.backlinks(tid) == []
 
 
 def test_reindex_rebuilds_links(service, reconcile_service, link_service, workspace):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
     reconcile_service.reindex("ws", "u1", str(workspace))
@@ -192,11 +192,11 @@ def test_reindex_rebuilds_links(service, reconcile_service, link_service, worksp
 def test_move_rewrites_backlink_path(
     service, folder_service, link_service, read_service, workspace
 ):
-    service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
-    sid = service.save(
+    service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
+    sid = service.create.save(
         workspace_target("u1", "ws", workspace), "Source", "see [[Old/Target|T]]", []
     )["note_id"]
-    tid = service._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
+    tid = service.crud_repo.get_by_path("ws", "u1", "Old", "Target").id
     folder_service.move(note_target("u1", "ws", workspace, tid), "New")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert "[[New/Target|T]]" in src.content
@@ -215,14 +215,14 @@ def test_move_rewrite_enqueues_one_reindex_note_job_per_rewritten_source(
 
     from kajet_turbo.repositories.jobs import JobRepository
 
-    service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
-    sid_a = service.save(
+    service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
+    sid_a = service.create.save(
         workspace_target("u1", "ws", workspace), "Source A", "see [[Old/Target|T]]", []
     )["note_id"]
-    sid_b = service.save(
+    sid_b = service.create.save(
         workspace_target("u1", "ws", workspace), "Source B", "see [[Old/Target|T]]", []
     )["note_id"]
-    tid = service._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
+    tid = service.crud_repo.get_by_path("ws", "u1", "Old", "Target").id
 
     folder_service.move(note_target("u1", "ws", workspace, tid), "New")
 
@@ -241,12 +241,12 @@ def test_move_rewrite_leaves_source_outlinks_and_dangling_unchanged(
         database, link_validation_enabled=lambda ws, owner: False
     )
     svc_folders = build_note_folder_service_from(svc)
-    svc.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
-    svc.save(workspace_target("u1", "ws", workspace), "Ghost link", "irrelevant", [])
-    sid = svc.save(
+    svc.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
+    svc.create.save(workspace_target("u1", "ws", workspace), "Ghost link", "irrelevant", [])
+    sid = svc.create.save(
         workspace_target("u1", "ws", workspace), "Source", "see [[Old/Target|T]] and [[Nope]]", []
     )["note_id"]
-    tid = svc._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
+    tid = svc.crud_repo.get_by_path("ws", "u1", "Old", "Target").id
     outlinks_before = sorted(link_service._link_repo.outlinks(sid))
     dangling_before = dangling.list_for_workspace("u1", "ws")
 
@@ -257,12 +257,12 @@ def test_move_rewrite_leaves_source_outlinks_and_dangling_unchanged(
 
 
 def test_rename_via_update_rewrites_backlink(service, read_service, workspace):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
-    service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
+    service.edit.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert "[[Renamed]]" in src.content
 
@@ -277,16 +277,16 @@ def test_rename_via_update_backlink_rewrite_preserves_source_extras(
 
     from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
 
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
     src_path = note_filepath(str(workspace), "", "Source")
     src_meta, src_content = read_note_file(src_path)
     write_note_file(src_path, replace(src_meta, extras={"aliases": ["Old Source"]}), src_content)
 
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
-    service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
+    service.edit.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
 
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert "[[Renamed]]" in src.content
@@ -303,39 +303,41 @@ def test_rewrite_backlinks_write_failing_partway_rolls_back_and_makes_no_commit(
     mirrors test_rename_tag_restores_every_touched_file_when_a_write_fails."""
     from kajet_turbo.services.notes import links as links_module
 
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    sid_a = service.save(workspace_target("u1", "ws", workspace), "Source A", "[[Target]]", [])[
-        "note_id"
-    ]
-    sid_b = service.save(workspace_target("u1", "ws", workspace), "Source B", "[[Target]]", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    sid_a = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source A", "[[Target]]", []
+    )["note_id"]
+    sid_b = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source B", "[[Target]]", []
+    )["note_id"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
 
     real_write = links_module.write_note_file
     flaky_write = make_flaky_write(real_write)
 
     monkeypatch.setattr(links_module, "write_note_file", flaky_write)
     with pytest.raises(OSError, match="disk full"):
-        service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
+        service.edit.update(
+            note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed"
+        )
     monkeypatch.setattr(links_module, "write_note_file", real_write)
 
     src_a = read_service.get_with_content(note_target("u1", "ws", workspace, sid_a))
     src_b = read_service.get_with_content(note_target("u1", "ws", workspace, sid_b))
     assert src_a.content == "[[Target]]"
     assert src_b.content == "[[Target]]"
-    history_a = service._version_service.get_history(note_target("u1", "ws", workspace, sid_a))
+    history_a = service.version_service.get_history(note_target("u1", "ws", workspace, sid_a))
     assert not any("rewrite wikilink" in h["message"] for h in history_a)
 
 
 def test_move_rewrite_creates_commit_in_source_history(service, folder_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Old/Target]]", [])[
-        "note_id"
-    ]
-    tid = service._crud_repo.get_by_path("ws", "u1", "Old", "Target").id
+    service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")
+    sid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "[[Old/Target]]", []
+    )["note_id"]
+    tid = service.crud_repo.get_by_path("ws", "u1", "Old", "Target").id
     folder_service.move(note_target("u1", "ws", workspace, tid), "New")
-    history = service._version_service.get_history(note_target("u1", "ws", workspace, sid))
+    history = service.version_service.get_history(note_target("u1", "ws", workspace, sid))
     assert any("rewrite wikilink" in h["message"] for h in history)
 
 
@@ -345,31 +347,33 @@ def test_rewrite_backlinks_db_failure_leaves_backlink_untouched(service, read_se
     must not touch the linking note's file or row — and must not undo the rename that
     triggered it, a separate, already-committed transaction (update()'s own
     commit_rows_then_tree call)."""
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
-    src_sha_before = service._version_service.get_history(note_target("u1", "ws", workspace, sid))[
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
+    src_sha_before = service.version_service.get_history(note_target("u1", "ws", workspace, sid))[
         0
     ]["sha"]
 
     # call 1: update()'s own row write (the rename) — must succeed and land.
     # call 2: _rewrite_backlinks' row write — fails.
-    flaky_update = make_flaky_db_write(service._crud_repo.update_in_session, fail_on_call=2)
+    flaky_update = make_flaky_db_write(service.crud_repo.update_in_session, fail_on_call=2)
 
     with (
-        patch.object(service._crud_repo, "update_in_session", flaky_update),
+        patch.object(service.crud_repo, "update_in_session", flaky_update),
         pytest.raises(RuntimeError, match="db exploded"),
     ):
-        service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
+        service.edit.update(
+            note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed"
+        )
 
     note = read_service.get_with_content(note_target("u1", "ws", workspace, tid))
     assert note.title == "Renamed"
 
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Target]]"
-    assert service._version_service.get_history(note_target("u1", "ws", workspace, sid))[0][
+    assert service.version_service.get_history(note_target("u1", "ws", workspace, sid))[0][
         "sha"
     ] == (src_sha_before)
 
@@ -381,12 +385,12 @@ def test_rewrite_backlinks_git_failure_leaves_row_and_move_intact(
     row-then-tree ordering applies to git-side failures too, not just DB-side ones."""
     from kajet_turbo.repositories.git import GitError, GitRepository
 
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
-    src_sha_before = service._version_service.get_history(note_target("u1", "ws", workspace, sid))[
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
+    src_sha_before = service.version_service.get_history(note_target("u1", "ws", workspace, sid))[
         0
     ]["sha"]
 
@@ -396,14 +400,16 @@ def test_rewrite_backlinks_git_failure_leaves_row_and_move_intact(
     )
     monkeypatch.setattr(GitRepository, "commit_changes", flaky_commit_changes)
     with pytest.raises(GitError, match="fail"):
-        service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
+        service.edit.update(
+            note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed"
+        )
 
     note = read_service.get_with_content(note_target("u1", "ws", workspace, tid))
     assert note.title == "Renamed"
 
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Target]]"
-    assert service._version_service.get_history(note_target("u1", "ws", workspace, sid))[0][
+    assert service.version_service.get_history(note_target("u1", "ws", workspace, sid))[0][
         "sha"
     ] == (src_sha_before)
 
@@ -419,17 +425,17 @@ def test_rewrite_backlinks_chunks_large_batches_logging_note_ids_per_chunk(
     from tests.helpers import entries_named, read_log_entries
 
     monkeypatch.setattr(links_module, "MAX_BATCH_COMMIT_SIZE", 2)
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
     source_ids = {
-        service.save(workspace_target("u1", "ws", workspace), f"Source {i}", "[[Target]]", [])[
-            "note_id"
-        ]
+        service.create.save(
+            workspace_target("u1", "ws", workspace), f"Source {i}", "[[Target]]", []
+        )["note_id"]
         for i in range(5)
     }
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
 
     setup_logging()
-    service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
+    service.edit.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
 
     entries = entries_named(read_log_entries(capsys), "repository_operation")
     rewrite_ops = [e for e in entries if e.get("operation") == "notes.rewrite_backlinks"]
@@ -453,8 +459,8 @@ def test_rewrite_backlinks_does_not_resync_occurred_at_period(service, workspace
 
     from kajet_turbo.workspace import note_filepath, read_note_file, write_note_file
 
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    sid = service.save(
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    sid = service.create.save(
         workspace_target("u1", "ws", workspace),
         "Source",
         "[[Target]]",
@@ -466,14 +472,14 @@ def test_rewrite_backlinks_does_not_resync_occurred_at_period(service, workspace
     src_meta, src_content = read_note_file(src_path)
     write_note_file(src_path, replace(src_meta, occurred_at="2099-12-31"), src_content)
 
-    row_before = service._crud_repo.get(sid, owner_id="u1")
+    row_before = service.crud_repo.get(sid, owner_id="u1")
     generation_before = row_before.index_generation
     updated_at_before = row_before.updated_at
 
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
-    service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
+    service.edit.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
 
-    row_after = service._crud_repo.get(sid, owner_id="u1")
+    row_after = service.crud_repo.get(sid, owner_id="u1")
     assert row_after.occurred_at == "2026-01-01"
     assert row_after.updated_at == updated_at_before
     assert row_after.index_generation == generation_before + 1
@@ -486,8 +492,8 @@ def test_rewrite_backlinks_heals_corrupted_occurred_at_instead_of_nulling_it(ser
     DB's (untouched, still correct) value instead, in both the file and the DB row."""
     from kajet_turbo.workspace import note_filepath, read_note_file
 
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    sid = service.save(
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    sid = service.create.save(
         workspace_target("u1", "ws", workspace),
         "Source",
         "[[Target]]",
@@ -498,10 +504,10 @@ def test_rewrite_backlinks_heals_corrupted_occurred_at_instead_of_nulling_it(ser
     src_path = note_filepath(str(workspace), "", "Source")
     corrupt_temporal_field(src_path, "occurred_at", "banana")
 
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
-    service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
+    service.edit.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
 
-    row_after = service._crud_repo.get(sid, owner_id="u1")
+    row_after = service.crud_repo.get(sid, owner_id="u1")
     assert row_after.occurred_at == "2026-01-01"
     src_meta, _ = read_note_file(src_path)
     assert src_meta.occurred_at == "2026-01-01"
@@ -526,7 +532,7 @@ def test_with_extra_resolves_extra_notes_without_requerying(
     service, link_service, workspace, monkeypatch
 ):
     base = link_service.for_workspace("ws", "u1")
-    real_list_paths = service._crud_repo.list_paths
+    real_list_paths = service.crud_repo.list_paths
     calls = 0
 
     def counted_list_paths(*args, **kwargs):
@@ -534,7 +540,7 @@ def test_with_extra_resolves_extra_notes_without_requerying(
         calls += 1
         return real_list_paths(*args, **kwargs)
 
-    monkeypatch.setattr(service._crud_repo, "list_paths", counted_list_paths)
+    monkeypatch.setattr(service.crud_repo, "list_paths", counted_list_paths)
 
     extended = base.with_extra([IndexedNote("abc1234", "Batch", "Target")])
     links = extended.validate("see [[Target]]", "")
@@ -550,31 +556,35 @@ def test_with_extra_resolves_extra_notes_without_requerying(
 
 
 def test_save_short_link_resolves_note_in_subfolder(service, link_service, workspace):
-    tid = service.save(
+    tid = service.create.save(
         workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Deep/Er"
     )["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "see [[Target]]", [])[
-        "note_id"
-    ]
+    sid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "see [[Target]]", []
+    )["note_id"]
     assert link_service._link_repo.backlinks(tid) == [sid]
 
 
 def test_save_suffix_path_resolves_nested_note(service, link_service, workspace):
-    tid = service.save(
+    tid = service.create.save(
         workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Deep/Er"
     )["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "see [[Er/Target]]", [])[
-        "note_id"
-    ]
+    sid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "see [[Er/Target]]", []
+    )["note_id"]
     assert link_service._link_repo.backlinks(tid) == [sid]
 
 
 def test_save_ambiguous_short_link_prefers_source_folder(service, link_service, workspace):
-    a = service.save(workspace_target("u1", "ws", workspace), "T", "a", [], folder="A")["note_id"]
-    b = service.save(workspace_target("u1", "ws", workspace), "T", "b", [], folder="B")["note_id"]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[T]]", [], folder="B")[
+    a = service.create.save(workspace_target("u1", "ws", workspace), "T", "a", [], folder="A")[
         "note_id"
     ]
+    b = service.create.save(workspace_target("u1", "ws", workspace), "T", "b", [], folder="B")[
+        "note_id"
+    ]
+    sid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "[[T]]", [], folder="B"
+    )["note_id"]
     assert link_service._link_repo.backlinks(b) == [sid]
     assert link_service._link_repo.backlinks(a) == []
 
@@ -587,7 +597,7 @@ def test_save_many_short_links_between_batch_notes_in_folder(service, link_servi
         {"title": "Beta", "content": "see [[Alpha]] and [[Gamma]]", "folder": "Proj/Docs"},
         {"title": "Gamma", "content": "see [[Docs/Alpha]]", "folder": "Proj/Docs"},
     ]
-    results = service.save_many(workspace_target("u1", "ws", workspace), notes)
+    results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
     assert all("note_id" in r for r in results), results
     ids = {n["title"]: r["note_id"] for n, r in zip(notes, results, strict=True)}
     links = link_service._link_repo
@@ -596,7 +606,7 @@ def test_save_many_short_links_between_batch_notes_in_folder(service, link_servi
 
 
 def test_rendered_short_link_points_at_target_folder(service, link_service, workspace):
-    tid = service.save(
+    tid = service.create.save(
         workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Deep/Er"
     )["note_id"]
     html = render_markdown(
@@ -610,7 +620,7 @@ def test_rendered_short_link_points_at_target_folder(service, link_service, work
 def test_render_link_index_is_loaded_only_when_first_wikilink_is_rendered(
     service, link_service, workspace, monkeypatch
 ):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
     calls = 0
     original = link_service._crud_repo.list_paths
 
@@ -634,12 +644,12 @@ def test_render_link_index_is_loaded_only_when_first_wikilink_is_rendered(
 def test_move_keeps_short_backlink_unchanged(
     service, folder_service, link_service, read_service, workspace
 ):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")[
-        "note_id"
-    ]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "see [[Target|T]]", [])[
-        "note_id"
-    ]
+    tid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old"
+    )["note_id"]
+    sid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "see [[Target|T]]", []
+    )["note_id"]
     folder_service.move(note_target("u1", "ws", workspace, tid), "New")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "see [[Target|T]]"
@@ -649,14 +659,14 @@ def test_move_keeps_short_backlink_unchanged(
 def test_rename_rewrites_short_backlink_to_short_new_title(
     service, link_service, read_service, workspace
 ):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Sub")[
+    tid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Sub"
+    )["note_id"]
+    sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
-    service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
+    service.edit.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Renamed]]"
     assert link_service._link_repo.backlinks(tid) == [sid]
@@ -667,15 +677,15 @@ def test_rename_falls_back_to_full_path_when_short_form_would_be_ambiguous(
 ):
     # Another "Renamed" at the root would capture a bare [[Renamed]] (exact-root rule), so
     # the rewrite must spell the full path to keep the link on the renamed note.
-    service.save(workspace_target("u1", "ws", workspace), "Renamed", "decoy", [])
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Sub")[
+    service.create.save(workspace_target("u1", "ws", workspace), "Renamed", "decoy", [])
+    tid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Sub"
+    )["note_id"]
+    sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
-    service.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
+    service.edit.update(note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Sub/Renamed]]"
     assert link_service._link_repo.backlinks(tid) == [sid]
@@ -684,12 +694,12 @@ def test_rename_falls_back_to_full_path_when_short_form_would_be_ambiguous(
 def test_move_rewrites_suffix_backlink_keeping_its_shape(
     service, folder_service, read_service, workspace
 ):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="A/Old")[
-        "note_id"
-    ]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Old/Target]]", [])[
-        "note_id"
-    ]
+    tid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Target", "t", [], folder="A/Old"
+    )["note_id"]
+    sid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "[[Old/Target]]", []
+    )["note_id"]
     folder_service.move(note_target("u1", "ws", workspace, tid), "A/New")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[New/Target]]"
@@ -699,17 +709,17 @@ def test_move_folder_rewrites_source_linking_two_moved_notes_once(
     service, folder_service, read_service, workspace
 ):
     # One source links two notes in the moved folder: one rewrite commit, both links fixed.
-    service.save(workspace_target("u1", "ws", workspace), "A", "a", [], folder="Old/Sub")
-    service.save(workspace_target("u1", "ws", workspace), "B", "b", [], folder="Old/Sub")
-    sid = service.save(
+    service.create.save(workspace_target("u1", "ws", workspace), "A", "a", [], folder="Old/Sub")
+    service.create.save(workspace_target("u1", "ws", workspace), "B", "b", [], folder="Old/Sub")
+    sid = service.create.save(
         workspace_target("u1", "ws", workspace), "Source", "[[Old/Sub/A]] [[Old/Sub/B]]", []
     )["note_id"]
-    before = len(service._version_service.get_history(note_target("u1", "ws", workspace, sid)))
+    before = len(service.version_service.get_history(note_target("u1", "ws", workspace, sid)))
     folder_service.move_folder("Old", "New", owner_id="u1", ws_path=str(workspace), workspace="ws")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[New/Sub/A]] [[New/Sub/B]]"
     assert (
-        len(service._version_service.get_history(note_target("u1", "ws", workspace, sid)))
+        len(service.version_service.get_history(note_target("u1", "ws", workspace, sid)))
         == before + 1
     )
 
@@ -717,12 +727,12 @@ def test_move_folder_rewrites_source_linking_two_moved_notes_once(
 def test_move_to_root_rewrites_path_backlink_to_bare_title(
     service, folder_service, link_service, read_service, workspace
 ):
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old")[
-        "note_id"
-    ]
-    sid = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Old/Target|x]]", [])[
-        "note_id"
-    ]
+    tid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Old"
+    )["note_id"]
+    sid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "[[Old/Target|x]]", []
+    )["note_id"]
     folder_service.move(note_target("u1", "ws", workspace, tid), "")
     src = read_service.get_with_content(note_target("u1", "ws", workspace, sid))
     assert src.content == "[[Target|x]]"
@@ -735,13 +745,15 @@ def test_move_folder_ranks_co_moved_source_from_its_old_folder(
     # Source sits inside the moved folder and links [[T]], which pre-move meant Old/T (the
     # nearest T). After the move a decoy Dst/Old/Sub/T would win from the source's new
     # folder, so the rewrite must judge the link from where the source *was*.
-    tid = service.save(workspace_target("u1", "ws", workspace), "T", "t", [], folder="Old")[
+    tid = service.create.save(workspace_target("u1", "ws", workspace), "T", "t", [], folder="Old")[
         "note_id"
     ]
-    service.save(workspace_target("u1", "ws", workspace), "T", "decoy", [], folder="Dst/Old/Sub")
-    sid = service.save(workspace_target("u1", "ws", workspace), "S", "[[T]]", [], folder="Old/Sub")[
-        "note_id"
-    ]
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "T", "decoy", [], folder="Dst/Old/Sub"
+    )
+    sid = service.create.save(
+        workspace_target("u1", "ws", workspace), "S", "[[T]]", [], folder="Old/Sub"
+    )["note_id"]
     assert link_service._link_repo.backlinks(tid) == [sid]
     folder_service.move_folder(
         "Old", "Dst/Old", owner_id="u1", ws_path=str(workspace), workspace="ws"
@@ -759,11 +771,13 @@ def test_reindex_resolves_short_links_and_xws_ids(
     other_ws = workspace.parent / "other"
     other_ws.mkdir()
     GitRepository.init(str(other_ws))
-    tid = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Deep")[
+    tid = service.create.save(
+        workspace_target("u1", "ws", workspace), "Target", "t", [], folder="Deep"
+    )["note_id"]
+    other = service.create.save(workspace_target("u1", "other", other_ws), "Far", "f", [])[
         "note_id"
     ]
-    other = service.save(workspace_target("u1", "other", other_ws), "Far", "f", [])["note_id"]
-    sid = service.save(
+    sid = service.create.save(
         workspace_target("u1", "ws", workspace), "Source", f"[[Target]] [[note:{other}]]", []
     )["note_id"]
     reconcile_service.reindex("ws", "u1", str(workspace))
@@ -775,11 +789,11 @@ def test_reindex_resolves_short_links_and_xws_ids(
 
 
 def _make_service_with_validation(database, link_validation_enabled=None):
-    """Build a NoteService with optional link_validation_enabled predicate."""
+    """Build the note write services with optional link_validation_enabled predicate."""
     from kajet_turbo.embedding.cache import EmbeddingCacheRepository
     from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.repositories.notes import NoteChunkRepository
-    from tests.services.conftest import build_note_service
+    from tests.services.conftest import build_note_wiring
 
     chunk_repo = NoteChunkRepository(database.engine)
     from kajet_turbo.services.indexing import NoteIndexer
@@ -790,7 +804,7 @@ def _make_service_with_validation(database, link_validation_enabled=None):
         resolve_backend=lambda owner_id: None,
         jobs=JobRepository(database.engine),
     )
-    return build_note_service(
+    return build_note_wiring(
         database, indexer=indexer, link_validation_enabled=link_validation_enabled
     )
 
@@ -798,17 +812,19 @@ def _make_service_with_validation(database, link_validation_enabled=None):
 def test_save_with_broken_wikilink_allowed_when_validation_disabled(database, workspace):
     """Validation disabled: broken [[Ghost]] does not raise; note is persisted."""
     svc = _make_service_with_validation(database, link_validation_enabled=lambda ws, owner: False)
-    result = svc.save(workspace_target("u1", "ws", workspace), "Note A", "see [[Ghost]]", tags=[])
+    result = svc.create.save(
+        workspace_target("u1", "ws", workspace), "Note A", "see [[Ghost]]", tags=[]
+    )
     assert "note_id" in result
     assert (workspace / "Note A.md").exists()
-    assert svc._crud_repo.get(result["note_id"], owner_id="u1") is not None
+    assert svc.crud_repo.get(result["note_id"], owner_id="u1") is not None
 
 
 def test_disabled_validation_still_links_existing_targets(database, link_service, workspace):
     """Validation disabled: resolved target IS in note_links; broken one is silently dropped."""
     svc = _make_service_with_validation(database, link_validation_enabled=lambda ws, owner: False)
-    a = svc.save(workspace_target("u1", "ws", workspace), "Target", "body", tags=[])
-    b = svc.save(
+    a = svc.create.save(workspace_target("u1", "ws", workspace), "Target", "body", tags=[])
+    b = svc.create.save(
         workspace_target("u1", "ws", workspace), "Source", "[[Target]] and [[Ghost]]", tags=[]
     )
     # Resolved target appears as a backlink; broken Ghost is absent.
@@ -824,7 +840,7 @@ def test_save_broken_wikilink_still_rejected_when_enabled_default(database, work
     """Default (None predicate) keeps hard rejection — guards the existing contract."""
     svc = _make_service_with_validation(database)  # no predicate -> always enabled
     with pytest.raises(BrokenWikilinkError):
-        svc.save(workspace_target("u1", "ws", workspace), "Note", "see [[Ghost]]", tags=[])
+        svc.create.save(workspace_target("u1", "ws", workspace), "Note", "see [[Ghost]]", tags=[])
 
 
 # --- dangling link writes ---
@@ -835,7 +851,7 @@ def test_validation_off_save_writes_dangling_rows(database, workspace):
     svc, _links, dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
-    res = svc.save(
+    res = svc.create.save(
         workspace_target("u1", "ws", workspace), "Source", "[[Ghost]] and [[Sub/Other]]", tags=[]
     )
     rows = dangling.list_for_workspace("u1", "ws")
@@ -851,8 +867,8 @@ def test_validation_off_resolved_link_writes_no_dangling(database, workspace):
     svc, _links, dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
-    svc.save(workspace_target("u1", "ws", workspace), "Target", "body", tags=[])
-    svc.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", tags=[])
+    svc.create.save(workspace_target("u1", "ws", workspace), "Target", "body", tags=[])
+    svc.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", tags=[])
     assert dangling.exists("u1", "ws") is False
 
 
@@ -861,11 +877,11 @@ def test_resave_replaces_dangling_rows(database, workspace):
     svc, _links, dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
-    r = svc.save(workspace_target("u1", "ws", workspace), "Source", "[[Ghost]]", tags=[])
-    sha = svc._version_service.get_history(note_target("u1", "ws", workspace, r["note_id"]))[0][
+    r = svc.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Ghost]]", tags=[])
+    sha = svc.version_service.get_history(note_target("u1", "ws", workspace, r["note_id"]))[0][
         "sha"
     ]
-    svc.update(
+    svc.edit.update(
         note_target("u1", "ws", workspace, r["note_id"]),
         expected_sha=sha,
         edit=EditSpec(content="[[Other]]"),
@@ -878,7 +894,7 @@ def test_validation_on_writes_no_dangling(database, workspace):
     """Validation-on raises BrokenWikilinkError before any dangling write."""
     svc, _links, dangling = make_service_with_dangling(database)  # no predicate => validation ON
     with pytest.raises(BrokenWikilinkError):
-        svc.save(workspace_target("u1", "ws", workspace), "Source", "[[Ghost]]", tags=[])
+        svc.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Ghost]]", tags=[])
     assert dangling.exists("u1", "ws") is False
 
 
@@ -887,7 +903,7 @@ def test_delete_note_clears_dangling_rows(database, workspace):
     svc, _links, dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
-    res = svc.save(workspace_target("u1", "ws", workspace), "Source", "[[Ghost]]", tags=[])
+    res = svc.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Ghost]]", tags=[])
     assert dangling.exists("u1", "ws") is True
-    svc.delete(note_target("u1", "ws", workspace, res["note_id"]))
+    svc.delete.delete(note_target("u1", "ws", workspace, res["note_id"]))
     assert dangling.exists("u1", "ws") is False

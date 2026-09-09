@@ -5,6 +5,7 @@ from kajet_turbo.markdown import EditSpec
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
+from kajet_turbo.services.notes import DeleteBatchItem
 from tests.conftest import seed_user
 from tests.services.conftest import (
     note_target,
@@ -24,11 +25,13 @@ def test_target_creation_marks_only_dangling_source_and_reconciles(database, git
         database, ws.parent.parent
     )
 
-    source_id = service.save(workspace_target("u1", "ws", ws), "Source", "[[Target]]", [])[
+    source_id = service.create.save(workspace_target("u1", "ws", ws), "Source", "[[Target]]", [])[
         "note_id"
     ]
     assert dirty.list_dirty("u1", "ws") == {}
-    target_id = service.save(workspace_target("u1", "ws", ws), "Target", "body", [])["note_id"]
+    target_id = service.create.save(workspace_target("u1", "ws", ws), "Target", "body", [])[
+        "note_id"
+    ]
 
     assert set(dirty.list_dirty("u1", "ws")) == {source_id}
     reconcile_jobs = [j for j in jobs.list_jobs("u1") if j.kind == "reconcile_links"]
@@ -67,9 +70,13 @@ def test_concurrent_source_mutation_cannot_leave_stale_graph(
     service, links, _jobs, dirty, _dangling, handler = build_reconcile_wiring(
         database, ws.parent.parent
     )
-    first_id = service.save(workspace_target("u1", "ws", ws), "First", "body", [])["note_id"]
-    second_id = service.save(workspace_target("u1", "ws", ws), "Second", "body", [])["note_id"]
-    source_id = service.save(workspace_target("u1", "ws", ws), "Source", "[[First]]", [])["note_id"]
+    first_id = service.create.save(workspace_target("u1", "ws", ws), "First", "body", [])["note_id"]
+    second_id = service.create.save(workspace_target("u1", "ws", ws), "Second", "body", [])[
+        "note_id"
+    ]
+    source_id = service.create.save(workspace_target("u1", "ws", ws), "Source", "[[First]]", [])[
+        "note_id"
+    ]
     dirty.mark_and_enqueue("u1", "ws", {source_id})
 
     original = links.persist_many
@@ -81,11 +88,11 @@ def test_concurrent_source_mutation_cannot_leave_stale_graph(
         if not raced and source_id in resolutions:
             raced = True
             source_target = note_target("u1", "ws", ws, source_id)
-            sha = service._version_service.get_history(source_target)[0]["sha"]
+            sha = service.version_service.get_history(source_target)[0]["sha"]
             if mutation == "update":
-                service.update(source_target, sha, edit=EditSpec(content="[[Second]]"))
+                service.edit.update(source_target, sha, edit=EditSpec(content="[[Second]]"))
             elif mutation == "edit_many":
-                result = service.edit_many(
+                result = service.edit.edit_many(
                     workspace_target("u1", "ws", ws),
                     [
                         edit_item(
@@ -99,7 +106,7 @@ def test_concurrent_source_mutation_cannot_leave_stale_graph(
                 )
                 assert result["applied"] is True
             else:
-                service.delete(source_target, expected_sha=sha)
+                service.delete.delete(source_target, expected_sha=sha)
         original(*args, **kwargs)
 
     monkeypatch.setattr(links, "persist_many", persist_after_mutation)
@@ -203,22 +210,22 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
         database, ws.parent.parent
     )
     folder_service = build_note_folder_service_from(service)
-    target_id = service.save(workspace_target("u1", "ws", ws), "Target", "body", [], folder="Old")[
-        "note_id"
-    ]
-    source_id = service.save(workspace_target("u1", "ws", ws), "Source", "[[Old/Target]]", [])[
-        "note_id"
-    ]
+    target_id = service.create.save(
+        workspace_target("u1", "ws", ws), "Target", "body", [], folder="Old"
+    )["note_id"]
+    source_id = service.create.save(
+        workspace_target("u1", "ws", ws), "Source", "[[Old/Target]]", []
+    )["note_id"]
 
     calls = 0
-    original = service._crud_repo.list_paths
+    original = service.crud_repo.list_paths
 
     def counted_list_paths(*args, **kwargs):
         nonlocal calls
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(service._crud_repo, "list_paths", counted_list_paths)
+    monkeypatch.setattr(service.crud_repo, "list_paths", counted_list_paths)
 
     def one_snapshot(fn):
         before = calls
@@ -227,8 +234,8 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
         return result
 
     target_target = note_target("u1", "ws", ws, target_id)
-    sha = service._version_service.get_history(target_target)[0]["sha"]
-    one_snapshot(lambda: service.update(target_target, sha, title="Renamed"))
+    sha = service.version_service.get_history(target_target)[0]["sha"]
+    one_snapshot(lambda: service.edit.update(target_target, sha, title="Renamed"))
     assert set(dirty.list_dirty("u1", "ws")) == {source_id, target_id}
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
 
@@ -244,12 +251,12 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
     assert set(dirty.list_dirty("u1", "ws")) == {source_id, target_id}
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
 
-    one_snapshot(lambda: service.delete(target_target))
+    one_snapshot(lambda: service.delete.delete(target_target))
     assert set(dirty.list_dirty("u1", "ws")) == {source_id}
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
 
     saved = one_snapshot(
-        lambda: service.save_many(
+        lambda: service.create.save_many(
             workspace_target("u1", "ws", ws),
             [{"title": "Renamed", "folder": "New", "content": "body"}],
         )
@@ -259,11 +266,11 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
 
     replacement_target = note_target("u1", "ws", ws, replacement_id)
-    replacement_sha = service._version_service.get_history(replacement_target)[0]["sha"]
+    replacement_sha = service.version_service.get_history(replacement_target)[0]["sha"]
     one_snapshot(
-        lambda: service.delete_many(
+        lambda: service.delete.delete_many(
             workspace_target("u1", "ws", ws),
-            [{"note_id": replacement_id, "expected_sha": replacement_sha}],
+            [DeleteBatchItem(note_id=replacement_id, expected_sha=replacement_sha)],
         )
     )
     assert set(dirty.list_dirty("u1", "ws")) == {source_id}

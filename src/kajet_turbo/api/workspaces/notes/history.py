@@ -6,15 +6,15 @@ from kajet_turbo.api.workspaces.notes.content import _render_html
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_edit_service,
     get_note_link_service,
-    get_note_service,
     get_note_version_service,
     get_required_user,
     resolve_note_target,
 )
 from kajet_turbo.errors import NoteError
 from kajet_turbo.repositories.git import GitError as RepoGitError
-from kajet_turbo.services.notes import NoteLinkService, NoteService, NoteVersionService
+from kajet_turbo.services.notes import NoteEditService, NoteLinkService, NoteVersionService
 from kajet_turbo.services.targets import NoteTarget
 
 router = APIRouter(
@@ -93,10 +93,10 @@ async def api_restore_note_version(
     sha: str,
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
-    note_service: NoteService = Depends(get_note_service),
+    note_edit_service: NoteEditService = Depends(get_note_edit_service),
 ) -> RestoreVersionResponse:
     try:
-        result = await run_sync(note_service.restore_version, target, sha)
+        result = await run_sync(note_edit_service.restore_version, target, sha)
     except ValueError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
     return RestoreVersionResponse(note_id=result["note_id"], warnings=result["warnings"])

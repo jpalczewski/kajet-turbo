@@ -20,6 +20,7 @@ from dulwich.repo import BaseRepo
 
 import kajet_turbo.repositories.git as git_module
 from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.services.notes import DeleteBatchItem
 from tests.services.conftest import note_target, workspace_target
 from tests.services.helpers import edit_item
 
@@ -59,7 +60,9 @@ def _saved_notes(service, workspace, count=3):
     notes = []
     for i in range(count):
         title = f"Note {i}"
-        result = service.save(workspace_target("u1", "ws", workspace), title, f"body {i}\n", [])
+        result = service.create.save(
+            workspace_target("u1", "ws", workspace), title, f"body {i}\n", []
+        )
         sha = GitRepository(str(workspace)).file_history(f"{title}.md", limit=1)[0]["sha"]
         notes.append({"note_id": result["note_id"], "sha": sha})
     return notes
@@ -81,7 +84,7 @@ def test_edit_many_opens_repo_once(service, workspace, repo_open_count):
     notes = _saved_notes(service, workspace)
     repo_open_count["count"] = 0
 
-    result = service.edit_many(
+    result = service.edit.edit_many(
         workspace_target("u1", "ws", workspace),
         [edit_item(n["note_id"], n["sha"], content="x") for n in notes],
     )
@@ -94,9 +97,9 @@ def test_delete_many_opens_repo_once(service, workspace, repo_open_count):
     notes = _saved_notes(service, workspace)
     repo_open_count["count"] = 0
 
-    result = service.delete_many(
+    result = service.delete.delete_many(
         workspace_target("u1", "ws", workspace),
-        [{"note_id": n["note_id"], "expected_sha": n["sha"]} for n in notes],
+        [DeleteBatchItem(note_id=n["note_id"], expected_sha=n["sha"]) for n in notes],
     )
 
     assert result["applied"] is True
@@ -121,7 +124,7 @@ def test_edit_many_resolves_shas_in_one_walker_pass(service, workspace, walker_p
     notes = _saved_notes(service, workspace)
     walker_pass_count["count"] = 0
 
-    result = service.edit_many(
+    result = service.edit.edit_many(
         workspace_target("u1", "ws", workspace),
         [edit_item(n["note_id"], n["sha"], content="x") for n in notes],
     )
@@ -134,9 +137,9 @@ def test_delete_many_resolves_shas_in_one_walker_pass(service, workspace, walker
     notes = _saved_notes(service, workspace)
     walker_pass_count["count"] = 0
 
-    result = service.delete_many(
+    result = service.delete.delete_many(
         workspace_target("u1", "ws", workspace),
-        [{"note_id": n["note_id"], "expected_sha": n["sha"]} for n in notes],
+        [DeleteBatchItem(note_id=n["note_id"], expected_sha=n["sha"]) for n in notes],
     )
 
     assert result["applied"] is True
@@ -168,14 +171,14 @@ def test_update_rename_with_backlink_opens_repo_once_for_the_rename_leg(
     scope, so the fixed count is 2 (staleness + the rename/rewrite pair sharing one
     repo), not 1 — the regression this guards is the rename/rewrite pair going from
     two opens to one, taking the call's total from 3 to 2."""
-    target = service.save(workspace_target("u1", "ws", workspace), "Target", "body\n", [])
-    source = service.save(
+    target = service.create.save(workspace_target("u1", "ws", workspace), "Target", "body\n", [])
+    source = service.create.save(
         workspace_target("u1", "ws", workspace), "Source", "links [[Target]]\n", []
     )
     sha = GitRepository(str(workspace)).file_history("Target.md", limit=1)[0]["sha"]
     repo_open_count["count"] = 0
 
-    result = service.update(
+    result = service.edit.update(
         note_target("u1", "ws", workspace, target["note_id"]), expected_sha=sha, title="Renamed"
     )
 
@@ -190,8 +193,8 @@ def test_update_rename_with_backlink_opens_repo_once_for_the_rename_leg(
 
 
 def test_move_opens_repo_once(service, folder_service, workspace, repo_open_count):
-    target = service.save(workspace_target("u1", "ws", workspace), "Target", "body\n", [])
-    service.save(workspace_target("u1", "ws", workspace), "Source", "links [[Target]]\n", [])
+    target = service.create.save(workspace_target("u1", "ws", workspace), "Target", "body\n", [])
+    service.create.save(workspace_target("u1", "ws", workspace), "Source", "links [[Target]]\n", [])
     repo_open_count["count"] = 0
 
     result = folder_service.move(note_target("u1", "ws", workspace, target["note_id"]), "moved")
@@ -201,8 +204,10 @@ def test_move_opens_repo_once(service, folder_service, workspace, repo_open_coun
 
 
 def test_move_folder_opens_repo_once(service, folder_service, workspace, repo_open_count):
-    service.save(workspace_target("u1", "ws", workspace), "A", "body\n", [], folder="src")
-    service.save(workspace_target("u1", "ws", workspace), "B", "links [[A]]\n", [], folder="src")
+    service.create.save(workspace_target("u1", "ws", workspace), "A", "body\n", [], folder="src")
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "B", "links [[A]]\n", [], folder="src"
+    )
     repo_open_count["count"] = 0
 
     result = folder_service.move_folder(

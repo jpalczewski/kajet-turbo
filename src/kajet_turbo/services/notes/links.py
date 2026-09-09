@@ -536,7 +536,7 @@ class NoteLinkService:
 
         Every affected source is staged, then committed in chunks of up to
         ``MAX_BATCH_COMMIT_SIZE`` sources (#171), each its own transaction and git commit —
-        via a raw write, deliberately not the full ``NoteService.update()`` pipeline. Of the
+        via a raw write, deliberately not the full ``NoteEditService.update()`` pipeline. Of the
         four steps ``update()`` normally runs beyond the row/tree write, three are skipped
         here and one is not, each for its own reason:
 
@@ -601,12 +601,7 @@ class NoteLinkService:
             # A field read_note_file had to drop as unparseable falls back to the DB's
             # (untouched) value instead of the file's now-None one, so this wikilink-only
             # rewrite never silently nulls a corrupted-but-real date (#132 follow-up).
-            occurred_at = (
-                data_meta.occurred_at
-                if "occurred_at" not in data_meta.temporal_dropped
-                else src.occurred_at
-            )
-            period = data_meta.period if "period" not in data_meta.temporal_dropped else src.period
+            occurred_at, period = data_meta.temporal_or(src.occurred_at, src.period)
             meta = replace(
                 data_meta, id=src.id, title=src.title, occurred_at=occurred_at, period=period
             )

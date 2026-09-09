@@ -26,11 +26,11 @@ def svc(tmp_path, database_factory):
     from tests.services.conftest import (
         build_note_read_service,
         build_note_search_service,
-        build_note_service,
+        build_note_wiring,
     )
 
     db = database_factory("stress.db")
-    service = build_note_service(db)
+    service = build_note_wiring(db)
     read_service = build_note_read_service(db)
     search_service = build_note_search_service(db)
     return service, read_service, search_service, str(tmp_path / "ws")
@@ -40,13 +40,13 @@ def test_parallel_save_search_history(svc, tmp_path):
     service, read_service, search_service, ws_path = svc
     Path(ws_path).mkdir()
     GitRepository.init(ws_path)
-    seed = service.save(_ws(ws_path), "Seed", "treść początkowa", [])
+    seed = service.create.save(_ws(ws_path), "Seed", "treść początkowa", [])
 
     errors: list[Exception] = []
 
     def save(i: int) -> None:
         try:
-            service.save(_ws(ws_path), f"Nota {i}", f"treść {i}", ["tag"])
+            service.create.save(_ws(ws_path), f"Nota {i}", f"treść {i}", ["tag"])
         except Exception as e:
             errors.append(e)
 
@@ -58,7 +58,7 @@ def test_parallel_save_search_history(svc, tmp_path):
 
     def history(i: int) -> None:
         try:
-            service._version_service.get_history(_note(ws_path, seed["note_id"]))
+            service.version_service.get_history(_note(ws_path, seed["note_id"]))
         except Exception as e:
             errors.append(e)
 

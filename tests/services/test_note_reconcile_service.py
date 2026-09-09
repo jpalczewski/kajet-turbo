@@ -1,5 +1,5 @@
 """Direct coverage for NoteReconcileService.clear_workspace_data (#225): constructed
-without a NoteService, cleared atomically, scoped to its own domain and its own
+without the note write services, cleared atomically, scoped to its own domain and its own
 workspace/owner."""
 
 import pytest

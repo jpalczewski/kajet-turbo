@@ -1,11 +1,13 @@
-"""export_folder() coverage for NoteService."""
+"""export_folder() coverage for NoteReadService."""
 
 from tests.services.conftest import workspace_target
 
 
 def test_export_folder_concatenates_notes_with_headings(service, read_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "01 First", "first body", [], folder="a")
-    service.save(
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "01 First", "first body", [], folder="a"
+    )
+    service.create.save(
         workspace_target("u1", "ws", workspace), "02 Second", "second body", [], folder="a"
     )
     result = read_service.export_folder("ws", "u1", str(workspace), "a")
@@ -18,23 +20,29 @@ def test_export_folder_concatenates_notes_with_headings(service, read_service, w
 
 
 def test_export_folder_includes_subtree(service, read_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Nested", "nested body", [], folder="a/b")
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "Nested", "nested body", [], folder="a/b"
+    )
     result = read_service.export_folder("ws", "u1", str(workspace), "a")
     assert result["note_count"] == 1
     assert "nested body" in result["markdown"]
 
 
 def test_export_folder_excludes_sibling_folders(service, read_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "In", "in body", [], folder="a")
-    service.save(workspace_target("u1", "ws", workspace), "Out", "out body", [], folder="b")
+    service.create.save(workspace_target("u1", "ws", workspace), "In", "in body", [], folder="a")
+    service.create.save(workspace_target("u1", "ws", workspace), "Out", "out body", [], folder="b")
     result = read_service.export_folder("ws", "u1", str(workspace), "a")
     assert result["note_count"] == 1
     assert "out body" not in result["markdown"]
 
 
 def test_export_folder_truncates_at_note_boundary(service, read_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "01 First", "x" * 50, [], folder="a")
-    service.save(workspace_target("u1", "ws", workspace), "02 Second", "y" * 50, [], folder="a")
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "01 First", "x" * 50, [], folder="a"
+    )
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "02 Second", "y" * 50, [], folder="a"
+    )
     result = read_service.export_folder("ws", "u1", str(workspace), "a", max_chars=60)
     assert result["note_count"] == 1
     assert "x" * 50 in result["markdown"]
@@ -47,7 +55,9 @@ def test_export_folder_truncates_at_note_boundary(service, read_service, workspa
 def test_export_folder_always_includes_first_note_even_if_oversized(
     service, read_service, workspace
 ):
-    service.save(workspace_target("u1", "ws", workspace), "01 Huge", "z" * 200, [], folder="a")
+    service.create.save(
+        workspace_target("u1", "ws", workspace), "01 Huge", "z" * 200, [], folder="a"
+    )
     result = read_service.export_folder("ws", "u1", str(workspace), "a", max_chars=10)
     assert result["note_count"] == 1
     assert "z" * 200 in result["markdown"]

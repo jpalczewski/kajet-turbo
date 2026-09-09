@@ -37,15 +37,13 @@ def test_parse_frontmatter_tolerates_malformed_period():
 def test_parse_frontmatter_still_rejects_malformed_values_on_explicit_write(service, workspace):
     """The lenient read path must not weaken explicit-write validation: passing a bad
     value through the service API still raises loudly."""
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Strict Write", "Body", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Strict Write", "Body", []
+    )["note_id"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
     with pytest.raises(TemporalMetadataError):
-        service.update(
+        service.edit.update(
             note_target("u1", "ws", workspace, note_id),
             expected_sha=sha,
             occurred_at="not-a-date",
@@ -71,7 +69,7 @@ def test_update_keeps_db_occurred_at_when_file_value_is_corrupted(service, works
     occurred_at just because a hand-edit made the on-disk copy unparseable — it should
     fall back to the DB's last-known-good value instead of persisting the drop, and
     surface the drop to the caller (#132 follow-up to the parse_frontmatter leniency fix)."""
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace),
         "Corrupt Update",
         "Body",
@@ -82,13 +80,13 @@ def test_update_keeps_db_occurred_at_when_file_value_is_corrupted(service, works
     corrupt_temporal_field(path, "occurred_at", "banana")
 
     target = note_target("u1", "ws", workspace, note_id)
-    sha = service._version_service.get_history(target)[0]["sha"]
-    result = service.update(target, expected_sha=sha, title="Renamed")
+    sha = service.version_service.get_history(target)[0]["sha"]
+    result = service.edit.update(target, expected_sha=sha, title="Renamed")
 
     assert result["temporal_warnings"] == [
         {"kind": "temporal_value_ignored", "field": "occurred_at"}
     ]
-    row = service._crud_repo.get(note_id, owner_id="u1")
+    row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and row.occurred_at == "2026-03-22"
     meta, _ = read_note_file(note_filepath(str(workspace), "", "Renamed"))
     assert meta.occurred_at == "2026-03-22"
@@ -98,7 +96,7 @@ def test_edit_many_keeps_db_occurred_at_when_file_value_is_corrupted(service, wo
     """edit_many's per-item fallback must fall back to the DB's last-known-good value for
     a field read_note_file had to drop, same as update() (#132 follow-up), and surface
     the drop per item rather than only in a server-side log."""
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace),
         "Corrupt Batch",
         "Body",
@@ -107,11 +105,9 @@ def test_edit_many_keeps_db_occurred_at_when_file_value_is_corrupted(service, wo
     )["note_id"]
     path = note_filepath(str(workspace), "", "Corrupt Batch")
     corrupt_temporal_field(path, "occurred_at", "banana")
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    result = service.edit_many(
+    result = service.edit.edit_many(
         workspace_target("u1", "ws", workspace),
         [edit_item(note_id, sha, content="more")],
     )
@@ -120,7 +116,7 @@ def test_edit_many_keeps_db_occurred_at_when_file_value_is_corrupted(service, wo
     assert result["results"][0]["temporal_warnings"] == [
         {"kind": "temporal_value_ignored", "field": "occurred_at"}
     ]
-    row = service._crud_repo.get(note_id, owner_id="u1")
+    row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and row.occurred_at == "2026-03-22"
 
 
@@ -129,7 +125,7 @@ def test_reconcile_paths_keeps_db_occurred_at_when_file_value_is_corrupted(
 ):
     """reconcile_paths must not treat a corrupted (unparseable) on-disk occurred_at as a
     genuine drift-to-None and overwrite the DB's correct value with it (#132 follow-up)."""
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace),
         "Corrupt Reconcile",
         "Body",
@@ -144,32 +140,32 @@ def test_reconcile_paths_keeps_db_occurred_at_when_file_value_is_corrupted(
         "ws", owner_id="u1", ws_path=str(workspace), paths=["Corrupt Reconcile.md"]
     )
 
-    row = service._crud_repo.get(note_id, owner_id="u1")
+    row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and row.occurred_at == "2026-03-22"
 
 
 def test_save_update_clear_and_reconcile_temporal_metadata(service, reconcile_service, workspace):
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace),
         "Event",
         "Body",
         [],
         occurred_at="2026-03-22",
     )["note_id"]
-    row = service._crud_repo.get(note_id, owner_id="u1")
+    row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and (row.occurred_at, row.period) == ("2026-03-22", None)
 
     target = note_target("u1", "ws", workspace, note_id)
-    sha = service._version_service.get_history(target)[0]["sha"]
-    service.update(target, expected_sha=sha, period="2026-W12")
-    row = service._crud_repo.get(note_id, owner_id="u1")
+    sha = service.version_service.get_history(target)[0]["sha"]
+    service.edit.update(target, expected_sha=sha, period="2026-W12")
+    row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and (row.occurred_at, row.period) == (None, "2026-W12")
     meta, _ = read_note_file(note_filepath(str(workspace), "", "Event"))
     assert (meta.occurred_at, meta.period) == (None, "2026-W12")
 
-    sha = service._version_service.get_history(target)[0]["sha"]
-    service.update(target, expected_sha=sha, clear_date_metadata=True)
-    row = service._crud_repo.get(note_id, owner_id="u1")
+    sha = service.version_service.get_history(target)[0]["sha"]
+    service.edit.update(target, expected_sha=sha, clear_date_metadata=True)
+    row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and (row.occurred_at, row.period) == (None, None)
 
     path = note_filepath(str(workspace), "", "Event")
@@ -179,12 +175,12 @@ def test_save_update_clear_and_reconcile_temporal_metadata(service, reconcile_se
     reconcile_service.reconcile_paths(
         "ws", owner_id="u1", ws_path=str(workspace), paths=["Event.md"]
     )
-    row = service._crud_repo.get(note_id, owner_id="u1")
+    row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and row.occurred_at == "2026-03-23"
 
 
 def test_update_rejects_clear_combined_with_temporal_and_leaves_note_unchanged(service, workspace):
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace),
         "Combo",
         "Body",
@@ -192,35 +188,33 @@ def test_update_rejects_clear_combined_with_temporal_and_leaves_note_unchanged(s
         occurred_at="2026-03-22",
     )["note_id"]
     target = note_target("u1", "ws", workspace, note_id)
-    sha = service._version_service.get_history(target)[0]["sha"]
+    sha = service.version_service.get_history(target)[0]["sha"]
 
     with pytest.raises(TemporalMetadataError, match="cannot be combined"):
-        service.update(
+        service.edit.update(
             target,
             expected_sha=sha,
             clear_date_metadata=True,
             occurred_at="2026-04-01",
         )
 
-    row = service._crud_repo.get(note_id, owner_id="u1")
+    row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and row.occurred_at == "2026-03-22"
 
 
 def test_edit_many_rejects_clear_combined_with_temporal_and_leaves_note_unchanged(
     service, workspace
 ):
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace),
         "Combo Batch",
         "Body",
         [],
         occurred_at="2026-03-22",
     )["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    result = service.edit_many(
+    result = service.edit.edit_many(
         workspace_target("u1", "ws", workspace),
         [
             edit_item(
@@ -235,38 +229,36 @@ def test_edit_many_rejects_clear_combined_with_temporal_and_leaves_note_unchange
 
     assert result["applied"] is False
     assert "cannot be combined" in result["errors"][0]["error"]
-    row = service._crud_repo.get(note_id, owner_id="u1")
+    row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and row.occurred_at == "2026-03-22"
 
 
 def test_update_rejects_malformed_period(service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Bad Period", "Body", [])[
-        "note_id"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Bad Period", "Body", []
+    )["note_id"]
     target = note_target("u1", "ws", workspace, note_id)
-    sha = service._version_service.get_history(target)[0]["sha"]
+    sha = service.version_service.get_history(target)[0]["sha"]
 
     with pytest.raises(TemporalMetadataError, match="canonical period key"):
-        service.update(target, expected_sha=sha, period="not-a-period")
+        service.edit.update(target, expected_sha=sha, period="not-a-period")
 
-    row = service._crud_repo.get(note_id, owner_id="u1")
+    row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and row.period is None
 
 
 def test_edit_many_rejects_malformed_period(service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Bad Period Batch", "Body", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Bad Period Batch", "Body", []
+    )["note_id"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    result = service.edit_many(
+    result = service.edit.edit_many(
         workspace_target("u1", "ws", workspace),
         [edit_item(note_id, sha, mode="overwrite", period="not-a-period")],
     )
 
     assert result["applied"] is False
     assert "canonical period key" in result["errors"][0]["error"]
-    row = service._crud_repo.get(note_id, owner_id="u1")
+    row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and row.period is None

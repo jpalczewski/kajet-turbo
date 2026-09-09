@@ -52,7 +52,7 @@ cooperating pieces:
 
 - The writer bumps it **iff the note's indexed text changed — body or title**.
   Chunks and the `notes_fts` rows are built from title + content (`chunks.py:218-276`), so
-  a rename invalidates the index exactly as an edit does; that is why `NoteService.update()`'s
+  a rename invalidates the index exactly as an edit does; that is why `NoteEditService.update()`'s
   rename/move leg passes `True`. `services/notes/tags.py:355` passes `item.body_changed`
   because tags are stripped before indexing; `apply_temporal_backfill`'s row write passes
   `False` because it rewrites frontmatter dates only.

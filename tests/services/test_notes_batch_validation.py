@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from kajet_turbo.services.notes import DeleteBatchItem
 from tests.services.conftest import note_target, workspace_target
 from tests.services.helpers import edit_item, head_sha
 
@@ -14,8 +15,12 @@ def _run(operation: str, service, workspace, items: list[dict]) -> dict:
             edit_item(item.get("note_id", ""), item.get("expected_sha", ""), content="x")
             for item in items
         ]
-        return service.edit_many(workspace_target("u1", "ws", workspace), edits)
-    return service.delete_many(workspace_target("u1", "ws", workspace), items)
+        return service.edit.edit_many(workspace_target("u1", "ws", workspace), edits)
+    deletes = [
+        DeleteBatchItem(note_id=item.get("note_id", ""), expected_sha=item.get("expected_sha", ""))
+        for item in items
+    ]
+    return service.delete.delete_many(workspace_target("u1", "ws", workspace), deletes)
 
 
 @pytest.mark.parametrize("operation", ["edit", "delete"])
@@ -75,7 +80,7 @@ def _run(operation: str, service, workspace, items: list[dict]) -> dict:
 def test_destructive_batches_share_validation_errors(
     operation, case, items, expected_note_id, index, error, service, read_service, workspace
 ):
-    saved = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
+    saved = service.create.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
     note_id = saved["note_id"]
     sha = head_sha(workspace, "First.md")
     if case == "missing_file":
@@ -100,10 +105,10 @@ def test_destructive_batches_share_validation_errors(
 
 
 def test_edit_many_preserves_mixed_validation_error_order(service, workspace):
-    first = service.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
-    second = service.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
+    first = service.create.save(workspace_target("u1", "ws", workspace), "First", "one\n", [])
+    second = service.create.save(workspace_target("u1", "ws", workspace), "Second", "two\n", [])
 
-    result = service.edit_many(
+    result = service.edit.edit_many(
         workspace_target("u1", "ws", workspace),
         [
             edit_item(

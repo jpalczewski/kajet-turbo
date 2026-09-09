@@ -14,11 +14,13 @@ from kajet_turbo.api.workspaces import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_create_service,
+    get_note_delete_service,
+    get_note_edit_service,
     get_note_folder_service,
     get_note_link_service,
     get_note_read_service,
     get_note_reconcile_service,
-    get_note_service,
     get_note_share_link_repo,
     get_note_share_link_service,
     get_note_tag_service,
@@ -43,19 +45,19 @@ from kajet_turbo.services.notes import (
     NoteLinkService,
     NoteReadService,
     NoteReconcileService,
-    NoteService,
     NoteShareLinkService,
     NoteTagService,
     NoteTemporalService,
 )
 from kajet_turbo.services.targets import TargetResolver
 from kajet_turbo.services.workspaces import WorkspaceService
+from tests.services.conftest import NoteWiring
 
 
 @dataclass
 class ApiTestContext:
     client: TestClient
-    note_service: NoteService
+    note_service: NoteWiring
     workspace: Path
     note_read_service: NoteReadService
     share_link_repo: NoteShareLinkRepository
@@ -97,7 +99,7 @@ def api_client_factory(
         from tests.conftest import seed_user
         from tests.services.conftest import (
             build_note_read_service,
-            build_note_service,
+            build_note_wiring,
         )
 
         monkeypatch.setenv("WORKSPACES_DIR", str(workspace.parent.parent))
@@ -111,7 +113,7 @@ def api_client_factory(
             resolve_backend=lambda owner_id: None,  # FTS-only in tests
             jobs=JobRepository(database.engine),
         )
-        note_service = build_note_service(
+        note_service = build_note_wiring(
             database, indexer=note_indexer, chunk_repo=note_chunk_repository
         )
         note_tag_service = NoteTagService(
@@ -130,11 +132,9 @@ def api_client_factory(
         note_read_service = build_note_read_service(database, indexer=note_indexer)
         note_reconcile_service = NoteReconcileService(
             note_repository,
-            NoteLinkRepository(database.engine),
             NoteTagRepository(database.engine),
-            note_chunk_repository,
             note_link_service,
-            NoteShareLinkRepository(database.engine),
+            note_service.teardown,
             indexer=note_indexer,
         )
         workspace_service = WorkspaceService(
@@ -155,13 +155,15 @@ def api_client_factory(
                 workspace_repository.grant_access(user_id, "test-ws")
 
         app = build_test_app(routers=(router, public_notes_router, shared_preview_router))
-        app.dependency_overrides[get_note_service] = lambda: note_service
+        app.dependency_overrides[get_note_create_service] = lambda: note_service.create
+        app.dependency_overrides[get_note_edit_service] = lambda: note_service.edit
+        app.dependency_overrides[get_note_delete_service] = lambda: note_service.delete
         app.dependency_overrides[get_note_reconcile_service] = lambda: note_reconcile_service
         app.dependency_overrides[get_note_tag_service] = lambda: note_tag_service
         app.dependency_overrides[get_note_link_service] = lambda: note_link_service
         app.dependency_overrides[get_note_folder_service] = lambda: note_folder_service
         app.dependency_overrides[get_note_temporal_service] = lambda: note_temporal_service
-        app.dependency_overrides[get_note_version_service] = lambda: note_service._version_service
+        app.dependency_overrides[get_note_version_service] = lambda: note_service.version_service
         app.dependency_overrides[get_note_read_service] = lambda: note_read_service
         app.dependency_overrides[get_workspace_service] = lambda: workspace_service
         app.dependency_overrides[get_note_share_link_repo] = lambda: share_link_repo

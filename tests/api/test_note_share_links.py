@@ -13,7 +13,7 @@ def _note(ws_path, note_id) -> NoteTarget:
 
 def test_create_share_link_returns_token(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared", "content", [])["note_id"]
 
     response = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links", json={})
 
@@ -36,7 +36,7 @@ def test_create_share_link_returns_token(auth_client):
 
 def test_create_share_link_with_preview_description(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared", "content", [])["note_id"]
 
     response = client.post(
         f"/api/workspaces/test-ws/notes/{note_id}/share-links",
@@ -49,7 +49,7 @@ def test_create_share_link_with_preview_description(auth_client):
 
 def test_list_share_links_omits_revoked(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared", "content", [])["note_id"]
     kept = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links", json={}).json()
     revoked = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links", json={}).json()
     client.delete(f"/api/workspaces/test-ws/notes/{note_id}/share-links/{revoked['token']}")
@@ -63,7 +63,7 @@ def test_list_share_links_omits_revoked(auth_client):
 
 def test_list_share_links_includes_visit_summary(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared", "content", [])["note_id"]
     link = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links", json={}).json()
     client.get(f"/api/public/notes/{link['token']}")
 
@@ -86,7 +86,7 @@ def test_list_share_links_includes_visit_summary(auth_client):
 
 def test_revoke_share_link_404s_the_public_endpoint(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared", "content", [])["note_id"]
     token = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links", json={}).json()[
         "token"
     ]
@@ -101,7 +101,7 @@ def test_revoke_share_link_404s_the_public_endpoint(auth_client):
 
 def test_revoke_unknown_token_404s(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared", "content", [])["note_id"]
 
     response = client.delete(f"/api/workspaces/test-ws/notes/{note_id}/share-links/does-not-exist")
 
@@ -112,8 +112,8 @@ def test_revoke_rejects_token_from_a_different_note(auth_client):
     # A note-scoped revoke URL must not be able to revoke a token that belongs to a
     # different note the same owner controls -- the note_id in the path is not decorative.
     client, note_service, workspace = auth_client
-    note_a = note_service.save(_ws(workspace), "Note A", "a", [])["note_id"]
-    note_b = note_service.save(_ws(workspace), "Note B", "b", [])["note_id"]
+    note_a = note_service.create.save(_ws(workspace), "Note A", "a", [])["note_id"]
+    note_b = note_service.create.save(_ws(workspace), "Note B", "b", [])["note_id"]
     token = client.post(f"/api/workspaces/test-ws/notes/{note_b}/share-links", json={}).json()[
         "token"
     ]
@@ -127,7 +127,7 @@ def test_revoke_rejects_token_from_a_different_note(auth_client):
 
 def test_update_share_link_preview_toggles_flag(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared", "content", [])["note_id"]
     token = client.post(f"/api/workspaces/test-ws/notes/{note_id}/share-links", json={}).json()[
         "token"
     ]
@@ -145,7 +145,7 @@ def test_update_share_link_preview_toggles_flag(auth_client):
 
 def test_update_share_link_preview_unknown_token_404s(auth_client):
     client, note_service, workspace = auth_client
-    note_id = note_service.save(_ws(workspace), "Shared", "content", [])["note_id"]
+    note_id = note_service.create.save(_ws(workspace), "Shared", "content", [])["note_id"]
 
     response = client.patch(
         f"/api/workspaces/test-ws/notes/{note_id}/share-links/does-not-exist",
@@ -157,8 +157,8 @@ def test_update_share_link_preview_unknown_token_404s(auth_client):
 
 def test_update_share_link_preview_rejects_token_from_a_different_note(auth_client):
     client, note_service, workspace = auth_client
-    note_a = note_service.save(_ws(workspace), "Note A", "a", [])["note_id"]
-    note_b = note_service.save(_ws(workspace), "Note B", "b", [])["note_id"]
+    note_a = note_service.create.save(_ws(workspace), "Note A", "a", [])["note_id"]
+    note_b = note_service.create.save(_ws(workspace), "Note B", "b", [])["note_id"]
     token = client.post(f"/api/workspaces/test-ws/notes/{note_b}/share-links", json={}).json()[
         "token"
     ]

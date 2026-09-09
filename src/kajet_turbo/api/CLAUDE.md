@@ -22,14 +22,14 @@ async def api_create_note(
     body: CreateNoteRequest,
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
-    note_service: NoteService = Depends(get_note_service),
+    note_create_service: NoteCreateService = Depends(get_note_create_service),
 ) -> CreateNoteResponse:
     # BrokenWikilinkError/TemporalMetadataError are ValueError subclasses with their own
     # app-level handlers (api/errors.py) -- letting them propagate rather than catching
     # ValueError here keeps them mapped to their specific codes instead of ALREADY_EXISTS.
     try:
         result = await run_sync(
-            note_service.save,
+            note_create_service.save,
             workspace,
             body.title,
             body.content,
@@ -121,7 +121,7 @@ validation moves from a route into a schema.
 ## PATCH field-presence semantics
 
 `UpdateNoteRequest`'s optional fields (`title`, `content`, `folder`, `tags`) don't need
-`model_fields_set`/`exclude_unset` bookkeeping here: `NoteService.update()` already treats an
+`model_fields_set`/`exclude_unset` bookkeeping here: `NoteEditService.update()` already treats an
 omitted keyword the same as an explicit `None` for each of these (its own default is
 `None`), and Python's argument binding can't tell those two apart anyway -- both omitted-key
 and explicit-`null` JSON parse to the same `None` attribute on the Pydantic model. Passing

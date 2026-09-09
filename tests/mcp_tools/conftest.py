@@ -14,7 +14,6 @@ from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.mcp import build_mcp
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.git import PostCommitHooks
-from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository, NoteTagRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
@@ -25,12 +24,12 @@ from kajet_turbo.services.notes import (
     NoteFolderService,
     NoteLinkService,
     NoteReconcileService,
-    NoteService,
     NoteTagService,
     NoteTemporalService,
 )
 from kajet_turbo.services.targets import TargetResolver
 from kajet_turbo.services.workspaces import WorkspaceService
+from tests.services.conftest import NoteWiring
 
 if TYPE_CHECKING:
     from kajet_turbo.dependencies import AppResources
@@ -42,7 +41,7 @@ class McpTestContext:
     database: Database
     oauth_repo: OAuthRepository
     workspace_repo: WorkspaceRepository
-    note_service: NoteService | None = None
+    note_service: NoteWiring | None = None
 
     def __iter__(self):
         yield self.server
@@ -58,7 +57,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
     from tests.services.conftest import (
         build_note_read_service,
         build_note_search_service,
-        build_note_service,
+        build_note_wiring,
     )
 
     monkeypatch.setenv("MCP_BASE_URL", "http://localhost:8000")
@@ -82,7 +81,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         None,
         JobRepository(database.engine),
     )
-    note_service_inst = build_note_service(
+    note_service_inst = build_note_wiring(
         database,
         indexer=indexer,
         chunk_repo=note_chunk_repository,
@@ -95,11 +94,9 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
     note_read_service = build_note_read_service(database, indexer=indexer)
     note_reconcile_service_inst = NoteReconcileService(
         note_repository,
-        NoteLinkRepository(database.engine),
         NoteTagRepository(database.engine),
-        note_chunk_repository,
         note_link_service_inst,
-        NoteShareLinkRepository(database.engine),
+        note_service_inst.teardown,
         indexer=indexer,
     )
     note_search_service = build_note_search_service(database, chunk_repo=note_chunk_repository)
@@ -117,12 +114,14 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
     # Minimal AppResources-shaped stand-in: build_mcp only reads the fields it mounts,
     # so isolated MCP tool tests don't need a full application resource graph.
     resources = SimpleNamespace(
-        note_service=note_service_inst,
+        note_create_service=note_service_inst.create,
+        note_edit_service=note_service_inst.edit,
+        note_delete_service=note_service_inst.delete,
         note_tag_service=note_tag_service_inst,
         note_link_service=note_link_service_inst,
         note_folder_service=note_folder_service_inst,
         note_temporal_service=note_temporal_service_inst,
-        note_version_service=note_service_inst._version_service,
+        note_version_service=note_service_inst.version_service,
         note_read_service=note_read_service,
         note_reconcile_service=note_reconcile_service_inst,
         note_search_service=note_search_service,
@@ -131,7 +130,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         folder_meta_repo=folder_meta_repository,
         oauth_repo=oauth_repository,
         provider=provider,
-        collection_service=CollectionService(note_repository, note_service_inst),
+        collection_service=CollectionService(note_repository, note_service_inst.create),
         event_repo=EventRepository(database.engine),
         post_commit_hooks=PostCommitHooks(),
     )

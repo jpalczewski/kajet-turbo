@@ -246,6 +246,7 @@ def inproc_search_phase(tmp: Path) -> dict:
         NoteReconcileService,
         NoteSearchService,
     )
+    from kajet_turbo.services.notes.persistence import NoteTeardown
 
     owner_id = (
         sqlite3.connect(str(tmp / "bench.db"))
@@ -274,9 +275,11 @@ def inproc_search_phase(tmp: Path) -> dict:
         crud_repo=note_repo,
         tag_repo=tag_repo,
     )
-    reconcile_service = NoteReconcileService(
-        note_repo, link_repo, tag_repo, chunk_repo, link_service, NoteShareLinkRepository(db.engine)
+    share_link_repo = NoteShareLinkRepository(db.engine)
+    teardown = NoteTeardown(
+        tag_repo, chunk_repo, note_repo, link_repo, link_service, share_link_repo
     )
+    reconcile_service = NoteReconcileService(note_repo, tag_repo, link_service, teardown)
     results: dict[str, dict] = {}
     total = 200
     for threads in (1, 4, 8):

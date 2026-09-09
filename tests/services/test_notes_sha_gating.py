@@ -5,9 +5,9 @@ from tests.services.conftest import note_target, workspace_target
 
 
 def test_set_tags_stale_sha_rejected(service, read_service, tag_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "T", "body", ["docs", "extra"])[
-        "note_id"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "T", "body", ["docs", "extra"]
+    )["note_id"]
     result = tag_service.set_tags(
         note_target("u1", "ws", workspace, note_id), ["docs"], expected_sha="0" * 12
     )
@@ -22,7 +22,7 @@ def test_set_tags_stale_sha_rejected(service, read_service, tag_service, workspa
 
 
 def test_set_tags_fresh_sha_applies_drop(service, read_service, tag_service, workspace):
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace), "T2", "body", ["docs", "extra"]
     )["note_id"]
     sha = read_service.get_with_content(note_target("u1", "ws", workspace, note_id)).sha
@@ -34,7 +34,7 @@ def test_set_tags_fresh_sha_applies_drop(service, read_service, tag_service, wor
 
 def test_set_tags_none_sha_skips_check(service, tag_service, workspace):
     """REST API path: expected_sha=None is a trusted caller — no gate."""
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace), "T3", "body", ["docs", "extra"]
     )["note_id"]
     result = tag_service.set_tags(note_target("u1", "ws", workspace, note_id), ["docs"])
@@ -42,14 +42,12 @@ def test_set_tags_none_sha_skips_check(service, tag_service, workspace):
 
 
 def test_update_fresh_sha_applies_content_overwrite(service, read_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "stara treść", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notka", "stara treść", []
+    )["note_id"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    result = service.update(
+    result = service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         edit=EditSpec(content="nowa treść"),
@@ -68,12 +66,12 @@ def test_update_fresh_sha_applies_content_overwrite(service, read_service, works
 
 
 def test_update_no_gate_on_empty_body_overwrite(service, read_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "", [])["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
+    note_id = service.create.save(workspace_target("u1", "ws", workspace), "Notka", "", [])[
+        "note_id"
     ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    result = service.update(
+    result = service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         edit=EditSpec(content="pierwsza treść"),
@@ -92,14 +90,12 @@ def test_update_no_gate_on_empty_body_overwrite(service, read_service, workspace
 
 
 def test_update_no_gate_on_surgical_append(service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "## H\n\n- a", [])[
-        "note_id"
-    ]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notka", "## H\n\n- a", []
+    )["note_id"]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    result = service.update(
+    result = service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha,
         edit=EditSpec(content="- b", mode="append", target_heading="## H"),
@@ -116,31 +112,33 @@ def test_update_no_gate_on_surgical_append(service, workspace):
 
 
 def test_update_fresh_sha_applies_tag_drop(service, read_service, workspace):
-    note_id = service.save(
+    note_id = service.create.save(
         workspace_target("u1", "ws", workspace), "Notka", "treść", ["python", "work"]
     )["note_id"]
-    sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
-        "sha"
-    ]
+    sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0]["sha"]
 
-    service.update(note_target("u1", "ws", workspace, note_id), expected_sha=sha, tags=["python"])
+    service.edit.update(
+        note_target("u1", "ws", workspace, note_id), expected_sha=sha, tags=["python"]
+    )
 
     note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert note.tags == ["python"]
 
 
 def test_update_rejects_stale_expected_sha(service, read_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "v1", [])["note_id"]
-    stale_sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[
-        0
-    ]["sha"]
-    service.update(
+    note_id = service.create.save(workspace_target("u1", "ws", workspace), "Notka", "v1", [])[
+        "note_id"
+    ]
+    stale_sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
+    ]
+    service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=stale_sha,
         edit=EditSpec(content="v2"),
     )
 
-    result = service.update(
+    result = service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=stale_sha,
         edit=EditSpec(content="v3"),
@@ -153,10 +151,12 @@ def test_update_rejects_stale_expected_sha(service, read_service, workspace):
 
 
 def test_delete_stale_sha_rejected(service, read_service, workspace):
-    note_id = service.save(workspace_target("u1", "test-ws", workspace), "Del", "body", [])[
+    note_id = service.create.save(workspace_target("u1", "test-ws", workspace), "Del", "body", [])[
         "note_id"
     ]
-    result = service.delete(note_target("u1", "test-ws", workspace, note_id), expected_sha="0" * 12)
+    result = service.delete.delete(
+        note_target("u1", "test-ws", workspace, note_id), expected_sha="0" * 12
+    )
     assert result["stale_sha"] is True
     assert (
         read_service.get_with_content(note_target("u1", "test-ws", workspace, note_id)) is not None
@@ -164,23 +164,25 @@ def test_delete_stale_sha_rejected(service, read_service, workspace):
 
 
 def test_delete_none_sha_skips_check(service, workspace):
-    note_id = service.save(workspace_target("u1", "test-ws", workspace), "Del2", "body", [])[
+    note_id = service.create.save(workspace_target("u1", "test-ws", workspace), "Del2", "body", [])[
         "note_id"
     ]
-    result = service.delete(note_target("u1", "test-ws", workspace, note_id))
+    result = service.delete.delete(note_target("u1", "test-ws", workspace, note_id))
     assert result == {"note_id": note_id}
 
 
 def test_delete_missing_file_skips_sha_check(service, read_service, workspace):
     """Orphaned DB row (file deleted out-of-band): sha check is skipped, delete proceeds
     as pure index/DB cleanup — there is no version the caller could have read."""
-    note_id = service.save(workspace_target("u1", "test-ws", workspace), "Del3", "body", [])[
+    note_id = service.create.save(workspace_target("u1", "test-ws", workspace), "Del3", "body", [])[
         "note_id"
     ]
     note = read_service.get_with_content(note_target("u1", "test-ws", workspace, note_id))
     (workspace / note.title).with_suffix(".md").unlink()
 
-    result = service.delete(note_target("u1", "test-ws", workspace, note_id), expected_sha="0" * 12)
+    result = service.delete.delete(
+        note_target("u1", "test-ws", workspace, note_id), expected_sha="0" * 12
+    )
 
     assert result == {"note_id": note_id}
     assert read_service.get(note_id, owner_id="u1") is None
@@ -188,19 +190,19 @@ def test_delete_missing_file_skips_sha_check(service, read_service, workspace):
 
 def test_update_stale_sha_rejected_even_for_pure_append(service, read_service, workspace):
     # Zero data-loss risk (surgical append), but staleness gate is independent of intent.
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Notka", "## H\n\n- a", [])[
-        "note_id"
+    note_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Notka", "## H\n\n- a", []
+    )["note_id"]
+    stale_sha = service.version_service.get_history(note_target("u1", "ws", workspace, note_id))[0][
+        "sha"
     ]
-    stale_sha = service._version_service.get_history(note_target("u1", "ws", workspace, note_id))[
-        0
-    ]["sha"]
-    service.update(
+    service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=stale_sha,
         edit=EditSpec(content="- b", mode="append", target_heading="## H"),
     )
 
-    result = service.update(
+    result = service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=stale_sha,
         edit=EditSpec(content="- c", mode="append", target_heading="## H"),
@@ -212,14 +214,16 @@ def test_update_stale_sha_rejected_even_for_pure_append(service, read_service, w
 
 
 def test_restore_version_stale_expected_sha_rejected(service, read_service, workspace):
-    note_id = service.save(workspace_target("u1", "ws", workspace), "Hist", "v1", [])["note_id"]
+    note_id = service.create.save(workspace_target("u1", "ws", workspace), "Hist", "v1", [])[
+        "note_id"
+    ]
     sha1 = read_service.get_with_content(note_target("u1", "ws", workspace, note_id)).sha
-    service.update(
+    service.edit.update(
         note_target("u1", "ws", workspace, note_id),
         expected_sha=sha1,
         edit=EditSpec(content="v2"),
     )
-    result = service.restore_version(
+    result = service.edit.restore_version(
         note_target("u1", "ws", workspace, note_id), sha1, expected_sha="0" * 12
     )
     assert result["stale_sha"] is True

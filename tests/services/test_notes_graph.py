@@ -5,7 +5,7 @@ from tests.services.helpers import make_service_with_dangling
 
 
 def test_graph_includes_isolated_notes_as_nodes(service, link_service, workspace):
-    service.save(workspace_target("u1", "ws", workspace), "Lonely", "no links here", [])
+    service.create.save(workspace_target("u1", "ws", workspace), "Lonely", "no links here", [])
     graph = link_service.graph(workspace_target("u1", "ws", workspace))
     assert [n["title"] for n in graph["nodes"]] == ["Lonely"]
     assert graph["nodes"][0]["kind"] == "note"
@@ -14,10 +14,12 @@ def test_graph_includes_isolated_notes_as_nodes(service, link_service, workspace
 
 
 def test_graph_edge_shape(service, link_service, workspace):
-    target_id = service.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
-    source_id = service.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
+    target_id = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])[
         "note_id"
     ]
+    source_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "[[Target]]", []
+    )["note_id"]
     graph = link_service.graph(workspace_target("u1", "ws", workspace))
     assert graph["edges"] == [{"source": source_id, "target": target_id}]
     node_ids = {n["note_id"] for n in graph["nodes"]}
@@ -25,10 +27,10 @@ def test_graph_edge_shape(service, link_service, workspace):
 
 
 def test_graph_adds_tag_hubs_without_pairwise_note_edges(service, link_service, workspace):
-    first_id = service.save(
+    first_id = service.create.save(
         workspace_target("u1", "ws", workspace), "First", "", ["work/projects"]
     )["note_id"]
-    second_id = service.save(
+    second_id = service.create.save(
         workspace_target("u1", "ws", workspace), "Second", "", ["work/projects"]
     )["note_id"]
 
@@ -50,13 +52,13 @@ def test_graph_adds_tag_hubs_without_pairwise_note_edges(service, link_service, 
 
 
 def test_neighborhood_tags_are_limited_to_returned_notes(service, link_service, workspace):
-    target_id = service.save(
+    target_id = service.create.save(
         workspace_target("u1", "ws", workspace), "Target", "", ["work/projects"]
     )["note_id"]
-    source_id = service.save(
+    source_id = service.create.save(
         workspace_target("u1", "ws", workspace), "Source", "[[Target]]", ["people"]
     )["note_id"]
-    service.save(workspace_target("u1", "ws", workspace), "Elsewhere", "", ["secret"])
+    service.create.save(workspace_target("u1", "ws", workspace), "Elsewhere", "", ["secret"])
 
     graph = link_service.neighborhood(
         note_target("u1", "ws", workspace, source_id), depth=1, include_tags=True
@@ -73,7 +75,7 @@ def test_neighborhood_tags_are_limited_to_returned_notes(service, link_service, 
 
 def test_graph_dangling_links_none_when_not_tracked(service, link_service, workspace):
     """Default `service` fixture has no dangling_repo — validation is effectively on."""
-    service.save(workspace_target("u1", "ws", workspace), "Note", "body", [])
+    service.create.save(workspace_target("u1", "ws", workspace), "Note", "body", [])
     graph = link_service.graph(workspace_target("u1", "ws", workspace))
     assert graph["dangling_links"] is None
 
@@ -82,7 +84,7 @@ def test_graph_dangling_links_empty_list_when_tracked_and_clean(database, worksp
     svc, links, _dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
-    svc.save(workspace_target("u1", "ws", workspace), "Note", "body", [])
+    svc.create.save(workspace_target("u1", "ws", workspace), "Note", "body", [])
     graph = links.graph(workspace_target("u1", "ws", workspace))
     assert graph["dangling_links"] == []
 
@@ -91,7 +93,7 @@ def test_graph_includes_dangling_links_when_validation_off(database, workspace):
     svc, links, _dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
-    source_id = svc.save(workspace_target("u1", "ws", workspace), "Source", "[[Ghost]]", [])[
+    source_id = svc.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Ghost]]", [])[
         "note_id"
     ]
     graph = links.graph(workspace_target("u1", "ws", workspace))
@@ -103,8 +105,10 @@ def test_graph_includes_dangling_links_when_validation_off(database, workspace):
 def test_graph_cross_workspace_edge_target_included_with_real_workspace(
     service, link_service, workspace
 ):
-    target_id = service.save(workspace_target("u1", "ws2", workspace), "Target", "", [])["note_id"]
-    source_id = service.save(
+    target_id = service.create.save(workspace_target("u1", "ws2", workspace), "Target", "", [])[
+        "note_id"
+    ]
+    source_id = service.create.save(
         workspace_target("u1", "ws1", workspace), "Source", f"link to [[note:{target_id}]]", []
     )["note_id"]
     graph = link_service.graph(workspace_target("u1", "ws1", workspace))
@@ -114,10 +118,10 @@ def test_graph_cross_workspace_edge_target_included_with_real_workspace(
 
 
 def test_graph_tags_keep_cross_workspace_hubs_separate(service, link_service, workspace):
-    target_id = service.save(workspace_target("u1", "ws2", workspace), "Target", "", ["work"])[
-        "note_id"
-    ]
-    source_id = service.save(
+    target_id = service.create.save(
+        workspace_target("u1", "ws2", workspace), "Target", "", ["work"]
+    )["note_id"]
+    source_id = service.create.save(
         workspace_target("u1", "ws1", workspace), "Source", f"[[note:{target_id}]]", ["work"]
     )["note_id"]
 
@@ -140,9 +144,9 @@ def test_graph_drops_edge_with_unresolved_endpoint(service, link_service, worksp
     target wiped by clear_workspace_data, which only clears a deleted workspace's own
     outgoing edges — see the comment in NoteLinkService._build_graph) is dropped from
     edges, not surfaced as a broken node reference."""
-    source_id = service.save(workspace_target("u1", "ws", workspace), "Source", "no links", [])[
-        "note_id"
-    ]
+    source_id = service.create.save(
+        workspace_target("u1", "ws", workspace), "Source", "no links", []
+    )["note_id"]
     link_service._link_repo.add_link(source_id, "does-not-exist", "ws", "u1")
     graph = link_service.graph(workspace_target("u1", "ws", workspace))
     assert graph["edges"] == []
@@ -152,10 +156,10 @@ def test_graph_drops_edge_with_unresolved_endpoint(service, link_service, worksp
 def test_neighborhood_walks_both_directions_and_returns_induced_edges(
     service, link_service, workspace
 ):
-    c_id = service.save(workspace_target("u1", "ws", workspace), "C", "", [])["note_id"]
-    b_id = service.save(workspace_target("u1", "ws", workspace), "B", "[[C]]", [])["note_id"]
-    a_id = service.save(workspace_target("u1", "ws", workspace), "A", "[[B]]", [])["note_id"]
-    d_id = service.save(workspace_target("u1", "ws", workspace), "D", "[[B]]", [])["note_id"]
+    c_id = service.create.save(workspace_target("u1", "ws", workspace), "C", "", [])["note_id"]
+    b_id = service.create.save(workspace_target("u1", "ws", workspace), "B", "[[C]]", [])["note_id"]
+    a_id = service.create.save(workspace_target("u1", "ws", workspace), "A", "[[B]]", [])["note_id"]
+    d_id = service.create.save(workspace_target("u1", "ws", workspace), "D", "[[B]]", [])["note_id"]
 
     target = note_target("u1", "ws", workspace, a_id)
     one_hop = link_service.neighborhood(target, depth=1)
@@ -172,11 +176,13 @@ def test_neighborhood_walks_both_directions_and_returns_induced_edges(
 
 
 def test_neighborhood_cross_workspace_is_opt_in(service, link_service, workspace):
-    y_id = service.save(workspace_target("u1", "ws2", workspace), "Y", "", [])["note_id"]
-    x_id = service.save(workspace_target("u1", "ws2", workspace), "X", "[[Y]]", [])["note_id"]
-    a_id = service.save(workspace_target("u1", "ws1", workspace), "A", f"[[note:{x_id}]]", [])[
+    y_id = service.create.save(workspace_target("u1", "ws2", workspace), "Y", "", [])["note_id"]
+    x_id = service.create.save(workspace_target("u1", "ws2", workspace), "X", "[[Y]]", [])[
         "note_id"
     ]
+    a_id = service.create.save(
+        workspace_target("u1", "ws1", workspace), "A", f"[[note:{x_id}]]", []
+    )["note_id"]
 
     target = note_target("u1", "ws1", workspace, a_id)
     local = link_service.neighborhood(target, depth=2)
@@ -192,10 +198,10 @@ def test_neighborhood_cross_workspace_is_opt_in(service, link_service, workspace
 
 
 def test_neighborhood_includes_cross_workspace_note_tags(service, link_service, workspace):
-    target_id = service.save(
+    target_id = service.create.save(
         workspace_target("u1", "ws2", workspace), "Target", "", ["work/projects"]
     )["note_id"]
-    source_id = service.save(
+    source_id = service.create.save(
         workspace_target("u1", "ws1", workspace), "Source", f"[[note:{target_id}]]", ["people"]
     )["note_id"]
 
@@ -214,11 +220,13 @@ def test_neighborhood_limits_dangling_links_to_neighborhood_sources(database, wo
     svc, links, _dangling = make_service_with_dangling(
         database, link_validation_enabled=lambda ws, owner: False
     )
-    center_id = svc.save(workspace_target("u1", "ws", workspace), "Center", "", [])["note_id"]
-    source_id = svc.save(
+    center_id = svc.create.save(workspace_target("u1", "ws", workspace), "Center", "", [])[
+        "note_id"
+    ]
+    source_id = svc.create.save(
         workspace_target("u1", "ws", workspace), "Source", "[[Center]] and [[Ghost]]", []
     )["note_id"]
-    svc.save(workspace_target("u1", "ws", workspace), "Elsewhere", "[[Other ghost]]", [])
+    svc.create.save(workspace_target("u1", "ws", workspace), "Elsewhere", "[[Other ghost]]", [])
 
     graph = links.neighborhood(note_target("u1", "ws", workspace, center_id), depth=1)
     assert graph["dangling_links"] == [
@@ -227,7 +235,7 @@ def test_neighborhood_limits_dangling_links_to_neighborhood_sources(database, wo
 
 
 def test_neighborhood_requires_center_in_requested_workspace(link_service, service, workspace):
-    note_id = service.save(workspace_target("u1", "other", workspace), "Elsewhere", "", [])[
+    note_id = service.create.save(workspace_target("u1", "other", workspace), "Elsewhere", "", [])[
         "note_id"
     ]
     assert link_service.neighborhood(note_target("u1", "ws", workspace, note_id)) is None
@@ -237,9 +245,9 @@ def test_graph_pages_by_degree_and_scopes_edges_to_their_source_page(
     service, link_service, workspace
 ):
     target = workspace_target("u1", "ws", workspace)
-    spokes = {service.save(target, title, "", [])["note_id"] for title in ("A", "B", "C")}
-    hub_id = service.save(target, "Hub", "[[A]] [[B]] [[C]]", [])["note_id"]
-    service.save(target, "Lonely", "", [])
+    spokes = {service.create.save(target, title, "", [])["note_id"] for title in ("A", "B", "C")}
+    hub_id = service.create.save(target, "Hub", "[[A]] [[B]] [[C]]", [])["note_id"]
+    service.create.save(target, "Lonely", "", [])
 
     first = link_service.graph(target, limit=1)
     rest = link_service.graph(target, limit=4, offset=first["next_offset"])
@@ -261,9 +269,9 @@ def test_graph_page_scopes_dangling_links_to_its_own_notes(database, workspace):
         database, link_validation_enabled=lambda ws, owner: False
     )
     target = workspace_target("u1", "ws", workspace)
-    svc.save(target, "Target", "", [])
-    svc.save(target, "Source", "[[Target]]", [])
-    ghosty_id = svc.save(target, "Ghosty", "[[Ghost]]", [])["note_id"]
+    svc.create.save(target, "Target", "", [])
+    svc.create.save(target, "Source", "[[Target]]", [])
+    ghosty_id = svc.create.save(target, "Ghosty", "[[Ghost]]", [])["note_id"]
 
     # Ghosty links to nothing that resolves, so it ranks last and lands on page two.
     linked_page = links.graph(target, limit=2)
@@ -280,8 +288,8 @@ def test_graph_page_repeats_a_tag_hub_shared_across_pages(service, link_service,
     """A hub is only meaningful next to its notes, so it is re-sent on every page holding
     one — unlike a note node, which lands on exactly one page."""
     target = workspace_target("u1", "ws", workspace)
-    first_id = service.save(target, "First", "", ["work/projects"])["note_id"]
-    second_id = service.save(target, "Second", "", ["work/projects"])["note_id"]
+    first_id = service.create.save(target, "First", "", ["work/projects"])["note_id"]
+    second_id = service.create.save(target, "Second", "", ["work/projects"])["note_id"]
 
     pages = [link_service.graph(target, include_tags=True, limit=1, offset=n) for n in (0, 1)]
     notes = [
