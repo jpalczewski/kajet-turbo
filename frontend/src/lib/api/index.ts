@@ -151,6 +151,10 @@ export interface CreateNoteResponse {
   warnings?: WikilinkWarning[];
 }
 
+export interface CreateShareLinkRequest {
+  preview_description?: boolean;
+}
+
 export type CreateSshKeyRequestAlgorithm = typeof CreateSshKeyRequestAlgorithm[keyof typeof CreateSshKeyRequestAlgorithm];
 
 
@@ -615,6 +619,9 @@ export interface ShareLinkItem {
   created_at: string;
   visit_count: number;
   last_visited_at: string | null;
+  page_view_count: number;
+  last_page_viewed_at: string | null;
+  preview_description: boolean;
 }
 
 export interface ShareLinksResponse {
@@ -734,6 +741,10 @@ export interface UpdateNoteResponse {
 export interface UpdatePreferencesRequest {
   timezone?: string | null;
   locale?: Locale | null;
+}
+
+export interface UpdateShareLinkPreviewRequest {
+  preview_description: boolean;
 }
 
 export interface UpdateWorkspaceRequest {
@@ -3096,14 +3107,21 @@ export const getApiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostUrl 
  * @summary Api Create Share Link
  */
 export const apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPost = async (name: string,
-    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse> => {
+    noteId: string,
+    createShareLinkRequest: CreateShareLinkRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse> => {
 
-  return customFetch<apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse>(getApiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostUrl(name,noteId),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse>(getApiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostUrl(name,noteId),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(createShareLinkRequest)
   }
 );}
 
@@ -3164,6 +3182,75 @@ export const apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGet = async 
     method: 'GET'
 
 
+  }
+);}
+
+
+
+export type apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse200 = {
+  data: OkResponse
+  status: 200
+}
+
+export type apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponseSuccess = (apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse200) & {
+  headers: Headers;
+};
+export type apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponseError = (apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse401 | apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse403 | apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse404 | apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse422) & {
+  headers: Headers;
+};
+
+export type apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse = (apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponseSuccess | apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponseError)
+
+export const getApiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchUrl = (name: string,
+    noteId: string,
+    token: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/notes/${noteId}/share-links/${token}`
+}
+
+/**
+ * @summary Api Update Share Link Preview
+ */
+export const apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatch = async (name: string,
+    noteId: string,
+    token: string,
+    updateShareLinkPreviewRequest: UpdateShareLinkPreviewRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse>(getApiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchUrl(name,noteId,token),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(updateShareLinkPreviewRequest)
   }
 );}
 

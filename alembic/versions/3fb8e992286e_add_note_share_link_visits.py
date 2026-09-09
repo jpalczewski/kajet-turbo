@@ -1,7 +1,7 @@
 """add note share link visits
 
 Revision ID: 3fb8e992286e
-Revises: 3cbbd314f794
+Revises: f1a2b3c4d5e6
 Create Date: 2026-09-09 01:42:21.817232
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "3fb8e992286e"
-down_revision: str | Sequence[str] | None = "3cbbd314f794"
+down_revision: str | Sequence[str] | None = "f1a2b3c4d5e6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -6,6 +6,7 @@ from kajet_turbo.api.jobs import router as jobs_router
 from kajet_turbo.api.oauth import router as oauth_router
 from kajet_turbo.api.preferences import router as preferences_router
 from kajet_turbo.api.public_notes import router as public_notes_router
+from kajet_turbo.api.shared_preview import router as shared_preview_router
 from kajet_turbo.api.ssh_keys import router as ssh_keys_router
 from kajet_turbo.api.workspace_remote import router as workspace_remote_router
 from kajet_turbo.api.workspaces import router as workspaces_router
@@ -16,6 +17,7 @@ api_router.include_router(auth_router)
 api_router.include_router(oauth_router)
 api_router.include_router(workspaces_router)
 api_router.include_router(public_notes_router)
+api_router.include_router(shared_preview_router)
 api_router.include_router(embedding_router)
 api_router.include_router(ssh_keys_router)
 api_router.include_router(preferences_router)

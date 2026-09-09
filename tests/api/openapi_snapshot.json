@@ -241,6 +241,11 @@
       "path": "/api/workspaces/{name}/notes/{note_id}/share-links/{token}"
     },
     {
+      "method": "PATCH",
+      "operationId": "api_update_share_link_preview_api_workspaces__name__notes__note_id__share_links__token__patch",
+      "path": "/api/workspaces/{name}/notes/{note_id}/share-links/{token}"
+    },
+    {
       "method": "POST",
       "operationId": "api_reindex_workspace_api_workspaces__name__reindex_post",
       "path": "/api/workspaces/{name}/reindex"
@@ -306,6 +311,7 @@
     "CreateFolderResponse",
     "CreateNoteRequest",
     "CreateNoteResponse",
+    "CreateShareLinkRequest",
     "CreateSshKeyRequest",
     "CreateWorkspaceRequest",
     "CreateWorkspaceResponse",
@@ -373,6 +379,7 @@
     "UpdateNoteRequest",
     "UpdateNoteResponse",
     "UpdatePreferencesRequest",
+    "UpdateShareLinkPreviewRequest",
     "UpdateWorkspaceRequest",
     "UpdateWorkspaceResponse",
     "UpdateWorkspaceSettingsRequest",

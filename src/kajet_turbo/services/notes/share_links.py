@@ -19,16 +19,26 @@ class NoteShareLinkService:
         *,
         visit_count: int = 0,
         last_visited_at: str | None = None,
+        page_view_count: int = 0,
+        last_page_viewed_at: str | None = None,
     ) -> dict:
         return {
             "token": link.token,
             "created_at": link.created_at,
             "visit_count": visit_count,
             "last_visited_at": last_visited_at,
+            "page_view_count": page_view_count,
+            "last_page_viewed_at": last_page_viewed_at,
+            "preview_description": link.preview_description,
         }
 
-    def create(self, target: NoteTarget) -> dict:
-        link = self._repo.create(target.note_id, target.workspace.name, target.workspace.owner_id)
+    def create(self, target: NoteTarget, preview_description: bool = False) -> dict:
+        link = self._repo.create(
+            target.note_id,
+            target.workspace.name,
+            target.workspace.owner_id,
+            preview_description=preview_description,
+        )
         return self._view(link)
 
     def list_active(self, target: NoteTarget) -> list[dict]:
@@ -37,6 +47,8 @@ class NoteShareLinkService:
                 summary.link,
                 visit_count=summary.visit_count,
                 last_visited_at=summary.last_visited_at,
+                page_view_count=summary.page_view_count,
+                last_page_viewed_at=summary.last_page_viewed_at,
             )
             for summary in self._repo.list_active_with_visit_summary(target.note_id)
         ]
@@ -46,3 +58,10 @@ class NoteShareLinkService:
         # (a token belonging to a different note the same owner controls must
         # not revoke), and the not-already-revoked check in a single fetch.
         return self._repo.revoke(target.workspace.owner_id, target.note_id, token)
+
+    def set_preview_description(self, target: NoteTarget, token: str, value: bool) -> bool:
+        # Same one-round-trip guard shape as revoke(): owner scope, note scope, and
+        # not-already-revoked in a single fetch.
+        return self._repo.set_preview_description(
+            target.workspace.owner_id, target.note_id, token, value
+        )

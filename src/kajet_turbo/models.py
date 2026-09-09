@@ -215,6 +215,7 @@ class NoteShareLink(SQLModel, table=True):
     owner_id: str = Field(sa_column=Column(Text, ForeignKey("users.id"), nullable=False))
     created_at: str
     revoked_at: str | None = Field(default=None)
+    preview_description: bool = Field(default=False)
 
     __table_args__ = (
         Index("ix_note_share_links_note", "note_id"),
@@ -232,6 +233,9 @@ class NoteShareLinkVisit(SQLModel, table=True):
     __tablename__ = "note_share_link_visits"
 
     id: int | None = Field(default=None, primary_key=True)
+    kind: str = Field(
+        default="content", sa_column=Column(Text, nullable=False, server_default="content")
+    )
     token: str = Field(sa_column=Column(Text, ForeignKey("note_share_links.token"), nullable=False))
     ip: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     user_agent: str | None = Field(default=None, sa_column=Column(Text, nullable=True))

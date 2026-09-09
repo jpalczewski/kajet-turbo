@@ -1,6 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from kajet_turbo.api.schemas import OkResponse, ShareLinkItem, ShareLinksResponse
+from kajet_turbo.api.schemas import (
+    CreateShareLinkRequest,
+    OkResponse,
+    ShareLinkItem,
+    ShareLinksResponse,
+    UpdateShareLinkPreviewRequest,
+)
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.dependencies import (
     CurrentUser,
@@ -29,11 +35,12 @@ router = APIRouter(
 def api_create_share_link(
     name: str,
     note_id: str,
+    body: CreateShareLinkRequest,
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
     svc: NoteShareLinkService = Depends(get_note_share_link_service),
 ) -> ShareLinkItem:
-    return ShareLinkItem(**svc.create(target))
+    return ShareLinkItem(**svc.create(target, preview_description=body.preview_description))
 
 
 @router.get(
@@ -49,6 +56,25 @@ def api_list_share_links(
     svc: NoteShareLinkService = Depends(get_note_share_link_service),
 ) -> ShareLinksResponse:
     return ShareLinksResponse(links=[ShareLinkItem(**item) for item in svc.list_active(target)])
+
+
+@router.patch(
+    "/api/workspaces/{name}/notes/{note_id}/share-links/{token}",
+    response_model=OkResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+def api_update_share_link_preview(
+    name: str,
+    note_id: str,
+    token: str,
+    body: UpdateShareLinkPreviewRequest,
+    user: CurrentUser = Depends(get_required_user),
+    target: NoteTarget = Depends(resolve_note_target),
+    svc: NoteShareLinkService = Depends(get_note_share_link_service),
+) -> OkResponse:
+    if not svc.set_preview_description(target, token, body.preview_description):
+        raise HTTPException(status_code=404, detail=ShareLinkError.NOT_FOUND)
+    return OkResponse(ok=True)
 
 
 @router.delete(

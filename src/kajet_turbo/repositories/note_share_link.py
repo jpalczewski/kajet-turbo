@@ -4,6 +4,7 @@ public share-link endpoint would call; it treats a revoked token as not found.""
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from sqlalchemy import delete, func
 from sqlmodel import Session, col, select
@@ -17,12 +18,20 @@ class ShareLinkVisitSummary:
     link: NoteShareLink
     visit_count: int
     last_visited_at: str | None
+    page_view_count: int
+    last_page_viewed_at: str | None
 
 
 class NoteShareLinkRepository(DbRepository):
     repository_name = "note_share_links"
 
-    def create(self, note_id: str, workspace: str, owner_id: str) -> NoteShareLink:
+    def create(
+        self,
+        note_id: str,
+        workspace: str,
+        owner_id: str,
+        preview_description: bool = False,
+    ) -> NoteShareLink:
         token = secrets.token_urlsafe(32)
         now = datetime.now(UTC).isoformat()
         with self.operation("create", note_id=note_id, owner_id=owner_id) as operation:
@@ -33,6 +42,7 @@ class NoteShareLinkRepository(DbRepository):
                 workspace=workspace,
                 owner_id=owner_id,
                 created_at=now,
+                preview_description=preview_description,
             )
             session.add(link)
             session.commit()
@@ -68,11 +78,24 @@ class NoteShareLinkRepository(DbRepository):
     def list_active_with_visit_summary(self, note_id: str) -> list[ShareLinkVisitSummary]:
         """Return active links and their visit aggregates in one query."""
         with self.timed_session() as session:
-            rows = session.exec(
+            # add_columns returns a SQLAlchemy Select outside SQLModel.exec's overloads.
+            rows = session.execute(  # ty: ignore[deprecated] - SQLAlchemy Select
                 select(
                     NoteShareLink,
-                    func.count(col(NoteShareLinkVisit.id)),
-                    func.max(col(NoteShareLinkVisit.created_at)),
+                    func.count(col(NoteShareLinkVisit.id)).filter(
+                        col(NoteShareLinkVisit.kind) == "content"
+                    ),
+                    func.max(col(NoteShareLinkVisit.created_at)).filter(
+                        col(NoteShareLinkVisit.kind) == "content"
+                    ),
+                )
+                .add_columns(
+                    func.count(col(NoteShareLinkVisit.id)).filter(
+                        col(NoteShareLinkVisit.kind) == "page"
+                    ),
+                    func.max(col(NoteShareLinkVisit.created_at)).filter(
+                        col(NoteShareLinkVisit.kind) == "page"
+                    ),
                 )
                 .outerjoin(
                     NoteShareLinkVisit,
@@ -87,6 +110,7 @@ class NoteShareLinkRepository(DbRepository):
                     col(NoteShareLink.owner_id),
                     col(NoteShareLink.created_at),
                     col(NoteShareLink.revoked_at),
+                    col(NoteShareLink.preview_description),
                 )
                 .order_by(col(NoteShareLink.created_at))
             ).all()
@@ -95,17 +119,27 @@ class NoteShareLinkRepository(DbRepository):
                 link=link,
                 visit_count=int(visit_count),
                 last_visited_at=last_visited_at,
+                page_view_count=int(page_view_count),
+                last_page_viewed_at=last_page_viewed_at,
             )
-            for link, visit_count, last_visited_at in rows
+            for link, visit_count, last_visited_at, page_view_count, last_page_viewed_at in rows
         ]
 
-    def record_visit(self, token: str, ip: str | None, user_agent: str | None) -> None:
+    def record_visit(
+        self,
+        token: str,
+        ip: str | None,
+        user_agent: str | None,
+        *,
+        kind: Literal["content", "page"] = "content",
+    ) -> None:
         """Persist one served read without putting capability or PII values in logs."""
         with self.operation("record_visit") as operation:
             session = operation.session
             session.add(
                 NoteShareLinkVisit(
                     token=token,
+                    kind=kind,
                     ip=ip,
                     user_agent=user_agent,
                     created_at=datetime.now(UTC).isoformat(),
@@ -134,6 +168,22 @@ class NoteShareLinkRepository(DbRepository):
 
         return self._mutate_or_none(
             "revoke",
+            NoteShareLink,
+            token,
+            apply,
+            guard=lambda link: (
+                link.owner_id == owner_id and link.note_id == note_id and link.revoked_at is None
+            ),
+            owner_id=owner_id,
+        )
+
+    def set_preview_description(self, owner_id: str, note_id: str, token: str, value: bool) -> bool:
+        def apply(session: Session, link: NoteShareLink) -> None:
+            link.preview_description = value
+            session.add(link)
+
+        return self._mutate_or_none(
+            "set_preview_description",
             NoteShareLink,
             token,
             apply,

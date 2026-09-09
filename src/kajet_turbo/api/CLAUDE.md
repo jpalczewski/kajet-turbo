@@ -4,7 +4,9 @@
 under `src/kajet_turbo/api/` should follow (#253, Phase R2 of the FastAPI endpoint epic
 #239, completed by #255). New endpoints should copy this pattern.
 `tests/api/test_endpoint_contract.py` walks every route and fails if a new one skips it
-(no `response_model`, a raw `Response`/`JSONResponse` return, or a hand-parsed body).
+(no `response_model`, a raw `Response`/`JSONResponse` return, or a hand-parsed body) --
+`shared_preview.py`'s `/shared/{token}` is the one deliberate exception, since it serves
+HTML rather than JSON and lives outside `/api/`; see that module's docstring.
 
 ## Request model, dependency, service call, response model
 
