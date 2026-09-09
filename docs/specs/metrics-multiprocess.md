@@ -142,7 +142,41 @@ uvicorn receives a factory *string*, so children import `kajet_turbo.server` and
 factory rather than re-running `main()`. The constraint is on anything new that starts a
 supervisor.
 
-## 8. What is not settled here
+## 8. Deployed SQLite capability
+
+`PRAGMA wal_checkpoint(NOOP)` is the only non-mutating way to read WAL frame state, and it
+arrived in SQLite 3.51.0. The version kajet links is a property of `.python-version`, not
+of the base image: python-build-standalone bundles its own SQLite.
+
+Measured in the pinned base image against a throwaway WAL database holding 7 frames:
+
+| mode | 3.14.3t / SQLite 3.50.4 | 3.14.7t / SQLite 3.53.1 |
+| --- | --- | --- |
+| `NOOP` | `(0, 7, 7)`, db 4096 → 8192 | `(0, 7, 0)`, db unchanged |
+| `PASSIVE` | `(0, 7, 7)`, db 4096 → 8192 | `(0, 7, 7)`, db 4096 → 8192 |
+| `ZZZ_NOT_A_REAL_MODE` | `(0, 7, 7)`, db 4096 → 8192 | `(0, 7, 7)`, db 4096 → 8192 |
+
+The deliberately invalid mode is the discriminator: SQLite silently falls back to
+`PASSIVE` for an unrecognised mode instead of rejecting it, so on 3.50.4 `NOOP` was
+indistinguishable from garbage — which is what proves it was never a real mode there. The
+database file growing is the checkpoint work it was doing.
+
+`.python-version` moved to `3.14.7t` in #400, so the pragma is now genuinely available.
+**The silent fallback survives that upgrade**, so the capability test must stay
+behavioural: on a WAL holding `N` frames, a genuine `NOOP` returns `0` as its third
+element while an unsupported mode returns `N` and has just checkpointed. Probe once at
+sampler start and record the result as a capability; never derive it from
+`sqlite3.sqlite_version`, because a base-image change can move it back and the failure is
+silent — WAL metrics would keep reporting plausible numbers while every scrape
+checkpointed.
+
+If the probe ever comes back unsupported, frame count is still obtainable without SQLite:
+the WAL format is a 32-byte header followed by frames of `24 + page_size` bytes, so `stat`
+on the `-wal` file plus `PRAGMA page_size` gives size and frame count with no mutation.
+Verified against the same probe database: `32 + 7 × (24 + 4096) = 28872`, matching the
+measured file size exactly.
+
+## 9. What is not settled here
 
 The harness lives under `scripts/` rather than `tests/stress/` because
 `prometheus_client` only becomes a project dependency in #311; it cannot run in CI until
