@@ -33,8 +33,26 @@ RUN echo "cache-bust: ${OS_PKG_CACHE_BUST}" && \
 COPY pyproject.toml uv.lock .python-version ./
 ENV UV_LINK_MODE=copy
 ENV UV_PYTHON_CACHE_DIR=/root/.cache/uv/python
+# The python-build-standalone interpreter ships pip in its site-packages, and pip
+# vendors its own dependency tree (msgpack, urllib3, ...) — plus a second copy as a
+# wheel under ensurepip — that image scanners report
+# against an image which never runs pip: dependencies come from uv.lock via `uv sync`,
+# and the runtime imports neither pip nor setuptools (cffi's setuptools shims are
+# build-time only — the compiled _cffi_backend is already installed). Removing it is
+# the fix; suppressing the findings would keep shipping the code. Deliberately not
+# `rm -rf` on a glob that could match nothing silently: fail loudly if the layout moves.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv python install && uv sync --frozen --no-dev --no-install-project
+    uv python install && uv sync --frozen --no-dev --no-install-project && \
+    base="$(/app/.venv/bin/python -c 'import sys; print(sys.base_prefix)')" && \
+    test -d "$base/lib" && \
+    find "$base/lib" -maxdepth 3 -type d \
+        \( -name pip -o -name 'pip-*.dist-info' -o -name setuptools -o -name 'setuptools-*.dist-info' \
+           -o -name ensurepip \) \
+        -prune -exec rm -rf {} + && \
+    rm -f "$base"/bin/pip "$base"/bin/pip[0-9]* && \
+    ! /app/.venv/bin/python -c 'import pip' 2>/dev/null && \
+    ! /app/.venv/bin/python -c 'import ensurepip' 2>/dev/null && \
+    /app/.venv/bin/python -c 'import sqlite3, ssl, ctypes; print("interpreter ok:", sqlite3.sqlite_version)'
 
 FROM app-deps AS app-base
 
