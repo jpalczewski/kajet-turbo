@@ -9,6 +9,7 @@ from starlette.testclient import TestClient
 
 from kajet_turbo.api.errors import install_error_handlers
 from kajet_turbo.api.public_notes import router as public_notes_router
+from kajet_turbo.api.shared_preview import router as shared_preview_router
 from kajet_turbo.api.workspaces import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import (
@@ -153,7 +154,7 @@ def api_client_factory(
             if grant_access:
                 workspace_repository.grant_access(user_id, "test-ws")
 
-        app = build_test_app(routers=(router, public_notes_router))
+        app = build_test_app(routers=(router, public_notes_router, shared_preview_router))
         app.dependency_overrides[get_note_service] = lambda: note_service
         app.dependency_overrides[get_note_reconcile_service] = lambda: note_reconcile_service
         app.dependency_overrides[get_note_tag_service] = lambda: note_tag_service

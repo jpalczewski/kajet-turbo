@@ -32,7 +32,12 @@ from .crud import (
     WorkspaceContentsResponse,
 )
 from .history import NoteHistoryEntry, NoteHistoryResponse, RestoreVersionResponse
-from .share_links import ShareLinkItem, ShareLinksResponse
+from .share_links import (
+    CreateShareLinkRequest,
+    ShareLinkItem,
+    ShareLinksResponse,
+    UpdateShareLinkPreviewRequest,
+)
 
 __all__ = [
     "BatchCreateNotesRequest",
@@ -43,6 +48,7 @@ __all__ = [
     "CreateFolderResponse",
     "CreateNoteRequest",
     "CreateNoteResponse",
+    "CreateShareLinkRequest",
     "DeleteNoteResponse",
     "EntriesInResponse",
     "FolderMetaResponse",
@@ -67,6 +73,7 @@ __all__ = [
     "UpdateFolderMetaRequest",
     "UpdateNoteRequest",
     "UpdateNoteResponse",
+    "UpdateShareLinkPreviewRequest",
     "WikilinkWarning",
     "WorkspaceContentsResponse",
 ]

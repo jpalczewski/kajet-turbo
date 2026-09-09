@@ -215,6 +215,7 @@ class NoteShareLink(SQLModel, table=True):
     owner_id: str = Field(sa_column=Column(Text, ForeignKey("users.id"), nullable=False))
     created_at: str
     revoked_at: str | None = Field(default=None)
+    preview_description: bool = Field(default=False)
 
     __table_args__ = (
         Index("ix_note_share_links_note", "note_id"),

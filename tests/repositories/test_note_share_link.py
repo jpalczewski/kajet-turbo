@@ -36,6 +36,22 @@ def test_create_and_resolve(database: Database):
     assert resolved.owner_id == "u1"
 
 
+def test_create_defaults_preview_description_to_false(database: Database):
+    seed_user(database, "u1")
+    _note(database.engine, "n1", "ws1", "u1")
+    repo = NoteShareLinkRepository(database.engine)
+    link = repo.create("n1", "ws1", "u1")
+    assert link.preview_description is False
+
+
+def test_create_accepts_preview_description(database: Database):
+    seed_user(database, "u1")
+    _note(database.engine, "n1", "ws1", "u1")
+    repo = NoteShareLinkRepository(database.engine)
+    link = repo.create("n1", "ws1", "u1", preview_description=True)
+    assert link.preview_description is True
+
+
 def test_resolve_unknown_token_returns_none(database: Database):
     repo = NoteShareLinkRepository(database.engine)
     assert repo.resolve("does-not-exist") is None
@@ -89,6 +105,38 @@ def test_revoke_is_note_scoped(database: Database):
 def test_revoke_unknown_token_returns_false(database: Database):
     repo = NoteShareLinkRepository(database.engine)
     assert repo.revoke("u1", "n1", "does-not-exist") is False
+
+
+def test_set_preview_description_is_owner_and_note_scoped(database: Database):
+    seed_user(database, "u1")
+    seed_user(database, "u2")
+    _note(database.engine, "n1", "ws1", "u1")
+    _note(database.engine, "n2", "ws1", "u1")
+    repo = NoteShareLinkRepository(database.engine)
+    link = repo.create("n1", "ws1", "u1")
+
+    assert repo.set_preview_description("u2", "n1", link.token, True) is False  # not owner
+    assert repo.set_preview_description("u1", "n2", link.token, True) is False  # wrong note
+    resolved = repo.resolve(link.token)
+    assert resolved is not None and resolved.preview_description is False  # untouched
+
+    assert repo.set_preview_description("u1", "n1", link.token, True) is True
+    resolved = repo.resolve(link.token)
+    assert resolved is not None and resolved.preview_description is True
+
+    assert repo.set_preview_description("u1", "n1", link.token, False) is True
+    resolved = repo.resolve(link.token)
+    assert resolved is not None and resolved.preview_description is False
+
+
+def test_set_preview_description_rejects_revoked_token(database: Database):
+    seed_user(database, "u1")
+    _note(database.engine, "n1", "ws1", "u1")
+    repo = NoteShareLinkRepository(database.engine)
+    link = repo.create("n1", "ws1", "u1")
+    repo.revoke("u1", "n1", link.token)
+
+    assert repo.set_preview_description("u1", "n1", link.token, True) is False
 
 
 def test_delete_for_note_in_session_removes_only_that_notes_links(database: Database):

@@ -12,6 +12,7 @@ def test_note_share_links_table_columns(database: Database):
         "owner_id",
         "created_at",
         "revoked_at",
+        "preview_description",
     }
 
 

@@ -14,7 +14,13 @@ from kajet_turbo.repositories import DbRepository
 class NoteShareLinkRepository(DbRepository):
     repository_name = "note_share_links"
 
-    def create(self, note_id: str, workspace: str, owner_id: str) -> NoteShareLink:
+    def create(
+        self,
+        note_id: str,
+        workspace: str,
+        owner_id: str,
+        preview_description: bool = False,
+    ) -> NoteShareLink:
         token = secrets.token_urlsafe(32)
         now = datetime.now(UTC).isoformat()
         with self.operation("create", note_id=note_id, owner_id=owner_id) as operation:
@@ -25,6 +31,7 @@ class NoteShareLinkRepository(DbRepository):
                 workspace=workspace,
                 owner_id=owner_id,
                 created_at=now,
+                preview_description=preview_description,
             )
             session.add(link)
             session.commit()
@@ -66,6 +73,22 @@ class NoteShareLinkRepository(DbRepository):
 
         return self._mutate_or_none(
             "revoke",
+            NoteShareLink,
+            token,
+            apply,
+            guard=lambda link: (
+                link.owner_id == owner_id and link.note_id == note_id and link.revoked_at is None
+            ),
+            owner_id=owner_id,
+        )
+
+    def set_preview_description(self, owner_id: str, note_id: str, token: str, value: bool) -> bool:
+        def apply(session: Session, link: NoteShareLink) -> None:
+            link.preview_description = value
+            session.add(link)
+
+        return self._mutate_or_none(
+            "set_preview_description",
             NoteShareLink,
             token,
             apply,

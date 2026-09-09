@@ -3,6 +3,7 @@
     apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPost,
     apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGet,
     apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDelete,
+    apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatch,
   } from '$lib/api';
   import type { ShareLinkItem } from '$lib/api';
   import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
@@ -18,6 +19,8 @@
   let links = $state<ShareLinkItem[]>([]);
   let copiedToken = $state('');
   let copyErrorToken = $state('');
+  let previewToggleErrorToken = $state('');
+  let createPreviewDescription = $state(false);
   let copyResetTimeout: ReturnType<typeof setTimeout> | undefined;
   const fetchAction = useAsyncAction();
   const createAction = useAsyncAction();
@@ -44,6 +47,7 @@
       const result = await apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPost(
         slug,
         noteId,
+        { preview_description: createPreviewDescription },
       );
       if (result.status !== 201) throw new Error();
       links = [...links, result.data];
@@ -58,6 +62,29 @@
     );
     if (result.status !== 200) throw new Error('Nie udało się wyłączyć linku');
     links = links.filter((link) => link.token !== token);
+  }
+
+  async function togglePreviewDescription(token: string, value: boolean) {
+    previewToggleErrorToken = '';
+    // Optimistic: flip the checkbox immediately, revert it if the PATCH fails.
+    links = links.map((link) =>
+      link.token === token ? { ...link, preview_description: value } : link,
+    );
+    try {
+      // customFetch throws on a non-2xx response (see $lib/api/fetcher.ts) instead of
+      // resolving with a non-200 status -- a plain status check here would never fire.
+      await apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatch(
+        slug,
+        noteId,
+        token,
+        { preview_description: value },
+      );
+    } catch {
+      links = links.map((link) =>
+        link.token === token ? { ...link, preview_description: !value } : link,
+      );
+      previewToggleErrorToken = token;
+    }
   }
 
   async function copyLink(token: string) {
@@ -84,12 +111,17 @@
     fetchAction.clearError();
     createAction.clearError();
     copyErrorToken = '';
+    previewToggleErrorToken = '';
   }
 </script>
 
 <button class="share-trigger" onclick={openDialog}>Udostępnij</button>
 
 <Modal bind:this={modal} title="Linki do udostępniania" onclose={resetDialogState}>
+  <label class="share-create-option">
+    <input type="checkbox" bind:checked={createPreviewDescription} />
+    Dołącz fragment treści w podglądzie linku
+  </label>
   <button
     class="btn btn--primary"
     onclick={createLink}
@@ -120,10 +152,21 @@
               onclick={(e) => e.currentTarget.select()}
             />
             <span class="share-list__date">Utworzono: {formatDate(link.created_at)}</span>
+            <label class="share-list__option">
+              <input
+                type="checkbox"
+                checked={link.preview_description}
+                onchange={(e) => togglePreviewDescription(link.token, e.currentTarget.checked)}
+              />
+              Fragment treści w podglądzie
+            </label>
             {#if copyErrorToken === link.token}
               <span class="share-error">
                 Nie udało się skopiować automatycznie — zaznacz link powyżej i skopiuj (Ctrl/Cmd+C).
               </span>
+            {/if}
+            {#if previewToggleErrorToken === link.token}
+              <span class="share-error">Nie udało się zapisać zmiany.</span>
             {/if}
           </div>
           <div class="share-list__actions">
@@ -163,6 +206,21 @@
     &:hover {
       color: v.$accent;
     }
+  }
+
+  .share-create-option,
+  .share-list__option {
+    display: flex;
+    align-items: center;
+    gap: v.$space-xs;
+    font-family: v.$font-mono;
+    font-size: 0.75rem;
+    color: v.$text-secondary;
+    cursor: pointer;
+  }
+
+  .share-create-option {
+    margin-bottom: v.$space-sm;
   }
 
   .share-status,
