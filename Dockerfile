@@ -9,7 +9,52 @@ FROM frontend-deps AS frontend-build
 COPY frontend/ .
 RUN bun run build
 
-FROM ghcr.io/astral-sh/uv:0.12.7-trixie-slim@sha256:92d38da241c7962f8f863e288cc1c39795b79b6553245f623a82db6be95bdae0 AS app-deps
+# Build stage: owns uv, the interpreter download and the venv. Nothing from it reaches
+# the runtime image except /python and /app/.venv, so the uv binary, its caches and the
+# build toolchain never ship.
+FROM ghcr.io/astral-sh/uv:0.12.7-trixie-slim@sha256:92d38da241c7962f8f863e288cc1c39795b79b6553245f623a82db6be95bdae0 AS app-build
+
+WORKDIR /app
+
+ENV UV_LINK_MODE=copy
+ENV UV_PYTHON_CACHE_DIR=/root/.cache/uv/python
+# An explicit, stable install dir: the venv records its interpreter by absolute path, so
+# the interpreter must sit at the same path in both stages or /app/.venv/bin/python
+# dangles after the copy. only-managed stops uv from quietly satisfying the requirement
+# with a system interpreter that the runtime stage will not have.
+ENV UV_PYTHON_INSTALL_DIR=/python
+ENV UV_PYTHON_PREFERENCE=only-managed
+
+COPY pyproject.toml uv.lock .python-version ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv python install && uv sync --frozen --no-dev --no-install-project
+
+COPY src/ src/
+# --no-editable installs the project into the venv rather than linking back to /app/src,
+# which the runtime stage deliberately does not copy.
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-editable
+
+# python-build-standalone ships pip inside the interpreter's site-packages and a second
+# copy as a wheel under ensurepip. Neither is used: dependencies come from uv.lock via
+# `uv sync`, and the runtime imports neither pip nor setuptools (cffi's setuptools shims
+# are build-time only — the compiled _cffi_backend is already installed). uv additionally
+# marks managed installs EXTERNALLY-MANAGED per PEP 668, so this pip could not install
+# anything even if something invoked it. It is not inert, though: pip vendors its own
+# dependency tree, which image scanners report against an image that never runs pip.
+# Assert the removal instead of trusting a glob to have matched — a layout change should
+# break the build loudly, not silently skip this.
+RUN find /python -maxdepth 5 -type d \
+        \( -name pip -o -name 'pip-*.dist-info' -o -name setuptools \
+           -o -name 'setuptools-*.dist-info' -o -name ensurepip \) \
+        -prune -exec rm -rf {} + && \
+    rm -f /python/*/bin/pip /python/*/bin/pip[0-9]* && \
+    ! /app/.venv/bin/python -c 'import pip' 2>/dev/null && \
+    ! /app/.venv/bin/python -c 'import ensurepip' 2>/dev/null && \
+    /app/.venv/bin/python -c 'import sqlite3, ssl, ctypes; print("interpreter ok:", sqlite3.sqlite_version)'
+
+# Runtime stage: the same Debian release the uv image is built on, carrying only what the
+# application actually executes.
+FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS app-base
 
 WORKDIR /app
 
@@ -23,41 +68,17 @@ LABEL org.opencontainers.image.source="https://github.com/jpalczewski/kajet-turb
 ARG OS_PKG_CACHE_BUST=0
 # openssh-client: dulwich's SubprocessSSHVendor shells out to `ssh` for git push
 # over SSH (workspace auto-push). Without it: FileNotFoundError [Errno 2] 'ssh'.
+# ca-certificates: the uv build image carries them, a bare debian slim does not, and
+# every outbound HTTPS call (embedding provider, git over https) needs them.
 RUN echo "cache-bust: ${OS_PKG_CACHE_BUST}" && \
     apt-get update && apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends git openssh-client && \
+    apt-get install -y --no-install-recommends git openssh-client ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
     git config --global user.email "kajet@localhost" && \
     git config --global user.name "kajet-turbo"
 
-COPY pyproject.toml uv.lock .python-version ./
-ENV UV_LINK_MODE=copy
-ENV UV_PYTHON_CACHE_DIR=/root/.cache/uv/python
-# The python-build-standalone interpreter ships pip in its site-packages, and pip
-# vendors its own dependency tree (msgpack, urllib3, ...) — plus a second copy as a
-# wheel under ensurepip — that image scanners report
-# against an image which never runs pip: dependencies come from uv.lock via `uv sync`,
-# and the runtime imports neither pip nor setuptools (cffi's setuptools shims are
-# build-time only — the compiled _cffi_backend is already installed). Removing it is
-# the fix; suppressing the findings would keep shipping the code. Deliberately not
-# `rm -rf` on a glob that could match nothing silently: fail loudly if the layout moves.
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv python install && uv sync --frozen --no-dev --no-install-project && \
-    base="$(/app/.venv/bin/python -c 'import sys; print(sys.base_prefix)')" && \
-    test -d "$base/lib" && \
-    find "$base/lib" -maxdepth 3 -type d \
-        \( -name pip -o -name 'pip-*.dist-info' -o -name setuptools -o -name 'setuptools-*.dist-info' \
-           -o -name ensurepip \) \
-        -prune -exec rm -rf {} + && \
-    rm -f "$base"/bin/pip "$base"/bin/pip[0-9]* && \
-    ! /app/.venv/bin/python -c 'import pip' 2>/dev/null && \
-    ! /app/.venv/bin/python -c 'import ensurepip' 2>/dev/null && \
-    /app/.venv/bin/python -c 'import sqlite3, ssl, ctypes; print("interpreter ok:", sqlite3.sqlite_version)'
-
-FROM app-deps AS app-base
-
-COPY src/ src/
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
+COPY --from=app-build /python /python
+COPY --from=app-build /app/.venv /app/.venv
 
 COPY alembic.ini .
 COPY alembic/ alembic/
