@@ -2,6 +2,10 @@
 
 Normative catalog for the *Prometheus application metrics* milestone (#280). No code and
 no dependency belongs here; #311 introduces the client and the facade.
+Multiprocess lifecycle — reaper placement, directory ownership, and what does and does not
+survive a child restart — is a companion record in
+[`metrics-multiprocess.md`](metrics-multiprocess.md), measured under a real uvicorn
+supervisor.
 
 This document has two halves with different lifetimes:
 
@@ -96,13 +100,21 @@ every child restart.
 | gauge class | mode | why |
 | --- | --- | --- |
 | Live state — pool checkouts, limiter borrowers, in-flight requests/tools/jobs | `livesum` | The deployment-wide value is the sum of what each live child currently holds |
-| Shared-state snapshots — WAL size, page/freelist counts, queue depth, sampler freshness | `mostrecent` | One owner samples them; the newest snapshot is the answer |
+| Shared-state snapshots — WAL size, page/freelist counts, queue depth, sampler freshness | `livemostrecent` | One owner samples them; the newest snapshot is the answer, and `live*` is the only family the dead-child reaper cleans |
 
-Shared-state gauges declare `mostrecent` even though their owning roles (`worker`,
+Shared-state gauges declare a mode even though their owning roles (`worker`,
 single-process `all`) never run multiprocess mode, so the setting is inert there. That is
 deliberate: if `KAJET_METRICS_SAMPLE_SHARED` is ever set on an `api` or `mcp` process by
 mistake, an unset mode silently falls back to the forbidden `all`. Declaring it costs
 nothing and removes the only way that mistake stays quiet.
+
+The mode is `livemostrecent`, not `mostrecent`, and the difference only shows up in
+exactly that misconfiguration. `mark_process_dead` cleans only gauges whose mode begins
+with `live`, so a plain `mostrecent` file written by a child that then dies is never
+removed — a dead process's WAL size or queue depth can stay the newest value indefinitely,
+plausible and frozen. `livemostrecent` is reaped instead, so the value disappears and
+absence is visible where a stuck number is not. Measured in
+[`metrics-multiprocess.md`](metrics-multiprocess.md) §3.
 
 ### 1.6 Phase vocabulary — adopt `PerfSpan`, do not invent
 
