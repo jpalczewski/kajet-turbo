@@ -168,6 +168,7 @@ def test_error_code_union_renders_as_anyof_of_refs() -> None:
     refs = {member["$ref"] for member in error_code["anyOf"]}
     expected_members = {
         "AuthError",
+        "CollectionError",
         "WorkspaceError",
         "NoteError",
         "FolderError",

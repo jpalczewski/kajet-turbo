@@ -9,7 +9,7 @@ detection, and redefinition-impact analysis.
 
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -159,6 +159,11 @@ class CollectionDefinition:
             month = int(captured["month"]) if "month" in captured else 1
             return date(year, month, 1)
         return None
+
+
+def collection_result_payload(name: str, definition: CollectionDefinition) -> dict[str, object]:
+    """Return the public definition payload, preserving the YAML mapping key as name."""
+    return {**asdict(definition), "name": name}
 
 
 @lru_cache(maxsize=256)

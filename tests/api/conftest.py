@@ -14,6 +14,7 @@ from kajet_turbo.api.workspaces import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_collection_service,
     get_note_create_service,
     get_note_delete_service,
     get_note_edit_service,
@@ -39,6 +40,7 @@ from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository, N
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import (
     NoteFolderService,
@@ -61,6 +63,7 @@ class ApiTestContext:
     workspace: Path
     note_read_service: NoteReadService
     share_link_repo: NoteShareLinkRepository
+    collection_service: CollectionService
 
     def __iter__(self):
         yield self.client
@@ -148,6 +151,7 @@ def api_client_factory(
             JobRepository(database.engine),
         )
         share_link_repo = NoteShareLinkRepository(database.engine)
+        collection_service = CollectionService(note_repository, note_service.create)
 
         if user_id is not None:
             seed_user(database, user_id)
@@ -170,6 +174,7 @@ def api_client_factory(
         app.dependency_overrides[get_note_share_link_service] = lambda: NoteShareLinkService(
             share_link_repo
         )
+        app.dependency_overrides[get_collection_service] = lambda: collection_service
         app.dependency_overrides[get_target_resolver] = lambda: TargetResolver(
             note_repository, workspace_service
         )
@@ -182,7 +187,9 @@ def api_client_factory(
         client_manager = TestClient(app)
         client = client_manager.__enter__()
         contexts.append((client_manager, None))
-        return ApiTestContext(client, note_service, workspace, note_read_service, share_link_repo)
+        return ApiTestContext(
+            client, note_service, workspace, note_read_service, share_link_repo, collection_service
+        )
 
     yield create
 
