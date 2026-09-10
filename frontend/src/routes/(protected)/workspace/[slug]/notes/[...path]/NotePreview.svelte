@@ -5,6 +5,7 @@
   import NoteMeta from '$lib/components/note/NoteMeta.svelte';
   import NoteModeToggle from '$lib/components/note/NoteModeToggle.svelte';
   import { processHeadings } from '$lib/outline';
+  import type { DateFormatPrefs } from '$lib/utils/format';
 
   let {
     note,
@@ -12,12 +13,14 @@
     links,
     onmoved,
     ondeleted,
+    datePrefs,
   }: {
     note: NoteHtmlResponse | null;
     slug: string;
     links: LinksResponse;
     onmoved: (folder: string) => void | Promise<void>;
     ondeleted: () => void | Promise<void>;
+    datePrefs: DateFormatPrefs;
   } = $props();
 
   let mode = $state<'content' | 'chunks'>('content');
@@ -44,6 +47,7 @@
         variant="preview"
         {onmoved}
         {ondeleted}
+        {datePrefs}
       />
     </div>
     <div class="preview__main">

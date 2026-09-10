@@ -9,11 +9,13 @@
   import Prose from '$lib/components/Prose.svelte';
   import { notePath } from '$lib/routes';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
+  import { DEFAULT_DATE_PREFS } from '$lib/utils/format';
   import VersionList from './VersionList.svelte';
 
   const slug = $derived(page.params.slug as string);
   const noteId = $derived(page.params.id as string);
   const entries = $derived(page.data.entries ?? []);
+  const datePrefs = $derived(page.data.session?.preferences ?? DEFAULT_DATE_PREFS);
 
   let selectedSha = $state<string | null>(null);
   let selectedVersion = $state<NoteHtmlResponse | null>(null);
@@ -52,7 +54,7 @@
   <h1 class="page-title">Historia</h1>
 
   <div class="history-layout">
-    <VersionList {entries} {selectedSha} onselect={selectVersion} />
+    <VersionList {entries} {selectedSha} onselect={selectVersion} {datePrefs} />
 
     <section class="history-preview">
       {#if selectAction.busy}

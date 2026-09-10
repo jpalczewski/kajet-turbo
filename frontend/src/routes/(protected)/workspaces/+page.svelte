@@ -4,12 +4,13 @@
   import { apiUpdateWorkspaceApiWorkspacesNamePatch } from '$lib/api';
   import { apiErrorMessage } from '$lib/api/mutate';
   import { notesPath } from '$lib/routes';
-  import { formatUnixDate } from '$lib/utils/format';
+  import { DEFAULT_DATE_PREFS, formatUnixDate } from '$lib/utils/format';
   import { groupWorkspaces } from '$lib/utils/groupWorkspaces';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import CreateWorkspaceForm from './CreateWorkspaceForm.svelte';
   import WorkspaceRemote from './WorkspaceRemote.svelte';
 
+  const datePrefs = $derived(page.data.session?.preferences ?? DEFAULT_DATE_PREFS);
   let workspaces = $derived(page.data.workspaces ?? []);
   let groups = $derived(groupWorkspaces(workspaces));
 
@@ -88,7 +89,7 @@
                 >
                 {#if ws.last_commit_at}
                   <span class="ws-card__sep">·</span>
-                  <span class="ws-card__date">{formatUnixDate(ws.last_commit_at)}</span>
+                  <span class="ws-card__date">{formatUnixDate(ws.last_commit_at, datePrefs)}</span>
                 {/if}
               </span>
               <span class="ws-card__arrow">→</span>

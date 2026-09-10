@@ -8,12 +8,13 @@
   import NoteModeToggle from '$lib/components/note/NoteModeToggle.svelte';
   import { processHeadings } from '$lib/outline';
   import { notesPath } from '$lib/routes';
-  import { formatDate } from '$lib/utils/format';
+  import { DEFAULT_DATE_PREFS, formatDate } from '$lib/utils/format';
 
   const slug = $derived(page.params.slug as string);
   const note = $derived(page.data.note);
   const backlinks = $derived(page.data.backlinks);
   const outlinks = $derived(page.data.outlinks);
+  const datePrefs = $derived(page.data.session?.preferences ?? DEFAULT_DATE_PREFS);
 
   let mode = $state<'content' | 'chunks'>('content');
   const processed = $derived(processHeadings(note.content_html));
@@ -38,7 +39,7 @@
         <p class="note__path">{slug}/{note.folder ? note.folder + '/' : ''}</p>
         <h1 class="note__title">{note.title}</h1>
         <div class="note__bar">
-          <span class="note__date">Zaktualizowano: {formatDate(note.updated_at)}</span>
+          <span class="note__date">Zaktualizowano: {formatDate(note.updated_at, datePrefs)}</span>
           <NoteModeToggle {mode} onchange={(m) => (mode = m)} />
           <NoteActions
             {slug}
@@ -48,6 +49,7 @@
             variant="full"
             onmoved={handleMove}
             ondeleted={handleDelete}
+            {datePrefs}
           />
         </div>
       </header>

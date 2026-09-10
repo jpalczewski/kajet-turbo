@@ -11,9 +11,10 @@
   import { sharedNoteUrl } from '$lib/routes';
   import { copyToClipboard } from '$lib/utils/clipboard';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
-  import { formatDate, formatDateTime } from '$lib/utils/format';
+  import { formatDate, formatDateTime, type DateFormatPrefs } from '$lib/utils/format';
 
-  let { slug, noteId }: { slug: string; noteId: string } = $props();
+  let { slug, noteId, datePrefs }: { slug: string; noteId: string; datePrefs: DateFormatPrefs } =
+    $props();
 
   let modal: Modal;
   let links = $state<ShareLinkItem[]>([]);
@@ -151,16 +152,19 @@
               value={linkUrl(link.token)}
               onclick={(e) => e.currentTarget.select()}
             />
-            <span class="share-list__date">Utworzono: {formatDate(link.created_at)}</span>
+            <span class="share-list__date">Utworzono: {formatDate(link.created_at, datePrefs)}</span
+            >
             <span class="share-list__date">Otwarcia strony: {link.page_view_count}</span>
             <span class="share-list__date">
               Ostatnie otwarcie:
-              {link.last_page_viewed_at ? formatDateTime(link.last_page_viewed_at) : 'brak'}
+              {link.last_page_viewed_at
+                ? formatDateTime(link.last_page_viewed_at, datePrefs)
+                : 'brak'}
             </span>
             <span class="share-list__date">Pobrania treści: {link.visit_count}</span>
             <span class="share-list__date">
               Ostatnie pobranie:
-              {link.last_visited_at ? formatDateTime(link.last_visited_at) : 'brak'}
+              {link.last_visited_at ? formatDateTime(link.last_visited_at, datePrefs) : 'brak'}
             </span>
             <label class="share-list__option">
               <input

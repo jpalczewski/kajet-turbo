@@ -1,16 +1,18 @@
 <script lang="ts">
   import type { NoteHistoryEntry } from '$lib/api';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
-  import { formatUnixDateTime } from '$lib/utils/format';
+  import { formatUnixDateTime, type DateFormatPrefs } from '$lib/utils/format';
 
   let {
     entries,
     selectedSha,
     onselect,
+    datePrefs,
   }: {
     entries: NoteHistoryEntry[];
     selectedSha: string | null;
     onselect: (sha: string) => void;
+    datePrefs: DateFormatPrefs;
   } = $props();
 </script>
 
@@ -24,7 +26,7 @@
       class:history-entry--active={selectedSha === entry.sha}
       onclick={() => onselect(entry.sha)}
     >
-      <span class="history-entry__date">{formatUnixDateTime(entry.timestamp)}</span>
+      <span class="history-entry__date">{formatUnixDateTime(entry.timestamp, datePrefs)}</span>
       <span class="history-entry__msg">{entry.message}</span>
     </button>
   {/each}

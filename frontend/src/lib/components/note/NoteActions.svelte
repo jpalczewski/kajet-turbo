@@ -6,6 +6,7 @@
   import MoveNoteDialog from '$lib/components/MoveNoteDialog.svelte';
   import ShareDialog from '$lib/components/ShareDialog.svelte';
   import { noteChunksPath, noteEditPath, noteHistoryPath, notePath } from '$lib/routes';
+  import type { DateFormatPrefs } from '$lib/utils/format';
 
   let {
     slug,
@@ -15,6 +16,7 @@
     variant,
     onmoved,
     ondeleted,
+    datePrefs,
   }: {
     slug: string;
     noteId: string;
@@ -23,6 +25,7 @@
     variant: 'preview' | 'full';
     onmoved: (folder: string) => void | Promise<void>;
     ondeleted: () => void | Promise<void>;
+    datePrefs: DateFormatPrefs;
   } = $props();
 
   async function deleteNote() {
@@ -45,7 +48,7 @@
   <a href={noteHistoryPath(slug, noteId)} class="actions__link">Historia</a>
   <a href={noteChunksPath(slug, noteId)} class="actions__link">Chunki</a>
   <MoveNoteDialog {slug} {noteId} currentFolder={folder} {onmoved} />
-  <ShareDialog {slug} {noteId} />
+  <ShareDialog {slug} {noteId} {datePrefs} />
   <ConfirmDialog
     title="Usuń notatkę"
     message={`Usunąć "${noteTitle}"?`}

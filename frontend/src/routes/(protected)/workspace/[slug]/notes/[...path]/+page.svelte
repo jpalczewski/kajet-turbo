@@ -13,6 +13,7 @@
     workspaceSettingsPath,
   } from '$lib/routes';
   import { activePane } from '$lib/explorerView';
+  import { DEFAULT_DATE_PREFS } from '$lib/utils/format';
   import ExplorerModeToggle from './ExplorerModeToggle.svelte';
   import FolderTree from './FolderTree.svelte';
   import TagTree from './TagTree.svelte';
@@ -24,6 +25,7 @@
   let { data } = $props();
   let slug = $derived(data.slug);
   let pane = $derived(activePane({ noteSelected: data.noteSelected }));
+  const datePrefs = $derived(data.session?.preferences ?? DEFAULT_DATE_PREFS);
 
   async function handleCreateFolder(path: string): Promise<void> {
     try {
@@ -120,6 +122,7 @@
         onCreateNote={handleCreateNote}
         useNoteFolder
         showCreate={false}
+        {datePrefs}
       />
     {:else}
       <NotesList
@@ -128,6 +131,7 @@
         folderPath={data.folderPath}
         {slug}
         onCreateNote={handleCreateNote}
+        {datePrefs}
       />
     {/if}
   </section>
@@ -140,6 +144,7 @@
       links={data.links}
       onmoved={handleMoveNote}
       ondeleted={handleDeleteNote}
+      {datePrefs}
     />
   </section>
 </div>

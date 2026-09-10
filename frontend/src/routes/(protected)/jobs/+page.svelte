@@ -8,10 +8,11 @@
   } from '$lib/api';
   import { customFetch } from '$lib/api/fetcher';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
-  import { formatUnixDateTime } from '$lib/utils/format';
+  import { DEFAULT_DATE_PREFS, formatUnixDateTime } from '$lib/utils/format';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
 
   let { data } = $props();
+  const datePrefs = $derived(data.session?.preferences ?? DEFAULT_DATE_PREFS);
 
   // svelte-ignore state_referenced_locally
   let jobs = $state<JobItem[]>(data.jobs);
@@ -105,11 +106,11 @@
             </div>
             <div>
               <dt>Utworzono</dt>
-              <dd>{formatUnixDateTime(job.created_at)}</dd>
+              <dd>{formatUnixDateTime(job.created_at, datePrefs)}</dd>
             </div>
             <div>
               <dt>Zaktualizowano</dt>
-              <dd>{formatUnixDateTime(job.updated_at)}</dd>
+              <dd>{formatUnixDateTime(job.updated_at, datePrefs)}</dd>
             </div>
           </dl>
           {#if job.last_error}

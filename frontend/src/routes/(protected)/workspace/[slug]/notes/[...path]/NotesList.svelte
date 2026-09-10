@@ -3,7 +3,7 @@
   import type { NoteItem } from '$lib/api';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import { noteInTreePath } from '$lib/routes';
-  import { formatDate, formatSize } from '$lib/utils/format';
+  import { formatDate, formatSize, type DateFormatPrefs } from '$lib/utils/format';
   import InlineCreateInput from './InlineCreateInput.svelte';
 
   let {
@@ -14,6 +14,7 @@
     onCreateNote,
     useNoteFolder = false,
     showCreate = true,
+    datePrefs,
   }: {
     notes: NoteItem[];
     currentNoteId: string | null;
@@ -22,6 +23,7 @@
     onCreateNote: (title: string) => Promise<void>;
     useNoteFolder?: boolean;
     showCreate?: boolean;
+    datePrefs: DateFormatPrefs;
   } = $props();
 
   function openNote(note: NoteItem) {
@@ -68,7 +70,7 @@
             <span class="note-row__title">{note.title}</span>
             <span class="note-row__meta">
               <span class="note-row__size">{formatSize(note.size_bytes)}</span>
-              <span class="note-row__date">{formatDate(note.updated_at)}</span>
+              <span class="note-row__date">{formatDate(note.updated_at, datePrefs)}</span>
             </span>
           </button>
         </li>
