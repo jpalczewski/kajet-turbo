@@ -348,27 +348,32 @@ class NoteRepository(DbRepository):
     ) -> list[dict]:
         if allowed_note_ids is not None and not allowed_note_ids:
             return []
+        # Folder browsing gets README-first + natural order by default; sort='title'
+        # forces that ordering globally too; sort='updated'/'created' always keep the
+        # SQL-level recency order, even inside a folder. Only the natural-order cases need
+        # every matching row before the top `limit` is known -- folder_sort_key isn't
+        # expressible in SQL, so those still materialize the whole filtered set and sort in
+        # Python; the recency sorts have no such dependency and push `limit` into the query
+        # instead of hydrating rows the caller will never see.
+        needs_full_scan = sort == "title" or (sort == "default" and folder is not None)
         with self.timed_session() as session:
             q = select(Note).where(Note.workspace == workspace, Note.owner_id == owner_id)
             if folder is not None:
                 q = q.where(Note.folder == folder)
+            if allowed_note_ids is not None:
+                q = q.where(col(Note.id).in_(allowed_note_ids))
             order_col = col(Note.created_at) if sort == "created" else col(Note.updated_at)
-            rows = session.exec(q.order_by(order_col.desc())).all()
+            q = q.order_by(order_col.desc())
+            if limit is not None and not needs_full_scan:
+                q = q.limit(limit)
+            rows = session.exec(q).all()
 
-        # Folder browsing gets README-first + natural order by default; sort='title'
-        # forces that ordering globally too; sort='updated'/'created' always keep the
-        # SQL-level recency order, even inside a folder.
-        if sort == "title" or (sort == "default" and folder is not None):
+        if needs_full_scan:
             rows = sorted(rows, key=folder_sort_key)
+            if limit is not None:
+                rows = rows[:limit]
 
-        result = []
-        for note in rows:
-            if allowed_note_ids is not None and note.id not in allowed_note_ids:
-                continue
-            result.append(note_to_list_item(note))
-            if limit is not None and len(result) >= limit:
-                break
-        return result
+        return [note_to_list_item(note) for note in rows]
 
     def entries_in(
         self, workspace: str, owner_id: str, start: str, end: str, folder: str | None = None

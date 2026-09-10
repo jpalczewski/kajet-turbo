@@ -1,4 +1,5 @@
 import re
+from enum import StrEnum
 from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -16,6 +17,18 @@ from kajet_turbo.shared.notes import (
 )
 
 _FOLDER_PATH_RE = re.compile(r"^[a-zA-Z0-9._-][a-zA-Z0-9._\-/]*$")
+
+
+class NoteSort(StrEnum):
+    """'default' -- recency globally, README-first natural title order inside a folder.
+    'updated'/'created' -- always that recency order, even inside a folder. 'title' --
+    natural title order (README-first), even globally. Mirrors the MCP list_notes tool's
+    sort literal (mcp/notes/read.py) and NoteRepository.list_notes's own semantics."""
+
+    DEFAULT = "default"
+    CREATED = "created"
+    UPDATED = "updated"
+    TITLE = "title"
 
 
 def _require_title(v: str) -> str:

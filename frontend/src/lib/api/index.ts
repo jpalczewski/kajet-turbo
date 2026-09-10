@@ -558,6 +558,22 @@ export interface NoteMarkdownResponse {
   sha: string;
 }
 
+/**
+ * 'default' -- recency globally, README-first natural title order inside a folder.
+ * 'updated'/'created' -- always that recency order, even inside a folder. 'title' --
+ * natural title order (README-first), even globally. Mirrors the MCP list_notes tool's
+ * sort literal (mcp/notes/read.py) and NoteRepository.list_notes's own semantics.
+ */
+export type NoteSort = typeof NoteSort[keyof typeof NoteSort];
+
+
+export const NoteSort = {
+  default: 'default',
+  created: 'created',
+  updated: 'updated',
+  title: 'title',
+} as const;
+
 export interface NotesListResponse {
   notes: NoteItem[];
 }
@@ -864,6 +880,8 @@ export type ApiListNotesApiWorkspacesNameNotesGetParams = {
 folder?: string | null;
 tag?: string | null;
 include_descendants?: boolean;
+sort?: NoteSort;
+limit?: number | null;
 };
 
 export type ApiWorkspaceContentsApiWorkspacesNameContentsGetParams = {

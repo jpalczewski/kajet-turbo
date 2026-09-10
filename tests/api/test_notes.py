@@ -216,6 +216,30 @@ def test_list_notes_includes_size_bytes(auth_client):
     assert note["size_bytes"] > 0
 
 
+def test_list_notes_sort_and_limit(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.create.save(_ws(ws_path), "Zebra", "content", [])
+    note_svc.create.save(_ws(ws_path), "Apple", "content", [])
+    note_svc.create.save(_ws(ws_path), "Mango", "content", [])
+
+    resp = client.get("/api/workspaces/test-ws/notes?sort=title")
+    assert resp.status_code == 200
+    assert [n["title"] for n in resp.json()["notes"]] == ["Apple", "Mango", "Zebra"]
+
+    limited = client.get("/api/workspaces/test-ws/notes?sort=title&limit=2")
+    assert limited.status_code == 200
+    assert [n["title"] for n in limited.json()["notes"]] == ["Apple", "Mango"]
+
+
+def test_list_notes_limit_above_max_is_rejected(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.create.save(_ws(ws_path), "Solo", "content", [])
+    resp = client.get("/api/workspaces/test-ws/notes?limit=501")
+    assert resp.status_code == 422
+    # nothing about the workspace changed -- the request never reached list_notes
+    assert client.get("/api/workspaces/test-ws/notes").json()["notes"][0]["title"] == "Solo"
+
+
 def test_create_note_returns_note_id(auth_client):
     client, _, _ = auth_client
     resp = client.post(

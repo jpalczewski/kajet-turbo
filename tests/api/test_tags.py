@@ -29,3 +29,16 @@ def test_list_notes_by_tag_prefix(auth_client):
     assert {n["title"] for n in resp.json()["notes"]} == {"A"}
     exact = client.get("/api/workspaces/test-ws/notes?tag=work&include_descendants=false")
     assert exact.json()["notes"] == []
+
+
+def test_list_notes_by_tag_honours_sort_and_limit(auth_client):
+    client, note_svc, ws_path = auth_client
+    note_svc.create.save(_ws(ws_path), "Zebra", "b", ["work"])
+    note_svc.create.save(_ws(ws_path), "Apple", "b", ["work/projects"])
+
+    resp = client.get("/api/workspaces/test-ws/notes?tag=work&sort=title")
+    assert resp.status_code == 200
+    assert [n["title"] for n in resp.json()["notes"]] == ["Apple", "Zebra"]
+
+    limited = client.get("/api/workspaces/test-ws/notes?tag=work&sort=title&limit=1")
+    assert [n["title"] for n in limited.json()["notes"]] == ["Apple"]

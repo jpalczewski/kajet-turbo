@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, datetime
 
 from nanoid import generate
@@ -262,48 +261,6 @@ class NoteTagRepository(DbRepository):
                 ).all()
             )
         return tags, [(note_id, tag_id) for note_id, tag_id in links]
-
-    def notes_by_tag(
-        self,
-        workspace: str,
-        owner_id: str,
-        path: str,
-        include_descendants: bool,
-        limit: int | None,
-    ) -> list[dict]:
-        """Notes carrying ``path`` (or its subtree), newest first."""
-        with self.timed_session() as session:
-            tag_ids = self._descendant_tag_ids(
-                session, workspace, owner_id, path, include_descendants
-            )
-            if not tag_ids:
-                return []
-            note_ids = select(NoteTag.note_id).where(col(NoteTag.tag_id).in_(tag_ids)).distinct()
-            q = (
-                select(Note)
-                .where(
-                    Note.workspace == workspace,
-                    Note.owner_id == owner_id,
-                    col(Note.id).in_(note_ids),
-                )
-                .order_by(col(Note.updated_at).desc())
-            )
-            if limit is not None:
-                q = q.limit(limit)
-            rows = session.exec(q).all()
-        return [
-            {
-                "note_id": n.id,
-                "workspace": n.workspace,
-                "owner_id": n.owner_id,
-                "title": n.title,
-                "folder": n.folder,
-                "tags": json.loads(n.tags or "[]"),
-                "created_at": n.created_at,
-                "updated_at": n.updated_at,
-            }
-            for n in rows
-        ]
 
     def tag_tree(self, workspace: str, owner_id: str) -> list[dict]:
         """All tags with ``exact_count`` (direct links) and ``descendant_count``

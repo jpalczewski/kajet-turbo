@@ -427,13 +427,3 @@ class NoteTagService:
         include_subfolders: bool = True,
     ) -> list[dict]:
         return self._tag_repo.tag_counts(ws_name, owner_id, folder, include_subfolders)
-
-    def notes_by_tag(
-        self,
-        ws_name: str,
-        owner_id: str,
-        path: str,
-        include_descendants: bool = True,
-        limit: int | None = None,
-    ) -> list[dict]:
-        return self._tag_repo.notes_by_tag(ws_name, owner_id, path, include_descendants, limit)

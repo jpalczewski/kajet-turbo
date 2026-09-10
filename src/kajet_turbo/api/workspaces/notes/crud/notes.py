@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from kajet_turbo.api.schemas import (
     BatchCreateNotesRequest,
@@ -10,6 +12,7 @@ from kajet_turbo.api.schemas import (
     MoveNoteResponse,
     NoteResult,
     NotesListResponse,
+    NoteSort,
     UpdateNoteRequest,
     UpdateNoteResponse,
 )
@@ -23,7 +26,6 @@ from kajet_turbo.dependencies import (
     get_note_edit_service,
     get_note_folder_service,
     get_note_read_service,
-    get_note_tag_service,
     get_required_user,
     resolve_note_target,
     resolve_workspace_target,
@@ -36,7 +38,6 @@ from kajet_turbo.services.notes import (
     NoteEditService,
     NoteFolderService,
     NoteReadService,
-    NoteTagService,
 )
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import (
@@ -62,18 +63,24 @@ def api_list_notes(
     name: str,
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
-    tag_service: NoteTagService = Depends(get_note_tag_service),
     note_read_service: NoteReadService = Depends(get_note_read_service),
     folder: str | None = None,
     tag: str | None = None,
     include_descendants: bool = True,
+    sort: NoteSort = NoteSort.DEFAULT,
+    limit: Annotated[int, Query(ge=1, le=500)] | None = None,
 ) -> NotesListResponse:
-    if tag is not None:
-        notes = tag_service.notes_by_tag(
-            name, user.id, tag, include_descendants=include_descendants
-        )
-    else:
-        notes = note_read_service.list_notes(workspace, folder=folder, limit=None)
+    notes = note_read_service.list_notes(
+        workspace,
+        tags=[tag] if tag is not None else None,
+        # tag= has never honoured folder (the old tag-only lookup ignored it entirely) --
+        # keep that exact pre-existing behaviour rather than silently starting to combine
+        # them now that both go through the same call.
+        folder=folder if tag is None else None,
+        include_descendants=include_descendants,
+        sort=sort,
+        limit=limit,
+    )
     return NotesListResponse(notes=enrich_note_items(str(workspace.path), notes))
 
 

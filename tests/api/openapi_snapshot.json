@@ -350,6 +350,7 @@
     "NoteLinkItem",
     "NoteMarkdownResponse",
     "NoteResult",
+    "NoteSort",
     "NotesListResponse",
     "OkResponse",
     "PendingInfoResponse",

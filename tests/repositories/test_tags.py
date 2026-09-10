@@ -28,9 +28,8 @@ def test_sync_materializes_ancestors(note_repo: NoteRepository, repo: NoteTagRep
 def test_sync_single_tag_roundtrips(note_repo: NoteRepository, repo: NoteTagRepository):
     _insert_note(note_repo, "n1")
     repo.sync_note_tags("n1", "ws", "u1", [("work", "frontmatter")])
-    rows = repo.notes_by_tag("ws", "u1", "work", include_descendants=False, limit=None)
-    assert len(rows) == 1
-    assert rows[0]["note_id"] == "n1"
+    got = repo.note_ids_for_tags("ws", "u1", ["work"], include_descendants=False)
+    assert got == {"n1"}
 
 
 def test_tag_tree_counts(note_repo: NoteRepository, repo: NoteTagRepository):
@@ -50,8 +49,8 @@ def test_notes_by_tag_prefix_toggle(note_repo: NoteRepository, repo: NoteTagRepo
     _insert_note(note_repo, "n2")
     repo.sync_note_tags("n1", "ws", "u1", [("work/projects", "frontmatter")])
     repo.sync_note_tags("n2", "ws", "u1", [("work", "frontmatter")])
-    with_desc = {r["note_id"] for r in repo.notes_by_tag("ws", "u1", "work", True, None)}
-    exact = {r["note_id"] for r in repo.notes_by_tag("ws", "u1", "work", False, None)}
+    with_desc = repo.note_ids_for_tags("ws", "u1", ["work"], include_descendants=True)
+    exact = repo.note_ids_for_tags("ws", "u1", ["work"], include_descendants=False)
     assert with_desc == {"n1", "n2"}
     assert exact == {"n2"}
 
@@ -69,7 +68,7 @@ def test_underscore_prefix_not_overmatched(note_repo: NoteRepository, repo: Note
     _insert_note(note_repo, "n2")
     repo.sync_note_tags("n1", "ws", "u1", [("work_log", "frontmatter")])
     repo.sync_note_tags("n2", "ws", "u1", [("workxlog", "frontmatter")])
-    got = {r["note_id"] for r in repo.notes_by_tag("ws", "u1", "work_log", True, None)}
+    got = repo.note_ids_for_tags("ws", "u1", ["work_log"], include_descendants=True)
     assert got == {"n1"}
 
 

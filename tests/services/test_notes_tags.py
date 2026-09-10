@@ -59,12 +59,14 @@ def test_delete_removes_tags(service, tag_service, workspace):
     assert service.tag_repo.tag_tree("ws", "u1") == []
 
 
-def test_tag_tree_and_notes_by_tag_service(service, tag_service, workspace):
+def test_tag_tree_and_notes_by_tag_service(service, read_service, tag_service, workspace):
     service.create.save(workspace_target("u1", "ws", workspace), "A", "body", ["work/projects"])
     service.create.save(workspace_target("u1", "ws", workspace), "B", "body", ["work"])
     tree = tag_service.tag_tree("ws", "u1")
     assert {t["path"] for t in tree} == {"work", "work/projects"}
-    with_desc = tag_service.notes_by_tag("ws", "u1", "work", include_descendants=True)
+    with_desc = read_service.list_notes(
+        workspace_target("u1", "ws", workspace), tags=["work"], include_descendants=True
+    )
     assert {n["title"] for n in with_desc} == {"A", "B"}
 
 
