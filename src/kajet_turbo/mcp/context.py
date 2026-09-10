@@ -137,7 +137,8 @@ async def user_timezone(user_id: str = Depends(require_user_id)) -> str:
     resolution once, not twice.
     """
     user = await run_sync(_deps().user_repo.get, user_id)
-    assert user is not None, "oauth token resolved to a user_id with no user row"
+    if user is None:
+        raise RuntimeError(f"oauth token resolved to a user_id with no user row: {user_id!r}")
     return user.timezone
 
 
