@@ -110,6 +110,7 @@ def build_mcp(resources: AppResources) -> FastMCP:
         resources.event_repo,
         resources.post_commit_hooks,
         resources.target_resolver,
+        resources.user_repo,
     )
     mcp = FastMCP(
         "kajet-turbo",

@@ -5,9 +5,12 @@ the collision/redefinition/deletion policy matrix lives in tests/test_collection
 and tests/services/test_collections.py, the cheaper layers per tests/CLAUDE.md.
 """
 
+from datetime import date
+
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+from kajet_turbo.repositories.users import UserRepository
 from tests.mcp_tools.helpers import call_json
 
 
@@ -191,6 +194,76 @@ async def test_open_entry_rejects_malformed_date(workspaces_dir, mcp_server):
             raise AssertionError("expected ToolError")
         except ToolError as exc:
             assert "date" in str(exc)
+
+
+async def test_open_entry_default_date_follows_the_callers_timezone(
+    workspaces_dir, mcp_server, monkeypatch
+):
+    """Proves the MCP-layer wiring (date omitted -> resolved via the caller's stored
+    timezone), not DST/offset correctness -- that's tests/test_periods.py's job (see
+    tests/CLAUDE.md's cheapest-layer rule). today_in is monkeypatched per-zone so two
+    different seeded timezones are provably threaded through to two different results,
+    the same idiom conftest.py already uses to patch get_access_token."""
+    mcp, database = mcp_server
+    fixed_dates = {"Pacific/Auckland": date(2026, 9, 11), "America/Los_Angeles": date(2026, 9, 10)}
+    monkeypatch.setattr("kajet_turbo.mcp.collections.today_in", lambda tz: fixed_dates[tz])
+
+    async with Client(mcp) as client:
+        await call_json(
+            client,
+            "define_collection",
+            {
+                "workspace": "test-ws",
+                "name": "journal",
+                "grain": "day",
+                "cardinality": "one",
+                "folder": "journal/{year}/{month}",
+                "title": "{date}",
+            },
+        )
+
+        UserRepository(database.engine).update_preferences("u1", timezone="Pacific/Auckland")
+        auckland_entry = await call_json(
+            client, "open_entry", {"collection": "journal", "workspace": "test-ws"}
+        )
+        assert auckland_entry["occurred_at"] == "2026-09-11"
+
+        UserRepository(database.engine).update_preferences("u1", timezone="America/Los_Angeles")
+        la_entry = await call_json(
+            client, "open_entry", {"collection": "journal", "workspace": "test-ws"}
+        )
+        assert la_entry["occurred_at"] == "2026-09-10"
+
+
+def _unexpected_today_in(tz: str) -> date:
+    raise AssertionError("today_in should not be called when an explicit date is given")
+
+
+async def test_open_entry_explicit_date_wins_over_default(workspaces_dir, mcp_server, monkeypatch):
+    mcp, database = mcp_server
+    monkeypatch.setattr("kajet_turbo.mcp.collections.today_in", _unexpected_today_in)
+    UserRepository(database.engine).update_preferences("u1", timezone="Pacific/Auckland")
+
+    async with Client(mcp) as client:
+        await call_json(
+            client,
+            "define_collection",
+            {
+                "workspace": "test-ws",
+                "name": "journal",
+                "grain": "day",
+                "cardinality": "one",
+                "folder": "journal/{year}/{month}",
+                "title": "{date}",
+            },
+        )
+
+        entry = await call_json(
+            client,
+            "open_entry",
+            {"collection": "journal", "date": "2026-06-15", "workspace": "test-ws"},
+        )
+        assert entry["occurred_at"] == "2026-06-15"
 
 
 async def test_list_collection_entries_returns_members_across_periods(workspaces_dir, mcp_server):

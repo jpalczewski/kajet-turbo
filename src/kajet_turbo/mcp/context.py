@@ -15,6 +15,7 @@ from kajet_turbo.log import log_permission_denied, log_security_event
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.git import PostCommitHooks
 from kajet_turbo.repositories.oauth import OAuthRepository
+from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.services.targets import (
     BatchTargetResolutionError,
     NoteTarget,
@@ -54,6 +55,7 @@ class McpDependencies:
     event_repo: EventRepository
     post_commit_hooks: PostCommitHooks
     target_resolver: TargetResolver
+    user_repo: UserRepository
 
 
 _current_dependencies: ContextVar[McpDependencies | None] = ContextVar(
@@ -67,6 +69,7 @@ def build_mcp_context(
     event_repo: EventRepository,
     post_commit_hooks: PostCommitHooks,
     target_resolver: TargetResolver,
+    user_repo: UserRepository,
 ) -> McpDependencies:
     return McpDependencies(
         workspace_service,
@@ -74,6 +77,7 @@ def build_mcp_context(
         event_repo,
         post_commit_hooks,
         target_resolver,
+        user_repo,
     )
 
 
@@ -122,6 +126,22 @@ def _resolve_user() -> str:
 
 async def require_user_id() -> str:
     return await run_sync(_resolve_user)
+
+
+async def user_timezone(user_id: str = Depends(require_user_id)) -> str:
+    """The caller's stored IANA timezone (`users.timezone`), for tools that need to
+    answer "what is today for this user" — see periods.today_in. Depends on
+    require_user_id rather than re-resolving the access token: uncalled_for's
+    per-call Depends cache is keyed by factory, so a tool that also depends on
+    WORKSPACE_TARGET (itself chained off require_user_id) pays for the token
+    resolution once, not twice.
+    """
+    user = await run_sync(_deps().user_repo.get, user_id)
+    assert user is not None, "oauth token resolved to a user_id with no user row"
+    return user.timezone
+
+
+USER_TIMEZONE = Depends(user_timezone)
 
 
 async def require_workspace_access(name: str, user_id: str) -> list[str]:

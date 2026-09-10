@@ -349,6 +349,8 @@ def render_set(definition: CollectionDefinition, today: date | None = None) -> s
     proof for a pathological template that only diverges outside the window or a
     same-period entry count beyond ``_MAX_ORDINAL``.
     """
+    # Sampling-horizon anchor, not a user-facing "today" (see periods.today_in for
+    # that) — a one-day shift here is irrelevant against a +/- multi-year window.
     anchor = today if today is not None else date.today()
     start = Period.containing(date(anchor.year - _SAMPLE_HORIZON_YEARS, 1, 1), definition.grain)
     end = Period.containing(date(anchor.year + _SAMPLE_HORIZON_YEARS, 12, 31), definition.grain)

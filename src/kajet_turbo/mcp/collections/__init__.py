@@ -13,9 +13,9 @@ from kajet_turbo.mcp.collections.types import (
     DeleteCollectionResult,
     OpenEntryResult,
 )
-from kajet_turbo.mcp.context import WORKSPACE_TARGET
+from kajet_turbo.mcp.context import USER_TIMEZONE, WORKSPACE_TARGET
 from kajet_turbo.mcp.tooling import publish_workspace_changed, read_tool, write_tool
-from kajet_turbo.periods import PeriodKind
+from kajet_turbo.periods import PeriodKind, today_in
 from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -129,12 +129,17 @@ def build_collections(
         collection: Annotated[
             str, Field(description="Name of the collection to open an entry in.")
         ],
-        date: Annotated[
-            str,
-            Field(description="ISO calendar date (YYYY-MM-DD) the entry is addressed by."),
-        ],
         workspace: Annotated[str, Field(description="The workspace name the collection lives in.")],
+        date: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description="ISO calendar date (YYYY-MM-DD) the entry is addressed by. "
+                "Omit for today in the user's configured timezone.",
+            ),
+        ] = None,
         target: WorkspaceTarget = WORKSPACE_TARGET,
+        tz: str = USER_TIMEZONE,
     ) -> OpenEntryResult:
         """Resolve or create a collection's entry for a date.
 
@@ -146,12 +151,15 @@ def build_collections(
 
         Creates an empty note with no content — this does not apply a template.
         """
-        try:
-            when = _date.fromisoformat(date)
-        except ValueError as exc:
-            raise ValueError(
-                f"date must be an ISO calendar date (YYYY-MM-DD), got {date!r}."
-            ) from exc
+        if date is None:
+            when = today_in(tz)
+        else:
+            try:
+                when = _date.fromisoformat(date)
+            except ValueError as exc:
+                raise ValueError(
+                    f"date must be an ISO calendar date (YYYY-MM-DD), got {date!r}."
+                ) from exc
         result = await run_sync(
             collection_service.open_entry,
             str(target.path),

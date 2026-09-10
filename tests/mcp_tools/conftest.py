@@ -16,6 +16,7 @@ from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.git import PostCommitHooks
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository, NoteTagRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
+from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
 from kajet_turbo.services.collections import CollectionService
@@ -133,6 +134,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         collection_service=CollectionService(note_repository, note_service_inst.create),
         event_repo=EventRepository(database.engine),
         post_commit_hooks=PostCommitHooks(),
+        user_repo=UserRepository(database.engine),
     )
     server = build_mcp(cast("AppResources", resources))
     return McpTestContext(

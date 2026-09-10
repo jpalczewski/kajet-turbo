@@ -1,9 +1,10 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import cast
+from zoneinfo import ZoneInfo
 
 import pytest
 
-from kajet_turbo.periods import Period, PeriodKind, month_of_week
+from kajet_turbo.periods import Period, PeriodKind, month_of_week, today_in
 
 
 @pytest.mark.parametrize(
@@ -84,3 +85,29 @@ def test_month_of_week_uses_thursday_not_monday():
 def test_month_of_week_requires_week_period():
     with pytest.raises(ValueError, match="week period"):
         month_of_week(Period("month", "2026-04"))
+
+
+def test_today_in_stable_across_dst_transition():
+    # Europe/Warsaw springs forward at 01:00 UTC on the last Sunday of March 2026
+    # (2026-03-29): 01:59 CET -> 03:00 CEST. Both instants below fall on the same
+    # local calendar day despite the UTC offset changing underneath them.
+    before = datetime(2026, 3, 29, 0, 30, tzinfo=UTC)
+    after = datetime(2026, 3, 29, 1, 30, tzinfo=UTC)
+
+    assert today_in("Europe/Warsaw", now=before) == date(2026, 3, 29)
+    assert today_in("Europe/Warsaw", now=after) == date(2026, 3, 29)
+
+
+def test_today_in_differs_by_zone_at_the_same_instant():
+    # A fixed instant near a UTC day boundary lands on different calendar days
+    # depending on the zone's offset -- the concrete case #374 is about.
+    now = datetime(2026, 9, 10, 23, 30, tzinfo=UTC)
+
+    assert today_in("Pacific/Auckland", now=now) == date(2026, 9, 11)
+    assert today_in("America/Los_Angeles", now=now) == date(2026, 9, 10)
+
+
+def test_today_in_defaults_to_the_real_clock():
+    now = datetime.now(UTC)
+
+    assert today_in("Europe/Warsaw") == now.astimezone(ZoneInfo("Europe/Warsaw")).date()
