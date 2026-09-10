@@ -173,8 +173,12 @@ def today_in(tz: str, *, now: datetime | None = None) -> date:
     """Calendar date "today" is currently in ``tz``, or at ``now`` if given.
 
     ``now`` is injectable so midnight/DST-transition tests are deterministic rather
-    than flaky at whatever hour CI happens to run — pass an aware datetime, not a
-    naive one.
+    than flaky at whatever hour CI happens to run. It must be timezone-aware: a naive
+    ``now`` would have ``astimezone`` silently interpret it in the host's local
+    timezone instead of raising, defeating the point of an explicit, deterministic
+    instant.
     """
+    if now is not None and now.utcoffset() is None:
+        raise ValueError("today_in's now must be timezone-aware, not naive.")
     moment = now if now is not None else datetime.now(UTC)
     return moment.astimezone(ZoneInfo(tz)).date()

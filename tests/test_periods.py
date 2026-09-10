@@ -111,3 +111,8 @@ def test_today_in_defaults_to_the_real_clock():
     now = datetime.now(UTC)
 
     assert today_in("Europe/Warsaw") == now.astimezone(ZoneInfo("Europe/Warsaw")).date()
+
+
+def test_today_in_rejects_naive_now():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        today_in("Europe/Warsaw", now=datetime(2026, 3, 29, 0, 30))
