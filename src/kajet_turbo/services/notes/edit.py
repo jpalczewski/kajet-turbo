@@ -33,9 +33,17 @@ from kajet_turbo.services.notes.locator import locate_many
 from kajet_turbo.services.notes.paths import conflict_message, note_path_conflict
 from kajet_turbo.services.notes.persistence import defer_index_many, defer_index_note
 from kajet_turbo.services.notes.staged_change import StagedChange, commit_rows_then_tree
-from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
+from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_result
 from kajet_turbo.services.notes.tags import NoteTagService
-from kajet_turbo.services.notes.types import EditBatchItem
+from kajet_turbo.services.notes.types import (
+    EditBatchItem,
+    EditNotesApplied,
+    EditNotesError,
+    EditNotesRejected,
+    EditNotesSuccessItem,
+    EditNoteSuccess,
+    StaleVersion,
+)
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import (
     InvalidFolderError,
@@ -105,7 +113,7 @@ class NoteEditService:
         occurred_at: object = _UNCHANGED,
         period: object = _UNCHANGED,
         clear_date_metadata: bool = False,
-    ) -> dict:
+    ) -> EditNoteSuccess | StaleVersion:
         note_id = target.note_id
         owner_id = target.workspace.owner_id
         ws_path = str(target.workspace.path)
@@ -138,7 +146,7 @@ class NoteEditService:
             raise FileNotFoundError(f"Note file not found: note_id={note_id}")
 
         if not sha_is_fresh(current_head_sha(ws_path, old_rel), expected_sha):
-            return stale_payload(note_id)
+            return stale_result(note_id)
 
         workspace_links = self._link_service.for_workspace(note.workspace, owner_id)
         if old_path != new_path:
@@ -275,21 +283,21 @@ class NoteEditService:
         )
         if self._reconcile_repo is not None and identity_changed:
             self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
-        return {
-            "note_id": note_id,
-            "replaced": replaced,
-            "warnings": wikilink_warnings(links),
-            "temporal_warnings": temporal_drop_warnings(existing_meta.temporal_dropped),
-            "occurred_at": new_occurred_at,
-            "period": new_period,
-        }
+        return EditNoteSuccess(
+            note_id=note_id,
+            replaced=replaced,
+            warnings=wikilink_warnings(links),
+            temporal_warnings=temporal_drop_warnings(existing_meta.temporal_dropped),
+            occurred_at=new_occurred_at,
+            period=new_period,
+        )
 
     @target_write_transaction
     def edit_many(
         self,
         target: WorkspaceTarget,
         edits: list[EditBatchItem],
-    ) -> dict:
+    ) -> EditNotesApplied | EditNotesRejected:
         """Apply multiple surgical edits in ONE atomic commit. All-or-nothing at
         validation: any invalid edit (missing note, duplicate note_id, broken wikilink,
         bad anchor/heading) rejects the whole batch — nothing is written. Content + tags
@@ -315,11 +323,11 @@ class NoteEditService:
         expected_shas = [e.expected_sha for e in edits]
         located = locate_many(self._crud_repo, note_ids, user_id, ws_path, git_repo)
         workspace_links = self._link_service.for_workspace(ws_name, user_id)
-        errors: list[dict] = []
+        errors: list[EditNotesError] = []
         prepared: list[_PreparedEdit] = []
         for item in _validate_destructive_items(note_ids, expected_shas, located):
             if isinstance(item, _BatchValidationError):
-                errors.append(item.as_dict())
+                errors.append(item.edit_error())
                 continue
             index, note_id, loc = item.index, item.note_id, item.loc
             edit_item = edits[index]
@@ -337,24 +345,24 @@ class NoteEditService:
                 and not edit_item.clear_date_metadata
             ):
                 errors.append(
-                    {
-                        "index": index,
-                        "note_id": note_id,
-                        "error": "Item changes nothing: it carries neither content nor tags. "
+                    EditNotesError(
+                        index=index,
+                        note_id=note_id,
+                        error="Item changes nothing: it carries neither content nor tags. "
                         "Use edit_note to change title or folder.",
-                    }
+                    )
                 )
                 continue
             try:
                 edit_result = apply_edit(old_content, edit_item.edit)
             except ValueError as e:
-                errors.append({"index": index, "note_id": note_id, "error": str(e)})
+                errors.append(EditNotesError(index=index, note_id=note_id, error=str(e)))
                 continue
             new_content = edit_result.body
             try:
                 links = workspace_links.validate(new_content, loc.note.folder)
             except BrokenWikilinkError as e:
-                errors.append({"index": index, "note_id": note_id, "error": str(e)})
+                errors.append(EditNotesError(index=index, note_id=note_id, error=str(e)))
                 continue
             new_tags = (
                 NoteTagService.normalize_tags(edit_item.tags)
@@ -375,7 +383,7 @@ class NoteEditService:
                     fallback=existing_meta.temporal_or(loc.note.occurred_at, loc.note.period),
                 )
             except ValueError as e:
-                errors.append({"index": index, "note_id": note_id, "error": str(e)})
+                errors.append(EditNotesError(index=index, note_id=note_id, error=str(e)))
                 continue
             prepared.append(
                 _PreparedEdit(
@@ -394,7 +402,7 @@ class NoteEditService:
             )
 
         if errors:
-            return {"applied": False, "errors": errors}
+            return EditNotesRejected(errors=errors)
 
         now = datetime.now(UTC).isoformat()
         n = len(prepared)
@@ -460,19 +468,19 @@ class NoteEditService:
         defer_index_many(self._indexer, ws_path, ws_name, user_id, [p.note_id for p in prepared])
 
         results = [
-            {
-                "index": p.index,
-                "note_id": p.note_id,
-                "replaced": p.replaced,
-                "warnings": wikilink_warnings(p.links),
-                "temporal_warnings": temporal_drop_warnings(p.meta.temporal_dropped),
-            }
+            EditNotesSuccessItem(
+                index=p.index,
+                note_id=p.note_id,
+                replaced=p.replaced,
+                warnings=wikilink_warnings(p.links),
+                temporal_warnings=temporal_drop_warnings(p.meta.temporal_dropped),
+            )
             for p in prepared
         ]
         for p in prepared:
             logger.info("note_updated", note_id=p.note_id, folder=p.loc.note.folder)
         logger.info("notes_edited_batch", ws=ws_name, count=len(prepared))
-        return {"applied": True, "results": results}
+        return EditNotesApplied(results=results)
 
     @target_write_transaction
     def restore_version(
@@ -480,7 +488,7 @@ class NoteEditService:
         target: NoteTarget,
         sha: str,
         expected_sha: str | None = None,
-    ) -> dict:
+    ) -> EditNoteSuccess | StaleVersion:
         """Restore a past version over HEAD. expected_sha (MCP callers) proves the
         caller saw the HEAD it is about to overwrite; ``None`` (REST API) skips it."""
         note_id = target.note_id
@@ -495,7 +503,7 @@ class NoteEditService:
         if current_sha is None:
             raise ValueError(f"Note has no commit history: note_id={note_id}")
         if expected_sha is not None and not sha_is_fresh(current_sha, expected_sha):
-            return stale_payload(note_id)
+            return stale_result(note_id)
         # Restore proves intent by construction: update()'s own staleness check is
         # satisfied with the head sha just read.
         return self.update(

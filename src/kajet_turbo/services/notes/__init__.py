@@ -11,11 +11,39 @@ from kajet_turbo.services.notes.search import NoteSearchService
 from kajet_turbo.services.notes.share_links import NoteShareLinkService
 from kajet_turbo.services.notes.tags import NoteTagService
 from kajet_turbo.services.notes.temporal import NoteTemporalService
-from kajet_turbo.services.notes.types import DeleteBatchItem, EditBatchItem, NoteData
+from kajet_turbo.services.notes.types import (
+    BatchNoteError,
+    BatchNoteSuccess,
+    DeleteBatchItem,
+    DeletedNoteResult,
+    DeleteNotesApplied,
+    DeleteNotesError,
+    DeleteNotesRejected,
+    EditBatchItem,
+    EditNotesApplied,
+    EditNotesError,
+    EditNotesRejected,
+    EditNotesSuccessItem,
+    EditNoteSuccess,
+    NoteData,
+    SavedNoteResult,
+    StaleVersion,
+)
 
 __all__ = [
+    "BatchNoteError",
+    "BatchNoteSuccess",
     "DeleteBatchItem",
+    "DeleteNotesApplied",
+    "DeleteNotesError",
+    "DeleteNotesRejected",
+    "DeletedNoteResult",
     "EditBatchItem",
+    "EditNoteSuccess",
+    "EditNotesApplied",
+    "EditNotesError",
+    "EditNotesRejected",
+    "EditNotesSuccessItem",
     "NoteCreateService",
     "NoteData",
     "NoteDeleteService",
@@ -30,5 +58,7 @@ __all__ = [
     "NoteTagService",
     "NoteTemporalService",
     "NoteVersionService",
+    "SavedNoteResult",
+    "StaleVersion",
     "WorkspaceLinks",
 ]

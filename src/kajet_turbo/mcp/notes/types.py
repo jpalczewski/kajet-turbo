@@ -3,14 +3,43 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
 from kajet_turbo.markdown import EditMode, EditSpec
+from kajet_turbo.services.notes.types import (
+    BatchNoteError,
+    BatchNoteSuccess,
+    DeletedNoteResult,
+    DeleteNotesApplied,
+    DeleteNotesError,
+    DeleteNotesRejected,
+    EditNotesApplied,
+    EditNotesError,
+    EditNotesRejected,
+    EditNotesSuccessItem,
+    EditNoteSuccess,
+    SavedNoteResult,
+    StaleVersion,
+)
+
+__all__ = [
+    "BatchNoteError",
+    "BatchNoteSuccess",
+    "DeleteNotesApplied",
+    "DeleteNotesError",
+    "DeleteNotesRejected",
+    "DeletedNoteResult",
+    "EditNoteSuccess",
+    "EditNotesApplied",
+    "EditNotesError",
+    "EditNotesRejected",
+    "EditNotesSuccessItem",
+    "SavedNoteResult",
+    "StaleVersion",
+]
 from kajet_turbo.shared.notes import (
     DanglingLinkItem,
     FolderContext,
     NoteLinkItemWithMeta,
     NoteLinksBase,
     NoteListItem,
-    TemporalWarning,
-    WikilinkWarning,
 )
 
 
@@ -45,13 +74,6 @@ class NoteInput(ToolInput):
     )
 
 
-class SavedNoteResult(BaseModel):
-    note_id: str
-    warnings: list[WikilinkWarning] = Field(default_factory=list)
-    occurred_at: str | None = None
-    period: str | None = None
-
-
 class ConflictItem(BaseModel):
     title: str
     folder: str
@@ -66,10 +88,6 @@ class MovedFolderResult(BaseModel):
 class FolderConflictResult(BaseModel):
     error: str
     conflicts: list[ConflictItem]
-
-
-class DeletedNoteResult(BaseModel):
-    note_id: str
 
 
 class PrunedFoldersResult(BaseModel):
@@ -160,35 +178,6 @@ class NoteLinksResult(NoteLinksBase):
     # time, so it wouldn't pick up this module's richer NoteLinkItem by itself.
     outlinks: list[NoteLinkItem]
     backlinks: list[NoteLinkItem]
-
-
-class BatchNoteSuccess(BaseModel):
-    index: int
-    note_id: str
-    warnings: list[WikilinkWarning] = Field(default_factory=list)
-
-
-class BatchNoteError(BaseModel):
-    index: int
-    error: str
-
-
-class StaleVersion(BaseModel):
-    note_id: str
-    error: str
-
-
-class EditNoteSuccess(BaseModel):
-    note_id: str
-    replaced: int | None = None
-    warnings: list[WikilinkWarning] = Field(default_factory=list)
-    temporal_warnings: list[TemporalWarning] = Field(
-        default_factory=list,
-        description="occurred_at/period fields that had an unparseable value on disk "
-        "(a hand edit, most often) and were kept at their previous value instead.",
-    )
-    occurred_at: str | None = None
-    period: str | None = None
 
 
 class GrepMatch(BaseModel):
@@ -301,55 +290,11 @@ class NoteEditInput(ToolInput):
         )
 
 
-class EditNotesSuccessItem(BaseModel):
-    index: int
-    note_id: str
-    replaced: int | None = None
-    warnings: list[WikilinkWarning] = Field(default_factory=list)
-    temporal_warnings: list[TemporalWarning] = Field(default_factory=list)
-
-
-class EditNotesApplied(BaseModel):
-    applied: Literal[True]
-    results: list[EditNotesSuccessItem]
-
-
-class EditNotesError(BaseModel):
-    index: int
-    note_id: str
-    error: str
-
-
-class EditNotesRejected(BaseModel):
-    applied: Literal[False]
-    errors: list[EditNotesError] = Field(
-        description="Cały batch odrzucony — nic nie zostało zapisane."
-    )
-
-
 class NoteDeleteInput(ToolInput):
-    note_id: str = Field(description="id notatki do usunięcia")
+    note_id: str = Field(description="ID of the note to delete")
     expected_sha: str = Field(
-        description="Aktualny HEAD sha notatki z get_note_history — dowód, że przed "
-        "usunięciem widziałeś bieżącą wersję. Niezgodność odrzuca cały batch."
-    )
-
-
-class DeleteNotesApplied(BaseModel):
-    applied: Literal[True]
-    results: list[BatchNoteSuccess]
-
-
-class DeleteNotesError(BaseModel):
-    index: int
-    note_id: str
-    error: str
-
-
-class DeleteNotesRejected(BaseModel):
-    applied: Literal[False]
-    errors: list[DeleteNotesError] = Field(
-        description="Cały batch odrzucony — nic nie zostało usunięte."
+        description="The note's current HEAD sha from get_note_history — proof you saw "
+        "the current version before deleting. A mismatch rejects the entire batch."
     )
 
 

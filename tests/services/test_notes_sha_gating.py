@@ -1,6 +1,7 @@
 """set_tags/update confirmation gating and stale expected_sha coverage."""
 
 from kajet_turbo.markdown import EditSpec
+from kajet_turbo.services.notes import DeletedNoteResult, EditNoteSuccess
 from tests.services.conftest import note_target, workspace_target
 
 
@@ -53,14 +54,7 @@ def test_update_fresh_sha_applies_content_overwrite(service, read_service, works
         edit=EditSpec(content="nowa treść"),
     )
 
-    assert result == {
-        "note_id": note_id,
-        "replaced": None,
-        "warnings": [],
-        "temporal_warnings": [],
-        "occurred_at": None,
-        "period": None,
-    }
+    assert result == EditNoteSuccess(note_id=note_id)
     note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert note.content == "nowa treść"
 
@@ -77,14 +71,7 @@ def test_update_no_gate_on_empty_body_overwrite(service, read_service, workspace
         edit=EditSpec(content="pierwsza treść"),
     )
 
-    assert result == {
-        "note_id": note_id,
-        "replaced": None,
-        "warnings": [],
-        "temporal_warnings": [],
-        "occurred_at": None,
-        "period": None,
-    }
+    assert result == EditNoteSuccess(note_id=note_id)
     note = read_service.get_with_content(note_target("u1", "ws", workspace, note_id))
     assert note.content == "pierwsza treść"
 
@@ -101,14 +88,7 @@ def test_update_no_gate_on_surgical_append(service, workspace):
         edit=EditSpec(content="- b", mode="append", target_heading="## H"),
     )
 
-    assert result == {
-        "note_id": note_id,
-        "replaced": None,
-        "warnings": [],
-        "temporal_warnings": [],
-        "occurred_at": None,
-        "period": None,
-    }
+    assert result == EditNoteSuccess(note_id=note_id)
 
 
 def test_update_fresh_sha_applies_tag_drop(service, read_service, workspace):
@@ -168,7 +148,7 @@ def test_delete_none_sha_skips_check(service, workspace):
         "note_id"
     ]
     result = service.delete.delete(note_target("u1", "test-ws", workspace, note_id))
-    assert result == {"note_id": note_id}
+    assert result == DeletedNoteResult(note_id=note_id)
 
 
 def test_delete_missing_file_skips_sha_check(service, read_service, workspace):
@@ -184,7 +164,7 @@ def test_delete_missing_file_skips_sha_check(service, read_service, workspace):
         note_target("u1", "test-ws", workspace, note_id), expected_sha="0" * 12
     )
 
-    assert result == {"note_id": note_id}
+    assert result == DeletedNoteResult(note_id=note_id)
     assert read_service.get(note_id, owner_id="u1") is None
 
 

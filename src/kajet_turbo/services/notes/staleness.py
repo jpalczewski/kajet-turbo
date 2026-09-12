@@ -8,6 +8,7 @@ instead of a blind retry.
 """
 
 from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.services.notes.types import StaleVersion
 
 
 def current_head_sha(ws_path: str, relative: str) -> str | None:
@@ -27,5 +28,11 @@ def stale_error(note_id: str) -> str:
     )
 
 
+def stale_result(note_id: str) -> StaleVersion:
+    return StaleVersion(note_id=note_id, error=stale_error(note_id))
+
+
 def stale_payload(note_id: str) -> dict:
-    return {"note_id": note_id, "stale_sha": True, "error": stale_error(note_id)}
+    """Legacy mapping used by note-tag operations, outside the write-result refactor."""
+    result = stale_result(note_id)
+    return {"note_id": result.note_id, "stale_sha": True, "error": result.error}
