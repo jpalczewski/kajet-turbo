@@ -16,10 +16,6 @@ class StoredChunk:
     char_end: int
     dim: int | None
 
-    def __getitem__(self, key: str) -> object:
-        """Compatibility bridge for internal callers migrating from row dictionaries."""
-        return getattr(self, key)
-
 
 @dataclass(frozen=True, slots=True)
 class ChunkHit:
@@ -39,10 +35,6 @@ class ChunkHit:
     score: float = 0.0
     matched_on: list[MetadataMatch] | None = None
 
-    def __getitem__(self, key: str) -> object:
-        """Compatibility bridge for internal callers migrating from row dictionaries."""
-        return getattr(self, key)
-
 
 @dataclass(frozen=True, slots=True)
 class MetadataHit:
@@ -53,7 +45,3 @@ class MetadataHit:
     folder: str
     updated_at: str
     matched_on: list[MetadataMatch]
-
-    def __getitem__(self, key: str) -> object:
-        """Compatibility bridge for internal callers migrating from row dictionaries."""
-        return getattr(self, key)
