@@ -2,8 +2,9 @@
 
 This package (`NoteCreateService`/`NoteEditService`/`NoteDeleteService` — the write pipeline,
 split by #388 from a single former `NoteService` — plus their collaborators `NoteTagService`,
-`NoteFolderService`, `NoteLinkService`, `NoteVersionService`, `NoteSearchService`,
-`NoteTemporalService`) is the synchronous, request-facing CRUD layer for notes — called
+`NoteFolderService`, `NoteLinkService`, `NoteGraphService`, `BacklinkRewriter`,
+`NoteVersionService`, `NoteSearchService`, `NoteTemporalService`) is the synchronous,
+request-facing CRUD layer for notes — called
 directly from API routes and MCP tools, not dispatched by job kind. That is the boundary
 between this package and the flat `services/` directory: background job handlers
 (`embed_handler.py`, `push_handler.py`, `reconcile_links_handler.py`, `reindex_handler.py`)
@@ -50,7 +51,8 @@ collaborator here used to be exposed: REST and MCP call `NoteTemporalService.ent
 `temporal_backfill_preview`/`apply_temporal_backfill` directly — none of the three write
 services carries delegating wrappers for this domain at all (#224). Its constructor takes only
 `NoteRepository`, same as `NoteVersionService`. `NoteTagService` (#306), `NoteLinkService`
-(#307), `NoteSearchService` (#230), `NoteFolderService` (#229), and `NoteVersionService`
+(#307), `NoteGraphService` (#389), `NoteSearchService` (#230), `NoteFolderService` (#229),
+and `NoteVersionService`
 (#231) have since moved to the same direct-call shape, each removing its one-line delegate
 methods from the write side. `NoteVersionService` keeps one caller-facing difference from
 the rest: `NoteEditService.restore_version` still depends on it directly
@@ -68,7 +70,7 @@ construction, unlike a hand-rebuilt frontmatter object. `add`+`remove` on one it
 rename one commit instead of two (see `update()`'s rename leg). Every path that writes note
 content already goes through it — either directly, or via `commit_rows_then_tree`/
 `commit_rows_then` below (single save, batch save, rename/update, `edit_many`,
-`apply_temporal_backfill`, single-note tagging, `rename_tag`, `_rewrite_backlinks`, `move`,
+`apply_temporal_backfill`, single-note tagging, `rename_tag`, backlink rewriting, `move`,
 `move_folder`), or directly only for `reconcile_paths`'s adoption path. Reuse it for any new
 note-body write path — do not hand-roll the stage/write/commit/rollback sequence again.
 
@@ -107,8 +109,9 @@ parallel implementations, even though they live in different classes in this pac
 same rows-first-commit-last ordering.
 
 Every note-row write path in this package but one goes through `commit_rows_then_tree` or its
-lower-level sibling `commit_rows_then`: `_apply_tag_change`, `rename_tag`, `_rewrite_backlinks`,
-and `move` call `commit_rows_then_tree`. `_rewrite_backlinks`'s row update carries forward only
+lower-level sibling `commit_rows_then`: `_apply_tag_change`, `rename_tag`,
+`BacklinkRewriter.rewrite_backlinks`, and `move` call `commit_rows_then_tree`.
+`BacklinkRewriter.rewrite_backlinks`'s row update carries forward only
 `updated_at` (an unchanged passthrough) and bumps `index_generation`; `occurred_at`/`period` are
 deliberately never resynced from the file there (#125) — the method's own docstring claim that
 it never touches dates is now enforced by the code, not just asserted by it.
@@ -136,7 +139,7 @@ behind a `write_rows` closure passed into a shared helper), so a folder move tou
 (only aux files) opens zero `repository_operation` calls instead of logging a spurious
 `count=0` line (#172).
 
-Separately: `rename_tag` and `_rewrite_backlinks` can still touch every note in a workspace (a
+Separately: `rename_tag` and `BacklinkRewriter.rewrite_backlinks` can still touch every note in a workspace (a
 tag applied everywhere, a heavily-linked hub note being renamed) — unlike the five original
 `commit_rows_then_tree` callers (`save`, `save_many`, `update`, `edit_many`,
 `apply_temporal_backfill`), whose batch size is always caller-bounded. Both now chunk their
@@ -172,7 +175,7 @@ tag has no equivalent workaround; renaming a tag that already has a narrower sub
 ## Link resolution has two consistency tiers
 
 `note_links` is eager only for the note being saved: `NoteLinkService.persist`
-(`links.py:145-148`) runs synchronously on every write path, so a note's own outgoing edges are
+(`links.py`) runs synchronously on every write path, so a note's own outgoing edges are
 always correct by the time its save call returns. For *other* notes whose resolution can
 change because of that write — a rename or move elsewhere changing what a bare `[[Title]]`
 link resolves to — repair is lazy: `ReconcileLinksHandler` drains `LinkReconcileDirty` markers
@@ -180,9 +183,9 @@ in the background (`reconcile_links_handler.py`). Code reading `note_links` dire
 query, a graph view, anything outside the single-note `backlinks`/`outlinks` path) must account
 for this: right after a rename elsewhere, a stale edge can briefly still be there.
 
-## `_rewrite_backlinks` deliberately bypasses `NoteEditService.update()`
+## `BacklinkRewriter.rewrite_backlinks` deliberately bypasses `NoteEditService.update()`
 
-`NoteLinkService._rewrite_backlinks` (`links.py:356-460`) rewrites wikilink text in every note
+`BacklinkRewriter.rewrite_backlinks` (`backlinks.py`) rewrites wikilink text in every note
 that links to something just moved/renamed, then writes the DB row and commits directly (rows
 first, one transaction, same #155 ordering as everything else here) — bypassing `update()`'s
 pipeline for three of its four post-write steps, addressing the fourth (search reindexing) with
@@ -206,8 +209,9 @@ current HEAD, then enters the write pipeline) — `NoteVersionService` itself ha
 dependency back onto the write services, which is what keeps this a one-way collaboration,
 not a cycle. Shared batch reads use the neutral `locate_many` helper in `locator.py`, which
 returns `workspace.LocatedNote` values and leaves validation policy with its callers.
-`NoteTagService`, `NoteFolderService`, and `NoteLinkService` are collaborators that, by default,
-operate on metadata only — `NoteFolderService.move_folder` needs no indexer because a folder
+`NoteTagService`, `NoteFolderService`, `NoteLinkService`, and the read-only `NoteGraphService`
+are collaborators that, by default, operate on metadata only —
+`NoteFolderService.move_folder` needs no indexer because a folder
 move never touches note bodies. A method on one of these collaborators that starts writing note
 *bodies* (not just frontmatter/DB rows) is a signal that its placement needs a deliberate call,
 not a default. #57 (`rename_tag` moving from `NoteTagService` toward the note-write side) is

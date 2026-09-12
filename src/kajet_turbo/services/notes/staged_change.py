@@ -17,7 +17,8 @@ from kajet_turbo.repositories.git import GitError, GitRepository
 from kajet_turbo.repositories.notes import NoteRepository
 
 # Shared size cap for callers whose batch is workspace-derived rather than caller-bounded
-# (#171: rename_tag, _rewrite_backlinks) — above this, such a caller chunks its own batch
+# (#171: rename_tag, BacklinkRewriter.rewrite_backlinks) — above this, such a caller chunks
+# its own batch
 # via itertools.batched into several commit_rows_then_tree calls instead of one, bounding
 # the SQLite write-lock hold time and the size of a chunk's note_ids log field. Neither
 # commit_rows_then nor commit_rows_then_tree enforces this themselves; each caller that

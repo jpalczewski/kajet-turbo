@@ -1,7 +1,15 @@
-"""NoteLinkService.graph(): whole-workspace node/edge/dangling-link assembly."""
+"""NoteGraphService: whole-workspace node/edge/dangling-link assembly."""
+
+import pytest
 
 from tests.services.conftest import note_target, workspace_target
 from tests.services.helpers import make_service_with_dangling
+
+
+@pytest.fixture
+def link_service(graph_service):
+    """Keep graph scenarios focused on the extracted read-only service."""
+    return graph_service
 
 
 def test_graph_includes_isolated_notes_as_nodes(service, link_service, workspace):
@@ -142,7 +150,7 @@ def test_graph_tags_keep_cross_workspace_hubs_separate(service, link_service, wo
 def test_graph_drops_edge_with_unresolved_endpoint(service, link_service, workspace):
     """A note_links row pointing at a note that no longer exists (e.g. a cross-workspace
     target wiped by clear_workspace_data, which only clears a deleted workspace's own
-    outgoing edges — see the comment in NoteLinkService._build_graph) is dropped from
+    outgoing edges — see the comment in NoteGraphService._build_graph) is dropped from
     edges, not surfaced as a broken node reference."""
     source_id = service.create.save(
         workspace_target("u1", "ws", workspace), "Source", "no links", []

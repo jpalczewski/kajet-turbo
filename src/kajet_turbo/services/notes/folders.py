@@ -40,7 +40,7 @@ from kajet_turbo.workspace import (
 
 # Above this many notes, move_folder refuses before touching disk: an oversized folder
 # move is expensive and irreversible once the temp-dir choreography starts, and — unlike
-# rename_tag/_rewrite_backlinks (#171) — the caller has a real workaround (move a
+# rename_tag/BacklinkRewriter.rewrite_backlinks (#171) — the caller has a real workaround (move a
 # subfolder at a time).
 _MOVE_FOLDER_MAX_NOTES = 5000
 

@@ -19,6 +19,7 @@ from kajet_turbo.dependencies import (
     get_note_delete_service,
     get_note_edit_service,
     get_note_folder_service,
+    get_note_graph_service,
     get_note_link_service,
     get_note_read_service,
     get_note_reconcile_service,
@@ -44,6 +45,7 @@ from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import (
     NoteFolderService,
+    NoteGraphService,
     NoteLinkService,
     NoteReadService,
     NoteReconcileService,
@@ -130,6 +132,13 @@ def api_client_factory(
             None,
             JobRepository(database.engine),
         )
+        note_graph_service = NoteGraphService(
+            note_repository,
+            NoteLinkRepository(database.engine),
+            NoteTagRepository(database.engine),
+            None,
+            None,
+        )
         note_folder_service = NoteFolderService(note_repository, note_link_service)
         note_temporal_service = NoteTemporalService(note_repository)
         note_read_service = build_note_read_service(database, indexer=note_indexer)
@@ -165,6 +174,7 @@ def api_client_factory(
         app.dependency_overrides[get_note_reconcile_service] = lambda: note_reconcile_service
         app.dependency_overrides[get_note_tag_service] = lambda: note_tag_service
         app.dependency_overrides[get_note_link_service] = lambda: note_link_service
+        app.dependency_overrides[get_note_graph_service] = lambda: note_graph_service
         app.dependency_overrides[get_note_folder_service] = lambda: note_folder_service
         app.dependency_overrides[get_note_temporal_service] = lambda: note_temporal_service
         app.dependency_overrides[get_note_version_service] = lambda: note_service.version_service

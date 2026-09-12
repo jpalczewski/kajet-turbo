@@ -189,12 +189,13 @@ def build_reconcile_wiring(database, base: Path):
 
 def make_service_with_dangling(database, link_validation_enabled=None):
     """Build a NoteWiring wired with a real DanglingLinkRepository on the same engine,
-    returning the link boundary alongside it for tests that assert on the link graph."""
+    returning the graph boundary alongside it for tests that assert on the link graph."""
     from kajet_turbo.embedding.cache import EmbeddingCacheRepository
     from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
     from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.repositories.notes import NoteChunkRepository
     from kajet_turbo.services.indexing import NoteIndexer
+    from kajet_turbo.services.notes import NoteGraphService
     from tests.services.conftest import build_note_wiring
 
     chunk_repo = NoteChunkRepository(database.engine)
@@ -211,7 +212,17 @@ def make_service_with_dangling(database, link_validation_enabled=None):
         link_validation_enabled=link_validation_enabled,
         dangling_repo=dangling,
     )
-    return wiring, wiring.link_service, dangling
+    return (
+        wiring,
+        NoteGraphService(
+            wiring.crud_repo,
+            wiring.link_repo,
+            wiring.tag_repo,
+            dangling,
+            link_validation_enabled,
+        ),
+        dangling,
+    )
 
 
 def make_flaky_write(real_write, *, fail_on_call: int = 2, message: str = "disk full"):

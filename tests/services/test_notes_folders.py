@@ -373,7 +373,7 @@ def test_move_folder_marks_affected_sources_dirty_even_when_backlink_rewrite_fai
     — rather than being skipped because the exception propagated before move_folder reached
     it."""
     from kajet_turbo.repositories.git import GitError, GitRepository
-    from kajet_turbo.services.notes import links as links_module
+    from kajet_turbo.services.notes import backlinks as backlinks_module
     from tests.services.helpers import build_note_folder_service_from, build_reconcile_wiring
 
     service, _links, _jobs, dirty, _dangling, _handler = build_reconcile_wiring(database, workspace)
@@ -388,7 +388,7 @@ def test_move_folder_marks_affected_sources_dirty_even_when_backlink_rewrite_fai
         for i in range(3)
     }
 
-    monkeypatch.setattr(links_module, "MAX_BATCH_COMMIT_SIZE", 1)
+    monkeypatch.setattr(backlinks_module, "MAX_BATCH_COMMIT_SIZE", 1)
     # call 1: move_folder's own git commit for the move itself — must land. call 2: the
     # first (of three) rewrite_backlinks chunks — fails, so zero sources get fixed.
     flaky_commit = make_flaky_db_write(

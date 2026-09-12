@@ -7,13 +7,13 @@ from kajet_turbo.concurrency import run_sync
 from kajet_turbo.mcp.context import NOTE_TARGET, WORKSPACE_TARGET
 from kajet_turbo.mcp.notes.types import GraphResult
 from kajet_turbo.mcp.tooling import read_tool, require_found
-from kajet_turbo.services.notes import NoteLinkService
+from kajet_turbo.services.notes import NoteGraphService
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 
 
 def build_graph(
-    link_service: NoteLinkService,
+    graph_service: NoteGraphService,
     workspace_service: WorkspaceService,
 ) -> FastMCP:
     srv = FastMCP("notes-graph")
@@ -58,7 +58,7 @@ def build_graph(
         different pages appears on each of them.
         workspace: the workspace name to build the graph for."""
         result = await run_sync(
-            link_service.graph, target, include_tags, limit=limit, offset=offset
+            graph_service.graph, target, include_tags, limit=limit, offset=offset
         )
         return GraphResult.model_validate(result, context={"workspace": target.name})
 
@@ -89,7 +89,7 @@ def build_graph(
         """
         result = require_found(
             await run_sync(
-                link_service.neighborhood,
+                graph_service.neighborhood,
                 target,
                 depth,
                 include_cross_workspace,

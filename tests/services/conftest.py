@@ -26,6 +26,7 @@ from kajet_turbo.services.notes import (
     NoteDeleteService,
     NoteEditService,
     NoteFolderService,
+    NoteGraphService,
     NoteLinkService,
     NoteReadService,
     NoteSearchService,
@@ -313,6 +314,19 @@ def link_service(database: Database) -> NoteLinkService:
         None,
         None,
         JobRepository(engine),
+    )
+
+
+@pytest.fixture
+def graph_service(database: Database) -> NoteGraphService:
+    """Direct read-only graph boundary for graph and neighborhood tests."""
+    engine = database.engine
+    return NoteGraphService(
+        NoteRepository(engine),
+        NoteLinkRepository(engine),
+        NoteTagRepository(engine),
+        None,
+        None,
     )
 
 
