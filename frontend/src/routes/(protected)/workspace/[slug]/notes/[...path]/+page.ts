@@ -1,4 +1,4 @@
-import { error, redirect } from '@sveltejs/kit';
+import { redirect } from '@sveltejs/kit';
 import {
   apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet,
   apiListNotesApiWorkspacesNameNotesGet,
@@ -13,8 +13,8 @@ import type {
   NotesListResponse,
   TagNode,
   TagsResponse,
-  WorkspaceContentsResponse,
 } from '$lib/api';
+import { loadApi } from '$lib/api/load';
 import { loginPath, workspacesPath } from '$lib/routes';
 import type { PageLoad } from './$types';
 
@@ -76,21 +76,19 @@ export const load: PageLoad = async ({ params, url, depends }) => {
   const segments = params.path ? params.path.split('/').filter(Boolean) : [];
   const fullPath = segments.join('/');
 
-  let contents: WorkspaceContentsResponse;
-  try {
-    const result = await apiWorkspaceContentsApiWorkspacesNameContentsGet(
-      slug,
-      fullPath ? { path: fullPath } : undefined,
-    );
-    if (result.status !== 200) error(500, 'Błąd serwera.');
-    contents = result.data;
-  } catch (e) {
-    const status = statusOf(e);
-    if (status === 401) redirect(307, loginPath());
-    if (status === 403) redirect(307, workspacesPath());
-    if (status === 400) error(400, 'Nieprawidłowa ścieżka.');
-    error(500, 'Błąd serwera.');
-  }
+  const contents = (
+    await loadApi(
+      apiWorkspaceContentsApiWorkspacesNameContentsGet(
+        slug,
+        fullPath ? { path: fullPath } : undefined,
+      ),
+      'Nie znaleziono workspace’u.',
+      {
+        forbiddenRedirect: workspacesPath(),
+        badRequest: 'Nieprawidłowa ścieżka.',
+      },
+    )
+  ).data;
 
   const folderPath = contents.folder_path;
   const noteId = contents.selected_note_id ?? contents.default_note_id;
