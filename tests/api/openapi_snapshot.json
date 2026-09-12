@@ -122,6 +122,16 @@
     },
     {
       "method": "GET",
+      "operationId": "api_list_collections_api_workspaces__name__collections_get",
+      "path": "/api/workspaces/{name}/collections"
+    },
+    {
+      "method": "GET",
+      "operationId": "api_list_collection_entries_api_workspaces__name__collections__collection__entries_get",
+      "path": "/api/workspaces/{name}/collections/{collection}/entries"
+    },
+    {
+      "method": "GET",
       "operationId": "api_workspace_contents_api_workspaces__name__contents_get",
       "path": "/api/workspaces/{name}/contents"
     },
@@ -304,6 +314,10 @@
     "BatchCreateNotesResponse",
     "ChunkPreviewItem",
     "ChunkPreviewResponse",
+    "CollectionEntriesResponse",
+    "CollectionError",
+    "CollectionResult",
+    "CollectionsListResponse",
     "ConsentRequest",
     "ConsentResponse",
     "CreateEmbeddingProfileRequest",
@@ -348,6 +362,7 @@
     "NoteHtmlResponse",
     "NoteItem",
     "NoteLinkItem",
+    "NoteListItem",
     "NoteMarkdownResponse",
     "NoteResult",
     "NoteSort",

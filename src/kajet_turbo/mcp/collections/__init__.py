@@ -1,11 +1,10 @@
-from dataclasses import asdict
 from datetime import date as _date
 from typing import Annotated
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from kajet_turbo.collections import Cardinality, CollectionDefinition
+from kajet_turbo.collections import Cardinality, CollectionDefinition, collection_result_payload
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.mcp.collections.types import (
     CollectionResult,
@@ -27,7 +26,7 @@ def _to_result(name: str, definition: CollectionDefinition) -> CollectionResult:
     # ``definition.name`` (e.g. a hand-edited key with stray whitespace parses to a
     # stripped ``definition.name`` — see _parse_definition) — override explicitly
     # rather than trusting the two to always agree.
-    return CollectionResult.model_validate({**asdict(definition), "name": name})
+    return CollectionResult.model_validate(collection_result_payload(name, definition))
 
 
 def build_collections(

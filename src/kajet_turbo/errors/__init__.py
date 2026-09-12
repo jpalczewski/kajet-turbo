@@ -1,4 +1,5 @@
 from .auth import AuthError, SecurityEvent, SecurityReason
+from .collections import CollectionError
 from .embedding import EmbeddingProfileError
 from .folders import FolderError
 from .git import GitError
@@ -14,6 +15,7 @@ from .workspace_remote import WorkspaceRemoteError
 
 type ErrorCode = (
     AuthError
+    | CollectionError
     | WorkspaceError
     | NoteError
     | FolderError
@@ -30,6 +32,7 @@ type ErrorCode = (
 
 __all__ = [
     "AuthError",
+    "CollectionError",
     "EmbeddingProfileError",
     "ErrorCode",
     "FolderError",

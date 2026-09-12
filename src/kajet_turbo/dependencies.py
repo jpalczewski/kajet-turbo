@@ -494,6 +494,10 @@ def get_target_resolver(conn: HTTPConnection) -> TargetResolver:
     return _resources(conn).target_resolver
 
 
+def get_collection_service(conn: HTTPConnection) -> CollectionService:
+    return _resources(conn).collection_service
+
+
 def get_user_repo(conn: HTTPConnection) -> UserRepository:
     return _resources(conn).user_repo
 

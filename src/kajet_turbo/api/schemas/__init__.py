@@ -12,6 +12,7 @@ from .backfill import (
     ApplyTemporalBackfillResponse,
     TemporalBackfillPreviewResponse,
 )
+from .collections import CollectionEntriesResponse, CollectionsListResponse
 from .embedding import (
     CreateEmbeddingProfileRequest,
     EmbeddingProfileItem,
@@ -88,6 +89,8 @@ __all__ = [
     "BatchCreateNotesResponse",
     "ChunkPreviewItem",
     "ChunkPreviewResponse",
+    "CollectionEntriesResponse",
+    "CollectionsListResponse",
     "ConsentRequest",
     "ConsentResponse",
     "CreateEmbeddingProfileRequest",

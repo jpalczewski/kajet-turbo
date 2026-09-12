@@ -123,6 +123,74 @@ export interface ChunkPreviewResponse {
   chunks: ChunkPreviewItem[];
 }
 
+/**
+ * A note's identity and metadata as returned by a listing/search endpoint.
+ */
+export interface NoteListItem {
+  /** Note id */
+  note_id: string;
+  /** Owning workspace name */
+  workspace: string;
+  /** Owning user id */
+  owner_id: string;
+  /** Note title */
+  title: string;
+  /** Folder path; empty string means workspace root */
+  folder: string;
+  /** Tag paths attached to this note */
+  tags: string[];
+  /** Creation timestamp, ISO 8601 */
+  created_at: string;
+  /** Last-modified timestamp, ISO 8601 */
+  updated_at: string;
+  /** Calendar date this note is about */
+  occurred_at?: string | null;
+  /** Canonical period key, e.g. 2026-W12 */
+  period?: string | null;
+}
+
+export interface CollectionEntriesResponse {
+  notes: NoteListItem[];
+}
+
+export type CollectionError = typeof CollectionError[keyof typeof CollectionError];
+
+
+export const CollectionError = {
+  COLLECTION_NOT_FOUND: 'COLLECTION_NOT_FOUND',
+} as const;
+
+export type CollectionResultGrain = typeof CollectionResultGrain[keyof typeof CollectionResultGrain];
+
+
+export const CollectionResultGrain = {
+  day: 'day',
+  week: 'week',
+  month: 'month',
+  year: 'year',
+} as const;
+
+export type CollectionResultCardinality = typeof CollectionResultCardinality[keyof typeof CollectionResultCardinality];
+
+
+export const CollectionResultCardinality = {
+  one: 'one',
+  many: 'many',
+} as const;
+
+export interface CollectionResult {
+  name: string;
+  grain: CollectionResultGrain;
+  cardinality: CollectionResultCardinality;
+  folder: string;
+  title: string;
+  description?: string | null;
+}
+
+export interface CollectionsListResponse {
+  collections: CollectionResult[];
+}
+
 export interface ConsentRequest {
   pending_id: string;
 }
@@ -355,7 +423,7 @@ export const ShareLinkError = {
   SHARE_LINK_NOT_FOUND: 'SHARE_LINK_NOT_FOUND',
 } as const;
 
-export const ErrorCode = {...AuthError,...WorkspaceError,...NoteError,...FolderError,...GitError,...JobError,...PreferencesError,...RequestError,...TargetError,...WorkspaceRemoteError,...SshKeyError,...EmbeddingProfileError,...ShareLinkError,} as const
+export const ErrorCode = {...AuthError,...CollectionError,...WorkspaceError,...NoteError,...FolderError,...GitError,...JobError,...PreferencesError,...RequestError,...TargetError,...WorkspaceRemoteError,...SshKeyError,...EmbeddingProfileError,...ShareLinkError,} as const
 export type ErrorCode = typeof ErrorCode[keyof typeof ErrorCode];
 
 export interface ErrorResponse {
@@ -1705,6 +1773,119 @@ export const apiExportWorkspaceApiWorkspacesNameExportGet = async (name: string,
     params?: ApiExportWorkspaceApiWorkspacesNameExportGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiExportWorkspaceApiWorkspacesNameExportGetResponse> => {
 
   return customFetch<apiExportWorkspaceApiWorkspacesNameExportGetResponse>(getApiExportWorkspaceApiWorkspacesNameExportGetUrl(name,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiListCollectionsApiWorkspacesNameCollectionsGetResponse200 = {
+  data: CollectionsListResponse
+  status: 200
+}
+
+export type apiListCollectionsApiWorkspacesNameCollectionsGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiListCollectionsApiWorkspacesNameCollectionsGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiListCollectionsApiWorkspacesNameCollectionsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiListCollectionsApiWorkspacesNameCollectionsGetResponseSuccess = (apiListCollectionsApiWorkspacesNameCollectionsGetResponse200) & {
+  headers: Headers;
+};
+export type apiListCollectionsApiWorkspacesNameCollectionsGetResponseError = (apiListCollectionsApiWorkspacesNameCollectionsGetResponse401 | apiListCollectionsApiWorkspacesNameCollectionsGetResponse403 | apiListCollectionsApiWorkspacesNameCollectionsGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiListCollectionsApiWorkspacesNameCollectionsGetResponse = (apiListCollectionsApiWorkspacesNameCollectionsGetResponseSuccess | apiListCollectionsApiWorkspacesNameCollectionsGetResponseError)
+
+export const getApiListCollectionsApiWorkspacesNameCollectionsGetUrl = (name: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/collections`
+}
+
+/**
+ * @summary Api List Collections
+ */
+export const apiListCollectionsApiWorkspacesNameCollectionsGet = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiListCollectionsApiWorkspacesNameCollectionsGetResponse> => {
+
+  return customFetch<apiListCollectionsApiWorkspacesNameCollectionsGetResponse>(getApiListCollectionsApiWorkspacesNameCollectionsGetUrl(name),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse200 = {
+  data: CollectionEntriesResponse
+  status: 200
+}
+
+export type apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponseSuccess = (apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse200) & {
+  headers: Headers;
+};
+export type apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponseError = (apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse401 | apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse403 | apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse404 | apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse = (apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponseSuccess | apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponseError)
+
+export const getApiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetUrl = (name: string,
+    collection: string,) => {
+
+
+
+
+  return `/api/workspaces/${name}/collections/${collection}/entries`
+}
+
+/**
+ * @summary Api List Collection Entries
+ */
+export const apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGet = async (name: string,
+    collection: string, options?: Parameters<typeof customFetch>[1]): Promise<apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse> => {
+
+  return customFetch<apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse>(getApiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetUrl(name,collection),
   {
     ...options,
     method: 'GET'
