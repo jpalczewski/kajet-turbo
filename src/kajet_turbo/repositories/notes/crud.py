@@ -11,6 +11,7 @@ from kajet_turbo.models import Note, NoteTag, Tag
 from kajet_turbo.perf import timed
 from kajet_turbo.periods import parse_period_key
 from kajet_turbo.repositories import DbRepository
+from kajet_turbo.repositories.notes.types import MetadataHit, MetadataMatch
 
 _NUM_SPLIT = re.compile(r"(\d+)")
 _UNSET = object()
@@ -167,7 +168,7 @@ class NoteRepository(DbRepository):
 
     def search_metadata(
         self, workspace: str, owner_id: str, query: str, limit: int = 20
-    ) -> list[dict]:
+    ) -> list[MetadataHit]:
         """Deterministic note-level matches on title / folder / tag paths — every token in
         ``query`` must be a casefold substring of the title, folder, or some tag path
         (SQLite LIKE/lower() are ASCII-only, wrong for Polish text, so matching is Python-
@@ -198,12 +199,12 @@ class NoteRepository(DbRepository):
             for note_id, path in tag_rows:
                 tags_by_note.setdefault(note_id, []).append(path.casefold())
 
-            hits: list[dict] = []
+            hits: list[tuple[MetadataHit, bool, bool]] = []
             for note_id, title, folder, updated_at in notes:
                 title_cf = title.casefold()
                 folder_cf = folder.casefold()
                 note_tags_cf = tags_by_note.get(note_id, [])
-                matched_on: set[str] = set()
+                matched_on: set[MetadataMatch] = set()
                 for token in tokens:
                     token_hit = False
                     if token in title_cf:
@@ -221,25 +222,24 @@ class NoteRepository(DbRepository):
                 if not matched_on:
                     continue
                 hits.append(
-                    {
-                        "note_id": note_id,
-                        "title": title,
-                        "folder": folder,
-                        "updated_at": updated_at,
-                        "matched_on": sorted(matched_on),
-                        "_exact_title": title_cf == query_cf,
-                        "_prefix_title": title_cf.startswith(query_cf),
-                    }
+                    (
+                        MetadataHit(
+                            note_id=note_id,
+                            title=title,
+                            folder=folder,
+                            updated_at=updated_at,
+                            matched_on=sorted(matched_on),
+                        ),
+                        title_cf == query_cf,
+                        title_cf.startswith(query_cf),
+                    )
                 )
 
             # Stable multi-key sort: apply least-significant key first (Python sort is stable).
-            hits.sort(key=lambda h: h["updated_at"], reverse=True)
-            hits.sort(key=lambda h: h["_prefix_title"], reverse=True)
-            hits.sort(key=lambda h: h["_exact_title"], reverse=True)
-            for h in hits:
-                del h["_exact_title"]
-                del h["_prefix_title"]
-            results = hits[:limit]
+            hits.sort(key=lambda h: h[0].updated_at, reverse=True)
+            hits.sort(key=lambda h: h[2], reverse=True)
+            hits.sort(key=lambda h: h[1], reverse=True)
+            results = [hit for hit, _, _ in hits[:limit]]
         self.log_operation(
             "metadata_search",
             timing.db_ms,
@@ -451,13 +451,11 @@ class NoteRepository(DbRepository):
                 for workspace, file_count, last_updated in rows
             }
 
-    def delete_for_workspace_in_session(
-        self, workspace: str, owner_id: str, session: Session
-    ) -> None:
+    @staticmethod
+    def delete_for_workspace_in_session(session: Session, workspace: str, owner_id: str) -> None:
         """Delete note rows for (workspace, owner_id). Uses the caller's session; does not
         commit. FK constraint requires chunks to be deleted first (done by NoteChunkRepository
         in the same session before this method is called)."""
-        session.execute(  # ty: ignore[deprecated] - raw SQL
-            text("DELETE FROM notes WHERE workspace = :workspace AND owner_id = :owner_id"),
-            {"workspace": workspace, "owner_id": owner_id},
+        session.exec(
+            delete(Note).where(col(Note.workspace) == workspace, col(Note.owner_id) == owner_id)
         )

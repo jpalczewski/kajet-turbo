@@ -33,6 +33,7 @@ from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileReposito
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.git import PostCommitHooks
+from kajet_turbo.repositories.index_meta import IndexMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
@@ -133,6 +134,7 @@ class AppResources:
     note_link_repo: NoteLinkRepository
     note_tag_repo: NoteTagRepository
     note_chunk_repo: NoteChunkRepository
+    index_meta_repo: IndexMetaRepository
     user_repo: UserRepository
     session_repo: SessionRepository
     workspace_repo: WorkspaceRepository
@@ -209,6 +211,7 @@ def build_resources(config: AppConfig) -> AppResources:
         note_link_repo = NoteLinkRepository(db.engine)
         note_tag_repo = NoteTagRepository(db.engine)
         note_chunk_repo = NoteChunkRepository(db.engine)
+        index_meta_repo = IndexMetaRepository(db.engine)
         note_share_link_repo = NoteShareLinkRepository(db.engine)
         user_repo = UserRepository(db.engine)
         session_repo = SessionRepository(db.engine)
@@ -235,6 +238,7 @@ def build_resources(config: AppConfig) -> AppResources:
         )
         embed_handler = EmbedNoteHandler(
             note_chunk_repo,
+            index_meta_repo,
             EmbeddingCacheRepository(db.engine),
             profile_resolver.resolve_backend,
             pooled_embedder_factory(),
@@ -361,6 +365,7 @@ def build_resources(config: AppConfig) -> AppResources:
             note_link_repo,
             note_tag_repo,
             note_chunk_repo,
+            index_meta_repo,
             user_repo,
             session_repo,
             workspace_repo,
