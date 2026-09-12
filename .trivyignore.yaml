@@ -18,6 +18,14 @@ vulnerabilities:
     purls: ["pkg:deb/debian/libsqlite3-0"]
     expired_at: 2026-09-30
     statement: Debian 13 has not published a fixed libsqlite3 package.
+  - id: CVE-2026-86145
+    purls: ["pkg:deb/debian/libpcre2-8-0"]
+    expired_at: 2026-09-30
+    statement: Debian 13 has not published a fixed pcre2 package.
+  - id: CVE-2026-89161
+    purls: ["pkg:deb/debian/libpcre2-8-0"]
+    expired_at: 2026-09-30
+    statement: Trivy still flags Debian's pcre2 point release; review when its advisory is updated.
   - id: CVE-2025-69720
     purls:
       - "pkg:deb/debian/libtinfo6"
