@@ -37,8 +37,8 @@ def test_replace_chunks_without_embeddings_marks_stale(database):
     repo = NoteChunkRepository(database.engine)
     repo.replace_chunks("n1", "ws", "u1", "T", _chunks(), embeddings=None, identity=None)
     rows = repo.get_chunks("n1")
-    assert [r["ordinal"] for r in rows] == [0, 1]
-    assert rows[0]["content"] == "alpha body"
+    assert [r.ordinal for r in rows] == [0, 1]
+    assert rows[0].content == "alpha body"
     assert rows[1].header_path == ["# T", "## S"]
     with Session(database.engine) as session:
         note = session.get(Note, "n1")
@@ -68,7 +68,7 @@ def test_replace_chunks_with_embeddings_writes_vectors_and_marks_indexed(databas
     assert note.index_state == "indexed"
     assert note.indexed_at is not None
     assert vec_count == 2
-    assert all(r["dim"] == 2 for r in repo.get_chunks("n1"))
+    assert all(r.dim == 2 for r in repo.get_chunks("n1"))
 
 
 def test_replace_chunks_replaces_previous(database):
@@ -94,7 +94,7 @@ def test_replace_chunks_replaces_previous(database):
         identity=vec_identity(2),
     )
     rows = repo.get_chunks("n1")
-    assert len(rows) == 1 and rows[0]["content"] == "only"
+    assert len(rows) == 1 and rows[0].content == "only"
     with Session(database.engine) as session:
         vec_count = session.execute(  # ty: ignore[deprecated] - raw SQL
             _text("SELECT COUNT(*) FROM note_chunks_vec_2 WHERE note_id='n1'")
@@ -158,7 +158,7 @@ def test_replace_chunks_skips_superseded_revision(database):
     )
 
     assert applied is False
-    assert [row["content"] for row in repo.get_chunks("n1")] == ["current"]
+    assert [row.content for row in repo.get_chunks("n1")] == ["current"]
 
 
 def test_metadata_only_update_does_not_supersede_content_index(database):
@@ -183,7 +183,7 @@ def test_metadata_only_update_does_not_supersede_content_index(database):
     )
 
     assert applied is True
-    assert [row["content"] for row in repo.get_chunks("n1")] == ["current"]
+    assert [row.content for row in repo.get_chunks("n1")] == ["current"]
 
 
 def test_replace_chunks_embedding_count_must_match(database):
@@ -238,4 +238,4 @@ def test_replace_chunks_in_session_on_superseded_leaves_caller_session_usable(da
     with Session(database.engine) as session:
         n2 = session.get(Note, "n2")
         assert n2 is not None and n2.title == "renamed before the superseded write"
-    assert [row["content"] for row in repo.get_chunks("n1")] == ["current"]
+    assert [row.content for row in repo.get_chunks("n1")] == ["current"]

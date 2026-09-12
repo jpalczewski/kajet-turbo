@@ -38,9 +38,9 @@ def test_search_returns_chunk_shape_fts_only(database, git_workspace_factory):
     assert {"note_id", "title", "header_path", "content", "score", "updated_at"} <= set(
         h.__dataclass_fields__
     )
-    assert "tomato" in h["content"]
-    assert h["header_path"][0] == "# Recipes"
-    assert h["score"] is not None  # numeric score even in FTS-only mode
+    assert "tomato" in h.content
+    assert h.header_path[0] == "# Recipes"
+    assert h.score is not None  # numeric score even in FTS-only mode
 
 
 def test_search_empty_when_no_match(database, git_workspace_factory):
@@ -62,9 +62,9 @@ def test_search_matches_tag_and_folder_for_contentless_note(database, git_worksp
     )
     hits = search_service.search("alice", ["ws"], owner_id="u1", limit=10)
     assert len(hits) == 1
-    assert set(hits[0]["matched_on"]) == {"folder", "tag"}
-    assert hits[0]["content"] == ""
-    assert hits[0]["header_path"] == []
+    assert set(hits[0].matched_on) == {"folder", "tag"}
+    assert hits[0].content == ""
+    assert hits[0].header_path == []
 
 
 def test_search_matches_title_of_contentless_note(database, git_workspace_factory):
@@ -73,7 +73,7 @@ def test_search_matches_title_of_contentless_note(database, git_workspace_factor
     service.save(workspace_target("u1", "ws", ws), "Unikalny Tytul Beztresciowy", "", tags=[])
     hits = search_service.search("Unikalny Tytul Beztresciowy", ["ws"], owner_id="u1", limit=10)
     assert len(hits) == 1
-    assert hits[0]["matched_on"] == ["title"]
+    assert hits[0].matched_on == ["title"]
 
 
 def test_search_survives_backend_switch_with_no_vectors_at_new_dim(database, git_workspace_factory):
@@ -136,7 +136,7 @@ def test_search_across_workspaces_sorts_by_score_globally(database, git_workspac
     )
     hits = search_service.search("findmequery", ["ws1", "ws2"], owner_id="u1", limit=1)
     assert len(hits) == 1
-    assert hits[0]["title"] == "findmequery"
+    assert hits[0].title == "findmequery"
 
 
 def test_search_narrows_by_folder(database, git_workspace_factory):
@@ -147,7 +147,7 @@ def test_search_narrows_by_folder(database, git_workspace_factory):
         workspace_target("u1", "ws", ws), "Out of scope", "keyword here", tags=[], folder="b"
     )
     hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, folder="a")
-    assert [h["title"] for h in hits] == ["In scope"]
+    assert [h.title for h in hits] == ["In scope"]
 
 
 def test_search_narrows_by_folder_widens_metadata_candidate_window(database, git_workspace_factory):
@@ -164,7 +164,7 @@ def test_search_narrows_by_folder_widens_metadata_candidate_window(database, git
         workspace_target("u1", "ws", ws), "Late alice note", "", tags=["alice"], folder="b"
     )
     hits = search_service.search("alice", ["ws"], owner_id="u1", limit=1, folder="a")
-    assert [h["title"] for h in hits] == ["Early alice note"]
+    assert [h.title for h in hits] == ["Early alice note"]
 
 
 def test_search_narrows_by_tags(database, git_workspace_factory):
@@ -173,7 +173,7 @@ def test_search_narrows_by_tags(database, git_workspace_factory):
     service.save(workspace_target("u1", "ws", ws), "Tagged", "keyword here", tags=["work"])
     service.save(workspace_target("u1", "ws", ws), "Untagged", "keyword here", tags=[])
     hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, tags=["work"])
-    assert [h["title"] for h in hits] == ["Tagged"]
+    assert [h.title for h in hits] == ["Tagged"]
 
 
 def test_search_folder_and_tags_intersect(database, git_workspace_factory):
@@ -191,7 +191,7 @@ def test_search_folder_and_tags_intersect(database, git_workspace_factory):
     hits = search_service.search(
         "keyword", ["ws"], owner_id="u1", limit=10, folder="a", tags=["work"]
     )
-    assert [h["title"] for h in hits] == ["Both"]
+    assert [h.title for h in hits] == ["Both"]
 
 
 def test_search_reflects_deferred_embed_once_attached(database, git_workspace_factory):
@@ -247,7 +247,7 @@ def test_search_reflects_deferred_embed_once_attached(database, git_workspace_fa
     # proving search actually picked up the deferred embed rather than re-running FTS.
     hits = search_svc.search("banana", ["ws"], owner_id="u1")
     assert len(hits) == 1
-    assert hits[0]["note_id"] == res["note_id"]
+    assert hits[0].note_id == res["note_id"]
 
 
 class _AsyncCountingEmbedder:
