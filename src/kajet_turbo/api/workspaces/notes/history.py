@@ -5,6 +5,7 @@ from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.api.workspaces.notes.content import _render_html
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
+    RESOLVE_NOTE_WRITE,
     CurrentUser,
     get_note_edit_service,
     get_note_link_service,
@@ -92,7 +93,7 @@ async def api_restore_note_version(
     note_id: str,
     sha: str,
     user: CurrentUser = Depends(get_required_user),
-    target: NoteTarget = Depends(resolve_note_target),
+    target: NoteTarget = RESOLVE_NOTE_WRITE,
     note_edit_service: NoteEditService = Depends(get_note_edit_service),
 ) -> RestoreVersionResponse:
     try:

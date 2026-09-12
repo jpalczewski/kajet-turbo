@@ -7,8 +7,8 @@ from pydantic import Field
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.markdown import EditMode, EditSpec
 from kajet_turbo.mcp.context import (
-    NOTE_TARGET,
-    WORKSPACE_TARGET,
+    NOTE_TARGET_WRITE,
+    WORKSPACE_TARGET_WRITE,
     require_user_id,
     resolve_notes_in_one_workspace,
 )
@@ -68,7 +68,7 @@ def build_write(
                 "occurred_at/period."
             ),
         ] = None,
-        target: WorkspaceTarget = WORKSPACE_TARGET,
+        target: WorkspaceTarget = WORKSPACE_TARGET_WRITE,
     ) -> SavedNoteResult:
         """Saves a new note in the given folder (root by default).
         workspace: the workspace name to save the note in.
@@ -92,7 +92,7 @@ def build_write(
     async def save_notes(
         notes: list[NoteInput],
         workspace: str,
-        target: WorkspaceTarget = WORKSPACE_TARGET,
+        target: WorkspaceTarget = WORKSPACE_TARGET_WRITE,
     ) -> list[BatchNoteSuccess | BatchNoteError]:
         """Saves multiple notes at once, in one commit. Always use this instead of multiple
         save_note calls when adding 2+ notes. workspace: the workspace name to save the
@@ -190,7 +190,7 @@ def build_write(
                 "count."
             ),
         ] = False,
-        target: NoteTarget = NOTE_TARGET,
+        target: NoteTarget = NOTE_TARGET_WRITE,
     ) -> EditNoteSuccess | StaleVersion:
         """Edit a note. By default (mode='overwrite') it replaces the whole body with content;
         the surgical modes change a fragment without rewriting everything.
@@ -280,7 +280,7 @@ def build_write(
                 "StaleVersion."
             ),
         ],
-        target: NoteTarget = NOTE_TARGET,
+        target: NoteTarget = NOTE_TARGET_WRITE,
     ) -> DeletedNoteResult | StaleVersion:
         """Deletes a note. Errors when the note does not exist. Requires expected_sha from
         get_note/get_note_history; on a mismatch returns StaleVersion — re-read the current

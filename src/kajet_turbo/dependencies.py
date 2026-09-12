@@ -553,22 +553,106 @@ def get_required_user(request: Request) -> CurrentUser:
     )
 
 
+def resolve_workspace_target_for(action: str = "workspace.read"):
+    """Dependency factory tagging denials with the caller's verb (#281).
+
+    The shared dependency cannot tell a read route from a write route, so every
+    denial used to be audited as `workspace.read` — including denied creates,
+    deletes and moves. Write routes opt into `workspace.write` explicitly; read
+    routes keep the default, so their call sites are untouched.
+    """
+
+    def _resolve_workspace_target(
+        name: str,
+        user: CurrentUser = Depends(get_required_user),
+        resolver: TargetResolver = Depends(get_target_resolver),
+    ) -> WorkspaceTarget:
+        try:
+            return resolver.workspace(user.id, name)
+        except TargetResolutionError as e:
+            audit_denied(
+                e.failure,
+                action=action,
+                resource="workspace",
+                caller_id=user.id,
+                workspace=name,
+            )
+            raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED) from e
+
+    return _resolve_workspace_target
+
+
+_resolve_workspace_read = resolve_workspace_target_for("workspace.read")
+_resolve_workspace_write = resolve_workspace_target_for("workspace.write")
+
+
 def resolve_workspace_target(
     name: str,
     user: CurrentUser = Depends(get_required_user),
     resolver: TargetResolver = Depends(get_target_resolver),
 ) -> WorkspaceTarget:
+    return _resolve_workspace_read(name, user, resolver)
+
+
+def resolve_note_target_for(action: str = "note.read", workspace_action: str = "workspace.read"):
+    """Dependency factory tagging denials with the caller's verb (#281).
+
+    Same story as resolve_workspace_target_for: the shared note dependency backs
+    both reads and writes (update, move, delete, restore), and every denial was
+    audited as `note.read`. Write routes pass `action="note.write"` (and
+    `workspace_action="workspace.write"` for the nested workspace check, so a
+    workspace denial on a write route is not mislabeled either). Read routes keep
+    the defaults.
+    """
+    ws_dep = (
+        _resolve_workspace_write
+        if workspace_action == "workspace.write"
+        else _resolve_workspace_read
+    )
+
+    def _resolve_note_target(
+        name: str,
+        note_id: str,
+        ws: WorkspaceTarget = Depends(ws_dep),
+        resolver: TargetResolver = Depends(get_target_resolver),
+        user: CurrentUser = Depends(get_required_user),
+    ) -> NoteTarget:
+        return _resolve_note(name, note_id, ws, resolver, user, action)
+
+    return _resolve_note_target
+
+
+def _resolve_note(
+    name: str,
+    note_id: str,
+    ws: WorkspaceTarget,
+    resolver: TargetResolver,
+    user: CurrentUser,
+    action: str,
+) -> NoteTarget:
     try:
-        return resolver.workspace(user.id, name)
+        target = resolver.note(user.id, note_id)
     except TargetResolutionError as e:
         audit_denied(
             e.failure,
-            action="workspace.read",
-            resource="workspace",
+            action=action,
+            resource="note",
             caller_id=user.id,
+            note_id=note_id,
             workspace=name,
         )
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED) from e
+        raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from e
+    if target.workspace.name != ws.name:
+        log_permission_denied(
+            action=action,
+            resource="note",
+            caller_id=user.id,
+            reason=SecurityReason.WORKSPACE_MISMATCH,
+            note_id=note_id,
+            workspace=name,
+        )
+        raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
+    return target
 
 
 def resolve_note_target(
@@ -583,26 +667,13 @@ def resolve_note_target(
     or-not-yours -> 404 on note/URL-workspace mismatch. The mismatch branch is the actual
     fix for the bug this resolver exists for: a note_id from workspace A must not be
     reachable through workspace B's URL just because both belong to the same user."""
-    try:
-        target = resolver.note(user.id, note_id)
-    except TargetResolutionError as e:
-        audit_denied(
-            e.failure,
-            action="note.read",
-            resource="note",
-            caller_id=user.id,
-            note_id=note_id,
-            workspace=name,
-        )
-        raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from e
-    if target.workspace.name != ws.name:
-        log_permission_denied(
-            action="note.read",
-            resource="note",
-            caller_id=user.id,
-            reason=SecurityReason.WORKSPACE_MISMATCH,
-            note_id=note_id,
-            workspace=name,
-        )
-        raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
-    return target
+    return _resolve_note(name, note_id, ws, resolver, user, "note.read")
+
+
+# Module-level singletons for write routes (#281). Ruff B008 forbids calling the
+# factories inside Depends() defaults, so the two write combinations live here and
+# routes reference them directly instead of calling the factory per route.
+RESOLVE_WORKSPACE_WRITE = Depends(resolve_workspace_target_for("workspace.write"))
+RESOLVE_NOTE_WRITE = Depends(
+    resolve_note_target_for("note.write", workspace_action="workspace.write")
+)

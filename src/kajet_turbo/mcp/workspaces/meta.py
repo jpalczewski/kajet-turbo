@@ -47,7 +47,7 @@ def build_meta(workspace_service: WorkspaceService) -> FastMCP:
         Foldery ustawiasz z UI, nie tym narzędziem."""
         del ctx
         user_id = await require_user_id()
-        await require_workspace_access(name, user_id)
+        await require_workspace_access(name, user_id, "workspace.write")
         try:
             result = await run_sync(
                 workspace_service.set_meta, user_id, name, description=description, tags=tags

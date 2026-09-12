@@ -4,7 +4,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.mcp.context import NOTE_TARGET, WORKSPACE_TARGET
+from kajet_turbo.mcp.context import NOTE_TARGET_WRITE, WORKSPACE_TARGET, WORKSPACE_TARGET_WRITE
 from kajet_turbo.mcp.notes.types import (
     ConflictItem,
     FolderConflictResult,
@@ -69,7 +69,7 @@ def build_folders(
                 "Omit to keep existing."
             ),
         ] = None,
-        target: WorkspaceTarget = WORKSPACE_TARGET,
+        target: WorkspaceTarget = WORKSPACE_TARGET_WRITE,
     ) -> FolderContext:
         """Sets folder metadata, shown passively to the LLM in list_notes and list_folders.
         description: short description of what the folder contains.
@@ -96,7 +96,7 @@ def build_folders(
     async def move_note(
         note_id: str,
         folder: str,
-        target: NoteTarget = NOTE_TARGET,
+        target: NoteTarget = NOTE_TARGET_WRITE,
     ) -> MovedNoteResult:
         """Moves a note to a folder in its own workspace, creating the path if missing.
         folder: full folder path, or an empty string for root."""
@@ -132,7 +132,7 @@ def build_folders(
         src: str,
         dst: str,
         workspace: str,
-        target: WorkspaceTarget = WORKSPACE_TARGET,
+        target: WorkspaceTarget = WORKSPACE_TARGET_WRITE,
     ) -> MovedFolderResult | FolderConflictResult:
         """Moves/merges a folder (with its notes and subfolders) within the given workspace.
         If dst already exists, the folders are merged. On a note-title collision nothing is
@@ -146,7 +146,7 @@ def build_folders(
         folder: str,
         new_name: str,
         workspace: str,
-        target: WorkspaceTarget = WORKSPACE_TARGET,
+        target: WorkspaceTarget = WORKSPACE_TARGET_WRITE,
     ) -> MovedFolderResult | FolderConflictResult:
         """Renames a folder (within the same parent). new_name is the leaf name only,
         without a path — this also allows fixing letter case on a case-sensitive filesystem.
@@ -159,7 +159,7 @@ def build_folders(
     @srv.tool(**write_tool(tags={"notes", "folders"}, idempotent=True))
     async def prune_empty_folders(
         workspace: str,
-        target: WorkspaceTarget = WORKSPACE_TARGET,
+        target: WorkspaceTarget = WORKSPACE_TARGET_WRITE,
     ) -> PrunedFoldersResult:
         """Removes empty directories (orphaned after moving notes). Folders containing
         .gitkeep are kept.

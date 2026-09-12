@@ -41,7 +41,7 @@ def build_settings(workspace_service: WorkspaceService) -> FastMCP:
         `setting` to klucz z list_workspace_settings; `value` zgodny z typem ustawienia."""
         del ctx
         user_id = await require_user_id()
-        await require_workspace_access(name, user_id)
+        await require_workspace_access(name, user_id, "workspace.write")
         key = setting.value
         try:
             result = await run_sync(workspace_service.set_setting, user_id, name, key, value)
