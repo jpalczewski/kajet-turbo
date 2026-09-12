@@ -86,7 +86,7 @@ def build_write(
             extras=extras,
         )
         await publish_workspace_changed(target)
-        return SavedNoteResult.model_validate(result)
+        return result
 
     @srv.tool(**write_tool(tags={"notes", "crud"}))
     async def save_notes(
@@ -108,12 +108,7 @@ def build_write(
             [n.model_dump() for n in notes],
         )
         await publish_workspace_changed(target)
-        return [
-            BatchNoteSuccess.model_validate(r)
-            if "note_id" in r
-            else BatchNoteError(index=r["index"], error=r["error"])
-            for r in results
-        ]
+        return results
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
     async def edit_note(
@@ -223,10 +218,10 @@ def build_write(
                 occurred_at, period
             ),
         )
-        if result.get("stale_sha"):
-            return StaleVersion.model_validate(result)
-        await publish_note_updated(target.workspace, result["note_id"])
-        return EditNoteSuccess.model_validate(result)
+        if isinstance(result, StaleVersion):
+            return result
+        await publish_note_updated(target.workspace, result.note_id)
+        return result
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
     async def edit_notes(
@@ -264,10 +259,10 @@ def build_write(
                 for e in edits
             ],
         )
-        if not result.get("applied"):
-            return EditNotesRejected.model_validate(result)
+        if isinstance(result, EditNotesRejected):
+            return result
         await publish_workspace_changed(workspace)
-        return EditNotesApplied.model_validate(result)
+        return result
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
     async def delete_note(
@@ -290,10 +285,10 @@ def build_write(
             target,
             expected_sha=expected_sha,
         )
-        if result.get("stale_sha"):
-            return StaleVersion.model_validate(result)
+        if isinstance(result, StaleVersion):
+            return result
         await publish_workspace_changed(target.workspace)
-        return DeletedNoteResult(note_id=note_id)
+        return result
 
     @srv.tool(**write_tool(tags={"notes", "crud"}, destructive=True))
     async def delete_notes(
@@ -314,9 +309,9 @@ def build_write(
             workspace,
             [DeleteBatchItem(note_id=d.note_id, expected_sha=d.expected_sha) for d in deletes],
         )
-        if not result.get("applied"):
-            return DeleteNotesRejected.model_validate(result)
+        if isinstance(result, DeleteNotesRejected):
+            return result
         await publish_workspace_changed(workspace)
-        return DeleteNotesApplied.model_validate(result)
+        return result
 
     return srv

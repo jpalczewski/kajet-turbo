@@ -15,8 +15,16 @@ from kajet_turbo.services.notes.batch import (
 from kajet_turbo.services.notes.links import NoteLinkService
 from kajet_turbo.services.notes.locator import locate_many
 from kajet_turbo.services.notes.persistence import NoteTeardown
-from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_payload
-from kajet_turbo.services.notes.types import DeleteBatchItem
+from kajet_turbo.services.notes.staleness import current_head_sha, sha_is_fresh, stale_result
+from kajet_turbo.services.notes.types import (
+    BatchNoteSuccess,
+    DeleteBatchItem,
+    DeletedNoteResult,
+    DeleteNotesApplied,
+    DeleteNotesError,
+    DeleteNotesRejected,
+    StaleVersion,
+)
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import note_filepath
 
@@ -37,7 +45,9 @@ class NoteDeleteService:
         self._reconcile_repo = reconcile_repo
 
     @target_write_transaction
-    def delete(self, target: NoteTarget, expected_sha: str | None = None) -> dict:
+    def delete(
+        self, target: NoteTarget, expected_sha: str | None = None
+    ) -> DeletedNoteResult | StaleVersion:
         """Delete a note. expected_sha (MCP callers) must match the note's HEAD
         commit; ``None`` (REST API) skips the check. A missing file (orphaned DB
         row) also skips it — there is no version the caller could have read, and
@@ -68,7 +78,7 @@ class NoteDeleteService:
             if expected_sha is not None and not sha_is_fresh(
                 current_head_sha(ws_path, relative), expected_sha
             ):
-                return stale_payload(note_id)
+                return stale_result(note_id)
         workspace_links = self._link_service.for_workspace(note.workspace, owner_id)
         affected_sources = workspace_links.affected_sources({note.title})
         affected_sources.discard(note_id)  # this source is synchronously deleted below
@@ -89,14 +99,14 @@ class NoteDeleteService:
         logger.info("note_deleted", note_id=note_id)
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(owner_id, note.workspace, affected_sources)
-        return {"note_id": note_id}
+        return DeletedNoteResult(note_id=note_id)
 
     @target_write_transaction
     def delete_many(
         self,
         target: WorkspaceTarget,
         deletes: list[DeleteBatchItem],
-    ) -> dict:
+    ) -> DeleteNotesApplied | DeleteNotesRejected:
         """Delete multiple notes in one Git commit and one DB transaction.
 
         All-or-nothing at validation: an invalid item (missing note, duplicate note_id, stale
@@ -132,16 +142,16 @@ class NoteDeleteService:
         note_ids = [d.note_id.strip() for d in deletes]
         expected_shas = [d.expected_sha for d in deletes]
         located = locate_many(self._crud_repo, note_ids, user_id, ws_path, git_repo)
-        errors: list[dict] = []
+        errors: list[DeleteNotesError] = []
         prepared: list[_ValidatedDestructiveItem] = []
         for item in _validate_destructive_items(note_ids, expected_shas, located):
             if isinstance(item, _BatchValidationError):
-                errors.append(item.as_dict())
+                errors.append(item.delete_error())
             else:
                 prepared.append(item)
 
         if errors:
-            return {"applied": False, "errors": errors}
+            return DeleteNotesRejected(errors=errors)
 
         workspace_links = self._link_service.for_workspace(ws_name, user_id)
         affected_sources = workspace_links.affected_sources({p.loc.note.title for p in prepared})
@@ -169,5 +179,5 @@ class NoteDeleteService:
         logger.info("notes_deleted_batch", ws=ws_name, count=len(prepared))
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
-        results = [{"index": p.index, "note_id": p.note_id} for p in prepared]
-        return {"applied": True, "results": results}
+        results = [BatchNoteSuccess(index=p.index, note_id=p.note_id) for p in prepared]
+        return DeleteNotesApplied(results=results)

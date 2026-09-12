@@ -24,6 +24,7 @@ from kajet_turbo.services.notes.paths import (
 from kajet_turbo.services.notes.persistence import defer_index_many, defer_index_note, new_note_row
 from kajet_turbo.services.notes.staged_change import StagedChange, commit_rows_then_tree
 from kajet_turbo.services.notes.tags import NoteTagService
+from kajet_turbo.services.notes.types import BatchNoteError, BatchNoteSuccess, SavedNoteResult
 from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.workspace import (
     NoteFrontmatter,
@@ -85,7 +86,7 @@ class NoteCreateService:
         occurred_at: object = None,
         period: object = None,
         extras: dict[str, object] | None = None,
-    ) -> dict:
+    ) -> SavedNoteResult:
         user_id = target.owner_id
         ws_name = target.name
         ws_path = str(target.path)
@@ -152,19 +153,19 @@ class NoteCreateService:
         defer_index_note(self._indexer, ws_path, note_id, ws_name, user_id, title, content, 1)
         if self._reconcile_repo is not None:
             self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
-        return {
-            "note_id": note_id,
-            "warnings": wikilink_warnings(links),
-            "occurred_at": occurred_at,
-            "period": period,
-        }
+        return SavedNoteResult(
+            note_id=note_id,
+            warnings=wikilink_warnings(links),
+            occurred_at=occurred_at,
+            period=period,
+        )
 
     @target_write_transaction
     def save_many(
         self,
         target: WorkspaceTarget,
         notes: list[dict],
-    ) -> list[dict]:
+    ) -> list[BatchNoteSuccess | BatchNoteError]:
         """Create many notes in one batch: one DB transaction, one git commit, one cache
         bump, embeddings parallelized across the indexer threadpool. Best-effort per
         note — invalid notes are reported and skipped. Each input dict:
@@ -176,7 +177,7 @@ class NoteCreateService:
         user_id = target.owner_id
         ws_name = target.name
         ws_path = str(target.path)
-        results: list[dict | None] = [None] * len(notes)
+        results: list[BatchNoteSuccess | BatchNoteError | None] = [None] * len(notes)
         now = datetime.now(UTC).isoformat()
 
         # Phase 1: uniqueness + id assignment. Survivors get an id and join the batch's
@@ -194,38 +195,36 @@ class NoteCreateService:
         for index, raw in enumerate(notes):
             title = str(raw.get("title", "")).strip()
             if not title:
-                results[index] = {"index": index, "error": "Title is required."}
+                results[index] = BatchNoteError(index=index, error="Title is required.")
                 continue
             folder = normalize_folder(str(raw.get("folder", "")))
             key = (folder, title)
             if key in accepted:
-                results[index] = {
-                    "index": index,
-                    "error": f"Duplicate in batch: '{title}' in folder '{folder or 'root'}'.",
-                }
+                results[index] = BatchNoteError(
+                    index=index,
+                    error=f"Duplicate in batch: '{title}' in folder '{folder or 'root'}'.",
+                )
                 continue
             filepath = note_filepath(ws_path, folder, title)
             conflict = path_index.get(path_conflict_key(filepath))
             if conflict is not None:
-                results[index] = {
-                    "index": index,
-                    "error": conflict_message(title, filepath, conflict),
-                }
+                results[index] = BatchNoteError(
+                    index=index, error=conflict_message(title, filepath, conflict)
+                )
                 continue
             note_id = generate(size=7)
             relative = str(Path(filepath).relative_to(ws_path))
             if Path(filepath).exists():
-                results[index] = {
-                    "index": index,
-                    "error": f"File '{Path(filepath).name}' already exists on disk.",
-                }
+                results[index] = BatchNoteError(
+                    index=index, error=f"File '{Path(filepath).name}' already exists on disk."
+                )
                 continue
             try:
                 candidate_occurred_at, candidate_period = normalize_temporal_metadata(
                     raw.get("occurred_at"), raw.get("period")
                 )
             except ValueError as e:
-                results[index] = {"index": index, "error": str(e)}
+                results[index] = BatchNoteError(index=index, error=str(e))
                 continue
             accepted.add(key)
             new_note = IndexedNote(note_id, folder, title)
@@ -255,7 +254,7 @@ class NoteCreateService:
             try:
                 links = workspace_links.validate(c.content, c.folder)
             except BrokenWikilinkError as e:
-                results[c.index] = {"index": c.index, "error": str(e)}
+                results[c.index] = BatchNoteError(index=c.index, error=str(e))
                 continue
             valid.append(_PreparedSave(candidate=c, links=links))
 
@@ -338,11 +337,11 @@ class NoteCreateService:
         )
 
         for p in valid:
-            results[p.candidate.index] = {
-                "index": p.candidate.index,
-                "note_id": p.candidate.note_id,
-                "warnings": wikilink_warnings(p.links),
-            }
+            results[p.candidate.index] = BatchNoteSuccess(
+                index=p.candidate.index,
+                note_id=p.candidate.note_id,
+                warnings=wikilink_warnings(p.links),
+            )
             logger.info(
                 "note_saved", note_id=p.candidate.note_id, ws=ws_name, folder=p.candidate.folder
             )

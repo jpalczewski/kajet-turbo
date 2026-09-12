@@ -77,8 +77,8 @@ def build_history(
             sha,
             expected_sha=expected_sha,
         )
-        if result.get("stale_sha"):
-            return StaleVersion.model_validate(result)
+        if isinstance(result, StaleVersion):
+            return result
         return SavedNoteResult.model_validate(result)
 
     @srv.tool(**read_tool(tags={"notes", "links"}))

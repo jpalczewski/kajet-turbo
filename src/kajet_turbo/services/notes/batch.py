@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 from kajet_turbo.services.notes.staleness import sha_is_fresh, stale_error
+from kajet_turbo.services.notes.types import DeleteNotesError, EditNotesError
 from kajet_turbo.workspace import LocatedNote
 
 
@@ -30,8 +31,11 @@ class _BatchValidationError:
     note_id: str
     error: str
 
-    def as_dict(self) -> dict:
-        return {"index": self.index, "note_id": self.note_id, "error": self.error}
+    def edit_error(self) -> EditNotesError:
+        return EditNotesError(index=self.index, note_id=self.note_id, error=self.error)
+
+    def delete_error(self) -> DeleteNotesError:
+        return DeleteNotesError(index=self.index, note_id=self.note_id, error=self.error)
 
 
 def _validate_destructive_items(

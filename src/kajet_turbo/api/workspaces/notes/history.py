@@ -14,7 +14,12 @@ from kajet_turbo.dependencies import (
 )
 from kajet_turbo.errors import NoteError
 from kajet_turbo.repositories.git import GitError as RepoGitError
-from kajet_turbo.services.notes import NoteEditService, NoteLinkService, NoteVersionService
+from kajet_turbo.services.notes import (
+    NoteEditService,
+    NoteLinkService,
+    NoteVersionService,
+    StaleVersion,
+)
 from kajet_turbo.services.targets import NoteTarget
 
 router = APIRouter(
@@ -99,4 +104,9 @@ async def api_restore_note_version(
         result = await run_sync(note_edit_service.restore_version, target, sha)
     except ValueError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
-    return RestoreVersionResponse(note_id=result["note_id"], warnings=result["warnings"])
+    if isinstance(result, StaleVersion):
+        raise HTTPException(
+            status_code=409,
+            detail={"error": str(NoteError.STALE_VERSION)},
+        )
+    return RestoreVersionResponse(note_id=result.note_id, warnings=result.warnings)

@@ -38,6 +38,7 @@ from kajet_turbo.services.notes import (
     NoteEditService,
     NoteFolderService,
     NoteReadService,
+    StaleVersion,
 )
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import (
@@ -114,7 +115,7 @@ async def api_create_note(
         )
     except FileExistsError:
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None
-    return CreateNoteResponse(note_id=result["note_id"], warnings=result["warnings"])
+    return CreateNoteResponse(note_id=result.note_id, warnings=result.warnings)
 
 
 @router.post(
@@ -132,7 +133,7 @@ async def api_create_notes_batch(
     results = await run_sync(
         note_create_service.save_many, workspace, [note.model_dump() for note in body.notes]
     )
-    return BatchCreateNotesResponse(results=[NoteResult(**r) for r in results])
+    return BatchCreateNotesResponse(results=[NoteResult(**r.model_dump()) for r in results])
 
 
 @router.patch(
@@ -176,16 +177,16 @@ async def api_update_note(
         raise HTTPException(status_code=409, detail=NoteError.ALREADY_EXISTS) from None
     except ValueError, FileNotFoundError:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND) from None
-    if result.get("stale_sha"):
+    if isinstance(result, StaleVersion):
         raise HTTPException(
             status_code=409,
             detail={"error": str(NoteError.STALE_VERSION)},
         )
     # Keep the MCP-only replacement count private while exposing public link warnings.
     return UpdateNoteResponse(
-        note_id=result["note_id"],
-        warnings=result["warnings"],
-        temporal_warnings=result["temporal_warnings"],
+        note_id=result.note_id,
+        warnings=result.warnings,
+        temporal_warnings=result.temporal_warnings,
     )
 
 
