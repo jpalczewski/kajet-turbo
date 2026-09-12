@@ -79,7 +79,12 @@ def build_history(
         )
         if isinstance(result, StaleVersion):
             return result
-        return SavedNoteResult.model_validate(result)
+        return SavedNoteResult(
+            note_id=result.note_id,
+            warnings=result.warnings,
+            occurred_at=result.occurred_at,
+            period=result.period,
+        )
 
     @srv.tool(**read_tool(tags={"notes", "links"}))
     async def get_note_links(
