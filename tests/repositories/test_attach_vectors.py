@@ -51,7 +51,7 @@ def test_attach_vectors_writes_vectors_and_marks_indexed(database):
     repo = _stale_note_with_chunks(database)
     repo.ensure_vec_table(vec_identity(2))
     rows = repo.get_chunks("n1")
-    vectors = {r["id"]: [0.1 * (i + 1), 0.2] for i, r in enumerate(rows)}
+    vectors = {row.id: [0.1 * (i + 1), 0.2] for i, row in enumerate(rows)}
 
     applied = repo.attach_vectors("n1", "ws", "u1", vec_identity(2), vectors)
 
@@ -71,7 +71,7 @@ def test_attach_vectors_chunk_drift_returns_false_and_stays_stale(database):
     rows = repo.get_chunks("n1")
     # Simulate a concurrent edit between the handler's read and the attach: the
     # vectors reference a chunk id that no longer matches the stored set.
-    vectors = {rows[0]["id"]: [0.1, 0.2], "gone-chunk-id": [0.3, 0.4]}
+    vectors = {rows[0].id: [0.1, 0.2], "gone-chunk-id": [0.3, 0.4]}
 
     applied = repo.attach_vectors("n1", "ws", "u1", vec_identity(2), vectors)
 
@@ -88,7 +88,7 @@ def test_attach_vectors_missing_chunk_returns_false(database):
     repo.ensure_vec_table(vec_identity(2))
     rows = repo.get_chunks("n1")
     # Subset of the stored chunk set is also drift — one vector missing.
-    vectors = {rows[0]["id"]: [0.1, 0.2]}
+    vectors = {rows[0].id: [0.1, 0.2]}
 
     assert repo.attach_vectors("n1", "ws", "u1", vec_identity(2), vectors) is False
     assert _vec_count(database, 2) == 0
@@ -100,13 +100,13 @@ def test_attach_vectors_purges_old_dim_vectors(database):
     repo.ensure_vec_table(vec_identity(3))
     rows = repo.get_chunks("n1")
     assert (
-        repo.attach_vectors("n1", "ws", "u1", vec_identity(2), {r["id"]: [0.1, 0.2] for r in rows})
+        repo.attach_vectors("n1", "ws", "u1", vec_identity(2), {row.id: [0.1, 0.2] for row in rows})
         is True
     )
 
     # Backend switch to a different dim: re-attach against the same chunk rows.
     applied = repo.attach_vectors(
-        "n1", "ws", "u1", vec_identity(3), {r["id"]: [0.1, 0.2, 0.3] for r in rows}
+        "n1", "ws", "u1", vec_identity(3), {row.id: [0.1, 0.2, 0.3] for row in rows}
     )
 
     assert applied is True
@@ -131,5 +131,5 @@ def test_attach_vectors_rejects_non_int_dim(database):
             "ws",
             "u1",
             vec_identity("2; DROP TABLE notes"),  # ty: ignore[invalid-argument-type] — injection guard under test
-            {r["id"]: [0.1] for r in rows},
+            {row.id: [0.1] for row in rows},
         )

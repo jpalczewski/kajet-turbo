@@ -188,7 +188,7 @@ def test_fts_search_finds_by_content(notes, chunk_repo):
     _index(notes, chunk_repo, "id1", "ws1", "u1", "Notatka", "sqlite jest świetny do embeddingów")
     results = chunk_repo.search_fts("embedding", "ws1", owner_id="u1")
     assert any(r["note_id"] == "id1" for r in results)
-    assert all("content" in r for r in results)
+    assert all(result.content for result in results)
 
 
 def test_fts_search_respects_workspace(notes, chunk_repo):
@@ -217,7 +217,7 @@ def test_fts_search_trigram_partial(notes, chunk_repo):
 
 def test_hybrid_search_fallback_without_vec(notes, chunk_repo):
     _index(notes, chunk_repo, "id1", "ws1", "u1", "Python tutorial", "programowanie w Pythonie")
-    results = chunk_repo.hybrid_search("python", "ws1", owner_id="u1", embedding=None)
+    results = chunk_repo.search_fts("python", "ws1", owner_id="u1")
     assert any(r["note_id"] == "id1" for r in results)
 
 

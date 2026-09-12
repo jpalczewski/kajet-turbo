@@ -1,5 +1,3 @@
-import json
-
 import pytest
 from sqlalchemy import text as _text
 from sqlmodel import Session
@@ -41,7 +39,7 @@ def test_replace_chunks_without_embeddings_marks_stale(database):
     rows = repo.get_chunks("n1")
     assert [r["ordinal"] for r in rows] == [0, 1]
     assert rows[0]["content"] == "alpha body"
-    assert json.loads(rows[1]["header_path"]) == ["# T", "## S"]
+    assert rows[1].header_path == ["# T", "## S"]
     with Session(database.engine) as session:
         note = session.get(Note, "n1")
         assert note is not None

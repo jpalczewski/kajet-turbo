@@ -4,7 +4,12 @@ from sqlmodel import Session
 from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.markdown import Chunk
 from kajet_turbo.models import Note
-from kajet_turbo.repositories.notes import NoteChunkRepository
+from kajet_turbo.repositories.notes import MetadataHit, NoteChunkRepository
+from kajet_turbo.services.notes.fusion import (
+    DEFAULT_CANDIDATE_LIMIT,
+    NARROWED_CANDIDATE_LIMIT,
+    fuse_hybrid,
+)
 from tests.helpers import vec_identity
 
 
@@ -43,6 +48,34 @@ def _seed(database):
     return repo
 
 
+def _hybrid(
+    repo,
+    query,
+    workspace,
+    owner_id,
+    *,
+    embedding=None,
+    identity=None,
+    limit=10,
+    per_note_cap=3,
+    meta_hits=None,
+    allowed_note_ids=None,
+):
+    candidate_limit = (
+        NARROWED_CANDIDATE_LIMIT if allowed_note_ids is not None else DEFAULT_CANDIDATE_LIMIT
+    )
+    return fuse_hybrid(
+        repo.search_fts(query, workspace, owner_id, limit=candidate_limit),
+        repo.search_chunks_vec(embedding, workspace, owner_id, identity, k=candidate_limit)
+        if embedding is not None and identity is not None
+        else [],
+        [MetadataHit(**hit) for hit in meta_hits or []],
+        limit=limit,
+        per_note_cap=per_note_cap,
+        allowed_note_ids=allowed_note_ids,
+    )
+
+
 def test_search_fts_returns_chunk_shape(database):
     repo = _seed(database)
     hits = repo.search_fts("banana", "ws", "u1", limit=10)
@@ -63,15 +96,15 @@ def test_search_fts_owner_scoped(database):
 
 def test_hybrid_search_fts_only_returns_chunks(database):
     repo = _seed(database)
-    hits = repo.hybrid_search("carrot", "ws", "u1", embedding=None, limit=10)
+    hits = _hybrid(repo, "carrot", "ws", "u1", embedding=None, limit=10)
     assert [h["note_id"] for h in hits] == ["n2"]
     assert hits[0]["header_path"] == ["# Veg"]
-    assert "chunk_id" not in hits[0]  # internal field stripped from public shape
+    assert hits[0].chunk_id is not None
 
 
 def test_hybrid_search_returns_updated_at(database):
     repo = _seed(database)
-    hits = repo.hybrid_search("banana", "ws", "u1", embedding=None, limit=10)
+    hits = _hybrid(repo, "banana", "ws", "u1", embedding=None, limit=10)
     assert hits[0]["updated_at"] == "2026-01-01"
 
 
@@ -88,7 +121,7 @@ def test_hybrid_search_meta_hit_boosts_existing_chunk(database):
             "matched_on": ["tag"],
         }
     ]
-    hits = repo.hybrid_search("banana", "ws", "u1", embedding=None, limit=10, meta_hits=meta_hits)
+    hits = _hybrid(repo, "banana", "ws", "u1", embedding=None, limit=10, meta_hits=meta_hits)
     assert len(hits) == 1
     assert hits[0]["note_id"] == "n1"
     assert hits[0]["matched_on"] == ["tag"]
@@ -122,9 +155,7 @@ def test_hybrid_search_synthesizes_row_for_note_without_chunks(database):
     ]
     # Query that matches nothing in FTS (n3 has zero chunks — the exact "Alice" bug shape:
     # a note whose only match is metadata, never indexed as a chunk) — must still surface.
-    hits = repo.hybrid_search(
-        "zzznomatch", "ws", "u1", embedding=None, limit=10, meta_hits=meta_hits
-    )
+    hits = _hybrid(repo, "zzznomatch", "ws", "u1", embedding=None, limit=10, meta_hits=meta_hits)
     assert [h["note_id"] for h in hits] == ["n3"]
     assert hits[0]["header_path"] == []
     assert hits[0]["content"] == ""
@@ -134,7 +165,7 @@ def test_hybrid_search_synthesizes_row_for_note_without_chunks(database):
 
 def test_hybrid_search_without_meta_hits_has_none_matched_on(database):
     repo = _seed(database)
-    hits = repo.hybrid_search("banana", "ws", "u1", embedding=None, limit=10)
+    hits = _hybrid(repo, "banana", "ws", "u1", embedding=None, limit=10)
     assert hits[0]["matched_on"] is None
 
 
@@ -254,7 +285,7 @@ def test_hybrid_search_caps_chunks_per_note(database):
         session.commit()
     chunks = [Chunk(i, ["# Big"], f"shared keyword piece {i}", i, i + 1) for i in range(6)]
     repo.replace_chunks("n1", "ws", "u1", "Big", chunks, None, None)
-    hits = repo.hybrid_search("keyword", "ws", "u1", embedding=None, limit=10, per_note_cap=2)
+    hits = _hybrid(repo, "keyword", "ws", "u1", embedding=None, limit=10, per_note_cap=2)
     assert sum(1 for h in hits if h["note_id"] == "n1") <= 2
 
 
@@ -301,7 +332,8 @@ def test_hybrid_search_allowed_note_ids_filters_all_candidate_lists(database):
     # "n1" (Fruit) would match FTS for "apple"; only "n2" is allowed — n1 must be excluded
     # even though it ranks via full-text, and the meta hit for n2 (which has no FTS match
     # for "apple") must still surface since n2 is in allowed_note_ids.
-    hits = repo.hybrid_search(
+    hits = _hybrid(
+        repo,
         "apple",
         "ws",
         "u1",

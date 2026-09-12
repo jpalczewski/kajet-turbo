@@ -35,7 +35,9 @@ def test_search_returns_chunk_shape_fts_only(database, git_workspace_factory):
     hits = search_service.search("tomato", ["ws"], owner_id="u1", limit=10)
     assert len(hits) >= 1
     h = hits[0]
-    assert set(h) >= {"note_id", "title", "header_path", "content", "score", "updated_at"}
+    assert {"note_id", "title", "header_path", "content", "score", "updated_at"} <= set(
+        h.__dataclass_fields__
+    )
     assert "tomato" in h["content"]
     assert h["header_path"][0] == "# Recipes"
     assert h["score"] is not None  # numeric score even in FTS-only mode
@@ -236,7 +238,7 @@ def test_search_reflects_deferred_embed_once_attached(database, git_workspace_fa
     chunk_repo.ensure_vec_table(identity)
     rows = chunk_repo.get_chunks(res["note_id"])
     applied = chunk_repo.attach_vectors(
-        res["note_id"], "ws", "u1", identity, {r["id"]: [1.0, 0.0, 0.0] for r in rows}
+        res["note_id"], "ws", "u1", identity, {row.id: [1.0, 0.0, 0.0] for row in rows}
     )
     assert applied is True
 
@@ -302,7 +304,9 @@ async def test_search_async_matches_sync_shape(database, git_workspace_factory):
     )
     hits = await search_svc.search_async("tomato", ["ws"], owner_id="u1", limit=10)
     assert len(hits) >= 1
-    assert set(hits[0]) >= {"note_id", "title", "header_path", "content", "score", "updated_at"}
+    assert {"note_id", "title", "header_path", "content", "score", "updated_at"} <= set(
+        hits[0].__dataclass_fields__
+    )
 
 
 async def test_search_async_embeds_query_on_event_loop(database, git_workspace_factory):

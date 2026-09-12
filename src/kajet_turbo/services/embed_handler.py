@@ -13,7 +13,6 @@ with ``asyncio.run`` — same bridge the inline path used.
 """
 
 import asyncio
-import json
 from collections.abc import Callable
 
 from kajet_turbo.embedding.base import EmbedderConfig
@@ -22,6 +21,7 @@ from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import Chunk, embedded_text
 from kajet_turbo.perf import incr
+from kajet_turbo.repositories.index_meta import IndexMetaRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 
 
@@ -29,11 +29,13 @@ class EmbedNoteHandler:
     def __init__(
         self,
         chunk_repo: NoteChunkRepository,
+        index_meta_repo: IndexMetaRepository,
         cache: EmbeddingCacheRepository,
         resolve_backend: Callable[[str], EmbedderConfig | None],
         build_embedder: Callable[[EmbedderConfig], object],
     ):
         self._repo = chunk_repo
+        self._index_meta_repo = index_meta_repo
         self._cache = cache
         self._resolve_backend = resolve_backend
         self._build_embedder = build_embedder
@@ -55,14 +57,14 @@ class EmbedNoteHandler:
         texts = [
             embedded_text(
                 Chunk(
-                    ordinal=r["ordinal"],
-                    header_path=json.loads(r["header_path"]),
-                    content=r["content"],
-                    char_start=r["char_start"],
-                    char_end=r["char_end"],
+                    ordinal=row.ordinal,
+                    header_path=row.header_path,
+                    content=row.content,
+                    char_start=row.char_start,
+                    char_end=row.char_end,
                 )
             )
-            for r in rows
+            for row in rows
         ]
         hashes = [content_hash(t) for t in texts]
         cached = self._cache.get_many(hashes, cfg.backend_id, cfg.model)
@@ -81,10 +83,10 @@ class EmbedNoteHandler:
 
         identity = IndexIdentity.from_config(cfg)
         self._repo.ensure_vec_table(identity)
-        vectors = {r["id"]: cached[h] for r, h in zip(rows, hashes, strict=True)}
+        vectors = {row.id: cached[hash_] for row, hash_ in zip(rows, hashes, strict=True)}
         applied = self._repo.attach_vectors(note_id, workspace, owner_id, identity, vectors)
         if applied:
-            self._repo.upsert_index_meta(owner_id, cfg.backend_id, cfg.model, cfg.dim)
+            self._index_meta_repo.upsert(owner_id, cfg.backend_id, cfg.model, cfg.dim)
         else:
             # Chunk set drifted (concurrent edit) — the edit's own follow-up job is
             # already pending, so completing here is correct, not a failure.

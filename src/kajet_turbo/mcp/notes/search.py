@@ -70,6 +70,8 @@ def build_search(search_service: NoteSearchService, workspace_service: Workspace
             folder=folder,
             tags=tags,
         )
-        return [SearchChunkResult.model_validate(r) for r in results]
+        return [
+            SearchChunkResult.model_validate(result, from_attributes=True) for result in results
+        ]
 
     return srv

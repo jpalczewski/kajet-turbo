@@ -6,6 +6,7 @@ from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
 from kajet_turbo.markdown import Chunk, embedded_text
 from kajet_turbo.models import Note
+from kajet_turbo.repositories.index_meta import IndexMetaRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.embed_handler import EmbedNoteHandler
 
@@ -66,6 +67,7 @@ def _handler(database, *, cfg=None, embedder=None):
     emb = embedder or _FakeEmbedder()
     handler = EmbedNoteHandler(
         chunk_repo=repo,
+        index_meta_repo=IndexMetaRepository(database.engine),
         cache=cache,
         resolve_backend=lambda owner_id: cfg,
         build_embedder=lambda c: emb,
@@ -89,7 +91,7 @@ def _index_state(database, note_id="n1") -> str:
 
 def test_handler_embeds_stored_chunks_and_marks_indexed(database):
     _stale_note(database)
-    handler, repo, _cache, emb = _handler(database, cfg=_cfg())
+    handler, _repo, _cache, emb = _handler(database, cfg=_cfg())
 
     handler(PAYLOAD)
 
@@ -100,8 +102,9 @@ def test_handler_embeds_stored_chunks_and_marks_indexed(database):
             _text("SELECT COUNT(*) FROM note_chunks_vec_3 WHERE note_id='n1'")
         ).scalar_one()
     assert vec_count == 2
-    meta = repo.get_index_meta("u1")
-    assert meta == {"backend": "fake", "model": "fake-m", "dim": 3}
+    meta = IndexMetaRepository(database.engine).get("u1")
+    assert meta is not None
+    assert (meta.backend, meta.model, meta.dim) == ("fake", "fake-m", 3)
 
 
 def test_handler_cache_hits_skip_embedder(database):
@@ -158,8 +161,8 @@ def test_handler_superseded_by_concurrent_edit_completes_without_meta(database):
             repo.replace_chunks("n1", "ws", "u1", "T", new, embeddings=None, identity=None)
             return await super().embed_documents(texts)
 
-    handler, repo2, _cache, _emb = _handler(database, cfg=_cfg(), embedder=_Racer())
+    handler, _repo, _cache, _emb = _handler(database, cfg=_cfg(), embedder=_Racer())
     handler(PAYLOAD)  # must not raise — the follow-up job repairs
 
     assert _index_state(database) == "stale"
-    assert repo2.get_index_meta("u1") is None
+    assert IndexMetaRepository(database.engine).get("u1") is None

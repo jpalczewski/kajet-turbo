@@ -51,19 +51,20 @@ different processes. `notes.index_generation` is what keeps them honest, and it 
 cooperating pieces:
 
 - The writer bumps it **iff the note's indexed text changed — body or title**.
-  Chunks and the `notes_fts` rows are built from title + content (`chunks.py:218-276`), so
+  Chunks and the `notes_fts` rows are built from title + content
+  (`notes/chunks.py:replace_chunks_in_session`), so
   a rename invalidates the index exactly as an edit does; that is why `NoteEditService.update()`'s
   rename/move leg passes `True`. `services/notes/tags.py:355` passes `item.body_changed`
   because tags are stripped before indexing; `apply_temporal_backfill`'s row write passes
   `False` because it rewrites frontmatter dates only.
 - The indexer passes the generation it read as `expected_generation`, and `replace_chunks`
   makes its *first* statement a conditional `UPDATE ... WHERE index_generation = :expected
-  RETURNING id` (`chunks.py:204-215`). That statement takes SQLite's write lock, so a
+  RETURNING id` (`notes/chunks.py:replace_chunks_in_session`). That statement takes SQLite's write lock, so a
   superseded indexer rolls back with `outcome="superseded"` instead of deleting a newer
   edit's chunks.
 - The deferred-embedding path has no generation to compare against, so `attach_vectors`
   substitutes set-equality on the stored chunk ids, checked inside the same transaction
-  (`chunks.py:356`), and no-ops if they moved.
+  (`notes/chunks.py:attach_vectors`), and no-ops if they moved.
 
 Bumping on a metadata-only edit is not a harmless conservative choice: it discards in-flight
 indexing work and re-enqueues embedding for a note whose indexed text did not change. In
@@ -89,9 +90,9 @@ The one real gap is `text()` — no `.exec()` overload covers it, since a raw st
 typed statement. That's genuinely unavoidable for hand-written SQL (SQLite virtual tables
 like FTS5/vec0 can't be ORM-mapped at all — see `chunks.py`'s module docstring) and for
 queries that are deliberately raw for clarity or performance (`jobs.py`'s `_CLAIM_SQL`).
-For those, call `DbRepository._raw_execute(session, stmt, params)` rather than repeating
-`session.execute(...)  # ty: ignore[deprecated] - raw SQL` by hand — one place holds the
-suppression and the `CursorResult` narrowing for `.rowcount`, instead of one per call site.
+For those, call `DbRepository._raw_execute(session, stmt, params)` rather than calling
+`session.execute(...)` by hand — one place holds the suppression and the `CursorResult`
+narrowing for `.rowcount`, instead of one per call site.
 
 Do not rewrite an existing `text()` query into Core `select()`/`delete()`/`update()` just to
 drop the suppression: the suppression is a type-checker annoyance, not a security or
@@ -138,4 +139,5 @@ second look.
 
 One ordering constraint rides on the caller-owned pair regardless of naming:
 `note_chunks.note_id` is an FK to `notes.id` with no cascade, so chunks must be deleted
-before notes within the same session (`chunks.py:632-634`, `crud.py:455-456`).
+before notes within the same session (`notes/chunks.py:delete_for_workspace_in_session`,
+`notes/crud.py:delete_for_workspace_in_session`).
