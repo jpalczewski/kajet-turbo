@@ -104,7 +104,7 @@ class NoteRepository(DbRepository):
         absent from the result — callers already handle that shape from ``get``.
 
         Chunks the ``IN (...)`` clause at ``_IN_CLAUSE_CHUNK_SIZE`` ids per query — a
-        caller like ``NoteLinkService.graph()`` can pass every note id in a workspace,
+        caller like ``NoteGraphService.graph()`` can pass every note id in a workspace,
         which would otherwise risk SQLite's compiled bound-parameter limit on a large,
         long-lived workspace.
         """

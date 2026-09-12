@@ -301,7 +301,7 @@ def test_rewrite_backlinks_write_failing_partway_rolls_back_and_makes_no_commit(
     committed once per source instead of once for the batch). Pin it: a write failing
     partway through the backlink batch leaves every source's wikilink text unrewritten —
     mirrors test_rename_tag_restores_every_touched_file_when_a_write_fails."""
-    from kajet_turbo.services.notes import links as links_module
+    from kajet_turbo.services.notes import backlinks as backlinks_module
 
     tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
     sid_a = service.create.save(
@@ -312,15 +312,15 @@ def test_rewrite_backlinks_write_failing_partway_rolls_back_and_makes_no_commit(
     )["note_id"]
     sha = service.version_service.get_history(note_target("u1", "ws", workspace, tid))[0]["sha"]
 
-    real_write = links_module.write_note_file
+    real_write = backlinks_module.write_note_file
     flaky_write = make_flaky_write(real_write)
 
-    monkeypatch.setattr(links_module, "write_note_file", flaky_write)
+    monkeypatch.setattr(backlinks_module, "write_note_file", flaky_write)
     with pytest.raises(OSError, match="disk full"):
         service.edit.update(
             note_target("u1", "ws", workspace, tid), expected_sha=sha, title="Renamed"
         )
-    monkeypatch.setattr(links_module, "write_note_file", real_write)
+    monkeypatch.setattr(backlinks_module, "write_note_file", real_write)
 
     src_a = read_service.get_with_content(note_target("u1", "ws", workspace, sid_a))
     src_b = read_service.get_with_content(note_target("u1", "ws", workspace, sid_b))
@@ -421,10 +421,10 @@ def test_rewrite_backlinks_chunks_large_batches_logging_note_ids_per_chunk(
     commit_rows_then_tree calls instead of one unbounded batch, each logging its own
     repository_operation line with a note_ids field bounded to the chunk size."""
     from kajet_turbo.log import setup_logging
-    from kajet_turbo.services.notes import links as links_module
+    from kajet_turbo.services.notes import backlinks as backlinks_module
     from tests.helpers import entries_named, read_log_entries
 
-    monkeypatch.setattr(links_module, "MAX_BATCH_COMMIT_SIZE", 2)
+    monkeypatch.setattr(backlinks_module, "MAX_BATCH_COMMIT_SIZE", 2)
     tid = service.create.save(workspace_target("u1", "ws", workspace), "Target", "t", [])["note_id"]
     source_ids = {
         service.create.save(

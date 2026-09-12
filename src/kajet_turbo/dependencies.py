@@ -60,6 +60,7 @@ from kajet_turbo.services.notes import (
     NoteDeleteService,
     NoteEditService,
     NoteFolderService,
+    NoteGraphService,
     NoteLinkService,
     NoteReadService,
     NoteReconcileService,
@@ -145,6 +146,7 @@ class AppResources:
     note_delete_service: NoteDeleteService
     note_tag_service: NoteTagService
     note_link_service: NoteLinkService
+    note_graph_service: NoteGraphService
     note_folder_service: NoteFolderService
     note_temporal_service: NoteTemporalService
     note_version_service: NoteVersionService
@@ -257,6 +259,13 @@ def build_resources(config: AppConfig) -> AppResources:
             lambda ws, owner: workspace_service.get_settings(owner, ws)["validate_links"],
             job_repo,
         )
+        note_graph_service = NoteGraphService(
+            note_repo,
+            note_link_repo,
+            note_tag_repo,
+            dangling_repo,
+            lambda ws, owner: workspace_service.get_settings(owner, ws)["validate_links"],
+        )
         note_teardown = NoteTeardown(
             note_tag_repo,
             note_chunk_repo,
@@ -365,6 +374,7 @@ def build_resources(config: AppConfig) -> AppResources:
             note_delete_service,
             tag_service,
             link_service,
+            note_graph_service,
             folder_service,
             note_temporal_service,
             note_version_service,
@@ -468,6 +478,10 @@ def get_note_tag_service(conn: HTTPConnection) -> NoteTagService:
 
 def get_note_link_service(conn: HTTPConnection) -> NoteLinkService:
     return _resources(conn).note_link_service
+
+
+def get_note_graph_service(conn: HTTPConnection) -> NoteGraphService:
+    return _resources(conn).note_graph_service
 
 
 def get_note_folder_service(conn: HTTPConnection) -> NoteFolderService:

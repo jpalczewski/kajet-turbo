@@ -13,6 +13,7 @@ from kajet_turbo.api.schemas import (
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.dependencies import (
     CurrentUser,
+    get_note_graph_service,
     get_note_link_service,
     get_note_read_service,
     get_required_user,
@@ -21,7 +22,7 @@ from kajet_turbo.dependencies import (
 )
 from kajet_turbo.errors import NoteError
 from kajet_turbo.markdown import LinkResolver, XwsResolver, render_markdown
-from kajet_turbo.services.notes import NoteLinkService, NoteReadService
+from kajet_turbo.services.notes import NoteGraphService, NoteLinkService, NoteReadService
 from kajet_turbo.services.notes.types import NoteData
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 
@@ -214,9 +215,9 @@ def api_note_neighborhood(
     include_tags: bool = False,
     user: CurrentUser = Depends(get_required_user),
     target: NoteTarget = Depends(resolve_note_target),
-    link_service: NoteLinkService = Depends(get_note_link_service),
+    graph_service: NoteGraphService = Depends(get_note_graph_service),
 ) -> GraphResponse:
-    result = link_service.neighborhood(
+    result = graph_service.neighborhood(
         target,
         depth,
         include_cross_workspace,
@@ -236,6 +237,6 @@ def api_note_graph(
     include_tags: bool = False,
     user: CurrentUser = Depends(get_required_user),
     workspace: WorkspaceTarget = Depends(resolve_workspace_target),
-    link_service: NoteLinkService = Depends(get_note_link_service),
+    graph_service: NoteGraphService = Depends(get_note_graph_service),
 ) -> GraphResponse:
-    return GraphResponse(**link_service.graph(workspace, include_tags=include_tags))
+    return GraphResponse(**graph_service.graph(workspace, include_tags=include_tags))

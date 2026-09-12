@@ -30,8 +30,9 @@ from kajet_turbo.repositories.notes import NoteChunkRepository
 
 def reindex_job_entries(owner_id: str, workspace: str, note_ids: Iterable[str]) -> list[JobEntry]:
     """Build one ``reindex_note`` JobEntry per note id, with the dedup key ``ReindexNoteHandler``
-    and every enqueue site (index_many, _rewrite_backlinks) agree on. Centralized so the payload
-    shape and dedup-key format can't drift between the two call sites that build it."""
+    and every enqueue site (index_many, BacklinkRewriter.rewrite_backlinks) agree on.
+    Centralized so the payload shape and dedup-key format can't drift between the two call sites
+    that build it."""
     return [
         JobEntry(
             payload={"owner_id": owner_id, "workspace": workspace, "note_id": note_id},

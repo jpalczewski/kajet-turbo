@@ -23,6 +23,7 @@ from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import (
     NoteFolderService,
+    NoteGraphService,
     NoteLinkService,
     NoteReconcileService,
     NoteTagService,
@@ -82,6 +83,13 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         None,
         JobRepository(database.engine),
     )
+    note_graph_service_inst = NoteGraphService(
+        note_repository,
+        NoteLinkRepository(database.engine),
+        NoteTagRepository(database.engine),
+        None,
+        None,
+    )
     note_service_inst = build_note_wiring(
         database,
         indexer=indexer,
@@ -120,6 +128,7 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         note_delete_service=note_service_inst.delete,
         note_tag_service=note_tag_service_inst,
         note_link_service=note_link_service_inst,
+        note_graph_service=note_graph_service_inst,
         note_folder_service=note_folder_service_inst,
         note_temporal_service=note_temporal_service_inst,
         note_version_service=note_service_inst.version_service,

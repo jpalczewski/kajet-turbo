@@ -7,6 +7,7 @@ from kajet_turbo.services.notes import (
     NoteDeleteService,
     NoteEditService,
     NoteFolderService,
+    NoteGraphService,
     NoteLinkService,
     NoteReadService,
     NoteReconcileService,
@@ -34,6 +35,7 @@ def build_notes(
     note_delete_service: NoteDeleteService,
     note_tag_service: NoteTagService,
     note_link_service: NoteLinkService,
+    note_graph_service: NoteGraphService,
     note_folder_service: NoteFolderService,
     note_temporal_service: NoteTemporalService,
     note_version_service: NoteVersionService,
@@ -55,5 +57,5 @@ def build_notes(
     srv.mount(
         build_history(note_edit_service, note_version_service, note_link_service, workspace_service)
     )
-    srv.mount(build_graph(note_link_service, workspace_service))
+    srv.mount(build_graph(note_graph_service, workspace_service))
     return srv

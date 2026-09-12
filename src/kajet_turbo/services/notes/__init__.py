@@ -2,6 +2,7 @@ from kajet_turbo.services.notes.create import NoteCreateService
 from kajet_turbo.services.notes.delete import NoteDeleteService
 from kajet_turbo.services.notes.edit import NoteEditService
 from kajet_turbo.services.notes.folders import NoteFolderService
+from kajet_turbo.services.notes.graph import NoteGraphService
 from kajet_turbo.services.notes.history import NoteVersionService
 from kajet_turbo.services.notes.links import NoteLinkService, WorkspaceLinks
 from kajet_turbo.services.notes.read import NoteReadService
@@ -20,6 +21,7 @@ __all__ = [
     "NoteDeleteService",
     "NoteEditService",
     "NoteFolderService",
+    "NoteGraphService",
     "NoteLinkService",
     "NoteReadService",
     "NoteReconcileService",
