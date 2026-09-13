@@ -1,0 +1,79 @@
+{
+  "label": "local-conc-selected-mmap",
+  "seed": 209,
+  "python": "3.14.7 free-threading build (main, Aug 14 2026, 15:24:39) [Clang 22.1.3 ]",
+  "gil_enabled": false,
+  "machine": "arm64",
+  "processor": "arm",
+  "cpus": 10,
+  "mmap_size": 536870912,
+  "concurrency": {
+    "vectors": 2141,
+    "source_chunks": 25,
+    "strategy": "spread16-k50",
+    "c1": {
+      "related": {
+        "p50": 22.4,
+        "p95": 28.36,
+        "max": 28.36,
+        "n": 10
+      },
+      "search_alongside": {
+        "p50": 4.65,
+        "p95": 5.0,
+        "max": 7.58,
+        "n": 20
+      },
+      "throughput_views_per_s": 43.3,
+      "pool_peak_checked_out": 2
+    },
+    "c5": {
+      "related": {
+        "p50": 40.59,
+        "p95": 56.38,
+        "max": 62.61,
+        "n": 50
+      },
+      "search_alongside": {
+        "p50": 6.42,
+        "p95": 7.12,
+        "max": 14.79,
+        "n": 20
+      },
+      "throughput_views_per_s": 110.4,
+      "pool_peak_checked_out": 6
+    },
+    "c10": {
+      "related": {
+        "p50": 119.29,
+        "p95": 161.07,
+        "max": 223.3,
+        "n": 100
+      },
+      "search_alongside": {
+        "p50": 14.36,
+        "p95": 57.49,
+        "max": 119.24,
+        "n": 20
+      },
+      "throughput_views_per_s": 80.4,
+      "pool_peak_checked_out": 10
+    },
+    "c20": {
+      "related": {
+        "p50": 252.91,
+        "p95": 296.7,
+        "max": 405.59,
+        "n": 200
+      },
+      "search_alongside": {
+        "p50": 147.11,
+        "p95": 199.57,
+        "max": 217.59,
+        "n": 20
+      },
+      "throughput_views_per_s": 77.1,
+      "pool_peak_checked_out": 10
+    }
+  }
+}
