@@ -39,21 +39,11 @@ jobs:
             architecture: amd64
             platform: linux/amd64
             runner: ubuntu-24.04
-          - target: app
-            image: ghcr.io/jpalczewski/kajet-turbo-app
-            architecture: arm64
-            platform: linux/arm64
-            runner: ubuntu-24.04-arm
           - target: ingress
             image: ghcr.io/jpalczewski/kajet-turbo-ingress
             architecture: amd64
             platform: linux/amd64
             runner: ubuntu-24.04
-          - target: ingress
-            image: ghcr.io/jpalczewski/kajet-turbo-ingress
-            architecture: arm64
-            platform: linux/arm64
-            runner: ubuntu-24.04-arm
     env:
       LOCAL_IMAGE: kajet-turbo-ci:${{ matrix.target }}-${{ matrix.architecture }}-${{ github.sha }}
       PLATFORM_TAG: ${{ matrix.image }}:build-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.architecture }}
@@ -187,17 +177,14 @@ jobs:
             if ! docker buildx imagetools inspect "$stable" >/dev/null 2>&1; then
               docker buildx imagetools create \
                 --tag "$stable" \
-                "${image}:sha-${GITHUB_SHA}-amd64" \
-                "${image}:sha-${GITHUB_SHA}-arm64"
+                "${image}:sha-${GITHUB_SHA}-amd64"
             fi
             docker buildx imagetools inspect --raw "$stable" \
-              | jq -e '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"]'
+              | jq -e '[.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64"]'
           }
 
           ensure_platform_tag "$APP_IMAGE" amd64
-          ensure_platform_tag "$APP_IMAGE" arm64
           ensure_platform_tag "$INGRESS_IMAGE" amd64
-          ensure_platform_tag "$INGRESS_IMAGE" arm64
           ensure_index "$APP_IMAGE"
           ensure_index "$INGRESS_IMAGE"
 

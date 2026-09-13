@@ -122,15 +122,16 @@ is done by the `Caddyfile`.
 
 ## Development images
 
-CI builds the final Dockerfile targets for `linux/amd64` and `linux/arm64`:
+CI builds the final Dockerfile targets for `linux/amd64` (`linux/arm64` is
+disabled for now — not deployed anywhere yet):
 
 - `ghcr.io/jpalczewski/kajet-turbo-app`
 - `ghcr.io/jpalczewski/kajet-turbo-ingress`
 
 Pull requests only build, validate, and scan the images. A push to `main`
 publishes images that passed the Trivy scan under the immutable
-`sha-<commit>` tag. After successfully building both targets for both
-architectures, CI also moves the convenient, moving `develop` tag.
+`sha-<commit>` tag. After successfully building both targets, CI also moves
+the convenient, moving `develop` tag.
 
 > [!IMPORTANT]
 > On first publish, set both packages to `Public` in their GitHub settings.
@@ -154,7 +155,7 @@ docker pull ghcr.io/jpalczewski/kajet-turbo-ingress:sha-<commit>
 > purely a shortcut for day-to-day work.
 
 Every platform variant has a CycloneDX SBOM and provenance signed by GitHub
-Actions. The multi-arch index attestation can be verified like this:
+Actions. The index attestation can be verified like this:
 
 ```bash
 gh attestation verify \
@@ -162,11 +163,11 @@ gh attestation verify \
   -R jpalczewski/kajet-turbo
 ```
 
-The SBOM is pinned to a specific platform manifest (`amd64` or `arm64`):
+The SBOM is pinned to a specific platform manifest (`amd64`):
 
 ```bash
 gh attestation verify \
-  oci://ghcr.io/jpalczewski/kajet-turbo-app:sha-<commit>-arm64 \
+  oci://ghcr.io/jpalczewski/kajet-turbo-app:sha-<commit>-amd64 \
   -R jpalczewski/kajet-turbo \
   --predicate-type https://cyclonedx.org/bom
 ```
