@@ -122,17 +122,13 @@ class NoteRelatedService:
             note.id: note
             for note in self._note_repo.get_many([r.note_id for r in ranked], owner_id)
         }
-        target_fragments = self._chunk_repo.get_chunk_fragments_by_id(
-            [r.best_chunk_id for r in ranked]
-        )
-        source_fragments = self._chunk_repo.get_chunk_fragments_by_rowid(
-            [r.source_rowid for r in ranked]
-        )
+        chunk_ids = {r.best_chunk_id for r in ranked} | {r.source_chunk_id for r in ranked}
+        fragments = self._chunk_repo.get_chunk_fragments_by_id(list(chunk_ids))
         items = []
         for r in ranked:
             note = notes_by_id.get(r.note_id)
-            target = target_fragments.get(r.best_chunk_id)
-            source = source_fragments.get(r.source_rowid)
+            target = fragments.get(r.best_chunk_id)
+            source = fragments.get(r.source_chunk_id)
             if note is None or target is None or source is None:
                 continue
             items.append(

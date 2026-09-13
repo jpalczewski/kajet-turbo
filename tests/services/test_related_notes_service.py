@@ -1,35 +1,17 @@
 import pytest
-from sqlmodel import Session
 
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.markdown import Chunk
-from kajet_turbo.models import Note
 from kajet_turbo.repositories.notes import NoteChunkRepository, NoteRepository
 from kajet_turbo.services.notes.related import NoteRelatedService
-from tests.helpers import vec_identity
+from tests.helpers import add_notes, related_note, vec_identity
 
 CFG = EmbedderConfig(
     backend_id="http://test", type="openai", model="test-model", dim=2, base_url="http://test"
 )
 
-
-def _note(note_id: str, owner_id: str = "u1", workspace: str = "ws", folder: str = "") -> Note:
-    return Note(
-        id=note_id,
-        workspace=workspace,
-        owner_id=owner_id,
-        title=note_id,
-        folder=folder,
-        created_at="2026-01-01",
-        updated_at="2026-01-01",
-    )
-
-
-def _add_notes(database, *notes: Note) -> None:
-    with Session(database.engine) as session:
-        for note in notes:
-            session.add(note)
-        session.commit()
+_note = related_note
+_add_notes = add_notes
 
 
 def _service(database, resolve_backend=lambda owner_id: CFG):

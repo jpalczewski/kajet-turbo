@@ -441,20 +441,10 @@ class NoteChunkRepository(DbRepository):
             ).all()
         return [self._stored_chunk(row) for row in rows]
 
-    def get_chunk_fragments_by_rowid(self, chunk_rowids: list[int]) -> dict[int, StoredChunk]:
-        """Fragments keyed by ``chunk_rowid`` — hydrates the source side of a
-        related-notes result (the query is by rowid, not by ``id``, on that side)."""
-        if not chunk_rowids:
-            return {}
-        with self.timed_session() as session:
-            rows = session.exec(
-                select(NoteChunk).where(col(NoteChunk.chunk_rowid).in_(chunk_rowids))
-            ).all()
-        return {cast(int, row.chunk_rowid): self._stored_chunk(row) for row in rows}
-
     def get_chunk_fragments_by_id(self, chunk_ids: list[str]) -> dict[str, StoredChunk]:
-        """Fragments keyed by chunk id — hydrates the target side of a related-notes
-        result."""
+        """Fragments keyed by chunk id — hydrates both sides of a related-notes result
+        (source and target chunk ids share this method; both are stable ids, never a raw
+        ``chunk_rowid`` crossing a session boundary)."""
         if not chunk_ids:
             return {}
         with self.timed_session() as session:
@@ -621,6 +611,18 @@ class NoteChunkRepository(DbRepository):
             " AND v.identity = :ident"
         )
 
+    # A leaner sibling of _related_src_sql for the embedded-count pre-check: same
+    # predicate, but skips the `embedding` column, which is only needed by the join
+    # query's own MATERIALIZED copy of this same select — fetching that BLOB here too
+    # would mean reading every candidate vector twice on every non-pending call.
+    @staticmethod
+    def _related_src_exists_sql(dim: int) -> str:
+        return (
+            f"SELECT v.chunk_rowid AS sid FROM note_chunks_vec_{dim} v"
+            " WHERE v.chunk_rowid IN (SELECT value FROM json_each(:ids))"
+            " AND v.identity = :ident"
+        )
+
     @staticmethod
     def _related_join_sql(dim: int, *, scoped: bool) -> str:
         scope_clause = (
@@ -661,26 +663,33 @@ class NoteChunkRepository(DbRepository):
         """
         dim = _validated_dim(identity.dim)
         with self.timed_session() as session, timed("related_vec_ms"):
-            all_rowids = cast(
-                list[int],
+            all_chunks = cast(
+                list[tuple[int, str]],
                 session.exec(
-                    select(NoteChunk.chunk_rowid)
+                    select(NoteChunk.chunk_rowid, NoteChunk.id)
                     .where(col(NoteChunk.note_id) == note_id)
                     .order_by(col(NoteChunk.ordinal))
                 ).all(),
             )
-            total = len(all_rowids)
+            total = len(all_chunks)
             if total == 0:
                 return RelatedChunkQuery(0, 0, 0, k, [])
+            # chunk_rowid never crosses a session boundary from here on: note_chunks has
+            # no sqlite_autoincrement guard, so a bare rowid resolved against a LATER
+            # session could silently hit a row a concurrent delete+insert reused for an
+            # unrelated chunk. Evidence is built from the stable chunk id instead (see
+            # RelatedEvidence).
+            rowid_to_chunk_id = dict(all_chunks)
+            all_rowids = [rowid for rowid, _ in all_chunks]
             source_rowids = _pick_spread(all_rowids, RELATED_SOURCE_CAP)
             used = len(source_rowids)
-            src_params: dict[str, object] = {
+            exists_params: dict[str, object] = {
                 "ids": json.dumps(source_rowids),
                 "ident": identity.key,
             }
             try:
                 src_rows = self._raw_execute(
-                    session, text(self._related_src_sql(dim)), src_params
+                    session, text(self._related_src_exists_sql(dim)), exists_params
                 ).fetchall()
             except Exception as e:
                 # The dim-sharded vec table is created lazily at index time; if nothing
@@ -706,16 +715,26 @@ class NoteChunkRepository(DbRepository):
             }
             scoped = folder_note_ids is not None
             if scoped:
-                scope_rowids = session.exec(
-                    select(NoteChunk.chunk_rowid).where(col(NoteChunk.note_id).in_(folder_note_ids))
-                ).all()
-                params["scope_ids"] = json.dumps(list(scope_rowids))
+                # Raw SQL with a single json_each-encoded parameter, like every other
+                # id-list filter in this method — a plain `.in_(folder_note_ids)` would
+                # bind one SQL parameter per note id and risk SQLite's compiled
+                # bound-parameter limit on a large folder (the same limit
+                # NoteRepository.get_many chunks its own IN-clauses to avoid).
+                scope_rows = self._raw_execute(
+                    session,
+                    text(
+                        "SELECT chunk_rowid FROM note_chunks"
+                        " WHERE note_id IN (SELECT value FROM json_each(:note_ids))"
+                    ),
+                    {"note_ids": json.dumps(list(folder_note_ids))},
+                ).fetchall()
+                params["scope_ids"] = json.dumps([row[0] for row in scope_rows])
             rows = self._raw_execute(
                 session, text(self._related_join_sql(dim, scoped=scoped)), params
             ).fetchall()
         evidence = [
             RelatedEvidence(
-                source_rowid=cast(int, row._mapping["source_rowid"]),
+                source_chunk_id=rowid_to_chunk_id[cast(int, row._mapping["source_rowid"])],
                 target_note_id=cast(str, row._mapping["target_note_id"]),
                 target_chunk_id=cast(str, row._mapping["target_chunk_id"]),
                 distance=cast(float, row._mapping["distance"]),

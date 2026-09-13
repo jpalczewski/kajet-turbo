@@ -1,28 +1,9 @@
-from sqlmodel import Session
-
 from kajet_turbo.markdown import Chunk
-from kajet_turbo.models import Note
 from kajet_turbo.repositories.notes import NoteChunkRepository
-from tests.helpers import vec_identity
+from tests.helpers import add_notes, related_note, vec_identity
 
-
-def _note(note_id: str, owner_id: str = "u1", workspace: str = "ws", folder: str = "") -> Note:
-    return Note(
-        id=note_id,
-        workspace=workspace,
-        owner_id=owner_id,
-        title=note_id,
-        folder=folder,
-        created_at="2026-01-01",
-        updated_at="2026-01-01",
-    )
-
-
-def _add_notes(database, *notes: Note) -> None:
-    with Session(database.engine) as session:
-        for note in notes:
-            session.add(note)
-        session.commit()
+_note = related_note
+_add_notes = add_notes
 
 
 def test_related_chunks_ranks_closer_target_and_excludes_self_and_other_owner(database):
@@ -155,6 +136,30 @@ def test_related_chunks_folder_scope_narrows_candidates(database):
     query = repo.related_chunks("src", "ws", "u1", identity, folder_note_ids={"in_scope"})
 
     assert [e.target_note_id for e in query.evidence] == ["in_scope"]
+
+
+def test_related_chunks_folder_scope_handles_more_than_sqlite_bind_limit(database):
+    """Regression: the folder-scope lookup must not build one SQL bind parameter per
+    note id — a plain ``.in_(folder_note_ids)`` blows past SQLite's compiled variable
+    limit (default 999) on a large folder, unlike the rest of this method's id-list
+    filters, which already go through a single json_each-encoded parameter. The scope
+    set doesn't need to correspond to real notes to prove the query survives; it only
+    exercises the SQL shape."""
+    repo = NoteChunkRepository(database.engine)
+    identity = vec_identity(2)
+    _add_notes(database, _note("src"), _note("near"))
+    repo.ensure_vec_table(identity)
+    repo.replace_chunks(
+        "src", "ws", "u1", "src", [Chunk(0, ["# S"], "s", 0, 1)], [[1.0, 0.0]], identity
+    )
+    repo.replace_chunks(
+        "near", "ws", "u1", "near", [Chunk(0, ["# N"], "n", 0, 1)], [[0.9, 0.1]], identity
+    )
+    huge_folder = {f"fake-note-{i}" for i in range(2000)} | {"near"}
+
+    query = repo.related_chunks("src", "ws", "u1", identity, folder_note_ids=huge_folder)
+
+    assert [e.target_note_id for e in query.evidence] == ["near"]
 
 
 def test_related_chunks_missing_vec_table_degrades(database):

@@ -63,9 +63,16 @@ class MetadataHit:
 class RelatedEvidence:
     """One (source chunk, target note) pair from the related-notes self-join: the
     target's closest chunk to that source chunk, already MIN-aggregated in SQL.
-    ``distance`` is raw L2, not a derived similarity."""
+    ``distance`` is raw L2, not a derived similarity.
 
-    source_rowid: int
+    ``source_chunk_id`` is the stable chunk id, not the raw ``chunk_rowid`` the self-join
+    itself groups by — ``note_chunks.chunk_rowid`` has no ``sqlite_autoincrement`` guard,
+    so a bare rowid captured here could be resolved against a reused row in a later,
+    separate session. The repository translates the rowid to this stable id before
+    returning, so nothing downstream ever looks a chunk up by rowid across a session
+    boundary."""
+
+    source_chunk_id: str
     target_note_id: str
     target_chunk_id: str
     distance: float

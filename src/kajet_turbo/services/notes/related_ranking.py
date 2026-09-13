@@ -33,7 +33,7 @@ class RankedNote:
     comparable on ``score``."""
 
     note_id: str
-    source_rowid: int
+    source_chunk_id: str
     best_chunk_id: str
     best_distance: float
     hub_margin: float
@@ -44,21 +44,23 @@ class RankedNote:
 
 def rank_related(evidence: list[RelatedEvidence], n_sources: int) -> list[RankedNote]:
     """Rank targets from raw evidence. ``n_sources`` is the number of source chunks that
-    actually contributed evidence (``source_chunks_used``, not the note's total chunk
-    count) — coverage is a fraction of chunks queried, not of chunks the note has."""
+    actually have a vector under the active identity (``source_chunks_embedded``, not
+    ``source_chunks_used``'s pre-cap pick count and not the note's total chunk count) —
+    coverage is a fraction of chunks the self-join could actually query, not of chunks
+    merely selected by the spread cap."""
     if not evidence or n_sources <= 0:
         return []
 
-    by_source: dict[int, list[RelatedEvidence]] = {}
+    by_source: dict[str, list[RelatedEvidence]] = {}
     for row in evidence:
-        by_source.setdefault(row.source_rowid, []).append(row)
+        by_source.setdefault(row.source_chunk_id, []).append(row)
 
-    # best[note] = (margin, source_rowid, chunk_id, distance) from whichever source's
+    # best[note] = (margin, source_chunk_id, chunk_id, distance) from whichever source's
     # head gave the largest margin; hits counts how many sources' heads the note
     # appeared in.
-    best: dict[str, tuple[float, int, str, float]] = {}
+    best: dict[str, tuple[float, str, str, float]] = {}
     hits: dict[str, int] = {}
-    tail: dict[str, tuple[float, int, str, float]] = {}
+    tail: dict[str, tuple[float, str, str, float]] = {}
 
     for rows in by_source.values():
         ranked = sorted(rows, key=lambda r: (r.distance, r.target_note_id))
@@ -72,7 +74,7 @@ def rank_related(evidence: list[RelatedEvidence], n_sources: int) -> list[Ranked
             if current is None or margin > current[0]:
                 best[row.target_note_id] = (
                     margin,
-                    row.source_rowid,
+                    row.source_chunk_id,
                     row.target_chunk_id,
                     row.distance,
                 )
@@ -83,7 +85,7 @@ def rank_related(evidence: list[RelatedEvidence], n_sources: int) -> list[Ranked
             if row.target_note_id not in best and (current is None or margin > current[0]):
                 tail[row.target_note_id] = (
                     margin,
-                    row.source_rowid,
+                    row.source_chunk_id,
                     row.target_chunk_id,
                     row.distance,
                 )
@@ -91,7 +93,7 @@ def rank_related(evidence: list[RelatedEvidence], n_sources: int) -> list[Ranked
     head_notes = [
         RankedNote(
             note_id=note_id,
-            source_rowid=source_rowid,
+            source_chunk_id=source_chunk_id,
             best_chunk_id=chunk_id,
             best_distance=distance,
             hub_margin=margin,
@@ -99,12 +101,12 @@ def rank_related(evidence: list[RelatedEvidence], n_sources: int) -> list[Ranked
             is_head=True,
             score=margin + COVERAGE_WEIGHT * hits[note_id] / n_sources,
         )
-        for note_id, (margin, source_rowid, chunk_id, distance) in best.items()
+        for note_id, (margin, source_chunk_id, chunk_id, distance) in best.items()
     ]
     tail_notes = [
         RankedNote(
             note_id=note_id,
-            source_rowid=source_rowid,
+            source_chunk_id=source_chunk_id,
             best_chunk_id=chunk_id,
             best_distance=distance,
             hub_margin=margin,
@@ -112,7 +114,7 @@ def rank_related(evidence: list[RelatedEvidence], n_sources: int) -> list[Ranked
             is_head=False,
             score=margin,
         )
-        for note_id, (margin, source_rowid, chunk_id, distance) in tail.items()
+        for note_id, (margin, source_chunk_id, chunk_id, distance) in tail.items()
         if note_id not in best
     ]
 
