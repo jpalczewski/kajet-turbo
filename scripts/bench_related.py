@@ -391,7 +391,9 @@ def pick_spread(vectors: list[tuple[int, array]], cap: int) -> list[int]:
     n = len(vectors)
     if n <= cap:
         return [rowid for rowid, _ in vectors]
-    return [vectors[round(i * (n - 1) / (cap - 1))][0] for i in range(cap)]
+    # cap == 1 degenerates to the first chunk rather than dividing by zero.
+    step = (n - 1) / max(cap - 1, 1)
+    return [vectors[round(i * step)][0] for i in range(cap)]
 
 
 def pick_farthest(vectors: list[tuple[int, array]], cap: int) -> list[int]:
