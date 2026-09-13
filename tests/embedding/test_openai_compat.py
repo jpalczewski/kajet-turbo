@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-import httpx
+import httpx2
 import pytest
 
 from kajet_turbo.embedding.base import EmbedderConfig
@@ -20,14 +20,14 @@ _CFG = EmbedderConfig(
 
 
 def _embedder(handler):
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
     return OpenAICompatEmbedder(_CFG, client), client
 
 
 def _ok(request):
     body = json.loads(request.content)
     data = [{"index": i, "embedding": [0.1, 0.2, 0.3]} for i in range(len(body["input"]))]
-    return httpx.Response(200, json={"data": data})
+    return httpx2.Response(200, json={"data": data})
 
 
 def test_dim_zero_skips_check_for_probe():
@@ -35,7 +35,7 @@ def test_dim_zero_skips_check_for_probe():
     # The dim guard must NOT fire (it always would, since len(vec) != 0), so the probe
     # can read the returned vector length. Regression for the create/update-profile path.
     cfg = EmbedderConfig(backend_id="b", type="openai", model="m", dim=0, base_url="http://h/v1")
-    client = httpx.AsyncClient(transport=httpx.MockTransport(_ok))
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(_ok))
     emb = OpenAICompatEmbedder(cfg, client)
     try:
         vec = asyncio.run(emb.embed_query("probe"))
@@ -120,7 +120,7 @@ def test_truncates_overlong_input():
 
 def test_dim_mismatch_raises():
     def handler(request):
-        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.1, 0.2]}]})
+        return httpx2.Response(200, json={"data": [{"index": 0, "embedding": [0.1, 0.2]}]})
 
     emb, client = _embedder(handler)
     try:
@@ -135,7 +135,7 @@ def test_no_auth_header_when_api_key_none():
 
     def handler(request):
         captured["auth"] = request.headers.get("authorization")
-        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3]}]})
+        return httpx2.Response(200, json={"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3]}]})
 
     cfg = EmbedderConfig(
         backend_id="b",
@@ -145,7 +145,7 @@ def test_no_auth_header_when_api_key_none():
         base_url="http://h/v1",
         api_key=None,
     )
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
     emb = OpenAICompatEmbedder(cfg, client)
     try:
         asyncio.run(emb.embed_query("x"))

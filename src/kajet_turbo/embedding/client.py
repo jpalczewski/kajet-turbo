@@ -1,4 +1,4 @@
-"""Per-process holder of a long-lived httpx.AsyncClient for query embedding.
+"""Per-process holder of a long-lived httpx2.AsyncClient for query embedding.
 
 Connection keep-alive across searches removes the TCP+TLS connect cost a fresh
 per-call client pays on every embed (a visible fraction of the observed ~380ms
@@ -13,19 +13,19 @@ background latency doesn't matter there.
 
 import threading
 
-import httpx
+import httpx2
 
 
 class SharedEmbedderClient:
     def __init__(self, timeout: float = 30.0):
         self._timeout = timeout
-        self._client: httpx.AsyncClient | None = None
+        self._client: httpx2.AsyncClient | None = None
         self._lock = threading.Lock()
 
-    def get(self) -> httpx.AsyncClient:
+    def get(self) -> httpx2.AsyncClient:
         with self._lock:
             if self._client is None or self._client.is_closed:
-                self._client = httpx.AsyncClient(timeout=self._timeout)
+                self._client = httpx2.AsyncClient(timeout=self._timeout)
             return self._client
 
     async def aclose(self) -> None:

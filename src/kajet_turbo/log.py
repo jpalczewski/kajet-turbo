@@ -167,8 +167,8 @@ def setup_logging() -> None:
     # 39% of MCP log volume in production.
     for noisy_logger in (
         "markdown_it",
-        "httpx",
-        "httpcore",
+        "httpx2",
+        "httpcore2",
         "mcp",
         "asyncio",
         "sse_starlette",

@@ -1,4 +1,4 @@
-import httpx
+import httpx2
 import pytest
 
 from kajet_turbo.embedding import build_embedder
@@ -15,7 +15,7 @@ def test_build_openai_embedder():
         base_url="http://h/v1",
         api_key="k",
     )
-    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(lambda r: httpx2.Response(200)))
     emb = build_embedder(cfg, client)
     assert isinstance(emb, OpenAICompatEmbedder)
 
@@ -28,6 +28,6 @@ def test_unknown_type_raises():
         dim=8,
         base_url="http://h/v1",
     )
-    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(lambda r: httpx2.Response(200)))
     with pytest.raises(ValueError, match="unknown embedder type"):
         build_embedder(cfg, client)

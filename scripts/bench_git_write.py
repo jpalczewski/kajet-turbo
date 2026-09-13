@@ -2,7 +2,7 @@
 
 Spawns the server on a temp DB + temp workspaces dir, grows one workspace to each
 target size through the batch endpoint, and at every size measures single-note creates
-sequentially and under concurrency. Client latency comes from httpx; the server-side
+sequentially and under concurrency. Client latency comes from httpx2; the server-side
 split (git_ms, git_lock_wait_ms, db_ms, ...) comes from the ``http`` perf-span log lines
 the server writes to stderr. Emits a bench_report.py-compatible JSON and prints a
 markdown table, so a before/after pair diffs with the existing report tool:
@@ -29,7 +29,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import httpx
+import httpx2
 from bench import percentiles
 
 ADMIN_EMAIL = "bench@local"
@@ -90,9 +90,9 @@ def spawn_server(tmp: Path) -> Server:
         if proc.poll() is not None:
             raise RuntimeError(f"server exited during startup, code {proc.returncode}")
         try:
-            if httpx.get(f"{BASE_URL}/readyz", timeout=1).status_code == 200:
+            if httpx2.get(f"{BASE_URL}/readyz", timeout=1).status_code == 200:
                 return Server(proc, log_path)
-        except httpx.HTTPError:
+        except httpx2.HTTPError:
             pass
         time.sleep(0.2)
     proc.kill()
@@ -156,14 +156,14 @@ class LogTail:
 # --- client ------------------------------------------------------------------
 
 
-async def login(client: httpx.AsyncClient) -> None:
+async def login(client: httpx2.AsyncClient) -> None:
     r = await client.post("/api/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     r.raise_for_status()
     r = await client.post("/api/workspaces", json={"name": WS})
     r.raise_for_status()
 
 
-async def seed_to(client: httpx.AsyncClient, seeded: int, target: int) -> int:
+async def seed_to(client: httpx2.AsyncClient, seeded: int, target: int) -> int:
     """Grow the workspace to ``target`` notes with batch creates (one commit per batch)."""
     while seeded < target:
         n = min(BATCH_LIMIT, target - seeded)
@@ -185,7 +185,7 @@ async def seed_to(client: httpx.AsyncClient, seeded: int, target: int) -> int:
 
 
 async def create_notes(
-    client: httpx.AsyncClient, folder: str, tag: str, total: int, concurrency: int
+    client: httpx2.AsyncClient, folder: str, tag: str, total: int, concurrency: int
 ) -> dict:
     latencies: list[float] = []
     errors = 0
@@ -204,7 +204,7 @@ async def create_notes(
                     errors += 1
                 else:
                     latencies.append((time.perf_counter() - t0) * 1000)
-            except httpx.HTTPError:
+            except httpx2.HTTPError:
                 errors += 1
 
     t0 = time.perf_counter()
@@ -228,7 +228,7 @@ class Plan:
 
 async def run(plan: Plan, tail: LogTail) -> dict[str, dict]:
     seeded = 0
-    async with httpx.AsyncClient(base_url=BASE_URL, timeout=120) as client:
+    async with httpx2.AsyncClient(base_url=BASE_URL, timeout=120) as client:
         await login(client)
         for size in plan.sizes:
             seeded = await seed_to(client, seeded, size)

@@ -1,14 +1,14 @@
 """OpenAI-compatible embeddings adapter (POST {base_url}/embeddings).
 
-One code path for OpenAI and any compatible gateway via ``base_url``. Async httpx
+One code path for OpenAI and any compatible gateway via ``base_url``. Async httpx2
 (network I/O — never ``run_sync``). Inputs are prefixed (passage/query), batched, and
 char-truncated as a coarse token-limit guard before the request. The injected
-``AsyncClient`` keeps the adapter testable with ``httpx.MockTransport``.
+``AsyncClient`` keeps the adapter testable with ``httpx2.MockTransport``.
 """
 
 import time
 
-import httpx
+import httpx2
 from loguru import logger
 
 from kajet_turbo.embedding.base import EmbedderConfig
@@ -22,7 +22,7 @@ _MAX_CHARS = 8000
 
 
 class OpenAICompatEmbedder:
-    def __init__(self, config: EmbedderConfig, client: httpx.AsyncClient):
+    def __init__(self, config: EmbedderConfig, client: httpx2.AsyncClient):
         self._config = config
         self._client = client
 

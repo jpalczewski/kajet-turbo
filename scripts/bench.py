@@ -22,7 +22,7 @@ import tempfile
 import time
 from pathlib import Path
 
-import httpx
+import httpx2
 
 ADMIN_EMAIL = "bench@local"
 ADMIN_PASSWORD = "bench-password"
@@ -112,21 +112,21 @@ def spawn_server(tmp: Path) -> subprocess.Popen:
         if proc.poll() is not None:
             raise RuntimeError(f"server exited during startup, code {proc.returncode}")
         try:
-            httpx.get(f"http://127.0.0.1:{PORT}/api/session", timeout=1)
+            httpx2.get(f"http://127.0.0.1:{PORT}/api/session", timeout=1)
             return proc
-        except httpx.HTTPError:
+        except httpx2.HTTPError:
             time.sleep(0.2)
     proc.kill()
     raise RuntimeError("server did not become ready in 30s")
 
 
-async def login(client: httpx.AsyncClient) -> None:
+async def login(client: httpx2.AsyncClient) -> None:
     r = await client.post("/api/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     r.raise_for_status()
 
 
 async def seed(
-    client: httpx.AsyncClient, n_notes: int, rng: random.Random
+    client: httpx2.AsyncClient, n_notes: int, rng: random.Random
 ) -> tuple[list[str], dict]:
     r = await client.post("/api/workspaces", json={"name": WS})
     r.raise_for_status()
@@ -175,7 +175,7 @@ async def run_http_scenario(client, make_request, total: int, concurrency: int) 
                     errors += 1
                 else:
                     latencies.append((time.perf_counter() - t0) * 1000)
-            except httpx.HTTPError:
+            except httpx2.HTTPError:
                 errors += 1
 
     t0 = time.perf_counter()
@@ -188,7 +188,7 @@ async def run_http_scenario(client, make_request, total: int, concurrency: int) 
 async def http_phase(n_notes: int, server_pid: int) -> tuple[dict, float]:
     rng = random.Random(42)
     scenarios: dict[str, dict] = {}
-    async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{PORT}", timeout=60) as client:
+    async with httpx2.AsyncClient(base_url=f"http://127.0.0.1:{PORT}", timeout=60) as client:
         await login(client)
         note_ids, seed_stats = await seed(client, n_notes, rng)
         scenarios["seed_write@c4"] = seed_stats

@@ -1,4 +1,4 @@
-import httpx
+import httpx2
 
 from kajet_turbo.embedding.client import SharedEmbedderClient
 
@@ -6,7 +6,7 @@ from kajet_turbo.embedding.client import SharedEmbedderClient
 async def test_get_lazily_creates_and_reuses():
     holder = SharedEmbedderClient()
     client = holder.get()
-    assert isinstance(client, httpx.AsyncClient)
+    assert isinstance(client, httpx2.AsyncClient)
     assert holder.get() is client  # same instance → connection pool is shared
     await holder.aclose()
 

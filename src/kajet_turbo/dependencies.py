@@ -13,7 +13,7 @@ import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import httpx
+import httpx2
 from fastapi import Depends, HTTPException
 from starlette.requests import HTTPConnection, Request
 
@@ -195,7 +195,7 @@ def _probe_dim(base_url: str, model: str, api_key: str | None) -> int:
     )
 
     async def run() -> int:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx2.AsyncClient(timeout=30.0) as client:
             return len(await build_embedder(cfg, client).embed_query("probe"))
 
     return asyncio.run(run())

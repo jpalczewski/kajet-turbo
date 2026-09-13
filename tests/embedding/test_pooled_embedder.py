@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-import httpx
+import httpx2
 
 from kajet_turbo.embedding import pooled_embedder_factory
 from kajet_turbo.embedding.base import EmbedderConfig
@@ -17,15 +17,15 @@ def test_pooled_embedder_embeds_and_closes_client():
     def handler(request):
         body = json.loads(request.content)
         data = [{"index": i, "embedding": [0.1, 0.2, 0.3]} for i in range(len(body["input"]))]
-        return httpx.Response(200, json={"data": data})
+        return httpx2.Response(200, json={"data": data})
 
-    class _TrackingClient(httpx.AsyncClient):
+    class _TrackingClient(httpx2.AsyncClient):
         async def aclose(self):
             closed["count"] += 1
             await super().aclose()
 
     factory = pooled_embedder_factory(
-        client_factory=lambda: _TrackingClient(transport=httpx.MockTransport(handler))
+        client_factory=lambda: _TrackingClient(transport=httpx2.MockTransport(handler))
     )
     embedder = factory(_CFG)
     vecs = asyncio.run(embedder.embed_documents(["a", "b"]))
@@ -35,10 +35,10 @@ def test_pooled_embedder_embeds_and_closes_client():
 
 def test_pooled_embedder_query():
     def handler(request):
-        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1.0, 2.0, 3.0]}]})
+        return httpx2.Response(200, json={"data": [{"index": 0, "embedding": [1.0, 2.0, 3.0]}]})
 
     factory = pooled_embedder_factory(
-        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        client_factory=lambda: httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
     )
     vec = asyncio.run(factory(_CFG).embed_query("q"))
     assert vec == [1.0, 2.0, 3.0]

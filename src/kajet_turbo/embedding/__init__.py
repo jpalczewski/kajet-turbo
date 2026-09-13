@@ -3,13 +3,13 @@ factory that builds an adapter from a resolved EmbedderConfig."""
 
 from collections.abc import Callable
 
-import httpx
+import httpx2
 
 from kajet_turbo.embedding.base import Embedder, EmbedderConfig
 from kajet_turbo.embedding.openai_compat import OpenAICompatEmbedder
 
 
-def build_embedder(config: EmbedderConfig, client: httpx.AsyncClient) -> Embedder:
+def build_embedder(config: EmbedderConfig, client: httpx2.AsyncClient) -> Embedder:
     """Construct the adapter for a resolved backend config. HF adapter arrives in Plan 6."""
     if config.type == "openai":
         return OpenAICompatEmbedder(config, client)
@@ -22,7 +22,7 @@ class _PooledEmbedder:
     client cannot be reused across per-call loops, and a per-call client must be closed
     (``aclose`` in a finally) to avoid a socket leak."""
 
-    def __init__(self, config: EmbedderConfig, client_factory: Callable[[], httpx.AsyncClient]):
+    def __init__(self, config: EmbedderConfig, client_factory: Callable[[], httpx2.AsyncClient]):
         self._config = config
         self._client_factory = client_factory
 
@@ -58,10 +58,10 @@ class _PooledEmbedder:
 
 
 def pooled_embedder_factory(
-    client_factory: Callable[[], httpx.AsyncClient] | None = None,
+    client_factory: Callable[[], httpx2.AsyncClient] | None = None,
 ) -> Callable[[EmbedderConfig], _PooledEmbedder]:
     """Build a ``NoteIndexer.build_embedder`` callable that produces per-call,
     self-closing embedders. ``client_factory`` defaults to a 30s-timeout AsyncClient;
     tests inject a MockTransport client."""
-    factory = client_factory or (lambda: httpx.AsyncClient(timeout=30.0))
+    factory = client_factory or (lambda: httpx2.AsyncClient(timeout=30.0))
     return lambda config: _PooledEmbedder(config, factory)

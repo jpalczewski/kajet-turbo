@@ -18,7 +18,7 @@ not work where multiprocessing spawns rather than forks (macOS).
 
 ```bash
 uv venv --python 3.14.7t /tmp/spike
-uv pip install --python /tmp/spike/bin/python uvicorn starlette prometheus_client httpx
+uv pip install --python /tmp/spike/bin/python uvicorn starlette prometheus_client httpx2
 cd scripts/spike_multiprocess && /tmp/spike/bin/python harness.py
 ```
 
@@ -30,7 +30,7 @@ docker run --rm -v "$PWD/scripts/spike_multiprocess:/spike" \
     apt-get update -qq && apt-get install -y -qq procps
     export UV_PYTHON_INSTALL_DIR=/python UV_PYTHON_PREFERENCE=only-managed
     uv python install 3.14.7t && uv venv --python 3.14.7t /venv
-    uv pip install -q --python /venv/bin/python uvicorn starlette prometheus_client httpx
+    uv pip install -q --python /venv/bin/python uvicorn starlette prometheus_client httpx2
     cd /spike && /venv/bin/python harness.py'
 ```
 
