@@ -57,3 +57,87 @@ class MetadataHit:
     def __getitem__(self, key: str) -> object:
         """Compatibility bridge for internal callers migrating from row dictionaries."""
         return getattr(self, key)
+
+
+@dataclass(frozen=True, slots=True)
+class RelatedEvidence:
+    """One (source chunk, target note) pair from the related-notes self-join: the
+    target's closest chunk to that source chunk, already MIN-aggregated in SQL.
+    ``distance`` is raw L2, not a derived similarity.
+
+    ``source_chunk_id`` is the stable chunk id, not the raw ``chunk_rowid`` the self-join
+    itself groups by — ``note_chunks.chunk_rowid`` has no ``sqlite_autoincrement`` guard,
+    so a bare rowid captured here could be resolved against a reused row in a later,
+    separate session. The repository translates the rowid to this stable id before
+    returning, so nothing downstream ever looks a chunk up by rowid across a session
+    boundary."""
+
+    source_chunk_id: str
+    target_note_id: str
+    target_chunk_id: str
+    distance: float
+
+
+@dataclass(frozen=True, slots=True)
+class RelatedChunkQuery:
+    """Raw related-notes evidence for one source note, before ranking.
+
+    ``source_chunks_used`` is how many chunks the spread cap picked (#209's
+    "whether the cap applied"); ``source_chunks_embedded`` is how many of THOSE actually
+    have a vector under the active identity — the number the self-join could possibly
+    have queried. The two are not the same: a source_chunks_embedded of 0 with a nonzero
+    source_chunks_total means "pending" (content exists, nothing embedded under this
+    identity yet); a positive source_chunks_embedded with empty ``evidence`` means
+    "ready" with zero results (nothing else in the partition matched) — collapsing the
+    two into one "evidence empty" signal would report a genuinely empty result as
+    pending.
+    """
+
+    source_chunks_total: int
+    source_chunks_used: int
+    source_chunks_embedded: int
+    k: int
+    evidence: list[RelatedEvidence]
+
+
+type RelatedNotesState = Literal["ready", "pending", "unavailable", "empty"]
+
+
+@dataclass(frozen=True, slots=True)
+class RelatedNoteItem:
+    """One ranked related note, ready for REST/MCP to wrap in their own response model.
+
+    ``best_distance``/``hub_margin``/``coverage`` are the raw calibration metrics #214
+    will use to evaluate a quality threshold — never converted to a percentage here.
+    """
+
+    note_id: str
+    title: str
+    folder: str
+    updated_at: str
+    source_chunk_id: str
+    target_chunk_id: str
+    source_header_path: list[str]
+    target_header_path: list[str]
+    target_content: str
+    best_distance: float
+    hub_margin: float
+    coverage: float
+    score: float
+
+    def __getitem__(self, key: str) -> object:
+        """Compatibility bridge for internal callers migrating from row dictionaries."""
+        return getattr(self, key)
+
+
+@dataclass(frozen=True, slots=True)
+class RelatedNotesResult:
+    """The shared related-notes response contract: one owner-scoped, workspace/identity
+    -scoped read, with an explicit readiness state instead of collapsing "not ready" into
+    an empty list (see #210's design doc)."""
+
+    state: RelatedNotesState
+    items: list[RelatedNoteItem]
+    source_chunks_total: int
+    source_chunks_used: int
+    k: int

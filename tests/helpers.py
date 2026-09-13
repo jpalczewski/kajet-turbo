@@ -19,6 +19,32 @@ def vec_identity(dim: int, model: str = "test-model", backend: str = "http://tes
     return IndexIdentity(backend=backend, model=model, dim=dim)
 
 
+def related_note(note_id: str, owner_id: str = "u1", workspace: str = "ws", folder: str = ""):
+    """A minimal Note row for related-notes tests, seeded directly — these tests only
+    need rows and chunks to exist, not a full git-backed write via the note services."""
+    from kajet_turbo.models import Note
+
+    return Note(
+        id=note_id,
+        workspace=workspace,
+        owner_id=owner_id,
+        title=note_id,
+        folder=folder,
+        created_at="2026-01-01",
+        updated_at="2026-01-01",
+    )
+
+
+def add_notes(database, *notes) -> None:
+    """Insert Note rows directly into ``database``, bypassing the write pipeline."""
+    from sqlmodel import Session
+
+    with Session(database.engine) as session:
+        for note in notes:
+            session.add(note)
+        session.commit()
+
+
 def read_log_entries(capsys) -> list[dict[str, Any]]:
     """Parse the JSONL our sink wrote to stderr.
 

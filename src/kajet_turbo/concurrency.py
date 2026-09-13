@@ -28,6 +28,29 @@ _LIMIT = 10
 _limiters: dict[Any, CapacityLimiter] = {}
 _limiters_guard = threading.Lock()
 
+# related-notes reads are the one path expensive enough (a correlated vec0 self-join, up
+# to 800 evidence rows) to saturate every _db_limiter slot on its own under light
+# concurrency (#209's benchmark: 5 concurrent note views already queued every other DB
+# call behind it). This is a narrower gate in front of run_sync for that path specifically
+# — not a replacement for the pool limiter above, which still bounds total DB concurrency.
+_RELATED_NOTES_LIMIT = 2
+_related_notes_limiters: dict[Any, asyncio.Semaphore] = {}
+_related_notes_limiters_guard = threading.Lock()
+
+
+def related_notes_limiter() -> asyncio.Semaphore:
+    """Per-loop semaphore gating the related-notes read path. A semaphore binds to the
+    loop it was created under, and tests spin many loops, so this keeps one per loop —
+    same rationale as ``_db_limiter`` above."""
+    loop = asyncio.get_running_loop()
+    with _related_notes_limiters_guard:
+        limiter = _related_notes_limiters.get(loop)
+        if limiter is None:
+            limiter = asyncio.Semaphore(_RELATED_NOTES_LIMIT)
+            _related_notes_limiters[loop] = limiter
+        return limiter
+
+
 # Every blocking op (DB, git, embedding, file I/O) funnels through run_sync, so
 # this is the one place that sees them all. Logging slow dispatches with the op
 # name + pool saturation localizes performance problems without per-call_site

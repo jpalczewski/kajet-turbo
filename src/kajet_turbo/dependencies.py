@@ -65,6 +65,7 @@ from kajet_turbo.services.notes import (
     NoteLinkService,
     NoteReadService,
     NoteReconcileService,
+    NoteRelatedService,
     NoteSearchService,
     NoteShareLinkService,
     NoteTagService,
@@ -155,6 +156,7 @@ class AppResources:
     note_read_service: NoteReadService
     note_reconcile_service: NoteReconcileService
     note_search_service: NoteSearchService
+    note_related_service: NoteRelatedService
     workspace_service: WorkspaceService
     target_resolver: TargetResolver
     collection_service: CollectionService
@@ -296,6 +298,9 @@ def build_resources(config: AppConfig) -> AppResources:
             note_tag_repo,
             async_build_embedder=lambda cfg: build_embedder(cfg, shared_embed_client.get()),
         )
+        note_related_service = NoteRelatedService(
+            note_chunk_repo, note_repo, profile_resolver.resolve_backend
+        )
         folder_meta_repo = FolderMetaRepository(db.engine)
         note_share_link_repo = NoteShareLinkRepository(db.engine)
         folder_service = NoteFolderService(
@@ -386,6 +391,7 @@ def build_resources(config: AppConfig) -> AppResources:
             note_read_service,
             note_reconcile_service,
             note_search_service,
+            note_related_service,
             workspace_service,
             TargetResolver(note_repo, workspace_service),
             CollectionService(note_repo, note_create_service),
@@ -495,6 +501,10 @@ def get_note_folder_service(conn: HTTPConnection) -> NoteFolderService:
 
 def get_note_temporal_service(conn: HTTPConnection) -> NoteTemporalService:
     return _resources(conn).note_temporal_service
+
+
+def get_note_related_service(conn: HTTPConnection) -> NoteRelatedService:
+    return _resources(conn).note_related_service
 
 
 def get_note_version_service(conn: HTTPConnection) -> NoteVersionService:
