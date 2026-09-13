@@ -2,7 +2,16 @@ from kajet_turbo.repositories.notes.chunks import NoteChunkRepository
 from kajet_turbo.repositories.notes.crud import NoteRepository, folder_sort_key, note_to_list_item
 from kajet_turbo.repositories.notes.links import NoteLinkRepository
 from kajet_turbo.repositories.notes.tags import NoteTagRepository
-from kajet_turbo.repositories.notes.types import ChunkHit, MetadataHit, StoredChunk
+from kajet_turbo.repositories.notes.types import (
+    ChunkHit,
+    MetadataHit,
+    RelatedChunkQuery,
+    RelatedEvidence,
+    RelatedNoteItem,
+    RelatedNotesResult,
+    RelatedNotesState,
+    StoredChunk,
+)
 
 __all__ = [
     "ChunkHit",
@@ -11,6 +20,11 @@ __all__ = [
     "NoteLinkRepository",
     "NoteRepository",
     "NoteTagRepository",
+    "RelatedChunkQuery",
+    "RelatedEvidence",
+    "RelatedNoteItem",
+    "RelatedNotesResult",
+    "RelatedNotesState",
     "StoredChunk",
     "folder_sort_key",
     "note_to_list_item",

@@ -22,7 +22,12 @@ from kajet_turbo.markdown import Chunk
 from kajet_turbo.models import Note, NoteChunk
 from kajet_turbo.perf import timed
 from kajet_turbo.repositories import DbRepository
-from kajet_turbo.repositories.notes.types import ChunkHit, StoredChunk
+from kajet_turbo.repositories.notes.types import (
+    ChunkHit,
+    RelatedChunkQuery,
+    RelatedEvidence,
+    StoredChunk,
+)
 
 # vec0 reads a whole block per query regardless of how many of its slots are live, so the
 # block size is the unit of wasted I/O. At 1024 (the vec0 default) a 3072-dim block is
@@ -30,6 +35,23 @@ from kajet_turbo.repositories.notes.types import ChunkHit, StoredChunk
 # 120 MiB allocated for 42 MiB of live vectors, measured on production 2026-09-05. 64 keeps
 # the tail workspaces proportional without fragmenting the large ones (#37).
 VEC_CHUNK_SIZE = 64
+
+# Selected in #209 (docs/benchmarks/2026-09-13-related-notes.md): spread16-k50 matched full
+# per-chunk aggregation in ranking quality while bounding the self-join to at most
+# 16 * 50 = 800 evidence rows per call.
+RELATED_SOURCE_CAP = 16
+RELATED_K = 50
+
+
+def _pick_spread(rowids: list[int], cap: int) -> list[int]:
+    """Evenly spaced by ordinal. Chunks are contiguous by section, so a spread sample
+    hits every sizeable section of a note without weighing every chunk."""
+    n = len(rowids)
+    if n <= cap:
+        return list(rowids)
+    # cap == 1 degenerates to the first chunk rather than dividing by zero.
+    step = (n - 1) / max(cap - 1, 1)
+    return [rowids[round(i * step)] for i in range(cap)]
 
 
 def _validated_dim(dim: int) -> int:
@@ -398,6 +420,18 @@ class NoteChunkRepository(DbRepository):
             operation.outcome = "attached"
         return True
 
+    @staticmethod
+    def _stored_chunk(row: NoteChunk) -> StoredChunk:
+        return StoredChunk(
+            id=row.id,
+            ordinal=row.ordinal,
+            header_path=json.loads(row.header_path),
+            content=row.content,
+            char_start=row.char_start,
+            char_end=row.char_end,
+            dim=row.dim,
+        )
+
     def get_chunks(self, note_id: str) -> list[StoredChunk]:
         with self.timed_session() as session:
             rows = session.exec(
@@ -405,18 +439,27 @@ class NoteChunkRepository(DbRepository):
                 .where(col(NoteChunk.note_id) == note_id)
                 .order_by(col(NoteChunk.ordinal))
             ).all()
-        return [
-            StoredChunk(
-                id=row.id,
-                ordinal=row.ordinal,
-                header_path=json.loads(row.header_path),
-                content=row.content,
-                char_start=row.char_start,
-                char_end=row.char_end,
-                dim=row.dim,
-            )
-            for row in rows
-        ]
+        return [self._stored_chunk(row) for row in rows]
+
+    def get_chunk_fragments_by_rowid(self, chunk_rowids: list[int]) -> dict[int, StoredChunk]:
+        """Fragments keyed by ``chunk_rowid`` — hydrates the source side of a
+        related-notes result (the query is by rowid, not by ``id``, on that side)."""
+        if not chunk_rowids:
+            return {}
+        with self.timed_session() as session:
+            rows = session.exec(
+                select(NoteChunk).where(col(NoteChunk.chunk_rowid).in_(chunk_rowids))
+            ).all()
+        return {cast(int, row.chunk_rowid): self._stored_chunk(row) for row in rows}
+
+    def get_chunk_fragments_by_id(self, chunk_ids: list[str]) -> dict[str, StoredChunk]:
+        """Fragments keyed by chunk id — hydrates the target side of a related-notes
+        result."""
+        if not chunk_ids:
+            return {}
+        with self.timed_session() as session:
+            rows = session.exec(select(NoteChunk).where(col(NoteChunk.id).in_(chunk_ids))).all()
+        return {row.id: self._stored_chunk(row) for row in rows}
 
     @staticmethod
     def _delete_vectors_for_note_in_session(session: Session, note_id: str) -> None:
@@ -558,6 +601,128 @@ class NoteChunkRepository(DbRepository):
             )
             return []
         return [self._chunk_hit(cast(Mapping[str, object], row._mapping)) for row in rows]
+
+    # Selected design, #209 (docs/benchmarks/2026-09-13-related-notes.md): one correlated
+    # vec0 self-join. Source vectors are read by rowid and filtered to the active identity
+    # — the doc's prose says "source vectors come from the current identity only" but its
+    # SQL omits the filter; without it, a note re-embedded under a new profile would still
+    # compare its OLD identity's source vector against the NEW identity's targets, which is
+    # exactly the cross-model mixing the identity partition exists to prevent (#51). Each
+    # target vector row is independently filtered to the same identity, so the two sides
+    # can never land in different vector spaces. `note_id != :nid` is a vec0 metadata
+    # filter evaluated inside the KNN, so a note's own chunks never consume k. The folder
+    # scope, when given, is a `chunk_rowid IN (...)` pre-filter verified (in the bench) to
+    # cost nothing extra — every source chunk still gets its full k.
+    @staticmethod
+    def _related_src_sql(dim: int) -> str:
+        return (
+            f"SELECT v.chunk_rowid AS sid, v.embedding AS emb FROM note_chunks_vec_{dim} v"
+            " WHERE v.chunk_rowid IN (SELECT value FROM json_each(:ids))"
+            " AND v.identity = :ident"
+        )
+
+    @staticmethod
+    def _related_join_sql(dim: int, *, scoped: bool) -> str:
+        scope_clause = (
+            " AND t.chunk_rowid IN (SELECT value FROM json_each(:scope_ids))" if scoped else ""
+        )
+        return (
+            f"WITH src AS MATERIALIZED ({NoteChunkRepository._related_src_sql(dim)})"
+            " SELECT src.sid AS source_rowid, t.note_id AS target_note_id,"
+            " t.chunk_id AS target_chunk_id, MIN(t.distance) AS distance"
+            f" FROM src JOIN note_chunks_vec_{dim} t"
+            "  ON t.embedding MATCH src.emb AND t.k = :k"
+            "  AND t.workspace = :ws AND t.identity = :ident AND t.owner_id = :o"
+            "  AND t.note_id != :nid"
+            f"{scope_clause}"
+            " GROUP BY src.sid, t.note_id"
+        )
+
+    def related_chunks(
+        self,
+        note_id: str,
+        workspace: str,
+        owner_id: str,
+        identity: IndexIdentity,
+        *,
+        folder_note_ids: set[str] | None = None,
+        k: int = RELATED_K,
+    ) -> RelatedChunkQuery:
+        """Related-notes evidence for one source note: at most ``RELATED_SOURCE_CAP`` of
+        its chunks, spread evenly by ordinal, each driving a KNN over the same
+        ``(workspace, identity)`` partition. Returns raw (source, target) evidence —
+        ranking is the caller's job (``services.notes.related_ranking``).
+
+        See ``RelatedChunkQuery`` for how the returned counts distinguish "no
+        vectorizable content" (``source_chunks_total == 0``), "content exists but
+        nothing is embedded under the active identity yet" (``source_chunks_embedded ==
+        0``), and a genuinely empty ranked result (``source_chunks_embedded > 0`` but
+        ``evidence == []``) — never from an exception here.
+        """
+        dim = _validated_dim(identity.dim)
+        with self.timed_session() as session, timed("related_vec_ms"):
+            all_rowids = cast(
+                list[int],
+                session.exec(
+                    select(NoteChunk.chunk_rowid)
+                    .where(col(NoteChunk.note_id) == note_id)
+                    .order_by(col(NoteChunk.ordinal))
+                ).all(),
+            )
+            total = len(all_rowids)
+            if total == 0:
+                return RelatedChunkQuery(0, 0, 0, k, [])
+            source_rowids = _pick_spread(all_rowids, RELATED_SOURCE_CAP)
+            used = len(source_rowids)
+            src_params: dict[str, object] = {
+                "ids": json.dumps(source_rowids),
+                "ident": identity.key,
+            }
+            try:
+                src_rows = self._raw_execute(
+                    session, text(self._related_src_sql(dim)), src_params
+                ).fetchall()
+            except Exception as e:
+                # The dim-sharded vec table is created lazily at index time; if nothing
+                # has been embedded at this dim yet, the table is absent — degrade to
+                # "pending" (chunks exist, nothing to rank yet) rather than crash.
+                logger.opt(exception=e).warning(
+                    "related_chunks_failed", workspace=workspace, dim=dim, identity=identity.key
+                )
+                return RelatedChunkQuery(total, used, 0, k, [])
+            embedded = len(src_rows)
+            if embedded == 0:
+                # None of the picked chunks have a vector under the active identity —
+                # pending, not a genuinely empty ready result. Skip the (comparatively
+                # expensive) self-join entirely; there is nothing for it to query.
+                return RelatedChunkQuery(total, used, 0, k, [])
+            params: dict[str, object] = {
+                "ids": json.dumps(source_rowids),
+                "k": k,
+                "ws": workspace,
+                "ident": identity.key,
+                "o": owner_id,
+                "nid": note_id,
+            }
+            scoped = folder_note_ids is not None
+            if scoped:
+                scope_rowids = session.exec(
+                    select(NoteChunk.chunk_rowid).where(col(NoteChunk.note_id).in_(folder_note_ids))
+                ).all()
+                params["scope_ids"] = json.dumps(list(scope_rowids))
+            rows = self._raw_execute(
+                session, text(self._related_join_sql(dim, scoped=scoped)), params
+            ).fetchall()
+        evidence = [
+            RelatedEvidence(
+                source_rowid=cast(int, row._mapping["source_rowid"]),
+                target_note_id=cast(str, row._mapping["target_note_id"]),
+                target_chunk_id=cast(str, row._mapping["target_chunk_id"]),
+                distance=cast(float, row._mapping["distance"]),
+            )
+            for row in rows
+        ]
+        return RelatedChunkQuery(total, used, embedded, k, evidence)
 
     @staticmethod
     def delete_for_workspace_in_session(session: Session, workspace: str, owner_id: str) -> None:
