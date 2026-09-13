@@ -49,21 +49,11 @@ jobs:
             architecture: amd64
             platform: linux/amd64
             runner: ubuntu-24.04
-          - target: app
-            image: ghcr.io/jpalczewski/kajet-turbo-app
-            architecture: arm64
-            platform: linux/arm64
-            runner: ubuntu-24.04-arm
           - target: ingress
             image: ghcr.io/jpalczewski/kajet-turbo-ingress
             architecture: amd64
             platform: linux/amd64
             runner: ubuntu-24.04
-          - target: ingress
-            image: ghcr.io/jpalczewski/kajet-turbo-ingress
-            architecture: arm64
-            platform: linux/arm64
-            runner: ubuntu-24.04-arm
     env:
       SCAN_IMAGE: ${{ matrix.image }}:develop
       TRIVY_EXIT_ON_EOL: "1"
