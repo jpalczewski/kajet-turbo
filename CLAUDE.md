@@ -94,4 +94,10 @@ Commit prefixes used in history include `feat:`, `fix:`, `refactor:`, `bench:`, 
 
 PRs should describe the change, list tests, link issues, and include UI screenshots. Mention migrations, generated API updates, runtime-rule changes, or compatibility risks.
 
-GitHub issues are the project's only backlog. Filing, labeling, or editing one — including epics, project-board membership, blocked-by links, and sub-issues — follows the `issue-workflow` skill; use it instead of improvising title/label/body conventions.
+GitHub issues are the project's only backlog, run through the "Kajet Turbo" project board in three stages, each with its own skill — use them instead of improvising conventions:
+
+- `issue-filing` — filing, labeling, or editing an issue, including epics, blocked-by links, and sub-issues. New issues land in `Inbox` with no priority.
+- `backlog-triage` — `Inbox` → `Backlog` with a P0–P3 priority.
+- `next-selection` — choosing the next round of work from `Backlog` into `Next`.
+
+Board ids, the priority scale, and blocking rules shared by all three live in `.claude/skills/_shared/` (`board.md` + `board.py`).

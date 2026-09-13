@@ -1,9 +1,11 @@
 ---
-name: issue-workflow
-description: Create and label GitHub issues (including epics) for kajet-turbo following the project's established conventions — title prefix, body template by type, label mapping, project board membership, native blocked-by links, epic sub-issues and tracking order, anonymization before publish. Use when filing a new issue, spinning off a follow-up from code review, or creating an epic to track a milestone's execution order.
+name: issue-filing
+description: Create and label GitHub issues (including epics) for kajet-turbo following the project's established conventions — title prefix, body template by type, label mapping, landing on the project board in Inbox, native blocked-by links, epic sub-issues and tracking order, anonymization before publish. Use when filing a new issue, spinning off a follow-up from code review, or creating an epic to track a milestone's execution order. Prioritizing filed issues is backlog-triage; choosing what goes into Next is next-selection.
 ---
 
-GitHub issues are the only backlog for kajet-turbo — nothing gets mirrored into the kajet notebook. Issues stay open once filed; don't close-with-a-redirect-comment.
+GitHub issues are the only backlog for kajet-turbo — nothing gets mirrored into the kajet notebook. Filing is the first of three stages (filing → `backlog-triage` → `next-selection`); board ids, the priority scale, and blocking rules shared by all three live in [`../_shared/board.md`](../_shared/board.md).
+
+Issues stay open once filed; don't close-with-a-redirect-comment. Closing an issue that turned out already done or superseded is a triage/selection decision, made with the user, per `_shared/board.md`'s Staleness section.
 
 ## Title
 
@@ -30,28 +32,20 @@ Apply exactly one type label, mapped from the prefix: `fix`→🐛 bug, `feat`�
 Additional labels only when unambiguous — never guess:
 - `🎨 area: frontend` / `🌐 area: api` / `🔧 area: mcp` — issue is scoped to one surface
 - `🔒 security` — security-relevant
-- `🚧 blocked` — blocked on another open issue or an external dependency; always pair with a native blocked-by link (see Blocking relationships), the label alone doesn't say *by what*
-- `🟢 priority: low` — the only priority tier that exists as a repo label; flags "known low-value, don't prioritize." There is no medium/high/critical label — cross-issue prioritization happens on the project board's `Priority` field (P0–P3) or an epic's `## Order`, not a repo label.
 
-Most issues in this repo carry only their type label and nothing else — that's normal, not incomplete.
+There is no blocked label and no priority label: blocking is a native link and priority is the board's `Priority` field (see `_shared/board.md`). Most issues in this repo carry only their type label and nothing else — that's normal, not incomplete.
 
 ## Project board
 
-Every new issue goes on the "Kajet Turbo" project board (id `PVT_kwHOAEkkts4Bhu7F`, number 11): `gh issue create ... --project "Kajet Turbo"` at creation, `gh issue edit <N> --add-project "Kajet Turbo"` for one filed without it (note the flag name differs between the two subcommands). Idempotent — safe to run even if the project has an auto-add workflow that already caught it. Needs the `project` auth scope; if it fails with a scope error, `gh auth refresh -s project`.
+Every new issue goes on the "Kajet Turbo" project board: `gh issue create ... --project "Kajet Turbo"` at creation, `gh issue edit <N> --add-project "Kajet Turbo"` for one filed without it (note the flag name differs between the two subcommands). Idempotent — safe to run even if the project has an auto-add workflow that already caught it. Needs the `project` auth scope; if it fails with a scope error, `gh auth refresh -s project`.
 
-`Done` is set automatically if the project has a closed-issue workflow configured (it does, as of writing) — never set it by hand. Leave `Priority` (P0–P3) alone unless you have a real reason to set it; most issues carry none, and that's the norm, not neglect. Move `Status` forward through `Backlog` (scoped, ready to pick up) → `Next` (queued) → `In Progress` (branch/PR exists) as work actually happens:
-
-```bash
-item_id=$(gh project item-list 11 --owner jpalczewski --format json --limit 200 \
-  --jq '.items[] | select(.content.number==<N>) | .id')
-gh project item-edit --id "$item_id" --project-id PVT_kwHOAEkkts4Bhu7F \
-  --field-id PVTSSF_lAHOAEkkts4Bhu7Fzhgpl3s --single-select-option-id <option-id>
-```
-Status option ids: Inbox `f75ad846`, Backlog `9350a0ef`, Next `f077e336`, In Progress `47fc9ee4`, Done `98236657` (don't set this last one by hand, see above).
+A new issue lands in `Inbox` with **no priority**, even when it looks obviously urgent or obviously trivial — the filer sees one issue, triage weighs it against the whole board. If it truly can't wait (an active production leak, a broken core path), say so to the user right away instead of setting P0 yourself. Moving it further is not this skill's job: `Backlog` + priority is `backlog-triage`, `Next` is `next-selection`, `In Progress` happens when a branch or PR exists. Status edits go through `python3 .claude/skills/_shared/board.py set N --status "In Progress"`.
 
 ## Blocking relationships
 
-When issue A can't be worked until issue B lands, link them natively, not just in prose: `gh issue edit A --add-blocked-by B` (or `--blocked-by B` at creation with `gh issue create`). This is a real GitHub relationship — it shows in both issues' sidebars, is filterable (`gh issue list --search "is:blocked"`, `"blocked-by:B"`), and is queryable (`gh issue view A --json blockedBy,blocking`) — unlike a body sentence saying "blocked on #N" which nothing tracks. Add the `🚧 blocked` label to A alongside it so `gh issue list --label blocked` still works as a quick filter, and remove the label from A once every blocker it names has closed (the native link stops showing as blocking automatically; the label doesn't follow on its own).
+When issue A can't be worked until issue B lands, link them natively, not just in prose: `gh issue edit A --add-blocked-by B` (or `--blocked-by B` at creation with `gh issue create`). This is a real GitHub relationship — it shows in both issues' sidebars, is filterable (`gh issue list --search "is:blocked"`, `"blocked-by:B"`), clears itself when B closes, and is queryable (`gh issue view A --json blockedBy,blocking`) — unlike a body sentence saying "blocked on #N" which nothing tracks.
+
+A wait on something that is not an issue (more production data, an upstream release) gets a `## Blocked on` section naming it, and triage sets Status `Blocked` — see `_shared/board.md`.
 
 ## Body — regular issue
 
@@ -95,7 +89,7 @@ Tracking issue for the *<Milestone>* milestone. Decisions and contracts live in 
 <the concrete end state — what it looks like working, not "all boxes checked">
 ````
 
-Check a box and append `(#PR)` once the linked issue's PR merges. Note absorption inline (`Absorbs #146.`) when one issue's work folds into another's PR instead of landing separately.
+Check a box and append `(#PR)` once the linked issue's PR merges — `board.py tick-epic <epic>` does this for every closed child (dry run first, then `--apply`). Note absorption inline (`Absorbs #146.`) when one issue's work folds into another's PR instead of landing separately.
 
 Every real issue in `## Order` is also a native GitHub sub-issue of the epic: `gh issue edit <epic> --add-sub-issue <N>` for an existing issue, or `gh issue create --parent <epic> ...` when filing a new one straight into the epic. This gets the epic a native progress bar and puts a "tracked by" breadcrumb on each child — but it doesn't carry ordering or dependency semantics, so `## Order`/`## Dependencies` in the epic body stays the authoritative sequencing; back the `──►` arrows with real `--add-blocked-by` links between the sub-issues too (see Blocking relationships). Placeholder items that aren't real issues yet (e.g. `#156`'s `E0`–`E5` letter codes) get promoted to a real sub-issue — replacing the letter code with `#N` in `## Order` — only once picked up, not upfront.
 
