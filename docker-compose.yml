@@ -59,6 +59,9 @@ services:
   # actually serializes writes, independent of worker count. Shares the DB +
   # workspaces with the api role; api runs migrations first.
   kajet-mcp:
+    build:
+      context: .
+      target: app
     image: kajet-turbo:local
     depends_on:
       kajet-api:
@@ -79,6 +82,9 @@ services:
   # Horizontally scalable (claims are atomic + same-workspace pushes serialized
   # at the queue level), but one replica is plenty at current volume.
   kajet-worker:
+    build:
+      context: .
+      target: app
     image: kajet-turbo:local
     depends_on:
       kajet-api:
