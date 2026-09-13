@@ -12,7 +12,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import httpx
+import httpx2
 
 HERE = Path(__file__).resolve().parent
 
@@ -46,7 +46,7 @@ def start(workers, mpdir, clear="1", attempts=6):
                 last = p.stdout.read().decode()[-400:]
                 break
             try:
-                if httpx.get(f"http://127.0.0.1:{port}/readyz", timeout=0.5).status_code == 200:
+                if httpx2.get(f"http://127.0.0.1:{port}/readyz", timeout=0.5).status_code == 200:
                     ok = True
                     break
             except Exception:
@@ -66,7 +66,7 @@ def children(sup_pid):
 
 
 def scrape(port):
-    return httpx.get(f"http://127.0.0.1:{port}/metrics", timeout=10).text
+    return httpx2.get(f"http://127.0.0.1:{port}/metrics", timeout=10).text
 
 
 def val(text, name, labels=""):
@@ -91,7 +91,7 @@ def series_names(text):
 
 def drive(port, n, seen=None):
     for _ in range(n):
-        pid = httpx.get(f"http://127.0.0.1:{port}/work", timeout=5).text
+        pid = httpx2.get(f"http://127.0.0.1:{port}/work", timeout=5).text
         if seen is not None:
             seen.add(int(pid))
 
@@ -141,7 +141,7 @@ check("no pid label anywhere in exposition", "pid=" not in t)
 print("\n== B. stamp snapshot gauges, then hard-kill the child that stamped last ==")
 target = None
 for v in range(1, 200):
-    pid = int(httpx.get(f"http://127.0.0.1:{port}/mark?v={v * 10}", timeout=5).text)
+    pid = int(httpx2.get(f"http://127.0.0.1:{port}/mark?v={v * 10}", timeout=5).text)
     target, target_v = pid, v * 10
 t = scrape(port)
 mr_before = val(t, "spike_snapshot_mostrecent")
@@ -282,7 +282,7 @@ sup0.wait(timeout=20)
 mp1 = tempfile.mkdtemp(prefix="mp-one-")
 sup3, port3 = start(1, mp1)
 drive(port3, 10)
-httpx.get(f"http://127.0.0.1:{port3}/mark?v=42", timeout=5)
+httpx2.get(f"http://127.0.0.1:{port3}/mark?v=42", timeout=5)
 t4 = scrape(port3)
 names_one = series_names(t4)
 check(

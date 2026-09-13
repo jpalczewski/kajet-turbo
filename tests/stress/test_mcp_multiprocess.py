@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import Path
 
-import httpx
+import httpx2
 import pytest
 from fastmcp import Client
 
@@ -66,9 +66,9 @@ def _wait_ready(port: int, proc: subprocess.Popen, timeout: float = 20.0) -> Non
             out = proc.stdout.read().decode() if proc.stdout else ""
             raise RuntimeError(f"mcp process on port {port} exited early:\n{out}")
         try:
-            if httpx.get(f"http://127.0.0.1:{port}/readyz", timeout=1.0).status_code == 200:
+            if httpx2.get(f"http://127.0.0.1:{port}/readyz", timeout=1.0).status_code == 200:
                 return
-        except httpx.TransportError:
+        except httpx2.TransportError:
             pass
         time.sleep(0.2)
     raise TimeoutError(f"mcp process on port {port} never became ready")
@@ -204,7 +204,7 @@ def test_oauth_tokens_and_tool_calls_work_across_alternating_processes(mcp_clust
     # Refresh grant against the other process: the rotated pair must be usable
     # regardless of which process issued it.
     token_url = rr.next_url() + "token"
-    refreshed = httpx.post(
+    refreshed = httpx2.post(
         token_url,
         data={
             "grant_type": "refresh_token",
@@ -230,7 +230,7 @@ def test_oauth_tokens_and_tool_calls_work_across_alternating_processes(mcp_clust
     # Revoke, then confirm the token is rejected everywhere — not just on whichever
     # process issued or last saw it.
     revoke_url = rr.next_url() + "revoke"
-    revoked = httpx.post(
+    revoked = httpx2.post(
         revoke_url,
         data={"token": new_access_token, "client_id": _CLIENT_ID, "client_secret": ""},
     )
