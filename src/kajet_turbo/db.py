@@ -38,6 +38,8 @@ from kajet_turbo.models import (  # noqa: F401 — register models in SQLModel.m
     WorkspaceRemote,
 )
 
+JOURNAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
+
 
 class Database:
     def __init__(self, db_path: str | None = None, *, skip_migrations: bool = False):
@@ -62,6 +64,9 @@ class Database:
             conn.enable_load_extension(False)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
+            # SQLite truncates only after a successful checkpoint. This bounds retained WAL
+            # space, not a checkpoint blocked by a long-lived reader or writer.
+            conn.execute(f"PRAGMA journal_size_limit={JOURNAL_SIZE_LIMIT_BYTES}")
             conn.execute("PRAGMA foreign_keys=ON")
             conn.execute("PRAGMA busy_timeout=5000")
 
