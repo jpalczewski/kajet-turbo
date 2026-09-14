@@ -129,8 +129,9 @@ async def _worker_lifespan(app: FastAPI):
         stop.set()
         # Unconditional: run_worker's ThreadPoolExecutor already drains in-flight jobs
         # before returning, so a timed join would gain nothing but let _app_lifespan
-        # close the engine under a still-running job (see push_handler/git_push, whose
-        # unbounded SSH push is the actual hang risk — bound that, not this join).
+        # close the engine under a still-running job. git_push's ssh invocation now
+        # bounds ConnectTimeout/ServerAliveInterval/ServerAliveCountMax (worst case
+        # ~60s with the defaults, well under worker_stale_after=300s) — see #274.
         thread.join()
 
 
