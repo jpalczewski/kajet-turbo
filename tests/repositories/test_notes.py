@@ -1,10 +1,11 @@
+from contextlib import ExitStack
 from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import text
 from sqlmodel import Session
 
-from kajet_turbo.db import Database
+from kajet_turbo.db import JOURNAL_SIZE_LIMIT_BYTES, Database
 from kajet_turbo.markdown import Chunk
 from kajet_turbo.models import Note
 from kajet_turbo.repositories.notes import (
@@ -64,6 +65,18 @@ def test_wal_mode_enabled(db):
     with db.engine.connect() as conn:
         mode = conn.execute(text("PRAGMA journal_mode")).fetchone()[0]
     assert mode == "wal"
+
+
+def test_journal_size_limit_enabled_on_every_connection(db):
+    # Hold every pooled and overflow connection concurrently so each must pass through
+    # Database's connect listener rather than reusing a previously checked-out connection.
+    with ExitStack() as stack:
+        connections = [stack.enter_context(db.engine.connect()) for _ in range(10)]
+        limits = [
+            connection.execute(text("PRAGMA journal_size_limit")).scalar_one()
+            for connection in connections
+        ]
+    assert limits == [JOURNAL_SIZE_LIMIT_BYTES] * 10
 
 
 def _now() -> str:

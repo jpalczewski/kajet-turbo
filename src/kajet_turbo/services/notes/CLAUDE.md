@@ -172,6 +172,20 @@ and the tool exposes a real workaround (move a subfolder at a time). Renaming a 
 tag has no equivalent workaround; renaming a tag that already has a narrower subtree
 (`note_ids_for_tags` matches by prefix) can be split into per-subtree renames instead.
 
+## WAL backstop and write-transaction audit (#273)
+
+SQLite connections cap retained WAL space at 64 MiB after a successful checkpoint. This is a
+disk-exhaustion backstop, not a cure for a stalled checkpoint: a long-lived reader or writer can
+still delay truncation and must be diagnosed separately.
+
+The #273 audit found no accidental filesystem, Git, or HTTP work inside a SQLite write
+transaction. `commit_rows_then_tree` and the older `delete`/`delete_many` paths deliberately
+hold their transaction through the Git commit so the derived note rows cannot get ahead of the
+file tree; the bounded chunking above limits that hold for workspace-wide rewrites. `move_folder`
+commits Git before it opens its DB transaction, while reconciliation, indexing, link persistence,
+and ordinary repository mutations keep their filesystem/preparation work outside their write
+transactions.
+
 ## Link resolution has two consistency tiers
 
 `note_links` is eager only for the note being saved: `NoteLinkService.persist`
