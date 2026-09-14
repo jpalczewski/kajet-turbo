@@ -1,3 +1,6 @@
+import shutil
+import socket
+import time
 from pathlib import Path
 
 import pytest
@@ -21,6 +24,23 @@ def test_build_ssh_command_has_tofu_and_known_hosts():
     assert "StrictHostKeyChecking=accept-new" in cmd
     assert "UserKnownHostsFile=/data/ssh/known_hosts" in cmd
     assert "IdentitiesOnly=yes" in cmd
+    assert "BatchMode=yes" in cmd
+    assert "ConnectTimeout=15" in cmd
+    assert "ServerAliveInterval=15" in cmd
+    assert "ServerAliveCountMax=3" in cmd
+
+
+def test_build_ssh_command_honors_custom_timeouts():
+    cmd = build_ssh_command(
+        "/dev/shm/x.key",
+        "/data/ssh/known_hosts",
+        connect_timeout=5,
+        keepalive_interval=7,
+        keepalive_count_max=2,
+    )
+    assert "ConnectTimeout=5" in cmd
+    assert "ServerAliveInterval=7" in cmd
+    assert "ServerAliveCountMax=2" in cmd
 
 
 def test_current_branch_reads_head(tmp_path):
@@ -49,3 +69,39 @@ def test_push_rejected_raises_git_error(tmp_path):
     _commit_workspace(ws)
     with pytest.raises(GitError):
         push(str(ws), str(tmp_path / "does-not-exist"), "/dev/shm/x.key", "/tmp/kh")
+
+
+@pytest.mark.skipif(shutil.which("ssh") is None, reason="requires system ssh binary")
+def test_push_to_stalled_remote_raises_git_error_within_bounded_time(tmp_path):
+    # A socket that accepts the TCP connection but never accept()s it (and so
+    # never sends the SSH banner) reproduces "remote accepts TCP but never
+    # completes the SSH handshake" (#274) without any real network dependency.
+    ws = tmp_path / "ws"
+    _commit_workspace(ws)
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    port = sock.getsockname()[1]
+    try:
+        origin_url = f"ssh://nouser@127.0.0.1:{port}/irrelevant.git"
+        start = time.monotonic()
+        with pytest.raises(GitError):
+            push(
+                str(ws),
+                origin_url,
+                "/dev/shm/x.key",
+                str(tmp_path / "known_hosts"),
+                connect_timeout=2,
+                keepalive_interval=2,
+                keepalive_count_max=1,
+            )
+        elapsed = time.monotonic() - start
+    finally:
+        sock.close()
+
+    # Both bounds matter: the upper bound alone would pass vacuously if push()
+    # failed instantly for an unrelated reason (bad path, malformed URL) —
+    # proving nothing about the timeout actually firing. The lower bound
+    # proves the failure came from ConnectTimeout, not something else.
+    assert 1.5 <= elapsed < 10

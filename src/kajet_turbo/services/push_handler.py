@@ -10,6 +10,11 @@ from pathlib import Path
 
 from kajet_turbo.crypto import KeyCipher
 from kajet_turbo.log import logger
+from kajet_turbo.repositories.git_push import (
+    DEFAULT_SSH_CONNECT_TIMEOUT,
+    DEFAULT_SSH_KEEPALIVE_COUNT_MAX,
+    DEFAULT_SSH_KEEPALIVE_INTERVAL,
+)
 from kajet_turbo.repositories.git_push import push as git_push
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
@@ -24,12 +29,18 @@ class PushHandler:
         *,
         known_hosts_path: str,
         key_dir: str,
+        connect_timeout: int = DEFAULT_SSH_CONNECT_TIMEOUT,
+        keepalive_interval: int = DEFAULT_SSH_KEEPALIVE_INTERVAL,
+        keepalive_count_max: int = DEFAULT_SSH_KEEPALIVE_COUNT_MAX,
     ):
         self._remotes = remote_repo
         self._keys = ssh_key_repo
         self._cipher_factory = cipher_factory
         self._known_hosts = known_hosts_path
         self._key_dir = key_dir
+        self._connect_timeout = connect_timeout
+        self._keepalive_interval = keepalive_interval
+        self._keepalive_count_max = keepalive_count_max
 
     def __call__(self, payload: dict) -> None:
         user_id, workspace, ws_path = (
@@ -50,7 +61,15 @@ class PushHandler:
         Path(self._known_hosts).parent.mkdir(parents=True, exist_ok=True)
         key_path = self._write_key(private)
         try:
-            git_push(ws_path, remote.origin_url, key_path, self._known_hosts)
+            git_push(
+                ws_path,
+                remote.origin_url,
+                key_path,
+                self._known_hosts,
+                connect_timeout=self._connect_timeout,
+                keepalive_interval=self._keepalive_interval,
+                keepalive_count_max=self._keepalive_count_max,
+            )
         except Exception as e:
             logger.warning("push_failed", workspace=workspace, error=str(e))
             self._remotes.mark_failed(user_id, workspace, str(e))

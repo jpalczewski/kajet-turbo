@@ -33,6 +33,11 @@ from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileReposito
 from kajet_turbo.repositories.events import EventRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.git import PostCommitHooks
+from kajet_turbo.repositories.git_push import (
+    DEFAULT_SSH_CONNECT_TIMEOUT,
+    DEFAULT_SSH_KEEPALIVE_COUNT_MAX,
+    DEFAULT_SSH_KEEPALIVE_INTERVAL,
+)
 from kajet_turbo.repositories.index_meta import IndexMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
@@ -105,6 +110,9 @@ class AppConfig:
     worker_poll_interval: float = 1.0
     worker_concurrency: int = 4
     worker_stale_after: float = 300.0
+    ssh_connect_timeout: int = DEFAULT_SSH_CONNECT_TIMEOUT
+    ssh_keepalive_interval: int = DEFAULT_SSH_KEEPALIVE_INTERVAL
+    ssh_keepalive_count_max: int = DEFAULT_SSH_KEEPALIVE_COUNT_MAX
     serve_spa: bool = True
 
     @classmethod
@@ -123,6 +131,15 @@ class AppConfig:
             worker_poll_interval=float(os.getenv("KAJET_WORKER_POLL_INTERVAL", "1")),
             worker_concurrency=int(os.getenv("KAJET_WORKER_CONCURRENCY", "4")),
             worker_stale_after=float(os.getenv("KAJET_WORKER_STALE_AFTER", "300")),
+            ssh_connect_timeout=int(
+                os.getenv("KAJET_GIT_SSH_CONNECT_TIMEOUT", str(DEFAULT_SSH_CONNECT_TIMEOUT))
+            ),
+            ssh_keepalive_interval=int(
+                os.getenv("KAJET_GIT_SSH_KEEPALIVE_INTERVAL", str(DEFAULT_SSH_KEEPALIVE_INTERVAL))
+            ),
+            ssh_keepalive_count_max=int(
+                os.getenv("KAJET_GIT_SSH_KEEPALIVE_COUNT_MAX", str(DEFAULT_SSH_KEEPALIVE_COUNT_MAX))
+            ),
             serve_spa=os.getenv("KAJET_SERVE_SPA", "1") == "1",
         )
 
@@ -355,6 +372,9 @@ def build_resources(config: AppConfig) -> AppResources:
             lambda: cipher_for("ssh-key", config.secret_key),
             known_hosts_path=config.known_hosts_path,
             key_dir=config.key_tmpdir,
+            connect_timeout=config.ssh_connect_timeout,
+            keepalive_interval=config.ssh_keepalive_interval,
+            keepalive_count_max=config.ssh_keepalive_count_max,
         )
         post_commit_hooks = PostCommitHooks()
         post_commit_hooks.register(

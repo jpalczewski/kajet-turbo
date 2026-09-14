@@ -113,6 +113,9 @@ MCP_BASE_URL=http://localhost:8000 kajet-turbo
 | `MCP_WORKERS` | `1` | Worker count for roles `mcp` and `all` |
 | `API_WORKERS` | `2` | Worker count for role `api` |
 | `KAJET_WORKER_STALE_AFTER` | `300` | Seconds since a claimed job's last lease renewal before another worker may reclaim it (role `worker`/`all`) |
+| `KAJET_GIT_SSH_CONNECT_TIMEOUT` | `15` | Seconds ssh may spend connecting/handshaking with a git push remote before failing (`ConnectTimeout`) |
+| `KAJET_GIT_SSH_KEEPALIVE_INTERVAL` | `15` | Seconds between ssh keepalive probes on an established git push connection (`ServerAliveInterval`) |
+| `KAJET_GIT_SSH_KEEPALIVE_COUNT_MAX` | `3` | Missed keepalive probes tolerated before ssh gives up on a stalled git push (`ServerAliveCountMax`) |
 
 Production topology (`docker-compose.yml`): ingress (Caddy) + `kajet-api`
 (stateless, N workers) + `kajet-mcp` (stateless, N workers via `MCP_WORKERS`).
