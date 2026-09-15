@@ -1,7 +1,7 @@
 from fastmcp import FastMCP
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.mcp.context import WORKSPACE_TARGET
+from kajet_turbo.mcp.context import WORKSPACE_TARGET_WRITE
 from kajet_turbo.mcp.tooling import write_tool
 from kajet_turbo.services.notes import NoteReconcileService
 from kajet_turbo.services.targets import WorkspaceTarget
@@ -14,7 +14,7 @@ def build_maintenance(note_reconcile_service: NoteReconcileService) -> FastMCP:
     @srv.tool(**write_tool(tags={"notes", "index"}, idempotent=True))
     async def reindex_workspace(
         workspace: str,
-        target: WorkspaceTarget = WORKSPACE_TARGET,
+        target: WorkspaceTarget = WORKSPACE_TARGET_WRITE,
     ) -> ReindexResult:
         """Reconciles the SQLite index against the .md files in the given workspace:
         repairs drifted or missing rows without wiping and rebuilding. Refuses (raises)

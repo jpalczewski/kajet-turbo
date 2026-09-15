@@ -5,8 +5,9 @@ from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.mcp.context import (
-    NOTE_TARGET,
+    NOTE_TARGET_WRITE,
     WORKSPACE_TARGET,
+    WORKSPACE_TARGET_WRITE,
 )
 from kajet_turbo.mcp.notes.types import (
     StaleVersion,
@@ -36,7 +37,7 @@ def build_tags(
     async def add_tag(
         note_id: str,
         tags: list[str],
-        target: NoteTarget = NOTE_TARGET,
+        target: NoteTarget = NOTE_TARGET_WRITE,
     ) -> TagOperationResult:
         """Adds tags to the note's frontmatter (idempotently), without touching content.
         Note: this only touches frontmatter tags; inline #hashtags live in the content."""
@@ -49,7 +50,7 @@ def build_tags(
     async def remove_tag(
         note_id: str,
         tags: list[str],
-        target: NoteTarget = NOTE_TARGET,
+        target: NoteTarget = NOTE_TARGET_WRITE,
     ) -> TagOperationResult:
         """Removes tags from the note's frontmatter (idempotently), without touching content.
         A tag present only as an inline #hashtag will not disappear — it comes back as a warning."""
@@ -70,7 +71,7 @@ def build_tags(
                 "returns StaleVersion."
             ),
         ],
-        target: NoteTarget = NOTE_TARGET,
+        target: NoteTarget = NOTE_TARGET_WRITE,
     ) -> TagOperationResult | StaleVersion:
         """Overwrites the note's tag frontmatter with the given list, without touching content.
         Destructive (can remove existing tags) — requires expected_sha from
@@ -96,7 +97,7 @@ def build_tags(
                 "that case returns TagConflictResult instead of changing anything."
             ),
         ] = False,
-        target: WorkspaceTarget = WORKSPACE_TARGET,
+        target: WorkspaceTarget = WORKSPACE_TARGET_WRITE,
     ) -> TagRenameResult | TagConflictResult:
         """Renames a tag across the whole workspace, instead of N x set_tags calls. Takes
         the whole subtree: 'work' -> 'job' also rewrites 'work/projects' (matched on

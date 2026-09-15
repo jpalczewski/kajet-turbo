@@ -145,7 +145,9 @@ async def user_timezone(user_id: str = Depends(require_user_id)) -> str:
 USER_TIMEZONE = Depends(user_timezone)
 
 
-async def require_workspace_access(name: str, user_id: str) -> list[str]:
+async def require_workspace_access(
+    name: str, user_id: str, action: str = "workspace.read"
+) -> list[str]:
     """Legacy workspace-access check kept for the handful of tools whose contract is
     unchanged by #248 (settings, update_workspace) and for search_notes's explicit-name
     branch, which needs the "available" list in its error body -- resolve_workspace_target
@@ -156,7 +158,7 @@ async def require_workspace_access(name: str, user_id: str) -> list[str]:
     if name in available:
         return available
     log_permission_denied(
-        action="workspace.read",
+        action=action,
         resource="workspace",
         caller_id=user_id,
         reason=SecurityReason.WORKSPACE_ACCESS_DENIED,
@@ -164,6 +166,14 @@ async def require_workspace_access(name: str, user_id: str) -> list[str]:
     )
     msg = f"Workspace '{name}' does not exist or is not accessible."
     raise ToolError(json.dumps({"error": msg, "available": available}))
+
+
+async def _resolve_note(user_id: str, note_id: str, action: str) -> NoteTarget:
+    try:
+        return await run_sync(current_mcp_dependencies().target_resolver.note, user_id, note_id)
+    except TargetResolutionError as e:
+        audit_denied(e.failure, action=action, resource="note", caller_id=user_id, note_id=note_id)
+        raise ToolError(f"Note not found: note_id={note_id}") from e
 
 
 async def resolve_note_target(
@@ -182,16 +192,28 @@ async def resolve_note_target(
     fastmcp/server/dependencies.py — and that RuntimeError, not the original, is what
     ToolDispatchMiddleware's SERVICE_ERRORS mapping would then see.
     """
-    try:
-        return await run_sync(current_mcp_dependencies().target_resolver.note, user_id, note_id)
-    except TargetResolutionError as e:
-        audit_denied(
-            e.failure, action="note.read", resource="note", caller_id=user_id, note_id=note_id
-        )
-        raise ToolError(f"Note not found: note_id={note_id}") from e
+    return await _resolve_note(user_id, note_id, "note.read")
+
+
+def resolve_note_target_for(action: str = "note.read"):
+    """Dependency factory tagging denials with the calling tool's verb (#281).
+
+    Write tools (edit/move/delete/tag) opt into `NOTE_TARGET_WRITE` so a denied
+    write is audited as `note.write` instead of a harmless-looking `note.read`.
+    Read tools keep `NOTE_TARGET` unchanged.
+    """
+
+    async def _resolve(
+        note_id: str = CallArgument(),
+        user_id: str = Depends(require_user_id),
+    ) -> NoteTarget:
+        return await _resolve_note(user_id, note_id, action)
+
+    return _resolve
 
 
 NOTE_TARGET = Depends(resolve_note_target)
+NOTE_TARGET_WRITE = Depends(resolve_note_target_for("note.write"))
 
 
 async def resolve_optional_note_target(
@@ -208,13 +230,7 @@ async def resolve_optional_note_target(
 OPTIONAL_NOTE_TARGET = Depends(resolve_optional_note_target)
 
 
-async def resolve_workspace_target(
-    workspace: str = CallArgument(),
-    user_id: str = Depends(require_user_id),
-) -> WorkspaceTarget:
-    """Resolves a real, schema-visible "workspace" tool parameter directly through the
-    resolver, keyed on the authenticated caller, with no session-state involvement at
-    all (#248)."""
+async def _resolve_workspace(user_id: str, workspace: str, action: str) -> WorkspaceTarget:
     try:
         return await run_sync(
             current_mcp_dependencies().target_resolver.workspace, user_id, workspace
@@ -222,7 +238,7 @@ async def resolve_workspace_target(
     except TargetResolutionError as e:
         audit_denied(
             e.failure,
-            action="workspace.read",
+            action=action,
             resource="workspace",
             caller_id=user_id,
             workspace=workspace,
@@ -230,7 +246,34 @@ async def resolve_workspace_target(
         raise ToolError(f"Workspace not accessible: {workspace}") from e
 
 
+async def resolve_workspace_target(
+    workspace: str = CallArgument(),
+    user_id: str = Depends(require_user_id),
+) -> WorkspaceTarget:
+    """Resolves a real, schema-visible "workspace" tool parameter directly through the
+    resolver, keyed on the authenticated caller, with no session-state involvement at
+    all (#248)."""
+    return await _resolve_workspace(user_id, workspace, "workspace.read")
+
+
+def resolve_workspace_target_for(action: str = "workspace.read"):
+    """Dependency factory tagging denials with the calling tool's verb (#281).
+
+    Write tools (save/rename_tag/folder ops/reindex) opt into
+    `WORKSPACE_TARGET_WRITE`; read tools keep `WORKSPACE_TARGET` unchanged.
+    """
+
+    async def _resolve(
+        workspace: str = CallArgument(),
+        user_id: str = Depends(require_user_id),
+    ) -> WorkspaceTarget:
+        return await _resolve_workspace(user_id, workspace, action)
+
+    return _resolve
+
+
 WORKSPACE_TARGET = Depends(resolve_workspace_target)
+WORKSPACE_TARGET_WRITE = Depends(resolve_workspace_target_for("workspace.write"))
 
 
 async def resolve_notes_in_one_workspace(

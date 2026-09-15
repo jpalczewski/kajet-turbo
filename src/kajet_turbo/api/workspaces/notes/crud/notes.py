@@ -20,6 +20,8 @@ from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.api.workspaces.notes._views import enrich_note_items
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
+    RESOLVE_NOTE_WRITE,
+    RESOLVE_WORKSPACE_WRITE,
     CurrentUser,
     get_note_create_service,
     get_note_delete_service,
@@ -27,7 +29,6 @@ from kajet_turbo.dependencies import (
     get_note_folder_service,
     get_note_read_service,
     get_required_user,
-    resolve_note_target,
     resolve_workspace_target,
 )
 from kajet_turbo.errors import NoteError
@@ -95,7 +96,7 @@ async def api_create_note(
     name: str,
     body: CreateNoteRequest,
     user: CurrentUser = Depends(get_required_user),
-    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
+    workspace: WorkspaceTarget = RESOLVE_WORKSPACE_WRITE,
     note_create_service: NoteCreateService = Depends(get_note_create_service),
 ) -> CreateNoteResponse:
     # BrokenWikilinkError/TemporalMetadataError are ValueError subclasses with their own
@@ -127,7 +128,7 @@ async def api_create_notes_batch(
     name: str,
     body: BatchCreateNotesRequest,
     user: CurrentUser = Depends(get_required_user),
-    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
+    workspace: WorkspaceTarget = RESOLVE_WORKSPACE_WRITE,
     note_create_service: NoteCreateService = Depends(get_note_create_service),
 ) -> BatchCreateNotesResponse:
     results = await run_sync(
@@ -150,7 +151,7 @@ async def api_update_note(
     note_id: str,
     body: UpdateNoteRequest,
     user: CurrentUser = Depends(get_required_user),
-    target: NoteTarget = Depends(resolve_note_target),
+    target: NoteTarget = RESOLVE_NOTE_WRITE,
     note_edit_service: NoteEditService = Depends(get_note_edit_service),
 ) -> UpdateNoteResponse:
     try:
@@ -204,7 +205,7 @@ async def api_move_note(
     note_id: str,
     body: MoveNoteRequest,
     user: CurrentUser = Depends(get_required_user),
-    target: NoteTarget = Depends(resolve_note_target),
+    target: NoteTarget = RESOLVE_NOTE_WRITE,
     folder_service: NoteFolderService = Depends(get_note_folder_service),
 ) -> MoveNoteResponse:
     try:
@@ -227,7 +228,7 @@ async def api_delete_note(
     name: str,
     note_id: str,
     user: CurrentUser = Depends(get_required_user),
-    target: NoteTarget = Depends(resolve_note_target),
+    target: NoteTarget = RESOLVE_NOTE_WRITE,
     note_delete_service: NoteDeleteService = Depends(get_note_delete_service),
 ) -> DeleteNoteResponse:
     try:
