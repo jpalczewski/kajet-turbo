@@ -12,7 +12,7 @@ from kajet_turbo.mcp.collections.types import (
     DeleteCollectionResult,
     OpenEntryResult,
 )
-from kajet_turbo.mcp.context import USER_TIMEZONE, WORKSPACE_TARGET
+from kajet_turbo.mcp.context import USER_TIMEZONE, WORKSPACE_TARGET, WORKSPACE_TARGET_WRITE
 from kajet_turbo.mcp.tooling import publish_workspace_changed, read_tool, write_tool
 from kajet_turbo.periods import PeriodKind, today_in
 from kajet_turbo.services.collections import CollectionService
@@ -66,7 +66,7 @@ def build_collections(
                 "redefinition and write nothing."
             ),
         ] = False,
-        target: WorkspaceTarget = WORKSPACE_TARGET,
+        target: WorkspaceTarget = WORKSPACE_TARGET_WRITE,
     ) -> DefineCollectionResult:
         """Define a new collection, or redefine an existing one by name (add vs. update
         is decided by whether the name already exists — same call either way).
@@ -104,7 +104,7 @@ def build_collections(
         workspace: Annotated[
             str, Field(description="The workspace name to delete the collection from.")
         ],
-        target: WorkspaceTarget = WORKSPACE_TARGET,
+        target: WorkspaceTarget = WORKSPACE_TARGET_WRITE,
     ) -> DeleteCollectionResult:
         """Remove a collection definition. Non-destructive by construction: this only
         edits the collection's own definition — every note that was a member becomes a
@@ -137,7 +137,7 @@ def build_collections(
                 "Omit for today in the user's configured timezone.",
             ),
         ] = None,
-        target: WorkspaceTarget = WORKSPACE_TARGET,
+        target: WorkspaceTarget = WORKSPACE_TARGET_WRITE,
         tz: str = USER_TIMEZONE,
     ) -> OpenEntryResult:
         """Resolve or create a collection's entry for a date.

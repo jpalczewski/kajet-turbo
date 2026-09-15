@@ -11,10 +11,10 @@ from kajet_turbo.api.schemas import (
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
+    RESOLVE_WORKSPACE_WRITE,
     CurrentUser,
     get_required_user,
     get_workspace_service,
-    resolve_workspace_target,
 )
 from kajet_turbo.errors import WorkspaceError
 from kajet_turbo.services.targets import WorkspaceTarget
@@ -78,7 +78,7 @@ async def api_update_workspace(
     name: str,
     body: UpdateWorkspaceRequest,
     user: CurrentUser = Depends(get_required_user),
-    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
+    workspace: WorkspaceTarget = RESOLVE_WORKSPACE_WRITE,
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> UpdateWorkspaceResponse:
     # exclude_unset() -> only keys the client actually sent reach set_meta(); an omitted
@@ -102,7 +102,7 @@ async def api_update_workspace(
 async def api_delete_workspace(
     name: str,
     user: CurrentUser = Depends(get_required_user),
-    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
+    workspace: WorkspaceTarget = RESOLVE_WORKSPACE_WRITE,
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> DeleteWorkspaceResponse:
     await run_sync(ws_service.delete, user.id, name)

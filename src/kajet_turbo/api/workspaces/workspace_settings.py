@@ -13,6 +13,7 @@ from kajet_turbo.api.schemas import (
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
+    RESOLVE_WORKSPACE_WRITE,
     CurrentUser,
     get_note_temporal_service,
     get_required_user,
@@ -56,7 +57,7 @@ async def api_update_workspace_settings(
     name: str,
     body: UpdateWorkspaceSettingsRequest,
     user: CurrentUser = Depends(get_required_user),
-    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
+    workspace: WorkspaceTarget = RESOLVE_WORKSPACE_WRITE,
     ws_service: WorkspaceService = Depends(get_workspace_service),
 ) -> UpdateWorkspaceSettingsResponse:
     # exclude_unset() -> only the setting keys the client actually sent are applied; a
@@ -105,7 +106,7 @@ async def api_apply_temporal_backfill(
     name: str,
     body: ApplyTemporalBackfillRequest,
     user: CurrentUser = Depends(get_required_user),
-    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
+    workspace: WorkspaceTarget = RESOLVE_WORKSPACE_WRITE,
     note_temporal_service: NoteTemporalService = Depends(get_note_temporal_service),
 ) -> ApplyTemporalBackfillResponse:
     try:

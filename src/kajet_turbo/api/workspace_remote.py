@@ -9,6 +9,7 @@ from kajet_turbo.api.schemas import (
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import (
+    RESOLVE_WORKSPACE_WRITE,
     CurrentUser,
     get_required_user,
     get_workspace_remote_service,
@@ -46,7 +47,7 @@ async def api_set_workspace_remote(
     name: str,
     body: SetWorkspaceRemoteRequest,
     user: CurrentUser = Depends(get_required_user),
-    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
+    workspace: WorkspaceTarget = RESOLVE_WORKSPACE_WRITE,
     svc: WorkspaceRemoteService = Depends(get_workspace_remote_service),
 ) -> WorkspaceRemoteResponse:
     # ValueError here is domain-level (bad URL scheme, unknown ssh_key_id) -- blank-field
@@ -76,7 +77,7 @@ async def api_set_workspace_remote(
 def api_delete_workspace_remote(
     name: str,
     user: CurrentUser = Depends(get_required_user),
-    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
+    workspace: WorkspaceTarget = RESOLVE_WORKSPACE_WRITE,
     svc: WorkspaceRemoteService = Depends(get_workspace_remote_service),
 ) -> OkResponse:
     if not svc.delete(user.id, workspace.name):
@@ -92,7 +93,7 @@ def api_delete_workspace_remote(
 def api_trigger_workspace_push(
     name: str,
     user: CurrentUser = Depends(get_required_user),
-    workspace: WorkspaceTarget = Depends(resolve_workspace_target),
+    workspace: WorkspaceTarget = RESOLVE_WORKSPACE_WRITE,
     svc: WorkspaceRemoteService = Depends(get_workspace_remote_service),
 ) -> OkResponse:
     if not svc.trigger_push(user.id, workspace.name):
