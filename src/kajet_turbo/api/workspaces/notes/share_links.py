@@ -9,6 +9,7 @@ from kajet_turbo.api.schemas import (
 )
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.dependencies import (
+    RESOLVE_NOTE_WRITE,
     CurrentUser,
     get_note_share_link_service,
     get_required_user,
@@ -37,7 +38,7 @@ def api_create_share_link(
     note_id: str,
     body: CreateShareLinkRequest,
     user: CurrentUser = Depends(get_required_user),
-    target: NoteTarget = Depends(resolve_note_target),
+    target: NoteTarget = RESOLVE_NOTE_WRITE,
     svc: NoteShareLinkService = Depends(get_note_share_link_service),
 ) -> ShareLinkItem:
     return ShareLinkItem(**svc.create(target, preview_description=body.preview_description))
@@ -69,7 +70,7 @@ def api_update_share_link_preview(
     token: str,
     body: UpdateShareLinkPreviewRequest,
     user: CurrentUser = Depends(get_required_user),
-    target: NoteTarget = Depends(resolve_note_target),
+    target: NoteTarget = RESOLVE_NOTE_WRITE,
     svc: NoteShareLinkService = Depends(get_note_share_link_service),
 ) -> OkResponse:
     if not svc.set_preview_description(target, token, body.preview_description):
@@ -87,7 +88,7 @@ def api_revoke_share_link(
     note_id: str,
     token: str,
     user: CurrentUser = Depends(get_required_user),
-    target: NoteTarget = Depends(resolve_note_target),
+    target: NoteTarget = RESOLVE_NOTE_WRITE,
     svc: NoteShareLinkService = Depends(get_note_share_link_service),
 ) -> OkResponse:
     if not svc.revoke(target, token):
