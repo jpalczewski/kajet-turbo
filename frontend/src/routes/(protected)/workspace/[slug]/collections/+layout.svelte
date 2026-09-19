@@ -2,6 +2,7 @@
   import { page } from '$app/state';
   import { collectionPath } from '$lib/routes';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
+  import ListRow from '$lib/components/ui/ListRow.svelte';
 
   let { data, children } = $props();
   let selected = $derived(page.params.collection);
@@ -20,18 +21,16 @@
       <ul>
         {#each data.collections as collection (collection.name)}
           <li>
-            <a
-              class="definition"
-              class:definition--active={collection.name === selected}
+            <ListRow
               href={collectionPath(data.slug, collection.name)}
-              aria-current={collection.name === selected ? 'page' : undefined}
+              active={collection.name === selected}
             >
-              <span class="definition__name">{collection.name}</span>
-              <span class="definition__meta">{collection.grain} · {collection.cardinality}</span>
+              <span class="definition-name">{collection.name}</span>
+              <span class="definition-meta">{collection.grain} · {collection.cardinality}</span>
               {#if collection.description}
-                <span class="definition__description">{collection.description}</span>
+                <span class="definition-description">{collection.description}</span>
               {/if}
-            </a>
+            </ListRow>
           </li>
         {/each}
       </ul>
@@ -96,37 +95,20 @@
     }
   }
 
-  .definition {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-height: 44px;
-    padding: 8px 12px;
-    border-bottom: 1px solid v.$border;
-    text-decoration: none;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.02);
-    }
-    &--active {
-      background: rgba(240, 184, 0, 0.06);
-    }
-
-    &__name {
-      font-family: v.$font-mono;
-      font-size: 0.85rem;
-      color: v.$text-primary;
-    }
-    &__meta {
-      font-family: v.$font-mono;
-      font-size: 0.68rem;
-      color: v.$accent-dark;
-    }
-    &__description {
-      font-family: v.$font-sans;
-      font-size: 0.75rem;
-      color: v.$text-muted;
-    }
+  .definition-name {
+    font-family: v.$font-mono;
+    font-size: 0.85rem;
+    color: v.$text-primary;
+  }
+  .definition-meta {
+    font-family: v.$font-mono;
+    font-size: 0.68rem;
+    color: v.$accent-dark;
+  }
+  .definition-description {
+    font-family: v.$font-sans;
+    font-size: 0.75rem;
+    color: v.$text-muted;
   }
 
   // Mobile drill-down: depth lives in the URL. /collections shows the list, and

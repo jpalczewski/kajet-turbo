@@ -1,6 +1,7 @@
 <script lang="ts">
   import { groupEntries } from '$lib/collectionGroups';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
+  import ListRow from '$lib/components/ui/ListRow.svelte';
   import { collectionsPath, notePath } from '$lib/routes';
   import { DEFAULT_DATE_PREFS } from '$lib/utils/format';
 
@@ -36,12 +37,12 @@
         <ul>
           {#each group.rows as row (row.note.note_id)}
             <li>
-              <a class="entry" href={notePath(data.slug, row.note.note_id)}>
-                <span class="entry__period">{row.label}</span>
+              <ListRow href={notePath(data.slug, row.note.note_id)} layout="inline">
+                <span class="entry-period">{row.label}</span>
                 {#if showTitle && row.label !== row.note.title}
-                  <span class="entry__title">{row.note.title}</span>
+                  <span class="entry-title">{row.note.title}</span>
                 {/if}
-              </a>
+              </ListRow>
             </li>
           {/each}
         </ul>
@@ -134,31 +135,17 @@
     }
   }
 
-  .entry {
-    display: flex;
-    align-items: baseline;
-    gap: v.$space-sm;
-    min-height: 44px;
-    padding: 8px 12px;
-    border-bottom: 1px solid v.$border;
-    text-decoration: none;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.02);
-    }
-
-    &__period {
-      font-family: v.$font-mono;
-      font-size: 0.85rem;
-      color: v.$text-primary;
-    }
-    &__title {
-      font-family: v.$font-mono;
-      font-size: 0.75rem;
-      color: v.$text-muted;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+  .entry-period {
+    font-family: v.$font-mono;
+    font-size: 0.85rem;
+    color: v.$text-primary;
+  }
+  .entry-title {
+    font-family: v.$font-mono;
+    font-size: 0.75rem;
+    color: v.$text-muted;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

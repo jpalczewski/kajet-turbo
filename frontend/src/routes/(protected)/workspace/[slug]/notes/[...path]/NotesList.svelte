@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import type { NoteItem } from '$lib/api';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
+  import ListRow from '$lib/components/ui/ListRow.svelte';
   import { noteInTreePath } from '$lib/routes';
   import { formatDate, formatSize, type DateFormatPrefs } from '$lib/utils/format';
   import InlineCreateInput from './InlineCreateInput.svelte';
@@ -62,17 +63,13 @@
     <ul>
       {#each notes as note (note.note_id)}
         <li>
-          <button
-            class="note-row"
-            class:active={note.note_id === currentNoteId}
-            onclick={() => openNote(note)}
-          >
-            <span class="note-row__title">{note.title}</span>
-            <span class="note-row__meta">
-              <span class="note-row__size">{formatSize(note.size_bytes)}</span>
-              <span class="note-row__date">{formatDate(note.updated_at, datePrefs)}</span>
+          <ListRow active={note.note_id === currentNoteId} onclick={() => openNote(note)}>
+            <span class="note-title">{note.title}</span>
+            <span class="note-meta">
+              <span class="note-meta__item">{formatSize(note.size_bytes)}</span>
+              <span class="note-meta__item">{formatDate(note.updated_at, datePrefs)}</span>
             </span>
-          </button>
+          </ListRow>
         </li>
       {/each}
     </ul>
@@ -150,41 +147,20 @@
     gap: 4px;
   }
 
-  .note-row {
+  .note-title {
+    font-family: v.$font-mono;
+    font-size: 0.85rem;
+    color: v.$text-primary;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .note-meta {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    width: 100%;
-    padding: 7px 12px;
-    background: none;
-    border: none;
-    border-bottom: 1px solid v.$border;
-    cursor: pointer;
-    text-align: left;
+    gap: v.$space-sm;
 
-    &:hover {
-      background: rgba(255, 255, 255, 0.02);
-    }
-    &.active {
-      background: rgba(240, 184, 0, 0.06);
-    }
-
-    &__title {
-      font-family: v.$font-mono;
-      font-size: 0.85rem;
-      color: v.$text-primary;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    &__meta {
-      display: flex;
-      gap: v.$space-sm;
-    }
-
-    &__size,
-    &__date {
+    &__item {
       font-family: v.$font-mono;
       font-size: 0.68rem;
       color: v.$text-muted;
