@@ -16,8 +16,14 @@
 />
 
 <div class="user-menu">
-  <button class="user-menu__trigger" onclick={() => (open = !open)} aria-expanded={open}>
-    {email}
+  <button
+    class="user-menu__trigger"
+    onclick={() => (open = !open)}
+    aria-expanded={open}
+    aria-label={email}
+  >
+    <span class="user-menu__email">{email}</span>
+    <span class="user-menu__initial" aria-hidden="true">{email.charAt(0).toUpperCase()}</span>
     <span class="user-menu__arrow" class:open>▾</span>
   </button>
   {#if open}
@@ -39,6 +45,7 @@
 
 <style lang="scss">
   @use '$lib/styles/variables' as v;
+  @use '$lib/styles/breakpoints' as bp;
 
   .user-menu {
     position: relative;
@@ -62,6 +69,20 @@
     &:hover {
       border-color: v.$border-accent;
       color: v.$text-secondary;
+    }
+  }
+
+  // The full address does not fit beside the tab strip at phone width; show its initial.
+  .user-menu__initial {
+    display: none;
+  }
+
+  @include bp.mobile {
+    .user-menu__email {
+      display: none;
+    }
+    .user-menu__initial {
+      display: inline;
     }
   }
 

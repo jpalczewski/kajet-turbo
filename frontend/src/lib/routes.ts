@@ -61,6 +61,9 @@ export const collectionsPath = (slug: string) =>
 export const collectionPath = (slug: string, collection: string) =>
   resolve('/(protected)/workspace/[slug]/collections/[collection]', { slug, collection });
 
+export const recentPath = (slug: string) =>
+  resolve('/(protected)/workspace/[slug]/recent', { slug });
+
 export const workspaceSettingsPath = (slug: string) =>
   resolve('/(protected)/workspace/[slug]/settings', { slug });
 

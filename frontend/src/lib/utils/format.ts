@@ -57,6 +57,46 @@ export function formatUnixDateTime(ts: number, prefs: DateFormatPrefs): string {
   });
 }
 
+const MS_PER_MINUTE = 60 * 1000;
+const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+
+// UTC midnight of the calendar day the instant falls on in `timeZone`, so two instants
+// can be compared in whole days as the viewer's wall clock sees them.
+function calendarDayMs(ms: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  }).formatToParts(ms);
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return Date.UTC(part('year'), part('month') - 1, part('day'));
+}
+
+/**
+ * 'wczoraj', '2 godziny temu': an instant relative to `now`, in the user's locale
+ * (Intl supplies the CLDR plural forms). Under a day the elapsed time decides; from a
+ * day up the difference is counted in calendar days of `prefs.timezone`, so 'wczoraj'
+ * means yesterday on the viewer's clock and not merely 24-48 hours ago.
+ */
+export function formatRelative(iso: string, prefs: DateFormatPrefs, now = Date.now()): string {
+  const then = new Date(iso).getTime();
+  if (!iso || Number.isNaN(then)) return '';
+  const rtf = new Intl.RelativeTimeFormat(prefs.locale, { numeric: 'auto' });
+  // A timestamp ahead of the client clock is skew, not the future.
+  const elapsed = Math.max(0, now - then);
+  if (elapsed < MS_PER_MINUTE) return rtf.format(0, 'second');
+  if (elapsed < MS_PER_HOUR) return rtf.format(-Math.floor(elapsed / MS_PER_MINUTE), 'minute');
+  if (elapsed < MS_PER_DAY) return rtf.format(-Math.floor(elapsed / MS_PER_HOUR), 'hour');
+  const days = Math.round(
+    (calendarDayMs(now, prefs.timezone) - calendarDayMs(then, prefs.timezone)) / MS_PER_DAY,
+  );
+  if (days < 7) return rtf.format(-days, 'day');
+  if (days < 30) return rtf.format(-Math.floor(days / 7), 'week');
+  if (days < 365) return rtf.format(-Math.floor(days / 30), 'month');
+  return rtf.format(-Math.floor(days / 365), 'year');
+}
+
 // value is a floating date ('YYYY-MM-DD', no instant, no zone) — prefs.timezone is
 // intentionally unused: formatting always happens in UTC against UTC-built components,
 // so the calendar day printed matches the string regardless of the viewer's zone.

@@ -7,9 +7,11 @@ import {
   formatPlainMonthName,
   formatPlainMonthYear,
   formatPlainWeek,
+  formatRelative,
   formatUnixDate,
   formatUnixDateTime,
   isoWeekSpan,
+  type DateFormatPrefs,
 } from './format';
 
 const warsaw = { timezone: 'Europe/Warsaw', locale: 'pl' as const };
@@ -99,6 +101,65 @@ describe('plain period formatters', () => {
 
   it('formatPlainWeek echoes a malformed key', () => {
     expect(formatPlainWeek('garbage', la)).toBe('garbage');
+  });
+});
+
+describe('formatRelative', () => {
+  const now = Date.UTC(2026, 8, 19, 12, 0, 0);
+  const ago = (ms: number) => new Date(now - ms).toISOString();
+  const MIN = 60 * 1000;
+  const HOUR = 60 * MIN;
+  const rel = (ms: number, prefs: DateFormatPrefs = warsaw) => formatRelative(ago(ms), prefs, now);
+
+  it('says "now" under a minute, and treats a timestamp ahead of the clock the same way', () => {
+    expect(rel(20 * 1000)).toBe('teraz');
+    expect(rel(-5 * MIN)).toBe('teraz');
+  });
+
+  it('inflects Polish minutes: one / few / many', () => {
+    expect(rel(1 * MIN)).toBe('1 minutę temu');
+    expect(rel(2 * MIN)).toBe('2 minuty temu');
+    expect(rel(5 * MIN)).toBe('5 minut temu');
+    expect(rel(22 * MIN)).toBe('22 minuty temu');
+  });
+
+  it('inflects Polish hours: one / few / many', () => {
+    expect(rel(1 * HOUR)).toBe('1 godzinę temu');
+    expect(rel(2 * HOUR)).toBe('2 godziny temu');
+    expect(rel(5 * HOUR)).toBe('5 godzin temu');
+    expect(rel(22 * HOUR)).toBe('22 godziny temu');
+  });
+
+  it('counts days on the calendar of the user zone, not in 24h blocks', () => {
+    // now = 2026-09-19 14:00 in Warsaw. 27h earlier is 2026-09-18 11:00: yesterday.
+    expect(rel(27 * HOUR)).toBe('wczoraj');
+    // 40h earlier is 2026-09-17 22:00: the day before yesterday, though under 48h.
+    expect(rel(40 * HOUR)).toBe('przedwczoraj');
+    expect(rel(5 * 24 * HOUR)).toBe('5 dni temu');
+  });
+
+  it('gives the same instant a different day label depending on the zone', () => {
+    // now = 2026-09-19 14:00 in Warsaw but already 2026-09-20 02:00 in Kiritimati (+14);
+    // 33h earlier is 09-18 05:00 in Warsaw (yesterday) and 09-18 17:00 in Kiritimati (two days).
+    expect(rel(33 * HOUR, warsaw)).toBe('wczoraj');
+    expect(rel(33 * HOUR, kiritimati)).toBe('przedwczoraj');
+  });
+
+  it('falls through to weeks, months and years', () => {
+    expect(rel(14 * 24 * HOUR)).toBe('2 tygodnie temu');
+    expect(rel(70 * 24 * HOUR)).toBe('2 miesiące temu');
+    expect(rel(800 * 24 * HOUR)).toBe('2 lata temu');
+  });
+
+  it('follows the locale', () => {
+    const en = { ...warsaw, locale: 'en' as const };
+    expect(rel(2 * HOUR, en)).toBe('2 hours ago');
+    expect(rel(27 * HOUR, en)).toBe('yesterday');
+  });
+
+  it('returns an empty string for empty or malformed input', () => {
+    expect(formatRelative('', warsaw, now)).toBe('');
+    expect(formatRelative('not a date', warsaw, now)).toBe('');
   });
 });
 
