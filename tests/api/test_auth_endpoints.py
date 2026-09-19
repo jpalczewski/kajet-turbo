@@ -7,10 +7,8 @@ from kajet_turbo.api.auth import router as auth_router
 from kajet_turbo.api.oauth import router as oauth_router
 from kajet_turbo.auth import DUMMY_PASSWORD_HASH, hash_password
 from kajet_turbo.dependencies import (
-    CurrentUser,
     get_oauth_repo,
     get_provider,
-    get_required_user,
     get_session_repo,
     get_user_repo,
 )
@@ -19,7 +17,7 @@ from kajet_turbo.log import LoggingMiddleware, setup_logging
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.sessions import SessionRepository
 from kajet_turbo.repositories.users import UserRepository
-from tests.api.conftest import build_test_app
+from tests.api.conftest import act_as, build_test_app
 from tests.helpers import entries_named, read_log_entries
 
 
@@ -64,9 +62,7 @@ def _client(database, *, user_id: str | None = None, provider: FakeOAuthProvider
     app.dependency_overrides[get_oauth_repo] = lambda: oauth
     app.dependency_overrides[get_provider] = lambda: fake_provider
     if user_id is not None:
-        app.dependency_overrides[get_required_user] = lambda: CurrentUser(
-            id=user_id, email="u@test", timezone="", locale=""
-        )
+        act_as(app, user_id, email="u@test")
     return TestClient(app), users, sessions, oauth, fake_provider
 
 
@@ -173,9 +169,7 @@ def test_login_missing_password_field_returns_422(database):
 def test_session_get_includes_preferences(database):
     client, users, _sessions, _oauth, _provider = _client(database)
     user_id = users.create("pref@example.com", hash_password("password"))
-    client.app.dependency_overrides[get_required_user] = lambda: CurrentUser(
-        id=user_id, email="pref@example.com", timezone="Europe/Warsaw", locale="pl"
-    )
+    act_as(client.app, user_id, email="pref@example.com", timezone="Europe/Warsaw", locale="pl")
 
     response = client.get("/api/session")
 
@@ -186,10 +180,8 @@ def test_session_get_includes_preferences(database):
     }
 
 
-def test_session_get_requires_auth(database):
-    client, _users, _sessions, _oauth, _provider = _client(database, user_id=None)
-
-    response = client.get("/api/session")
+def test_session_get_requires_auth(anon_client):
+    response = anon_client.get("/api/session")
 
     assert response.status_code == 401
     assert response.json() == {"error": "NOT_AUTHENTICATED"}
@@ -323,9 +315,7 @@ def test_logout_everywhere_deletes_only_current_users_credentials(database):
     client, users, sessions, oauth, _provider = _client(database)
     user_1 = users.create("one@example.com", hash_password("password"))
     user_2 = users.create("two@example.com", hash_password("password"))
-    client.app.dependency_overrides[get_required_user] = lambda: CurrentUser(
-        id=user_1, email="one@example.com", timezone="", locale=""
-    )
+    act_as(client.app, user_1, email="one@example.com")
     session_1a = sessions.create(user_1)
     session_1b = sessions.create(user_1)
     session_2 = sessions.create(user_2)
@@ -352,10 +342,8 @@ def test_logout_everywhere_deletes_only_current_users_credentials(database):
     assert "kajet_session=" in response.headers["set-cookie"]
 
 
-def test_sessions_delete_requires_auth(database):
-    client, _users, _sessions, _oauth, _provider = _client(database, user_id=None)
-
-    response = client.delete("/api/sessions")
+def test_sessions_delete_requires_auth(anon_client):
+    response = anon_client.delete("/api/sessions")
 
     assert response.status_code == 401
     assert response.json() == {"error": "NOT_AUTHENTICATED"}
@@ -393,10 +381,8 @@ def test_consent_missing_pending_id_returns_422(database):
     assert response.json()["error"] == "INVALID_INPUT"
 
 
-def test_consent_requires_auth(database):
-    client, _users, _sessions, _oauth, _provider = _client(database, user_id=None)
-
-    response = client.post("/api/consent", json={"pending_id": "pend-1"})
+def test_consent_requires_auth(anon_client):
+    response = anon_client.post("/api/consent", json={"pending_id": "pend-1"})
 
     assert response.status_code == 401
     assert response.json() == {"error": "NOT_AUTHENTICATED"}

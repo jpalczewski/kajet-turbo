@@ -4,8 +4,6 @@ from starlette.testclient import TestClient
 
 from kajet_turbo.api.workspace_remote import router
 from kajet_turbo.dependencies import (
-    CurrentUser,
-    get_required_user,
     get_target_resolver,
     get_workspace_remote_service,
 )
@@ -38,38 +36,33 @@ class _FakeWorkspaceService:
 
 
 def _app(database, monkeypatch, tmp_path, *, user_id="u1", access=True):
-    if user_id:
-        seed_user(database, user_id)
-        with Session(database.engine) as s:
-            s.add(
-                SshKey(
-                    id="k1",
-                    user_id=user_id,
-                    name="laptop",
-                    algorithm="ed25519",
-                    public_key="p",
-                    private_key_enc=b"e",
-                    fingerprint="f",
-                    created_at="2026-01-01",
-                )
+    seed_user(database, user_id)
+    with Session(database.engine) as s:
+        s.add(
+            SshKey(
+                id="k1",
+                user_id=user_id,
+                name="laptop",
+                algorithm="ed25519",
+                public_key="p",
+                private_key_enc=b"e",
+                fingerprint="f",
+                created_at="2026-01-01",
             )
-            s.commit()
+        )
+        s.commit()
     svc = WorkspaceRemoteService(
         WorkspaceRemoteRepository(database.engine),
         SshKeyRepository(database.engine),
         JobRepository(database.engine),
         workspaces_dir=str(tmp_path),
     )
-    app = build_test_app(routers=(router,))
+    app = build_test_app(routers=(router,), user_id=user_id)
     app.dependency_overrides[get_workspace_remote_service] = lambda: svc
     app.dependency_overrides[get_target_resolver] = lambda: TargetResolver(
         NoteRepository(database.engine),
         _FakeWorkspaceService(tmp_path, access),  # ty: ignore[invalid-argument-type] - duck-typed stub, only has_access/workspace_path are used
     )
-    if user_id:
-        app.dependency_overrides[get_required_user] = lambda: CurrentUser(
-            id=user_id, email="", timezone="", locale=""
-        )
     return TestClient(app)
 
 
@@ -187,7 +180,6 @@ def test_forbidden_without_access(database, monkeypatch, tmp_path, method, path,
         ("post", "/api/workspaces/ws/remote/push", {}),
     ],
 )
-def test_requires_login(database, monkeypatch, tmp_path, method, path, kwargs):
-    client = _app(database, monkeypatch, tmp_path, user_id=None)
-    r = getattr(client, method)(path, **kwargs)
+def test_requires_login(anon_client, method, path, kwargs):
+    r = getattr(anon_client, method)(path, **kwargs)
     assert r.status_code == 401

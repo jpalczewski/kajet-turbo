@@ -2,7 +2,7 @@ from starlette.testclient import TestClient
 
 from kajet_turbo.api.embedding import router
 from kajet_turbo.crypto import cipher_for
-from kajet_turbo.dependencies import CurrentUser, get_embedding_profile_service, get_required_user
+from kajet_turbo.dependencies import get_embedding_profile_service
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
 from tests.api.conftest import build_test_app
@@ -10,8 +10,7 @@ from tests.conftest import seed_user
 
 
 def _app(database, monkeypatch, *, user_id="u1", probe_dim=3, probe_error=None):
-    if user_id:
-        seed_user(database, user_id)
+    seed_user(database, user_id)
 
     def probe(base_url, model, api_key):
         if probe_error:
@@ -23,12 +22,8 @@ def _app(database, monkeypatch, *, user_id="u1", probe_dim=3, probe_error=None):
         cipher_factory=lambda: cipher_for("embedding", secret="server-secret"),
         probe_dim=probe,
     )
-    app = build_test_app(routers=(router,))
+    app = build_test_app(routers=(router,), user_id=user_id)
     app.dependency_overrides[get_embedding_profile_service] = lambda: svc
-    if user_id:
-        app.dependency_overrides[get_required_user] = lambda: CurrentUser(
-            id=user_id, email="", timezone="", locale=""
-        )
     return TestClient(app), svc
 
 
@@ -51,11 +46,8 @@ def test_create_with_asyncio_probe_offloads_to_thread(database, monkeypatch):
         cipher_factory=lambda: cipher_for("embedding", secret="server-secret"),
         probe_dim=asyncio_probe,
     )
-    app = build_test_app(routers=(router,))
+    app = build_test_app(routers=(router,), user_id="u1")
     app.dependency_overrides[get_embedding_profile_service] = lambda: svc
-    app.dependency_overrides[get_required_user] = lambda: CurrentUser(
-        id="u1", email="", timezone="", locale=""
-    )
     client = TestClient(app)
     r = client.post(
         "/api/me/embedding-profiles",
@@ -65,15 +57,14 @@ def test_create_with_asyncio_probe_offloads_to_thread(database, monkeypatch):
     assert r.json()["dim"] == 7
 
 
-def test_list_requires_auth(database, monkeypatch):
-    client, _ = _app(database, monkeypatch, user_id=None)
-    assert client.get("/api/me/embedding-profiles").status_code == 401
+def test_list_requires_auth(anon_client):
+    assert anon_client.get("/api/me/embedding-profiles").status_code == 401
 
 
-def test_create_update_activate_delete_require_auth(database, monkeypatch):
+def test_create_update_activate_delete_require_auth(anon_client):
     # Per-route 401 coverage (tests/api/test_notes.py convention): each mutating route
     # needs its own check, not just the list route.
-    client, _ = _app(database, monkeypatch, user_id=None)
+    client = anon_client
     assert (
         client.post(
             "/api/me/embedding-profiles",

@@ -1,7 +1,7 @@
 from starlette.testclient import TestClient
 
 from kajet_turbo.api.preferences import router
-from kajet_turbo.dependencies import CurrentUser, get_preferences_service, get_required_user
+from kajet_turbo.dependencies import get_preferences_service
 from kajet_turbo.repositories.users import UserRepository
 from kajet_turbo.services.preferences import PreferencesService
 from tests.api.conftest import build_test_app
@@ -11,11 +11,8 @@ from tests.conftest import seed_user
 def _app(database, *, user_id="u1"):
     seed_user(database, user_id)
     svc = PreferencesService(UserRepository(database.engine))
-    app = build_test_app(routers=(router,))
+    app = build_test_app(routers=(router,), user_id=user_id)
     app.dependency_overrides[get_preferences_service] = lambda: svc
-    app.dependency_overrides[get_required_user] = lambda: CurrentUser(
-        id=user_id, email="", timezone="", locale=""
-    )
     return TestClient(app)
 
 
@@ -86,11 +83,6 @@ def test_patch_both_fields_at_once(database):
     assert resp.json() == {"timezone": "America/New_York", "locale": "en"}
 
 
-def test_requires_login(database):
-    app = build_test_app(routers=(router,))
-    app.dependency_overrides[get_preferences_service] = lambda: PreferencesService(
-        UserRepository(database.engine)
-    )
-    client = TestClient(app)
-    assert client.get("/api/me/preferences").status_code == 401
-    assert client.patch("/api/me/preferences", json={}).status_code == 401
+def test_requires_login(anon_client):
+    assert anon_client.get("/api/me/preferences").status_code == 401
+    assert anon_client.patch("/api/me/preferences", json={}).status_code == 401

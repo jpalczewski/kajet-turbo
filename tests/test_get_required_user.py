@@ -1,7 +1,8 @@
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import Depends, FastAPI, HTTPException
+from starlette.testclient import TestClient
 
 from kajet_turbo.dependencies import CurrentUser, get_required_user
 from kajet_turbo.errors import SecurityEvent, SecurityReason
@@ -47,3 +48,16 @@ def test_get_required_user_returns_user_when_session_exists():
         request = Request(scope)
         result = get_required_user(request)
         assert result == CurrentUser(id="u1", email="u@test.com", timezone="UTC", locale="en")
+
+
+def test_get_required_user_fails_loudly_when_app_has_no_resource_graph():
+    # A bare app is a wiring bug, not an anonymous caller: it must not answer 401 as if
+    # the request were merely unauthenticated (#278).
+    app = FastAPI()
+
+    @app.get("/whoami")
+    def whoami(user: CurrentUser = Depends(get_required_user)) -> str:
+        return user.id
+
+    with pytest.raises(RuntimeError, match=r"app\.state\.resources is not set"):
+        TestClient(app).get("/whoami")

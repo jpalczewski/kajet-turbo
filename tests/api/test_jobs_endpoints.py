@@ -1,7 +1,7 @@
 from starlette.testclient import TestClient
 
 from kajet_turbo.api.jobs import router
-from kajet_turbo.dependencies import CurrentUser, get_job_service, get_required_user
+from kajet_turbo.dependencies import get_job_service
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.services.jobs import JobService
 from tests.api.conftest import build_test_app
@@ -9,14 +9,9 @@ from tests.conftest import seed_user
 
 
 def _app(database, monkeypatch, *, user_id="u1"):
-    if user_id:
-        seed_user(database, user_id)
-    app = build_test_app(routers=(router,))
+    seed_user(database, user_id)
+    app = build_test_app(routers=(router,), user_id=user_id)
     app.dependency_overrides[get_job_service] = lambda: JobService(JobRepository(database.engine))
-    if user_id:
-        app.dependency_overrides[get_required_user] = lambda: CurrentUser(
-            id=user_id, email="", timezone="", locale=""
-        )
     return TestClient(app), JobRepository(database.engine)
 
 
@@ -112,8 +107,7 @@ def test_dismiss_unknown_job_not_found(database, monkeypatch):
     assert resp.json() == {"error": "JOB_NOT_FOUND"}
 
 
-def test_requires_login(database, monkeypatch):
-    client, _ = _app(database, monkeypatch, user_id=None)
-    assert client.get("/api/me/jobs").status_code == 401
-    assert client.post("/api/me/jobs/x/retry").status_code == 401
-    assert client.delete("/api/me/jobs/x").status_code == 401
+def test_requires_login(anon_client):
+    assert anon_client.get("/api/me/jobs").status_code == 401
+    assert anon_client.post("/api/me/jobs/x/retry").status_code == 401
+    assert anon_client.delete("/api/me/jobs/x").status_code == 401

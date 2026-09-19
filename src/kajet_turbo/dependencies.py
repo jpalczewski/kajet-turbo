@@ -443,8 +443,18 @@ def _resources(conn: HTTPConnection) -> AppResources:
     HTTP requests, so a WebSocket route (`/api/ws`) resolving a Request-typed
     dependency gets it called with no argument at all. HTTPConnection is the common
     base FastAPI injects in both scopes.
+
+    An app without a resource graph is a wiring bug, not an anonymous caller: fail loudly
+    rather than let auth dependencies degrade to "no user".
     """
-    return conn.app.state.resources
+    resources = getattr(conn.app.state, "resources", None)
+    if resources is None:
+        raise RuntimeError(
+            "app.state.resources is not set: build the app via build_api_app, "
+            "build_mcp_app or build_app (tests: mount routes on the real factory and use "
+            "dependency_overrides for what they fake)"
+        )
+    return resources
 
 
 def get_job_service(conn: HTTPConnection) -> JobService:
@@ -580,13 +590,9 @@ class CurrentUser:
 
 
 def get_session_user(request: Request) -> dict | None:
-    try:
-        session_repo = _resources(request).session_repo
-    except AttributeError:
-        # Router-level tests may mount a route without constructing an application
-        # graph. They are unauthenticated unless they override this named provider.
-        return None
-    return identity.resolve_session_user_from_cookies(session_repo, request.cookies)
+    return identity.resolve_session_user_from_cookies(
+        _resources(request).session_repo, request.cookies
+    )
 
 
 def get_required_user(request: Request) -> CurrentUser:
