@@ -661,6 +661,62 @@ export interface ReindexResponse {
   count: number;
 }
 
+/**
+ * One note ranked as semantically related to a source note, with its best evidence.
+ *
+ * ``best_distance``/``hub_margin``/``coverage``/``score`` are raw ranking metrics, kept
+ * unconverted so a quality threshold can be calibrated later (#214) — do not present
+ * them to users as a percentage.
+ */
+export interface RelatedNoteItem {
+  /** Related note id */
+  note_id: string;
+  /** Related note title */
+  title: string;
+  /** Folder path; empty string means workspace root */
+  folder: string;
+  /** Last-modified timestamp, ISO 8601 */
+  updated_at: string;
+  /** Chunk of the source note that matched best */
+  source_chunk_id: string;
+  /** Chunk of the related note that matched best */
+  target_chunk_id: string;
+  /** Heading path of the matching source chunk; empty before the first heading */
+  source_header_path: string[];
+  /** Heading path of the matching related-note chunk */
+  target_header_path: string[];
+  /** Text of the matching related-note chunk */
+  target_content: string;
+  /** Raw L2 distance of the strongest chunk pair */
+  best_distance: number;
+  /** Raw margin of the best pair over the note's average */
+  hub_margin: number;
+  /** Fraction of source chunks with a match in this note */
+  coverage: number;
+  /** Final ranking score; results are sorted by it, descending */
+  score: number;
+}
+
+export type RelatedNotesStatus = typeof RelatedNotesStatus[keyof typeof RelatedNotesStatus];
+
+
+export const RelatedNotesStatus = {
+  ready: 'ready',
+  pending: 'pending',
+  unavailable: 'unavailable',
+  empty: 'empty',
+} as const;
+
+/**
+ * Semantically related notes for one source note, computed only from stored vectors.
+ */
+export interface RelatedNotesResponse {
+  /** `ready`: ranking completed and `items` may still be empty; `pending`: the note has chunks but none is embedded under the active embedding profile yet; `unavailable`: no embedding profile is configured; `empty`: the note has no chunks to embed. Only `ready` can carry items */
+  status: RelatedNotesStatus;
+  /** Related notes, best first */
+  items: RelatedNoteItem[];
+}
+
 export interface RestoreVersionResponse {
   note_id: string;
   warnings?: WikilinkWarning[];
@@ -973,6 +1029,18 @@ include_tags?: boolean;
 
 export type ApiNoteGraphApiWorkspacesNameNotesGraphGetParams = {
 include_tags?: boolean;
+};
+
+export type ApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetParams = {
+/**
+ * Restrict candidates to this folder and its descendants
+ */
+folder?: string | null;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
 };
 
 export type ApiListJobsApiMeJobsGetParams = {
@@ -3252,6 +3320,75 @@ export const apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestoreP
   {
     ...options,
     method: 'POST'
+
+
+  }
+);}
+
+
+
+export type apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse200 = {
+  data: RelatedNotesResponse
+  status: 200
+}
+
+export type apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse422 = {
+  data: ErrorResponse
+  status: 422
+}
+
+export type apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponseSuccess = (apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse200) & {
+  headers: Headers;
+};
+export type apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponseError = (apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse401 | apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse403 | apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse404 | apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse422) & {
+  headers: Headers;
+};
+
+export type apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse = (apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponseSuccess | apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponseError)
+
+export const getApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetUrl = (name: string,
+    noteId: string,
+    params?: ApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/workspaces/${name}/notes/${noteId}/related?${stringifiedParams}` : `/api/workspaces/${name}/notes/${noteId}/related`
+}
+
+/**
+ * @summary Api Note Related
+ */
+export const apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGet = async (name: string,
+    noteId: string,
+    params?: ApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse> => {
+
+  return customFetch<apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse>(getApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetUrl(name,noteId,params),
+  {
+    ...options,
+    method: 'GET'
 
 
   }

@@ -237,6 +237,11 @@
     },
     {
       "method": "GET",
+      "operationId": "api_note_related_api_workspaces__name__notes__note_id__related_get",
+      "path": "/api/workspaces/{name}/notes/{note_id}/related"
+    },
+    {
+      "method": "GET",
       "operationId": "api_list_share_links_api_workspaces__name__notes__note_id__share_links_get",
       "path": "/api/workspaces/{name}/notes/{note_id}/share-links"
     },
@@ -371,6 +376,9 @@
     "PendingInfoResponse",
     "PreferencesError",
     "ReindexResponse",
+    "RelatedNoteItem",
+    "RelatedNotesResponse",
+    "RelatedNotesStatus",
     "RequestError",
     "RestoreVersionResponse",
     "SessionResponse",

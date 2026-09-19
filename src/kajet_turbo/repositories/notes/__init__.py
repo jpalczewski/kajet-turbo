@@ -9,7 +9,6 @@ from kajet_turbo.repositories.notes.types import (
     RelatedEvidence,
     RelatedNoteItem,
     RelatedNotesResult,
-    RelatedNotesState,
     StoredChunk,
 )
 
@@ -24,7 +23,6 @@ __all__ = [
     "RelatedEvidence",
     "RelatedNoteItem",
     "RelatedNotesResult",
-    "RelatedNotesState",
     "StoredChunk",
     "folder_sort_key",
     "note_to_list_item",
