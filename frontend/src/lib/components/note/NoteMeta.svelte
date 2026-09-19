@@ -8,8 +8,11 @@
     type NoteLinkItem,
   } from '$lib/api';
   import GraphView from '$lib/components/GraphView.svelte';
+  import RelatedNotesSection from '$lib/components/note/RelatedNotesSection.svelte';
   import type { AnyGraphNode } from '$lib/graph/model';
   import type { OutlineItem } from '$lib/outline';
+  import { linkRelations } from '$lib/relatedNotes';
+  import { RelatedNotesController } from '$lib/relatedNotes.svelte';
   import { noteInTreePath, tagsPath } from '$lib/routes';
 
   type GraphDepth = 1 | 2;
@@ -17,6 +20,7 @@
   let {
     slug,
     noteId,
+    folder,
     tags,
     outline,
     backlinks,
@@ -25,6 +29,7 @@
   }: {
     slug: string;
     noteId: string;
+    folder: string;
     tags: string[];
     outline: OutlineItem[];
     backlinks: NoteLinkItem[];
@@ -58,6 +63,11 @@
     { heading: 'Backlinki', links: filteredBacklinks },
     { heading: 'Wychodzące', links: filteredOutlinks },
   ]);
+
+  // Lives here rather than inside the section so the request starts when the note is shown,
+  // even while the whole rail is collapsed and the section is not rendered.
+  const related = new RelatedNotesController(() => ({ slug, noteId, folder }));
+  const relatedLinks = $derived(linkRelations(slug, backlinks, outlinks));
 
   let relationView = $state<'lists' | 'graph'>('lists');
   let graphDepth = $state<GraphDepth>(2);
@@ -240,6 +250,17 @@
           </div>
         {/if}
       {/each}
+      <RelatedNotesSection
+        {slug}
+        phase={related.phase}
+        status={related.status}
+        items={related.items}
+        scope={related.effectiveScope}
+        canScopeToFolder={related.canScopeToFolder}
+        relations={relatedLinks}
+        onscope={(scope) => related.setScope(scope)}
+        onretry={() => related.retry()}
+      />
     {/if}
   </aside>
 {/if}
