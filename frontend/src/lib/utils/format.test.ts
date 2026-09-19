@@ -4,8 +4,12 @@ import {
   formatDate,
   formatDateTime,
   formatPlainDate,
+  formatPlainMonthName,
+  formatPlainMonthYear,
+  formatPlainWeek,
   formatUnixDate,
   formatUnixDateTime,
+  isoWeekSpan,
 } from './format';
 
 const warsaw = { timezone: 'Europe/Warsaw', locale: 'pl' as const };
@@ -53,6 +57,48 @@ describe('formatPlainDate', () => {
 
   it('returns an empty string for an empty input', () => {
     expect(formatPlainDate('', warsaw)).toBe('');
+  });
+});
+
+describe('isoWeekSpan', () => {
+  it('resolves a week to Monday, Thursday and Sunday', () => {
+    expect(isoWeekSpan('2026-W36')).toEqual({
+      week: 36,
+      start: '2026-08-31',
+      thursday: '2026-09-03',
+      end: '2026-09-06',
+    });
+  });
+
+  it('starts week 1 in the previous calendar year when 4 January is late in the week', () => {
+    expect(isoWeekSpan('2026-W01')?.start).toBe('2025-12-29');
+    expect(isoWeekSpan('2027-W01')?.start).toBe('2027-01-04');
+  });
+
+  it('rejects malformed keys and out-of-range weeks', () => {
+    expect(isoWeekSpan('2026-36')).toBeNull();
+    expect(isoWeekSpan('2026-W00')).toBeNull();
+    expect(isoWeekSpan('2026-W54')).toBeNull();
+    expect(isoWeekSpan('')).toBeNull();
+  });
+});
+
+describe('plain period formatters', () => {
+  const la = { timezone: 'America/Los_Angeles', locale: 'pl' as const };
+
+  it('are unaffected by the viewer timezone', () => {
+    expect(formatPlainMonthYear(2026, 9, la)).toBe('wrzesień 2026');
+    expect(formatPlainMonthYear(2026, 9, kiritimati)).toBe('wrzesień 2026');
+    expect(formatPlainMonthName(1, la)).toBe('styczeń');
+    expect(formatPlainWeek('2026-W36', kiritimati)).toBe('W36 · 31.08.2026 – 06.09.2026');
+  });
+
+  it('follow the locale', () => {
+    expect(formatPlainMonthYear(2026, 9, { ...la, locale: 'en' })).toBe('September 2026');
+  });
+
+  it('formatPlainWeek echoes a malformed key', () => {
+    expect(formatPlainWeek('garbage', la)).toBe('garbage');
   });
 });
 
