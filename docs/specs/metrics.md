@@ -322,6 +322,18 @@ the issue that creates it and therefore enters the family.
 | `kajet_job_duration_seconds` | histogram | `kind` | B9 | `run_job` (`worker.py:42`), handler execution only | `worker`, `all` | per-deployment |
 | `kajet_job_queue_wait_seconds` | histogram | `kind` | B8 | `run_job`'s `queue_wait_ms`, measured against `next_run_at` | `worker`, `all` | per-deployment |
 | `kajet_job_transitions_total` | counter | `kind`, `outcome` | — | `complete` / `fail` / `fail_terminal`, counted after the repository write commits | `worker`, `all` | per-deployment |
+| `kajet_sampler_success` | gauge `livemostrecent` | `collector` | — | `Sampler.sample_once` (#311); 1 if the collector's latest sample succeeded | `worker`, `all` | per-deployment |
+| `kajet_sampler_last_success_timestamp_seconds` | gauge `livemostrecent` | `collector` | — | same; Unix time of the latest success, unchanged by failures | `worker`, `all` | per-deployment |
+| `kajet_sampler_duration_seconds` | gauge `livemostrecent` | `collector` | — | same; duration of the latest sample, successful or not | `worker`, `all` | per-deployment |
+| `kajet_sampler_errors_total` | counter | `collector` | — | same; failed samples | `worker`, `all` | per-deployment |
+| `kajet_sampler_age_seconds` | gauge (custom collector) | `collector` | — | computed **at scrape time** from the last success, so a wedged sampler thread still shows growing age; absent until a collector's first success | `worker`, `all` | per-deployment |
+
+`collector` is the sampler source's name — an application constant, never request data.
+A failed sample leaves every gauge the collector publishes untouched: the last good
+snapshot stays visible with its age growing, never replaced with zero. A collector whose
+data is unavailable publishes nothing (absent, not zero). The families are registered only
+in a process that owns shared-state sampling (`KAJET_METRICS_SAMPLE_SHARED`), and a
+collector adds series only when #312/#313 register one.
 
 `kind` domain (from the handler registry, `server.py:42`): `push_workspace`,
 `reconcile_links`, `heal_dangling`, `sweep_outbox`, `embed_note`, `reindex_note`.
@@ -335,7 +347,7 @@ leaves the domain once the queue is confirmed empty.
 | SQLite / WAL / page-count / freelist gauges | #312 | No sampler exists; which quantities SQLite exposes on the deployed build is #310's capability matrix |
 | Connection pool gauges | #312 | Same sampler |
 | Queue depth by kind and state | #313 | Same sampler; the state domain follows the sampling query, not the model |
-| Worker poll-loop health, sampler freshness | #313, #311 | Freshness semantics are defined with the sampler skeleton |
+| Worker poll-loop health | #313 | Sampler freshness landed with #311 (§3.1); poll-loop liveness is entered with the loop instrumentation |
 | Embedding logical-call family | #316 | The issue exists precisely because `_embed` has no timing seam yet |
 | Search sub-phases beyond `fts` / `vec` | #315 | The sub-phases are created by that issue |
 | File I/O and fsync attribution | #315 | No seam today; `workspace_write_ms` is the nearest existing field |

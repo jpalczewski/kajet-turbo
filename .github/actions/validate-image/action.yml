@@ -116,6 +116,19 @@ runs:
 
         exit "$fail"
 
+    # /metrics lives at the root of each role app and is scraped on the compose network
+    # (#311). It must never be reachable through the ingress: it matches no @mcp/@api
+    # allowlist, so Caddy answers it from the static handlers, which 404.
+    - name: Verify /metrics is not exposed through the ingress
+      if: ${{ inputs.target == 'ingress' }}
+      shell: bash
+      run: |
+        status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/metrics)"
+        if [[ "$status" != "404" ]]; then
+          echo "::error::GET /metrics through the ingress — expected 404, got ${status}"
+          exit 1
+        fi
+
     - name: Remove ingress smoke container
       if: ${{ always() && inputs.target == 'ingress' }}
       shell: bash

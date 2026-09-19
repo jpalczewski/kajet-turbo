@@ -112,10 +112,41 @@ MCP_BASE_URL=http://localhost:8000 kajet-turbo
 | `KAJET_ROLE` | `all` | Process role: `all` (MCP+API+SPA in one — dev), `mcp` (`/mcp` + OAuth only, N workers), `api` (REST `/api` + SPA, N workers) |
 | `MCP_WORKERS` | `1` | Worker count for roles `mcp` and `all` |
 | `API_WORKERS` | `2` | Worker count for role `api` |
+| `KAJET_METRICS_SAMPLE_SHARED` | role default | Whether this process owns shared-state sampling (SQLite files, queue snapshots). Default: `worker` on, `api`/`mcp` off, `all` on only with one process. See [Metrics](#metrics) |
+| `KAJET_METRICS_PORT` | `9100` | Metrics listener port of role `worker` (roles `api`/`mcp`/`all` serve `/metrics` on their normal port) |
 | `KAJET_WORKER_STALE_AFTER` | `300` | Seconds since a claimed job's last lease renewal before another worker may reclaim it (role `worker`/`all`) |
 | `KAJET_GIT_SSH_CONNECT_TIMEOUT` | `15` | Seconds ssh may spend connecting/handshaking with a git push remote before failing (`ConnectTimeout`) |
 | `KAJET_GIT_SSH_KEEPALIVE_INTERVAL` | `15` | Seconds between ssh keepalive probes on an established git push connection (`ServerAliveInterval`) |
 | `KAJET_GIT_SSH_KEEPALIVE_COUNT_MAX` | `3` | Missed keepalive probes tolerated before ssh gives up on a stalled git push (`ServerAliveCountMax`) |
+
+### Metrics
+
+Every role exposes Prometheus metrics, and none of them through the ingress:
+
+| Role | Storage | Endpoint |
+|---|---|---|
+| `api`, `mcp` | multiprocess: one directory per container run (`PROMETHEUS_MULTIPROC_DIR`, default `/tmp/kajet-prometheus`, cleared once by the supervisor at start) | `GET /metrics` on the role's port (`kajet-api:8000`, `kajet-mcp:8000`) |
+| `worker` | in-process registry | own listener on `KAJET_METRICS_PORT` (`kajet-worker:9100`), started and stopped with the process |
+| `all` | in-process registry | `GET /metrics` on the normal port |
+
+Scrape these targets directly on the compose network. `/metrics` is a root route of each
+app — never under `/mcp` or `/api`, which Caddy proxies — so it matches no ingress
+allowlist and is not reachable from outside. Do not publish port 9100 either.
+
+Shared state (SQLite file sizes, WAL, queue snapshots) has exactly one owner per
+deployment, selected by `KAJET_METRICS_SAMPLE_SHARED` and set explicitly in
+`docker-compose.yml`: `1` on `kajet-worker`, `0` on `kajet-api` and `kajet-mcp`. **If you
+scale `kajet-worker` past one replica, exactly one replica carries the flag**; the others
+set it to `0`, otherwise every replica reports the same database and the series duplicate.
+Worker replicas are separate scrape targets with their own `instance` label — ordinary
+Prometheus, not multiprocess mode.
+
+Sampler health is exported per collector (`kajet_sampler_success`,
+`kajet_sampler_last_success_timestamp_seconds`, `kajet_sampler_duration_seconds`,
+`kajet_sampler_errors_total`, `kajet_sampler_age_seconds`). A reachable `/metrics` alone
+does not prove sampling is healthy: alert on `kajet_sampler_age_seconds` growing, and note
+that when a sample fails the last good snapshot stays visible rather than dropping to zero.
+Metric families are catalogued in [`docs/specs/metrics.md`](docs/specs/metrics.md).
 
 Production topology (`docker-compose.yml`): ingress (Caddy) + `kajet-api`
 (stateless, N workers) + `kajet-mcp` (stateless, N workers via `MCP_WORKERS`).
