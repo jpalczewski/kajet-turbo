@@ -57,6 +57,7 @@
       <NoteMeta
         {slug}
         noteId={note.note_id}
+        folder={note.folder ?? ''}
         tags={note.tags}
         outline={processed.outline}
         backlinks={links.backlinks}
