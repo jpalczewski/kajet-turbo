@@ -12,7 +12,7 @@ from kajet_turbo.concurrency import run_sync
 from kajet_turbo.dependencies import CurrentUser, get_embedding_profile_service, get_required_user
 from kajet_turbo.errors import EmbeddingProfileError
 from kajet_turbo.repositories.embedding_profiles import ProfileNotFoundError
-from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
+from kajet_turbo.services.embedding_profiles import EmbeddingProfileService, ProbeFailedError
 
 router = APIRouter()
 
@@ -49,11 +49,11 @@ async def api_create_embedding_profile(
             model=body.model,
             api_key=body.api_key,
         )
-    except ValueError:
-        # Only the probe (connectivity/shape) can fail here -- there is no profile yet to
-        # be "not found". api_key is never included in the ValueError message (see
-        # EmbeddingProfileService._probe_dim), so nothing secret reaches this response.
-        raise HTTPException(status_code=400, detail=EmbeddingProfileError.PROBE_FAILED) from None
+    except ProbeFailedError as exc:
+        # Only the probe can fail here -- there is no profile yet to be "not found". The
+        # response carries just the probe's error code; the provider's explanation stays
+        # in the operator log (see EmbeddingProfileService._probe_dim).
+        raise HTTPException(status_code=400, detail=exc.code) from None
     return EmbeddingProfileItem(**result)
 
 
@@ -85,8 +85,8 @@ async def api_update_embedding_profile(
         )
     except ProfileNotFoundError:
         raise HTTPException(status_code=404, detail=EmbeddingProfileError.NOT_FOUND) from None
-    except ValueError:
-        raise HTTPException(status_code=400, detail=EmbeddingProfileError.PROBE_FAILED) from None
+    except ProbeFailedError as exc:
+        raise HTTPException(status_code=400, detail=exc.code) from None
     return EmbeddingProfileItem(**result)
 
 

@@ -5,6 +5,9 @@ write-only (stored sealed, never returned — only ``has_key``)."""
 from collections.abc import Callable
 
 from kajet_turbo.crypto import KeyCipher
+from kajet_turbo.embedding.base import EmbeddingAuthError, EmbeddingRequestRejected
+from kajet_turbo.errors import EmbeddingProfileError
+from kajet_turbo.log import logger
 from kajet_turbo.repositories.embedding_profiles import (
     EmbeddingProfileRepository,
     ProfileNotFoundError,
@@ -12,6 +15,15 @@ from kajet_turbo.repositories.embedding_profiles import (
 
 # probe_dim(base_url, model, api_key) -> int (vector length); raises on connection/auth error.
 ProbeDim = Callable[[str, str, str | None], int]
+
+
+class ProbeFailedError(ValueError):
+    """The probe embed did not validate the profile. ``code`` is what the API answers
+    with; the message is for logs only and never reaches the client."""
+
+    def __init__(self, code: EmbeddingProfileError, message: str):
+        super().__init__(message)
+        self.code = code
 
 
 class EmbeddingProfileService:
@@ -93,7 +105,24 @@ class EmbeddingProfileService:
         try:
             dim = self._probe(base_url, model, api_key)
         except Exception as e:
-            raise ValueError(f"Nie udało się połączyć z embedderem: {e}") from e
+            # The client only ever sees the code; the provider's own explanation goes to
+            # the operator log (secret-safe: the adapter redacts the key from ``detail``).
+            match e:
+                case EmbeddingAuthError(status_code=status):
+                    code, fields = EmbeddingProfileError.PROBE_AUTH_FAILED, {"status_code": status}
+                case EmbeddingRequestRejected(status_code=status, detail=detail):
+                    code = EmbeddingProfileError.PROBE_REJECTED
+                    fields = {"status_code": status, "detail": detail}
+                case _:
+                    code, fields = EmbeddingProfileError.PROBE_FAILED, {}
+            unexpected = code is EmbeddingProfileError.PROBE_FAILED
+            logger.opt(exception=e if unexpected else None).warning(
+                "embedding_probe_failed", base_url=base_url, model=model, reason=code, **fields
+            )
+            raise ProbeFailedError(code, str(e)) from e
         if not isinstance(dim, int) or dim <= 0:
-            raise ValueError("Embedder zwrócił niepoprawny wektor.")
+            logger.warning("embedding_probe_failed", base_url=base_url, model=model, reason="dim")
+            raise ProbeFailedError(
+                EmbeddingProfileError.PROBE_FAILED, "Embedder returned an invalid vector."
+            )
         return dim
