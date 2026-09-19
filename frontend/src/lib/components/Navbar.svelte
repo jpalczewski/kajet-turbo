@@ -2,18 +2,32 @@
   import { page } from '$app/state';
   import { goto, invalidate } from '$app/navigation';
   import { apiSessionDeleteApiSessionDelete } from '$lib/api';
-  import { collectionsPath, homePath, notesPath } from '$lib/routes';
+  import { collectionsPath, homePath, notesPath, recentPath } from '$lib/routes';
   import WorkspaceGraphLink from './WorkspaceGraphLink.svelte';
   import WorkspacePicker from './WorkspacePicker.svelte';
   import UserMenu from './UserMenu.svelte';
+
+  let center = $state<HTMLElement>();
 
   const slug = $derived((page.params as Record<string, string>).slug as string | undefined);
 
   const notesActive = $derived(!!slug && page.url.pathname.startsWith(`/workspace/${slug}/note`));
 
+  const recentActive = $derived(
+    !!slug && page.url.pathname.startsWith(`/workspace/${slug}/recent`),
+  );
+
   const collectionsActive = $derived(
     !!slug && page.url.pathname.startsWith(`/workspace/${slug}/collections`),
   );
+
+  // On a narrow screen the tab strip scrolls sideways; keep the current tab in view.
+  $effect(() => {
+    void page.url.pathname;
+    center
+      ?.querySelector('[aria-current="page"], .navbar__link--active')
+      ?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  });
 
   async function handleLogout() {
     await apiSessionDeleteApiSessionDelete({ credentials: 'include' });
@@ -26,11 +40,14 @@
   <a href={homePath()} class="navbar__logo">kajet-turbo</a>
 
   {#if page.data.session}
-    <div class="navbar__center">
+    <div class="navbar__center" bind:this={center}>
       <WorkspacePicker {slug} workspaces={(page.data.workspaces ?? []).map((w) => w.name)} />
       {#if slug}
         <a href={notesPath(slug)} class="navbar__link" class:navbar__link--active={notesActive}>
           Notes
+        </a>
+        <a href={recentPath(slug)} class="navbar__link" class:navbar__link--active={recentActive}>
+          Ostatnie
         </a>
         <a
           href={collectionsPath(slug)}
@@ -100,7 +117,21 @@
     @include bp.mobile {
       gap: v.$space-sm;
       margin-left: v.$space-sm;
+      // Four tabs do not fit next to the picker and the user menu at phone width, so the
+      // strip takes the leftover space and scrolls instead of overlapping its neighbours.
+      flex: 1 1 0;
       min-width: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+
+      &::-webkit-scrollbar {
+        display: none;
+      }
+
+      > :global(*) {
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
     }
   }
 
