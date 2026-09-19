@@ -17,6 +17,7 @@ from kajet_turbo.repositories.notes import (
 )
 from kajet_turbo.repositories.notes.chunks import RELATED_K
 from kajet_turbo.services.notes.related_ranking import RankedNote, rank_related
+from kajet_turbo.workspace import folder_scope
 
 MIN_LIMIT = 1
 MAX_LIMIT = 50
@@ -45,12 +46,16 @@ class NoteRelatedService:
         """Sync: runs entirely on the calling (worker) thread. Returns ``None`` when the
         note doesn't exist or isn't owned by ``owner_id`` in ``workspace`` — same
         convention as ``NoteReadService.get`` — so the caller can turn that into 404
-        instead of a fifth state."""
+        instead of a fifth state.
+
+        ``folder`` goes through ``folder_scope``: normalized, with the workspace root
+        meaning the whole workspace."""
         if not MIN_LIMIT <= limit <= MAX_LIMIT:
             raise ValueError(f"limit must be between {MIN_LIMIT} and {MAX_LIMIT}, got {limit}")
         note = self._note_repo.get(note_id, owner_id=owner_id)
         if note is None or note.workspace != workspace:
             return None
+        folder = folder_scope(folder)
         cfg = self._resolve_cfg(owner_id)
         if cfg is None:
             return RelatedNotesResult("unavailable", [], 0, 0, RELATED_K)

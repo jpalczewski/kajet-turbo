@@ -17,6 +17,7 @@ from kajet_turbo.services.notes.fusion import (
     NARROWED_CANDIDATE_LIMIT,
     fuse_hybrid,
 )
+from kajet_turbo.workspace import folder_scope
 
 
 class NoteSearchService:
@@ -50,6 +51,7 @@ class NoteSearchService:
         """Sync search: runs entirely on the calling (worker) thread, driving the
         embedder with ``asyncio.run``. The MCP boundary uses ``search_async`` instead
         so the query-embedding HTTP roundtrip doesn't pin a run_sync slot."""
+        folder = folder_scope(folder)
         cfg = self._prepare(owner_id)
         embedding = None
         identity = None
@@ -75,6 +77,7 @@ class NoteSearchService:
         ms-scale work, while the query-embedding HTTP call is awaited natively on the
         event loop through the shared client — a slow embedding endpoint no longer
         occupies a limiter slot for its whole roundtrip."""
+        folder = folder_scope(folder)  # fail fast, before any embedding call
         if self._async_build_embedder is None:
             # No async embedder wired (test doubles / legacy wiring): run the whole
             # sync search in one worker-thread slot, as before.

@@ -128,6 +128,19 @@ def normalize_folder(folder: str) -> str:
     return "/".join(title_to_windows_filename(p) for p in parts)
 
 
+def folder_scope(folder: str | None) -> str | None:
+    """Normalize a folder that narrows a read (search, related notes) to "this folder and
+    its descendants". The workspace root scopes to everything, so it is ``None`` — passing
+    ``""`` on would match only root-level notes. A bad path is an ``InvalidFolderError`` so
+    REST maps it to 422 and MCP surfaces the message verbatim."""
+    if folder is None:
+        return None
+    try:
+        return normalize_folder(folder) or None
+    except ValueError as e:
+        raise InvalidFolderError(str(e)) from e
+
+
 def list_workspace_folders(workspace_path: str) -> list[str]:
     """List visible workspace folders from disk. Root is represented by an empty string."""
     root = Path(workspace_path).resolve()
