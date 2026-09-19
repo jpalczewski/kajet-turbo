@@ -4,7 +4,11 @@ import json
 import httpx2
 import pytest
 
-from kajet_turbo.embedding.base import EmbedderConfig, EmbeddingAuthError
+from kajet_turbo.embedding.base import (
+    EmbedderConfig,
+    EmbeddingAuthError,
+    EmbeddingRequestRejected,
+)
 from kajet_turbo.embedding.openai_compat import OpenAICompatEmbedder
 
 _CFG = EmbedderConfig(
@@ -186,3 +190,29 @@ def test_transient_statuses_stay_http_status_errors(status):
             asyncio.run(emb.embed_query("x"))
     finally:
         asyncio.run(client.aclose())
+
+
+@pytest.mark.parametrize("status", [400, 404, 422])
+def test_rejected_request_carries_provider_detail(status):
+    body = {"error": {"message": "Invalid model specified", "param": "model"}}
+    emb, client = _embedder(lambda request: httpx2.Response(status, json=body))
+    try:
+        with pytest.raises(EmbeddingRequestRejected) as excinfo:
+            asyncio.run(emb.embed_query("x"))
+    finally:
+        asyncio.run(client.aclose())
+    assert excinfo.value.status_code == status
+    assert excinfo.value.detail == "Invalid model specified"
+
+
+def test_rejected_request_detail_redacts_key_and_is_bounded():
+    text = "bad key sk-test " + "x" * 1000
+    emb, client = _embedder(lambda request: httpx2.Response(400, text=text))
+    try:
+        with pytest.raises(EmbeddingRequestRejected) as excinfo:
+            asyncio.run(emb.embed_query("x"))
+    finally:
+        asyncio.run(client.aclose())
+    assert "sk-test" not in excinfo.value.detail
+    assert excinfo.value.detail.startswith("bad key ***")
+    assert len(excinfo.value.detail) <= 300
