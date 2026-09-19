@@ -33,6 +33,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   SSH_KEY_NOT_FOUND: 'Klucz nie istnieje.',
   EMBEDDING_PROFILE_NOT_FOUND: 'Profil nie istnieje.',
   EMBEDDING_PROFILE_PROBE_FAILED: 'Nie udało się połączyć z embedderem.',
+  EMBEDDING_PROFILE_PROBE_AUTH_FAILED:
+    'Embedder odrzucił klucz API — sprawdź, czy klucz jest aktualny i wklejony w całości.',
+  EMBEDDING_PROFILE_PROBE_REJECTED:
+    'Embedder odrzucił żądanie — sprawdź nazwę modelu i adres bazowy. Szczegóły są w logach serwera.',
   SHARE_LINK_NOT_FOUND: 'Link nie istnieje.',
 };
 

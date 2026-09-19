@@ -1,8 +1,10 @@
+import pytest
 from starlette.testclient import TestClient
 
 from kajet_turbo.api.embedding import router
 from kajet_turbo.crypto import cipher_for
 from kajet_turbo.dependencies import get_embedding_profile_service
+from kajet_turbo.embedding.base import EmbeddingAuthError, EmbeddingRequestRejected
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 from kajet_turbo.services.embedding_profiles import EmbeddingProfileService
 from tests.api.conftest import build_test_app
@@ -25,6 +27,25 @@ def _app(database, monkeypatch, *, user_id="u1", probe_dim=3, probe_error=None):
     app = build_test_app(routers=(router,), user_id=user_id)
     app.dependency_overrides[get_embedding_profile_service] = lambda: svc
     return TestClient(app), svc
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (EmbeddingAuthError("b", 401), "EMBEDDING_PROFILE_PROBE_AUTH_FAILED"),
+        (EmbeddingRequestRejected("b", 400, "Invalid model"), "EMBEDDING_PROFILE_PROBE_REJECTED"),
+        (RuntimeError("connection refused"), "EMBEDDING_PROFILE_PROBE_FAILED"),
+    ],
+)
+def test_create_probe_failure_code_reflects_cause(database, monkeypatch, error, expected):
+    client, _ = _app(database, monkeypatch, probe_error=error)
+    r = client.post(
+        "/api/me/embedding-profiles",
+        json={"name": "bad", "base_url": "http://h/v1", "model": "m", "api_key": "sk-x"},
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == expected
+    assert "Invalid model" not in r.text  # provider detail stays in the operator log
 
 
 def test_create_with_asyncio_probe_offloads_to_thread(database, monkeypatch):

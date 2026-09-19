@@ -11,12 +11,36 @@ import time
 import httpx2
 from loguru import logger
 
-from kajet_turbo.embedding.base import EmbedderConfig, EmbeddingAuthError
+from kajet_turbo.embedding.base import (
+    EmbedderConfig,
+    EmbeddingAuthError,
+    EmbeddingRequestRejected,
+)
 from kajet_turbo.perf import incr, record
 
 _BATCH = 100
 # Credential rejections; 429 is deliberately absent (rate limiting is transient).
 _AUTH_STATUSES = frozenset({401, 403})
+# The request itself was refused (bad model, wrong path, malformed body).
+_REJECTED_STATUSES = frozenset({400, 404, 422})
+_MAX_DETAIL_CHARS = 300
+
+
+def _error_detail(resp: httpx2.Response, api_key: str | None) -> str:
+    """The provider's own explanation of a rejected request, bounded and with the API
+    key redacted (some gateways echo the credential back in their error text)."""
+    try:
+        body = resp.json()
+        error = body.get("error") if isinstance(body, dict) else None
+        detail = error.get("message") if isinstance(error, dict) else error
+        text = detail if isinstance(detail, str) else resp.text
+    except ValueError:
+        text = resp.text
+    if api_key:
+        text = text.replace(api_key, "***")
+    return text[:_MAX_DETAIL_CHARS]
+
+
 # Coarse truncate guard, comfortably under typical 8k-token limits. MUST stay >= the
 # chunker's hard_max (kajet_turbo.markdown.DEFAULT_HARD_MAX) so a normal chunk + its
 # breadcrumb prefix is never silently truncated before embedding.
@@ -72,6 +96,12 @@ class OpenAICompatEmbedder:
             incr("embed_batches")
             if resp.status_code in _AUTH_STATUSES:
                 raise EmbeddingAuthError(self._config.backend_id, resp.status_code)
+            if resp.status_code in _REJECTED_STATUSES:
+                raise EmbeddingRequestRejected(
+                    self._config.backend_id,
+                    resp.status_code,
+                    _error_detail(resp, self._config.api_key),
+                )
             resp.raise_for_status()
             data = sorted(resp.json()["data"], key=lambda d: d["index"])
             for item in data:
