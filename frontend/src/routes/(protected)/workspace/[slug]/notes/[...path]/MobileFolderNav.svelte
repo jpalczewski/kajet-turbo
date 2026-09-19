@@ -2,6 +2,7 @@
   import type { TagNode } from '$lib/api';
   import { notesPath, workspaceSettingsPath } from '$lib/routes';
   import { breadcrumbCrumbs } from '$lib/breadcrumb';
+  import ListRow from '$lib/components/ui/ListRow.svelte';
   import { childFolders } from './tree';
   import ExplorerModeToggle from './ExplorerModeToggle.svelte';
   import TagTree from './TagTree.svelte';
@@ -44,11 +45,11 @@
       <ul class="subfolders">
         {#each subfolders as folder (folder)}
           <li>
-            <a class="subfolder" href={notesPath(slug, folder)}>
-              <span class="subfolder__icon">📁</span>
-              <span class="subfolder__name">{folder.split('/').at(-1)}/</span>
-              <span class="subfolder__chevron">›</span>
-            </a>
+            <ListRow href={notesPath(slug, folder)} layout="inline">
+              <span class="subfolder-icon">📁</span>
+              <span class="subfolder-name">{folder.split('/').at(-1)}/</span>
+              <span class="subfolder-chevron">›</span>
+            </ListRow>
           </li>
         {/each}
       </ul>
@@ -95,32 +96,28 @@
     color: v.$text-muted;
   }
 
+  // Each row closes with a rule, so the list opens with one and overlaps the
+  // settings link's top rule instead of doubling it.
   .subfolders {
     list-style: none;
-    margin: 0;
+    margin: 0 0 -1px;
     padding: 0;
-  }
-  .subfolder {
-    display: flex;
-    align-items: center;
-    gap: v.$space-sm;
-    min-height: 44px;
-    padding: 0 12px;
     border-top: 1px solid v.$border;
+  }
+  .subfolder-icon {
+    font-size: 0.85rem;
+  }
+  .subfolder-name {
+    flex: 1;
+    overflow: hidden;
     color: v.$text-secondary;
     font-family: v.$font-mono;
     font-size: 0.85rem;
-    text-decoration: none;
-
-    &__name {
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    &__chevron {
-      color: v.$text-muted;
-    }
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .subfolder-chevron {
+    color: v.$text-muted;
   }
 
   .tag-tree-wrap {
