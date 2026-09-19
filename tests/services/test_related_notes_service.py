@@ -4,6 +4,7 @@ from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.markdown import Chunk
 from kajet_turbo.repositories.notes import NoteChunkRepository, NoteRepository
 from kajet_turbo.services.notes.related import NoteRelatedService
+from kajet_turbo.workspace import InvalidFolderError
 from tests.helpers import add_notes, related_note, vec_identity
 
 CFG = EmbedderConfig(
@@ -130,6 +131,53 @@ def test_related_folder_scope_narrows_results(database):
     result = service.related("src", "u1", "ws", folder="Journal")
 
     assert [item.note_id for item in result.items] == ["in_scope"]
+
+
+def _seed_folder_scope(database):
+    service, chunk_repo = _service(database)
+    identity = vec_identity(2, model="test-model", backend="http://test")
+    _add_notes(
+        database,
+        _note("src", folder="Journal"),
+        _note("nested", folder="Journal/2026"),
+        _note("elsewhere", folder="Work"),
+        _note("at_root", folder=""),
+    )
+    chunk_repo.ensure_vec_table(identity)
+    for note_id, vector in [
+        ("src", [1.0, 0.0]),
+        ("nested", [0.9, 0.1]),
+        ("elsewhere", [0.8, 0.2]),
+        ("at_root", [0.7, 0.3]),
+    ]:
+        chunk_repo.replace_chunks(
+            note_id, "ws", "u1", note_id, [Chunk(0, ["# H"], "h", 0, 1)], [vector], identity
+        )
+    return service
+
+
+@pytest.mark.parametrize("folder", ["", "/", "  "])
+def test_related_root_folder_scopes_to_whole_workspace(database, folder):
+    service = _seed_folder_scope(database)
+
+    result = service.related("src", "u1", "ws", folder=folder)
+
+    assert {item.note_id for item in result.items} == {"nested", "elsewhere", "at_root"}
+
+
+@pytest.mark.parametrize("folder", ["Journal/", "/Journal", "Journal//"])
+def test_related_folder_is_normalized(database, folder):
+    service = _seed_folder_scope(database)
+
+    result = service.related("src", "u1", "ws", folder=folder)
+
+    assert [item.note_id for item in result.items] == ["nested"]
+
+
+def test_related_rejects_folder_escaping_workspace(database):
+    service = _seed_folder_scope(database)
+    with pytest.raises(InvalidFolderError):
+        service.related("src", "u1", "ws", folder="../etc")
 
 
 @pytest.mark.parametrize("limit", [0, -1, 51, 100])

@@ -1,9 +1,12 @@
+import pytest
+
 from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
+from kajet_turbo.workspace import InvalidFolderError
 from tests.services.conftest import build_note_search_service, build_note_wiring, workspace_target
 
 
@@ -148,6 +151,39 @@ def test_search_narrows_by_folder(database, git_workspace_factory):
     )
     hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, folder="a")
     assert [h.title for h in hits] == ["In scope"]
+
+
+def _seed_folders(service, ws):
+    for title, folder in [("Nested", "a/deep"), ("Top", "a"), ("Other", "b"), ("Rooted", "")]:
+        service.save(
+            workspace_target("u1", "ws", ws), title, "keyword here", tags=[], folder=folder
+        )
+
+
+@pytest.mark.parametrize("root", ["", "/"])
+def test_search_root_folder_scopes_to_whole_workspace(database, git_workspace_factory, root):
+    service, search_service = _service(database)
+    ws = git_workspace_factory("ws")
+    _seed_folders(service, ws)
+    hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, folder=root)
+    assert {h.title for h in hits} == {"Nested", "Top", "Other", "Rooted"}
+
+
+@pytest.mark.parametrize("folder", ["a/", "/a", "a//"])
+def test_search_folder_is_normalized_and_includes_descendants(
+    database, git_workspace_factory, folder
+):
+    service, search_service = _service(database)
+    ws = git_workspace_factory("ws")
+    _seed_folders(service, ws)
+    hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, folder=folder)
+    assert {h.title for h in hits} == {"Nested", "Top"}
+
+
+def test_search_rejects_folder_escaping_workspace(database, git_workspace_factory):
+    _, search_service = _service(database)
+    with pytest.raises(InvalidFolderError):
+        search_service.search("keyword", ["ws"], owner_id="u1", limit=10, folder="../etc")
 
 
 def test_search_narrows_by_folder_widens_metadata_candidate_window(database, git_workspace_factory):

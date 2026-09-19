@@ -6,6 +6,8 @@ from .content import (
     NoteHtmlResponse,
     NoteLinkItem,
     NoteMarkdownResponse,
+    RelatedNoteItem,
+    RelatedNotesResponse,
 )
 from .crud import (
     BatchCreateNotesRequest,
@@ -67,6 +69,8 @@ __all__ = [
     "NoteSort",
     "NotesListResponse",
     "ReindexResponse",
+    "RelatedNoteItem",
+    "RelatedNotesResponse",
     "RestoreVersionResponse",
     "ShareLinkItem",
     "ShareLinksResponse",

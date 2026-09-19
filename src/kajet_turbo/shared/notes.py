@@ -166,3 +166,46 @@ class GraphBase(BaseModel):
     nodes: list[GraphNode]
     edges: list[GraphEdge]
     dangling_links: list[DanglingLinkItem] | None = None
+
+
+# --- Semantic related notes (#189) ---
+
+type RelatedNotesStatus = Literal["ready", "pending", "unavailable", "empty"]
+
+
+class RelatedNoteItem(BaseModel):
+    """One note ranked as semantically related to a source note, with its best evidence.
+
+    ``best_distance``/``hub_margin``/``coverage``/``score`` are raw ranking metrics, kept
+    unconverted so a quality threshold can be calibrated later (#214) — do not present
+    them to users as a percentage."""
+
+    note_id: str = Field(description="Related note id")
+    title: str = Field(description="Related note title")
+    folder: str = Field(description="Folder path; empty string means workspace root")
+    updated_at: str = Field(description="Last-modified timestamp, ISO 8601")
+    source_chunk_id: str = Field(description="Chunk of the source note that matched best")
+    target_chunk_id: str = Field(description="Chunk of the related note that matched best")
+    source_header_path: list[str] = Field(
+        description="Heading path of the matching source chunk; empty before the first heading"
+    )
+    target_header_path: list[str] = Field(
+        description="Heading path of the matching related-note chunk"
+    )
+    target_content: str = Field(description="Text of the matching related-note chunk")
+    best_distance: float = Field(description="Raw L2 distance of the strongest chunk pair")
+    hub_margin: float = Field(description="Raw margin of the best pair over the note's average")
+    coverage: float = Field(description="Fraction of source chunks with a match in this note")
+    score: float = Field(description="Final ranking score; results are sorted by it, descending")
+
+
+class RelatedNotesResponse(BaseModel):
+    """Semantically related notes for one source note, computed only from stored vectors."""
+
+    status: RelatedNotesStatus = Field(
+        description="`ready`: ranking completed and `items` may still be empty; "
+        "`pending`: the note has chunks but none is embedded under the active embedding "
+        "profile yet; `unavailable`: no embedding profile is configured; `empty`: the "
+        "note has no chunks to embed. Only `ready` can carry items"
+    )
+    items: list[RelatedNoteItem] = Field(description="Related notes, best first")

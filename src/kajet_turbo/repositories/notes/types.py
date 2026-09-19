@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
+from kajet_turbo.shared.notes import RelatedNotesStatus
+
 type MetadataMatch = Literal["title", "tag", "folder"]
 
 
@@ -100,9 +102,6 @@ class RelatedChunkQuery:
     evidence: list[RelatedEvidence]
 
 
-type RelatedNotesState = Literal["ready", "pending", "unavailable", "empty"]
-
-
 @dataclass(frozen=True, slots=True)
 class RelatedNoteItem:
     """One ranked related note, ready for REST/MCP to wrap in their own response model.
@@ -136,7 +135,7 @@ class RelatedNotesResult:
     -scoped read, with an explicit readiness state instead of collapsing "not ready" into
     an empty list (see #210's design doc)."""
 
-    state: RelatedNotesState
+    state: RelatedNotesStatus
     items: list[RelatedNoteItem]
     source_chunks_total: int
     source_chunks_used: int

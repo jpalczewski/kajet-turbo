@@ -1,6 +1,12 @@
 from pydantic import BaseModel, Field
 
-from kajet_turbo.shared.notes import GraphBase, NoteLinkItem, NoteLinksBase
+from kajet_turbo.shared.notes import (
+    GraphBase,
+    NoteLinkItem,
+    NoteLinksBase,
+    RelatedNoteItem,
+    RelatedNotesResponse,
+)
 
 __all__ = [
     "ChunkPreviewItem",
@@ -10,6 +16,8 @@ __all__ = [
     "NoteHtmlResponse",
     "NoteLinkItem",
     "NoteMarkdownResponse",
+    "RelatedNoteItem",
+    "RelatedNotesResponse",
 ]
 
 

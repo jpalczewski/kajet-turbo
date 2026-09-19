@@ -3,8 +3,10 @@ from pathlib import Path
 import pytest
 
 from kajet_turbo.workspace import (
+    InvalidFolderError,
     NoteFrontmatter,
     create_workspace,
+    folder_scope,
     normalize_folder,
     note_filepath,
     read_note_file,
@@ -94,6 +96,27 @@ def test_normalize_folder_rejects_dotdot():
 def test_normalize_folder_rejects_dotdot_nested():
     with pytest.raises(ValueError):
         normalize_folder("foo/../bar")
+
+
+# --- folder_scope ---
+
+
+def test_folder_scope_none_stays_unscoped():
+    assert folder_scope(None) is None
+
+
+@pytest.mark.parametrize("root", ["", "/", "  "])
+def test_folder_scope_root_means_whole_workspace(root):
+    assert folder_scope(root) is None
+
+
+def test_folder_scope_normalizes_path():
+    assert folder_scope("/foo//bar/") == "foo/bar"
+
+
+def test_folder_scope_rejects_dotdot_as_invalid_folder():
+    with pytest.raises(InvalidFolderError, match=r"'\.\.'"):
+        folder_scope("foo/../bar")
 
 
 def test_normalize_folder_sanitizes_forbidden_chars_in_segment():
