@@ -155,3 +155,8 @@ belongs in `services/`, wrapped in the write-lock the service layer already uses
 production (`server.py`), so a route's error contract is identical in tests and prod. Use
 the `auth_client`/`anon_client`/`no_access_client` fixtures for the three identity states
 rather than constructing a `TestClient` by hand.
+
+A bare test app has no `app.state.resources`, so it must never reach the real
+`get_session_user` (it raises rather than answering 401). Authenticated bare apps fake the
+user with `build_test_app(..., user_id=...)` / `act_as()`; anonymous requests go through
+`anon_client`, which builds via `build_api_app` so the 401 proves the whole auth chain.

@@ -4,7 +4,7 @@ from kajet_turbo.api.schemas.ssh_keys import SSH_KEY_ALGORITHMS
 from kajet_turbo.api.ssh_keys import router
 from kajet_turbo.crypto import cipher_for
 from kajet_turbo.crypto.ssh_keys import ALGORITHMS
-from kajet_turbo.dependencies import CurrentUser, get_required_user, get_ssh_key_service
+from kajet_turbo.dependencies import get_ssh_key_service
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
 from kajet_turbo.services.ssh_keys import SshKeyService
 from tests.api.conftest import build_test_app
@@ -18,18 +18,13 @@ def test_schema_algorithms_match_crypto_module():
 
 
 def _app(database, monkeypatch, *, user_id="u1"):
-    if user_id:
-        seed_user(database, user_id)
+    seed_user(database, user_id)
     svc = SshKeyService(
         SshKeyRepository(database.engine),
         cipher_factory=lambda: cipher_for("ssh-key", secret="server-secret"),
     )
-    app = build_test_app(routers=(router,))
+    app = build_test_app(routers=(router,), user_id=user_id)
     app.dependency_overrides[get_ssh_key_service] = lambda: svc
-    if user_id:
-        app.dependency_overrides[get_required_user] = lambda: CurrentUser(
-            id=user_id, email="", timezone="", locale=""
-        )
     return TestClient(app)
 
 
@@ -134,8 +129,8 @@ def test_list_response_matches_response_model(database, monkeypatch):
     }
 
 
-def test_requires_login(database, monkeypatch):
-    client = _app(database, monkeypatch, user_id=None)
+def test_requires_login(anon_client):
+    client = anon_client
     assert client.get("/api/me/ssh-keys").status_code == 401
     r = client.post("/api/me/ssh-keys", json={"name": "x", "algorithm": "ed25519"})
     assert r.status_code == 401

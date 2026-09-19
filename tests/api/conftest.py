@@ -13,6 +13,7 @@ from kajet_turbo.api.shared_preview import router as shared_preview_router
 from kajet_turbo.api.workspaces import router
 from kajet_turbo.db import Database
 from kajet_turbo.dependencies import (
+    AppConfig,
     CurrentUser,
     get_collection_service,
     get_note_create_service,
@@ -41,6 +42,7 @@ from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository, N
 from kajet_turbo.repositories.workspace_meta import WorkspaceMetaRepository
 from kajet_turbo.repositories.workspace_remote import WorkspaceRemoteRepository
 from kajet_turbo.repositories.workspaces import WorkspaceRepository
+from kajet_turbo.server import build_api_app
 from kajet_turbo.services.collections import CollectionService
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.services.notes import (
@@ -76,13 +78,30 @@ class ApiTestContext:
         return getattr(self.client, name)
 
 
-def build_test_app(routers: Iterable[APIRouter] = (router,)) -> FastAPI:
+def act_as(
+    app: FastAPI, user_id: str, *, email: str = "", timezone: str = "", locale: str = ""
+) -> FastAPI:
+    """Authenticate every request as this user by overriding `get_required_user`.
+
+    A bare test app has no `app.state.resources`, so it must never reach the real
+    `get_session_user`; anonymous requests go through the `anon_client` fixture instead."""
+    app.dependency_overrides[get_required_user] = lambda: CurrentUser(
+        id=user_id, email=email, timezone=timezone, locale=locale
+    )
+    return app
+
+
+def build_test_app(
+    routers: Iterable[APIRouter] = (router,), *, user_id: str | None = None
+) -> FastAPI:
     """Same exception-handler wiring as production (`server.py`'s `install_error_handlers`)
     so a route's error contract does not depend on which harness exercises it."""
     app = FastAPI()
     for r in routers:
         app.include_router(r)
     install_error_handlers(app)
+    if user_id is not None:
+        act_as(app, user_id)
     return app
 
 
@@ -99,7 +118,7 @@ def api_client_factory(
 ) -> Iterator[Callable[..., ApiTestContext]]:
     contexts: list[tuple[TestClient, Any]] = []
 
-    def create(*, user_id: str | None = "u1", grant_access: bool = True) -> ApiTestContext:
+    def create(*, user_id: str = "u1", grant_access: bool = True) -> ApiTestContext:
         from kajet_turbo.repositories.notes import NoteChunkRepository as _NoteChunkRepo
         from tests.conftest import seed_user
         from tests.services.conftest import (
@@ -162,12 +181,13 @@ def api_client_factory(
         share_link_repo = NoteShareLinkRepository(database.engine)
         collection_service = CollectionService(note_repository, note_service.create)
 
-        if user_id is not None:
-            seed_user(database, user_id)
-            if grant_access:
-                workspace_repository.grant_access(user_id, "test-ws")
+        seed_user(database, user_id)
+        if grant_access:
+            workspace_repository.grant_access(user_id, "test-ws")
 
-        app = build_test_app(routers=(router, public_notes_router, shared_preview_router))
+        app = build_test_app(
+            routers=(router, public_notes_router, shared_preview_router), user_id=user_id
+        )
         app.dependency_overrides[get_note_create_service] = lambda: note_service.create
         app.dependency_overrides[get_note_edit_service] = lambda: note_service.edit
         app.dependency_overrides[get_note_delete_service] = lambda: note_service.delete
@@ -188,11 +208,6 @@ def api_client_factory(
         app.dependency_overrides[get_target_resolver] = lambda: TargetResolver(
             note_repository, workspace_service
         )
-        if user_id is not None:
-            _uid = user_id
-            app.dependency_overrides[get_required_user] = lambda: CurrentUser(
-                id=_uid, email="", timezone="", locale=""
-            )
 
         client_manager = TestClient(app)
         client = client_manager.__enter__()
@@ -218,5 +233,20 @@ def no_access_client(api_client_factory: Callable[..., ApiTestContext]) -> ApiTe
 
 
 @pytest.fixture
-def anon_client(api_client_factory: Callable[..., ApiTestContext]) -> ApiTestContext:
-    return api_client_factory(user_id=None)
+def anon_client(database: Database, tmp_path: Path) -> Iterator[TestClient]:
+    """Unauthenticated client against the real application graph.
+
+    A 401 test should prove the whole chain (cookie -> `session_repo` -> no user) rejects
+    the request, so it builds through `build_api_app` rather than a bare app that fakes
+    identity. Nothing is overridden: the request is rejected before any service is reached.
+    """
+    app = build_api_app(
+        AppConfig(
+            db_path=database.db_path,
+            workspaces_dir=str(tmp_path / "workspaces"),
+            mcp_base_url="http://localhost",
+            serve_spa=False,
+        )
+    )
+    with TestClient(app) as client:
+        yield client

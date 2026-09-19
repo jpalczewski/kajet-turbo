@@ -109,12 +109,12 @@ def test_wikilink_to_a_private_note_never_leaks_a_link(auth_client):
     assert "<a" not in html
 
 
-def test_unknown_token_returns_404_with_no_identity_at_all(anon_client):
+def test_unknown_token_returns_404_with_no_identity_at_all(anon_client, database):
     # anon_client seeds no user, no note, and no share link -- this is the case that
     # proves the endpoint needs zero session/OAuth state, not merely "a bad token 404s".
-    response = anon_client.client.get("/api/public/notes/does-not-exist")
+    response = anon_client.get("/api/public/notes/does-not-exist")
 
     assert response.status_code == 404
     assert response.headers["cache-control"] == "no-store"
-    with Session(anon_client.share_link_repo._engine) as session:
+    with Session(database.engine) as session:
         assert session.exec(select(NoteShareLinkVisit)).all() == []

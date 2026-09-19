@@ -32,11 +32,6 @@ def other_client(api_client_factory) -> ApiTestContext:
     return api_client_factory(user_id="u2", grant_access=False)
 
 
-@pytest.fixture
-def anon_client(api_client_factory) -> ApiTestContext:
-    return api_client_factory(user_id=None)
-
-
 def test_get_settings_returns_definitions_and_defaults(client, ws_name):
     res = client.get(f"/api/workspaces/{ws_name}/settings")
     assert res.status_code == 200
