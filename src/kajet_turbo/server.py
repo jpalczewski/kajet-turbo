@@ -1,7 +1,8 @@
 import os
 import re
 import sys
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import ExitStack, asynccontextmanager, contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from kajet_turbo.dependencies import AppConfig, AppResources, build_resources
 from kajet_turbo.health import add_health_routes
 from kajet_turbo.log import LoggingMiddleware, install_loop_exception_handler, logger, setup_logging
 from kajet_turbo.mcp import build_mcp
+from kajet_turbo.metrics import add_metrics_route, prepare_multiprocess_dir, serve_metrics
 from kajet_turbo.repositories.git import use_post_commit_hooks
 
 _SPA_EXPLORER_PATH = re.compile(r"^workspace/[A-Za-z0-9][A-Za-z0-9_-]{0,49}/notes(?:/.*)?$")
@@ -135,6 +137,17 @@ async def _worker_lifespan(app: FastAPI):
         thread.join()
 
 
+@asynccontextmanager
+async def _sampler_lifespan(app: FastAPI):
+    # Placed after _worker_lifespan so it stops first and _app_lifespan closes the DB last.
+    sampler = app.state.resources.metrics.sampler
+    if sampler is None:
+        yield
+        return
+    with sampler.running():
+        yield
+
+
 def _is_spa_navigation(path: str, scope: dict) -> bool:
     """Whether a missing path is a browser navigation eligible for the SPA shell.
 
@@ -236,7 +249,33 @@ def _mount_spa(app: FastAPI, resources: AppResources) -> None:
         app.mount("/", _SPAFiles(str(dist)))
 
 
-def _assemble(config: AppConfig | None) -> AppResources:
+def _uvicorn_workers(role: str) -> int:
+    """Child processes uvicorn runs for a role. Read by the supervisor in main() and by
+    each factory, which needs it to decide whether it may own shared-state sampling."""
+    if role == "api":
+        return int(os.getenv("API_WORKERS", "2"))
+    # /mcp is served stateless_http=True (#244): no in-process session state to pin
+    # it to one worker, so role "mcp" reads MCP_WORKERS like role "all" does.
+    return int(os.getenv("MCP_WORKERS", "1"))
+
+
+def _sample_shared_default(role: str) -> bool:
+    """Which role owns shared-state sampling (SQLite files, queue snapshots) by default.
+
+    The worker is the single owner. api and mcp run several children under one scrape
+    target, so sampling there would multiply the snapshot; "all" owns it only when it
+    is a single process.
+    """
+    match role:
+        case "worker":
+            return True
+        case "all":
+            return _uvicorn_workers(role) == 1
+        case _:
+            return False
+
+
+def _assemble(config: AppConfig | None, role: str) -> AppResources:
     # build_resources() constructs KajetOAuthProvider, which logs from its __init__
     # (oauth_provider_init, plus a repository_operation from delete_expired_tokens).
     # That runs here, at factory-build time, before the ASGI lifespan ever starts —
@@ -246,7 +285,10 @@ def _assemble(config: AppConfig | None) -> AppResources:
     # RichHandler, installed later by mcp_app.lifespan) — this call is redundant with
     # that one, not a replacement for it.
     setup_logging()
-    return build_resources(config or AppConfig.from_env())
+    config = config or AppConfig.from_env()
+    if config.metrics_sample_shared is None:
+        config = replace(config, metrics_sample_shared=_sample_shared_default(role))
+    return build_resources(config)
 
 
 @contextmanager
@@ -260,17 +302,18 @@ def _assembling(resources: AppResources):
 
 
 def _wire(app: FastAPI, resources: AppResources) -> None:
-    """Shared per-role wiring: bind resources, logging/hook middleware, health routes."""
+    """Shared per-role wiring: resources, logging/hook middleware, health and metrics routes."""
     app.state.resources = resources
     app.add_middleware(LoggingMiddleware, resources=resources)
     app.add_middleware(_ResourceHookScope, resources=resources)
     add_health_routes(app, engine=resources.db.engine)
+    add_metrics_route(app, resources.metrics)
 
 
 def build_mcp_app(config: AppConfig | None = None) -> Any:
     """MCP role: /mcp + OAuth routes only. Stateless transport (#244) — scales to any
     worker count via MCP_WORKERS (#250)."""
-    resources = _assemble(config)
+    resources = _assemble(config, "mcp")
     with _assembling(resources):
         mcp_app = _new_mcp_app(resources)
         app = FastAPI(
@@ -284,7 +327,7 @@ def build_mcp_app(config: AppConfig | None = None) -> Any:
 
 def build_api_app(config: AppConfig | None = None) -> Any:
     """API role: REST /api + SPA. Stateless — scales to any worker count."""
-    resources = _assemble(config)
+    resources = _assemble(config, "api")
     with _assembling(resources):
         app = FastAPI(lifespan=combine_lifespans(_app_lifespan, _logging_lifespan))
     install_error_handlers(app)
@@ -296,7 +339,7 @@ def build_api_app(config: AppConfig | None = None) -> Any:
 
 def build_app(config: AppConfig | None = None) -> Any:
     """Combined role ("all"): MCP + API + SPA in one process (local dev)."""
-    resources = _assemble(config)
+    resources = _assemble(config, "all")
     with _assembling(resources):
         mcp_app = _new_mcp_app(resources)
         app = FastAPI(
@@ -306,6 +349,7 @@ def build_app(config: AppConfig | None = None) -> Any:
                 _logging_lifespan,
                 _sweep_outbox_lifespan,
                 _worker_lifespan,
+                _sampler_lifespan,
             )
         )
     install_error_handlers(app)
@@ -404,6 +448,21 @@ def _cmd_purge_tech_users() -> None:
         print(f"Removed workspace dirs: {', '.join(removed_dirs)}")
 
 
+def _serve_worker(resources: AppResources) -> None:
+    """Run the standalone worker with its metrics listener and sampler.
+
+    Both are stopped before returning, so main() closes the DB only once nothing else
+    can read it, and the metrics port is free again.
+    """
+    metrics = resources.metrics
+    with ExitStack() as stack:
+        port = stack.enter_context(serve_metrics(metrics, port=resources.config.metrics_port))
+        logger.info("metrics_listener_start", port=port)
+        if metrics.sampler is not None:
+            stack.enter_context(metrics.sampler.running())
+        _run_job_worker(resources)
+
+
 def main() -> None:
     import uvicorn
 
@@ -440,23 +499,22 @@ def main() -> None:
             except Exception as e:
                 logger.warning("startup_branch_migration_failed", error=str(e))
 
-        resources = _assemble(None)
+        resources = _assemble(None, role)
         try:
             resources.job_repo.enqueue("sweep_outbox", {}, dedup_key="sweep_outbox")
-            _run_job_worker(resources)
+            _serve_worker(resources)
         finally:
             resources.db.close()
         return
-    if role == "mcp":
-        # /mcp is served stateless_http=True (#244): no in-process session state to
-        # pin this to one worker, so it reads MCP_WORKERS like role "all" does.
-        factory, workers = "kajet_turbo.server:build_mcp_app", int(os.getenv("MCP_WORKERS", "1"))
-    elif role == "api":
-        factory = "kajet_turbo.server:build_api_app"
-        workers = int(os.getenv("API_WORKERS", "2"))
-    else:
-        factory = "kajet_turbo.server:build_app"
-        workers = int(os.getenv("MCP_WORKERS", "1"))
+    factory = {
+        "mcp": "kajet_turbo.server:build_mcp_app",
+        "api": "kajet_turbo.server:build_api_app",
+    }.get(role, "kajet_turbo.server:build_app")
+    workers = _uvicorn_workers(role)
+    if role in {"api", "mcp"}:
+        # The supervisor owns the multiprocess directory: created and cleared exactly
+        # once, here, before any child exists. Children never clear it.
+        prepare_multiprocess_dir()
     # uvicorn's default log config gives the "uvicorn" logger its own plain-text
     # stderr handler with propagate=False, so its lifecycle lines and every
     # "Exception in ASGI application" traceback bypassed the JSON sink: in production

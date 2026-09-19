@@ -46,6 +46,8 @@ services:
       KAJET_ROLE: api
       KAJET_SERVE_SPA: "0"
       API_WORKERS: "2"
+      # Shared-state sampling has exactly one owner per deployment: kajet-worker.
+      KAJET_METRICS_SAMPLE_SHARED: "0"
     volumes:
       - kajet_data:/data
       - kajet_workspaces:/workspaces
@@ -70,6 +72,7 @@ services:
     environment:
       KAJET_ROLE: mcp
       MCP_WORKERS: "2"
+      KAJET_METRICS_SAMPLE_SHARED: "0"
     volumes:
       - kajet_data:/data
       - kajet_workspaces:/workspaces
@@ -94,6 +97,9 @@ services:
       KAJET_ROLE: worker
       KAJET_WORKER_CONCURRENCY: "4"
       KAJET_WORKER_POLL_INTERVAL: "1"
+      # Exactly one kajet-worker replica may carry this flag — see README "Metrics".
+      KAJET_METRICS_SAMPLE_SHARED: "1"
+      KAJET_METRICS_PORT: "9100"
     volumes:
       - kajet_data:/data
       - kajet_workspaces:/workspaces

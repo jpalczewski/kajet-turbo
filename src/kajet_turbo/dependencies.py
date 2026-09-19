@@ -28,6 +28,7 @@ from kajet_turbo.embedding.client import SharedEmbedderClient
 from kajet_turbo.embedding.resolver import ProfileResolver
 from kajet_turbo.errors import AuthError, NoteError, SecurityEvent, SecurityReason
 from kajet_turbo.log import client_ip_fields, log_permission_denied, log_security_event
+from kajet_turbo.metrics import Metrics, build_metrics
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.embedding_profiles import EmbeddingProfileRepository
 from kajet_turbo.repositories.events import EventRepository
@@ -97,6 +98,11 @@ if TYPE_CHECKING:
     from kajet_turbo.services.preferences import PreferencesService
 
 
+def _optional_flag(raw: str | None) -> bool | None:
+    """Tri-state env flag: unset/empty means "use the default", otherwise "1" is on."""
+    return None if raw in (None, "") else raw == "1"
+
+
 @dataclass(frozen=True, slots=True)
 class AppConfig:
     db_path: str = "/data/kajet.db"
@@ -114,6 +120,10 @@ class AppConfig:
     ssh_keepalive_interval: int = DEFAULT_SSH_KEEPALIVE_INTERVAL
     ssh_keepalive_count_max: int = DEFAULT_SSH_KEEPALIVE_COUNT_MAX
     serve_spa: bool = True
+    # None = the role's default, resolved by the app factory (server._assemble). Exactly
+    # one process per deployment may own the shared-state sampler.
+    metrics_sample_shared: bool | None = None
+    metrics_port: int = 9100
 
     @classmethod
     def from_env(cls) -> AppConfig:
@@ -141,6 +151,8 @@ class AppConfig:
                 os.getenv("KAJET_GIT_SSH_KEEPALIVE_COUNT_MAX", str(DEFAULT_SSH_KEEPALIVE_COUNT_MAX))
             ),
             serve_spa=os.getenv("KAJET_SERVE_SPA", "1") == "1",
+            metrics_sample_shared=_optional_flag(os.getenv("KAJET_METRICS_SAMPLE_SHARED")),
+            metrics_port=int(os.getenv("KAJET_METRICS_PORT", "9100")),
         )
 
 
@@ -190,6 +202,7 @@ class AppResources:
     reconcile_links_handler: ReconcileLinksHandler
     push_handler: PushHandler
     post_commit_hooks: PostCommitHooks
+    metrics: Metrics
     _closed: bool = False
 
     async def aclose(self) -> None:
@@ -430,6 +443,7 @@ def build_resources(config: AppConfig) -> AppResources:
             reconcile_links_handler,
             push_handler,
             post_commit_hooks,
+            build_metrics(sample_shared=config.metrics_sample_shared is True),
         )
     except BaseException:
         db.close()

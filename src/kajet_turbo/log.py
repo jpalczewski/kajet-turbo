@@ -19,7 +19,7 @@ from kajet_turbo.errors.auth import SecurityEvent, SecurityReason
 from kajet_turbo.perf import current as perf_current
 from kajet_turbo.perf import perf_span
 
-_HEALTH_PATHS = frozenset({"/healthz", "/readyz"})
+_HEALTH_PATHS = frozenset({"/healthz", "/readyz", "/metrics"})
 
 # Path values are user-authored in several REST routes (workspace names and folder
 # paths), so the HTTP log records the route template and only opts opaque identifiers

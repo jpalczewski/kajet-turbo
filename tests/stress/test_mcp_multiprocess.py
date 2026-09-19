@@ -13,13 +13,11 @@ process's file descriptor table, so a would-be process-local bug wouldn't reprod
 import asyncio
 import json
 import os
-import socket
 import subprocess
 import sys
 import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
 from pathlib import Path
 
 import httpx2
@@ -28,16 +26,11 @@ from fastmcp import Client
 
 from kajet_turbo.db import Database
 from kajet_turbo.repositories.oauth import OAuthRepository
+from tests.stress.helpers import free_port, terminate, wait_ready
 
 _SECRET_KEY = "stress-test-secret"
 _USER_ID = "u1"
 _CLIENT_ID = "cl1"
-
-
-def _free_port() -> int:
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 def _spawn_mcp_process(*, db_path: Path, workspaces_dir: Path, port: int) -> subprocess.Popen:
@@ -57,29 +50,6 @@ def _spawn_mcp_process(*, db_path: Path, workspaces_dir: Path, port: int) -> sub
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
-
-
-def _wait_ready(port: int, proc: subprocess.Popen, timeout: float = 20.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            out = proc.stdout.read().decode() if proc.stdout else ""
-            raise RuntimeError(f"mcp process on port {port} exited early:\n{out}")
-        try:
-            if httpx2.get(f"http://127.0.0.1:{port}/readyz", timeout=1.0).status_code == 200:
-                return
-        except httpx2.TransportError:
-            pass
-        time.sleep(0.2)
-    raise TimeoutError(f"mcp process on port {port} never became ready")
-
-
-def _terminate(procs: list[subprocess.Popen]) -> None:
-    for proc in procs:
-        if proc.poll() is None:
-            proc.terminate()
-    for proc in procs:
-        proc.wait(timeout=10)
 
 
 class RoundRobin:
@@ -181,16 +151,16 @@ def mcp_cluster(request, tmp_path: Path) -> Iterator[tuple[RoundRobin, Path, Pat
     workspaces_dir = tmp_path / "workspaces"
     workspaces_dir.mkdir()
 
-    ports = [_free_port() for _ in range(request.param)]
+    ports = [free_port() for _ in range(request.param)]
     procs = [
         _spawn_mcp_process(db_path=db_path, workspaces_dir=workspaces_dir, port=p) for p in ports
     ]
     try:
         for port, proc in zip(ports, procs, strict=True):
-            _wait_ready(port, proc)
+            wait_ready(port, proc)
         yield RoundRobin(ports), db_path, workspaces_dir
     finally:
-        _terminate(procs)
+        terminate(procs)
 
 
 def test_oauth_tokens_and_tool_calls_work_across_alternating_processes(mcp_cluster):
@@ -306,14 +276,14 @@ def test_process_restart_mid_stream_is_not_a_session_not_found():
         Database(str(db_path)).close()
         workspaces_dir = tmp_path / "workspaces"
         workspaces_dir.mkdir()
-        ports = [_free_port(), _free_port()]
+        ports = [free_port(), free_port()]
         procs = [
             _spawn_mcp_process(db_path=db_path, workspaces_dir=workspaces_dir, port=p)
             for p in ports
         ]
         try:
             for port, proc in zip(ports, procs, strict=True):
-                _wait_ready(port, proc)
+                wait_ready(port, proc)
             rr = RoundRobin(ports)
             access_token, _ = _seed_authenticated_user(db_path)
 
@@ -335,4 +305,4 @@ def test_process_restart_mid_stream_is_not_a_session_not_found():
             )
             assert result["note_id"]
         finally:
-            _terminate([p for p in procs if p.poll() is None])
+            terminate([p for p in procs if p.poll() is None])
