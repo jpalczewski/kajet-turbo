@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import { goto, invalidate } from '$app/navigation';
   import { apiSessionDeleteApiSessionDelete } from '$lib/api';
-  import { homePath, notesPath } from '$lib/routes';
+  import { collectionsPath, homePath, notesPath } from '$lib/routes';
   import WorkspaceGraphLink from './WorkspaceGraphLink.svelte';
   import WorkspacePicker from './WorkspacePicker.svelte';
   import UserMenu from './UserMenu.svelte';
@@ -10,6 +10,10 @@
   const slug = $derived((page.params as Record<string, string>).slug as string | undefined);
 
   const notesActive = $derived(!!slug && page.url.pathname.startsWith(`/workspace/${slug}/note`));
+
+  const collectionsActive = $derived(
+    !!slug && page.url.pathname.startsWith(`/workspace/${slug}/collections`),
+  );
 
   async function handleLogout() {
     await apiSessionDeleteApiSessionDelete({ credentials: 'include' });
@@ -27,6 +31,13 @@
       {#if slug}
         <a href={notesPath(slug)} class="navbar__link" class:navbar__link--active={notesActive}>
           Notes
+        </a>
+        <a
+          href={collectionsPath(slug)}
+          class="navbar__link"
+          class:navbar__link--active={collectionsActive}
+        >
+          Kolekcje
         </a>
         <WorkspaceGraphLink {slug} variant="navbar" />
       {/if}
