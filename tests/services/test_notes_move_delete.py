@@ -277,9 +277,12 @@ def test_delete_perf_span_excludes_git_commit_time_from_db_ms(service, workspace
         "note_id"
     ]
     original = GitRepository.delete_file
+    # The injected delay must dwarf the real SQLite work in the same span (already seen
+    # at ~90 ms on a loaded CI runner), otherwise the half-delay budget below flakes.
+    injected_ms = 500
 
     def slow_delete_file(self, relative_path, message):
-        time.sleep(0.1)
+        time.sleep(injected_ms / 1000)
         return original(self, relative_path, message)
 
     monkeypatch.setattr(GitRepository, "delete_file", slow_delete_file)
@@ -288,8 +291,8 @@ def test_delete_perf_span_excludes_git_commit_time_from_db_ms(service, workspace
         service.delete.delete(note_target("u1", "ws", workspace, note_id))
 
     assert span is not None
-    assert span.fields["db_ms"] < 50
-    assert span.fields["workspace_write_ms"] >= 90
+    assert span.fields["db_ms"] < injected_ms / 2
+    assert span.fields["workspace_write_ms"] >= injected_ms * 0.9
     assert span.fields["db_ms"] + span.fields["git_ms"] <= span.fields["workspace_write_ms"]
 
 
