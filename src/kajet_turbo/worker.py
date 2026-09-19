@@ -30,6 +30,7 @@ from typing import TypeVar
 
 from sqlalchemy import Engine
 
+from kajet_turbo.errors.jobs import PermanentJobError
 from kajet_turbo.log import logger
 from kajet_turbo.models import Job
 from kajet_turbo.perf import perf_span
@@ -41,7 +42,8 @@ _T = TypeVar("_T")
 
 def run_job(repo: JobRepository, job: Job, registry: dict[str, Handler]) -> None:
     """Execute one claimed job. Unknown kind -> terminal fail (a misrouted job must
-    not retry forever). Handler exception -> retrying fail. Success -> complete.
+    not retry forever). ``PermanentJobError`` -> terminal fail, logged at ERROR. Any other
+    handler exception -> retrying fail. Success -> complete.
 
     The repository write itself is wrapped separately from the handler: a write failure
     (e.g. a transient SQLite lock) must still produce a ``job_finished`` line before it
@@ -77,6 +79,15 @@ def run_job(repo: JobRepository, job: Job, registry: dict[str, Handler]) -> None
         else:
             try:
                 handler(json.loads(job.payload))
+            except PermanentJobError as exc:
+                error = exc
+                error_message = str(exc)
+                level = "ERROR"
+                applied = write(lambda: repo.fail_terminal(job.id, worker_id, error_message))
+                if repo_error is not None:
+                    outcome = "unknown"
+                else:
+                    outcome = "failed" if applied is not False else "superseded"
             except Exception as exc:
                 error = exc
                 error_message = str(exc)

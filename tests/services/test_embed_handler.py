@@ -2,8 +2,9 @@ import pytest
 from sqlalchemy import text as _text
 from sqlmodel import Session
 
-from kajet_turbo.embedding.base import EmbedderConfig
+from kajet_turbo.embedding.base import EmbedderConfig, EmbeddingAuthError
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
+from kajet_turbo.errors.jobs import PermanentJobError
 from kajet_turbo.markdown import Chunk, embedded_text
 from kajet_turbo.models import Note
 from kajet_turbo.repositories.index_meta import IndexMetaRepository
@@ -166,3 +167,31 @@ def test_handler_superseded_by_concurrent_edit_completes_without_meta(database):
 
     assert _index_state(database) == "stale"
     assert IndexMetaRepository(database.engine).get("u1") is None
+
+
+def test_handler_rejected_key_raises_permanent_job_error(database):
+    _stale_note(database)
+
+    class _Rejected(_FakeEmbedder):
+        async def embed_documents(self, texts):
+            raise EmbeddingAuthError("fake", 401)
+
+    handler, _repo, _cache, _emb = _handler(database, cfg=_cfg(), embedder=_Rejected())
+
+    with pytest.raises(PermanentJobError, match="rejected the API key"):
+        handler(PAYLOAD)
+
+    assert _index_state(database) == "stale"  # untouched; a manual reindex repairs it
+
+
+def test_handler_transient_embedder_error_still_propagates_for_retry(database):
+    _stale_note(database)
+
+    class _Down(_FakeEmbedder):
+        async def embed_documents(self, texts):
+            raise RuntimeError("endpoint down")
+
+    handler, _repo, _cache, _emb = _handler(database, cfg=_cfg(), embedder=_Down())
+
+    with pytest.raises(RuntimeError, match="endpoint down"):
+        handler(PAYLOAD)

@@ -4,6 +4,7 @@ import time
 from sqlmodel import Session
 
 from kajet_turbo.db import Database
+from kajet_turbo.errors.jobs import PermanentJobError
 from kajet_turbo.models import Job
 from kajet_turbo.perf import record
 from kajet_turbo.repositories.jobs import JobRepository
@@ -93,6 +94,30 @@ def test_run_job_handler_exception_retries(database: Database):
     assert row.attempts == 1
     assert row.last_error is not None
     assert "kaboom" in row.last_error
+
+
+def test_run_job_permanent_error_fails_terminally_without_retry(database: Database, capsys):
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    repo = JobRepository(database.engine)
+
+    def revoked(_payload: dict) -> None:
+        raise PermanentJobError("key rejected")
+
+    job_id = repo.enqueue("k", {}, max_attempts=5, now=1000.0)
+    job = repo.claim("w", now=1000.0)
+    assert job is not None
+    capsys.readouterr()
+
+    run_job(repo, job, registry={"k": revoked})
+
+    row = _get_required(database.engine, job_id)
+    assert row.status == "failed"  # first attempt, despite max_attempts=5
+    assert row.last_error == "key rejected"
+    (entry,) = entries_named(read_log_entries(capsys), "job_finished")
+    assert entry["outcome"] == "failed"
+    assert entry["level"] == "error"
 
 
 def test_run_job_logs_aggregate_db_and_git_timings(database: Database, capsys):
