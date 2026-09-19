@@ -11,10 +11,12 @@ import time
 import httpx2
 from loguru import logger
 
-from kajet_turbo.embedding.base import EmbedderConfig
+from kajet_turbo.embedding.base import EmbedderConfig, EmbeddingAuthError
 from kajet_turbo.perf import incr, record
 
 _BATCH = 100
+# Credential rejections; 429 is deliberately absent (rate limiting is transient).
+_AUTH_STATUSES = frozenset({401, 403})
 # Coarse truncate guard, comfortably under typical 8k-token limits. MUST stay >= the
 # chunker's hard_max (kajet_turbo.markdown.DEFAULT_HARD_MAX) so a normal chunk + its
 # breadcrumb prefix is never silently truncated before embedding.
@@ -68,6 +70,8 @@ class OpenAICompatEmbedder:
             )
             record("embed_http_ms", (time.monotonic() - _t0) * 1000)
             incr("embed_batches")
+            if resp.status_code in _AUTH_STATUSES:
+                raise EmbeddingAuthError(self._config.backend_id, resp.status_code)
             resp.raise_for_status()
             data = sorted(resp.json()["data"], key=lambda d: d["index"])
             for item in data:

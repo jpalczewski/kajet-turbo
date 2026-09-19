@@ -3,10 +3,11 @@
 Embeds a note's STORED chunk rows — no file I/O, no re-chunking: the write path
 already persisted chunks + FTS inline, so a coalesced job always embeds the note's
 current content. Embedder errors PROPAGATE — the worker turns them into retry with
-backoff, replacing the old inline swallow-to-stale behavior. Everything else that
-makes the job moot (note deleted, backend removed, chunks replaced by a concurrent
-edit) is a quiet no-op: the note stays ``stale`` and the responsible follow-up job
-or manual reindex repairs it.
+backoff, replacing the old inline swallow-to-stale behavior. The exception is a
+rejected API key (``EmbeddingAuthError``), which becomes a terminal
+``PermanentJobError``. Everything else that makes the job moot (note deleted, backend
+removed, chunks replaced by a concurrent edit) is a quiet no-op: the note stays
+``stale`` and the responsible follow-up job or manual reindex repairs it.
 
 The service layer is sync (worker thread pool), so the async embedder is driven
 with ``asyncio.run`` — same bridge the inline path used.
@@ -15,9 +16,10 @@ with ``asyncio.run`` — same bridge the inline path used.
 import asyncio
 from collections.abc import Callable
 
-from kajet_turbo.embedding.base import EmbedderConfig
+from kajet_turbo.embedding.base import EmbedderConfig, EmbeddingAuthError
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, content_hash
 from kajet_turbo.embedding.identity import IndexIdentity
+from kajet_turbo.errors.jobs import PermanentJobError
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import Chunk, embedded_text
 from kajet_turbo.perf import incr
@@ -74,9 +76,14 @@ class EmbedNoteHandler:
         incr("embed_cache_misses", len(miss_idx))
         if miss_idx:
             embedder = self._build_embedder(cfg)
-            miss_vectors = asyncio.run(
-                embedder.embed_documents([texts[i] for i in miss_idx])  # ty: ignore[unresolved-attribute]  # duck-typed embedder seam
-            )
+            try:
+                miss_vectors = asyncio.run(
+                    embedder.embed_documents([texts[i] for i in miss_idx])  # ty: ignore[unresolved-attribute]  # duck-typed embedder seam
+                )
+            except EmbeddingAuthError as exc:
+                # A rejected key stays rejected: fail the job now instead of burning
+                # every backoff retry. The note stays stale until a manual reindex.
+                raise PermanentJobError(str(exc)) from exc
             new_entries = {hashes[i]: vec for i, vec in zip(miss_idx, miss_vectors, strict=True)}
             self._cache.put_many(new_entries, cfg.backend_id, cfg.model, cfg.dim)
             cached = {**cached, **new_entries}

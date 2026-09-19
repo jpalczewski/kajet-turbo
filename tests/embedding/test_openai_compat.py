@@ -4,7 +4,7 @@ import json
 import httpx2
 import pytest
 
-from kajet_turbo.embedding.base import EmbedderConfig
+from kajet_turbo.embedding.base import EmbedderConfig, EmbeddingAuthError
 from kajet_turbo.embedding.openai_compat import OpenAICompatEmbedder
 
 _CFG = EmbedderConfig(
@@ -161,5 +161,28 @@ def test_empty_documents_makes_no_request():
     emb, client = _embedder(handler)
     try:
         assert asyncio.run(emb.embed_documents([])) == []
+    finally:
+        asyncio.run(client.aclose())
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_rejected_credentials_raise_embedding_auth_error(status):
+    emb, client = _embedder(lambda request: httpx2.Response(status, json={"error": "nope"}))
+    try:
+        with pytest.raises(EmbeddingAuthError) as excinfo:
+            asyncio.run(emb.embed_query("x"))
+    finally:
+        asyncio.run(client.aclose())
+    assert excinfo.value.status_code == status
+    assert excinfo.value.backend == "openai-small"
+    assert "sk-test" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+def test_transient_statuses_stay_http_status_errors(status):
+    emb, client = _embedder(lambda request: httpx2.Response(status))
+    try:
+        with pytest.raises(httpx2.HTTPStatusError):
+            asyncio.run(emb.embed_query("x"))
     finally:
         asyncio.run(client.aclose())

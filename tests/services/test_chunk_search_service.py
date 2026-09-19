@@ -1,12 +1,13 @@
 import pytest
 
-from kajet_turbo.embedding.base import EmbedderConfig
+from kajet_turbo.embedding.base import EmbedderConfig, EmbeddingAuthError
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
 from kajet_turbo.workspace import InvalidFolderError
+from tests.helpers import entries_named, read_log_entries
 from tests.services.conftest import build_note_search_service, build_note_wiring, workspace_target
 
 
@@ -377,6 +378,32 @@ async def test_search_async_embed_failure_degrades_to_fts(database, git_workspac
     svc.save(workspace_target("u1", "ws", ws), "T", "# T\n\nalpha\n", tags=[])
     hits = await search_svc.search_async("alpha", ["ws"], owner_id="u1")
     assert len(hits) >= 1  # FTS still answers
+
+
+async def test_search_async_rejected_key_degrades_to_fts_and_logs_error(
+    database, git_workspace_factory, capsys
+):
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    svc, search_svc, emb = _async_service(database)
+
+    async def _rejected(text):
+        raise EmbeddingAuthError("b", 401)
+
+    emb.embed_query = _rejected  # type: ignore[method-assign]
+    ws = git_workspace_factory("ws")
+    svc.save(workspace_target("u1", "ws", ws), "T", "# T\n\nalpha\n", tags=[])
+    capsys.readouterr()
+
+    hits = await search_svc.search_async("alpha", ["ws"], owner_id="u1")
+
+    assert len(hits) >= 1  # FTS still answers
+    entries = read_log_entries(capsys)
+    (auth,) = entries_named(entries, "embedding_auth_failed")
+    assert auth["level"] == "error"
+    assert auth["status_code"] == 401
+    assert entries_named(entries, "search_embed_failed") == []
 
 
 async def test_search_async_falls_back_to_sync_without_async_embedder(

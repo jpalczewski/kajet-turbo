@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import Callable
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.embedding.base import Embedder, EmbedderConfig
+from kajet_turbo.embedding.base import Embedder, EmbedderConfig, EmbeddingAuthError
 from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.log import logger
@@ -61,7 +61,7 @@ class NoteSearchService:
                 embedding = pack_vector(vec)
                 identity = IndexIdentity.from_config(cfg)
             except Exception as e:
-                logger.opt(exception=e).warning("search_embed_failed", backend=cfg.backend_id)
+                self._log_embed_failure(cfg, e)
         return self._execute(query, workspaces, owner_id, limit, folder, tags, embedding, identity)
 
     async def search_async(
@@ -91,10 +91,25 @@ class NoteSearchService:
                 embedding = pack_vector(vec)
                 identity = IndexIdentity.from_config(cfg)
             except Exception as e:
-                logger.opt(exception=e).warning("search_embed_failed", backend=cfg.backend_id)
+                self._log_embed_failure(cfg, e)
         return await run_sync(
             self._execute, query, workspaces, owner_id, limit, folder, tags, embedding, identity
         )
+
+    @staticmethod
+    def _log_embed_failure(cfg: EmbedderConfig, exc: Exception) -> None:
+        """Search degrades to keyword-only when the query can't be embedded. A rejected
+        key is a persistent misconfiguration, not a blip, so it gets its own ERROR
+        record; everything else stays a warning."""
+        if isinstance(exc, EmbeddingAuthError):
+            logger.error(
+                "embedding_auth_failed",
+                backend=cfg.backend_id,
+                status_code=exc.status_code,
+                degraded_to="fts",
+            )
+        else:
+            logger.opt(exception=exc).warning("search_embed_failed", backend=cfg.backend_id)
 
     def _prepare(self, owner_id: str) -> EmbedderConfig | None:
         """Resolve the active embedding backend, if any. Sync — cheap indexed DB read."""
