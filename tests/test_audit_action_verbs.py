@@ -64,30 +64,30 @@ def _denied_workspace_resolver() -> MagicMock:
 # --- REST: resolve_note_target ---
 
 
-def test_rest_denied_write_logs_note_write(monkeypatch):
+async def test_rest_denied_write_logs_note_write(monkeypatch):
     captured = _capture(monkeypatch, targets_mod)
     with pytest.raises(HTTPException) as exc:
-        rest_deps.RESOLVE_NOTE_WRITE.dependency("ws", "n1", WS, _denied_note_resolver(), USER)
+        await rest_deps.RESOLVE_NOTE_WRITE.dependency("ws", "n1", WS, _denied_note_resolver(), USER)
     assert exc.value.status_code == 404
     assert _actions(captured) == ["note.write"]
 
 
-def test_rest_denied_read_still_logs_note_read(monkeypatch):
+async def test_rest_denied_read_still_logs_note_read(monkeypatch):
     captured = _capture(monkeypatch, targets_mod)
     with pytest.raises(HTTPException) as exc:
-        rest_deps.resolve_note_target("ws", "n1", WS, _denied_note_resolver(), USER)
+        await rest_deps.resolve_note_target("ws", "n1", WS, _denied_note_resolver(), USER)
     assert exc.value.status_code == 404
     assert _actions(captured) == ["note.read"]
 
 
-def test_rest_workspace_mismatch_on_write_logs_note_write(monkeypatch):
+async def test_rest_workspace_mismatch_on_write_logs_note_write(monkeypatch):
     # The mismatch branch logs directly from dependencies.py (not via audit_denied).
     captured = _capture(monkeypatch, rest_deps)
     other_ws = WorkspaceTarget(owner_id="u-caller", name="other", path=Path("/tmp/other"))
     resolver = MagicMock(spec=TargetResolver)
     resolver.note.return_value = NoteTarget(note_id="n1", workspace=other_ws)
     with pytest.raises(HTTPException) as exc:
-        rest_deps.RESOLVE_NOTE_WRITE.dependency("ws", "n1", WS, resolver, USER)
+        await rest_deps.RESOLVE_NOTE_WRITE.dependency("ws", "n1", WS, resolver, USER)
     assert exc.value.status_code == 404
     assert _actions(captured) == ["note.write"]
 
@@ -95,18 +95,18 @@ def test_rest_workspace_mismatch_on_write_logs_note_write(monkeypatch):
 # --- REST: resolve_workspace_target ---
 
 
-def test_rest_denied_workspace_write_logs_workspace_write(monkeypatch):
+async def test_rest_denied_workspace_write_logs_workspace_write(monkeypatch):
     captured = _capture(monkeypatch, targets_mod)
     with pytest.raises(HTTPException) as exc:
-        rest_deps.RESOLVE_WORKSPACE_WRITE.dependency("ws", USER, _denied_workspace_resolver())
+        await rest_deps.RESOLVE_WORKSPACE_WRITE.dependency("ws", USER, _denied_workspace_resolver())
     assert exc.value.status_code == 403
     assert _actions(captured) == ["workspace.write"]
 
 
-def test_rest_denied_workspace_read_still_logs_workspace_read(monkeypatch):
+async def test_rest_denied_workspace_read_still_logs_workspace_read(monkeypatch):
     captured = _capture(monkeypatch, targets_mod)
     with pytest.raises(HTTPException) as exc:
-        rest_deps.resolve_workspace_target("ws", USER, _denied_workspace_resolver())
+        await rest_deps.resolve_workspace_target("ws", USER, _denied_workspace_resolver())
     assert exc.value.status_code == 403
     assert _actions(captured) == ["workspace.read"]
 

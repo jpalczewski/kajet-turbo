@@ -19,6 +19,7 @@ from starlette.requests import HTTPConnection, Request
 
 from kajet_turbo import identity
 from kajet_turbo.auth import KajetOAuthProvider, create_auth
+from kajet_turbo.concurrency import run_sync
 from kajet_turbo.crypto import cipher_for
 from kajet_turbo.db import Database
 from kajet_turbo.embedding import build_embedder, pooled_embedder_factory
@@ -635,13 +636,13 @@ def resolve_workspace_target_for(action: str = "workspace.read"):
     routes keep the default, so their call sites are untouched.
     """
 
-    def _resolve_workspace_target(
+    async def _resolve_workspace_target(
         name: str,
         user: CurrentUser = Depends(get_required_user),
         resolver: TargetResolver = Depends(get_target_resolver),
     ) -> WorkspaceTarget:
         try:
-            return resolver.workspace(user.id, name)
+            return await run_sync(resolver.workspace, user.id, name)
         except TargetResolutionError as e:
             audit_denied(
                 e.failure,
@@ -659,12 +660,12 @@ _resolve_workspace_read = resolve_workspace_target_for("workspace.read")
 _resolve_workspace_write = resolve_workspace_target_for("workspace.write")
 
 
-def resolve_workspace_target(
+async def resolve_workspace_target(
     name: str,
     user: CurrentUser = Depends(get_required_user),
     resolver: TargetResolver = Depends(get_target_resolver),
 ) -> WorkspaceTarget:
-    return _resolve_workspace_read(name, user, resolver)
+    return await _resolve_workspace_read(name, user, resolver)
 
 
 def resolve_note_target_for(action: str = "note.read", workspace_action: str = "workspace.read"):
@@ -683,19 +684,19 @@ def resolve_note_target_for(action: str = "note.read", workspace_action: str = "
         else _resolve_workspace_read
     )
 
-    def _resolve_note_target(
+    async def _resolve_note_target(
         name: str,
         note_id: str,
         ws: WorkspaceTarget = Depends(ws_dep),
         resolver: TargetResolver = Depends(get_target_resolver),
         user: CurrentUser = Depends(get_required_user),
     ) -> NoteTarget:
-        return _resolve_note(name, note_id, ws, resolver, user, action)
+        return await _resolve_note(name, note_id, ws, resolver, user, action)
 
     return _resolve_note_target
 
 
-def _resolve_note(
+async def _resolve_note(
     name: str,
     note_id: str,
     ws: WorkspaceTarget,
@@ -704,7 +705,7 @@ def _resolve_note(
     action: str,
 ) -> NoteTarget:
     try:
-        target = resolver.note(user.id, note_id)
+        target = await run_sync(resolver.note, user.id, note_id)
     except TargetResolutionError as e:
         audit_denied(
             e.failure,
@@ -728,7 +729,7 @@ def _resolve_note(
     return target
 
 
-def resolve_note_target(
+async def resolve_note_target(
     name: str,
     note_id: str,
     ws: WorkspaceTarget = Depends(resolve_workspace_target),
@@ -740,7 +741,7 @@ def resolve_note_target(
     or-not-yours -> 404 on note/URL-workspace mismatch. The mismatch branch is the actual
     fix for the bug this resolver exists for: a note_id from workspace A must not be
     reachable through workspace B's URL just because both belong to the same user."""
-    return _resolve_note(name, note_id, ws, resolver, user, "note.read")
+    return await _resolve_note(name, note_id, ws, resolver, user, "note.read")
 
 
 # Module-level singletons for write routes (#281). Ruff B008 forbids calling the
