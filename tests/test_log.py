@@ -49,18 +49,21 @@ def test_permission_denied_uses_the_shared_security_event_contract(capsys):
     assert "ts" in entry
 
 
-def test_json_sink_includes_exception_fields(capsys):
+def test_json_sink_logs_exception_type_but_never_its_message(capsys):
+    """Service exceptions carry note titles and wikilink targets for the calling LLM;
+    the sink ships off-box, so it may record what was raised and where, not what it said."""
     from kajet_turbo.log import logger, setup_logging
 
     setup_logging()
     try:
-        raise ValueError("boom")
+        raise ValueError("Unresolved wikilinks: [[ws/folder/Private title]]")
     except ValueError:
         logger.exception("something failed")
 
     entry = read_log_entries(capsys)[-1]
     assert entry["error_type"] == "ValueError"
-    assert entry["error_msg"] == "boom"
+    assert "error_msg" not in entry
+    assert "Private title" not in json.dumps(entry)
 
 
 def _log_dedup_boom(logger, *, level="ERROR", note_id=None, logger_name="fastmcp.server.server"):
