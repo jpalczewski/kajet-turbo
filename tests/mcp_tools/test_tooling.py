@@ -103,7 +103,7 @@ async def test_middleware_logs_tool_error_from_dependency_resolution(capsys):
     (entry,) = entries_named(read_log_entries(capsys), "needs_workspace")
     assert entry["level"] == "error"
     assert entry["error_type"] == "ToolError"
-    assert "not accessible" in entry["error_msg"]
+    assert "error_msg" not in entry
     assert "duration_ms" in entry
 
 
@@ -312,6 +312,9 @@ async def test_dispatch_logs_exactly_one_record_on_service_error(capsys):
     (entry,) = _records_mentioning(read_log_entries(capsys), "spine_service")
     assert entry["tool"] == "spine_service"
     assert entry["error_type"] == "ValueError"
+    # The caller sees the message above; the off-box log gets the type only.
+    assert "error_msg" not in entry
+    assert "replace_text" not in json.dumps(entry)
     assert entry["request_id"]
     assert "duration_ms" in entry
 

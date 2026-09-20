@@ -92,9 +92,14 @@ def _json_sink(message) -> None:
         **r["extra"],
     }
     if r["exception"]:
-        t, v, _ = r["exception"]
+        t = r["exception"].type
+        # Type only, never the exception value: logs are shipped off-box, and exceptions raised in
+        # services/ and markdown/ deliberately carry user content (titles, folder names,
+        # wikilink targets, paths) in their message because that message is written for
+        # the calling LLM. A denylist would fail open on the next such exception; the
+        # `origin` field already pins where it was raised. A call site that needs a
+        # message logs a payload-free summary as its own field (see `_param_paths`).
         entry["error_type"] = t.__name__ if t else None
-        entry["error_msg"] = str(v) if v else None
     # FastMCP's mount() makes every level of a tool's mount chain re-enter call_tool(),
     # and each level independently logs the same failure with no fields (exc_info=False)
     # — so one real failure becomes N identical lines, one per mount level. For tool

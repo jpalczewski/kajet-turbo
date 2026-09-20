@@ -28,7 +28,7 @@ def test_uvicorn_error_records_reach_the_json_sink(capsys):
     assert entry["logger"] == "uvicorn.error"
     assert entry["level"] == "error"
     assert entry["error_type"] == "TypeError"
-    assert "get_session_repo" in entry["error_msg"]
+    assert "error_msg" not in entry
 
 
 @pytest.mark.parametrize("role", ["api", "mcp", "all"])
