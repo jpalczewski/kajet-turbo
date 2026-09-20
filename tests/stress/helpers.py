@@ -29,9 +29,16 @@ def wait_ready(port: int, proc: subprocess.Popen, timeout: float = 20.0) -> None
     raise TimeoutError(f"process on port {port} never became ready")
 
 
-def terminate(procs: list[subprocess.Popen]) -> None:
+def terminate(procs: list[subprocess.Popen], grace: float = 30.0) -> None:
+    """SIGTERM every process, then SIGKILL any that outlive ``grace``. A graceful
+    shutdown drains in-flight children and slows down badly on a loaded runner; raising
+    ``TimeoutExpired`` here would leak the process and mask the test's own failure."""
     for proc in procs:
         if proc.poll() is None:
             proc.terminate()
     for proc in procs:
-        proc.wait(timeout=10)
+        try:
+            proc.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()

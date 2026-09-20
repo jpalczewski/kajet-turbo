@@ -76,6 +76,13 @@ _SUPERVISOR = textwrap.dedent(
 )
 
 
+# Bringing a uvicorn child up is slow on a loaded runner (imports the whole app): measured
+# ~11-28 s for the initial start and 10-16 s to respawn a killed child under 2x CPU
+# oversubscription, vs ~3 s idle. Replacing a child is another start, so it shares the
+# start-up budget.
+_STARTUP_TIMEOUT = 40.0
+
+
 @contextmanager
 def _supervisor(tmp_path: Path, *, prom_dir: Path) -> Iterator[int]:
     (tmp_path / "probe_factory.py").write_text(_FACTORY)
@@ -101,7 +108,7 @@ def _supervisor(tmp_path: Path, *, prom_dir: Path) -> Iterator[int]:
         stderr=subprocess.STDOUT,
     )
     try:
-        wait_ready(port, proc, timeout=40.0)
+        wait_ready(port, proc, timeout=_STARTUP_TIMEOUT)
         yield port
     finally:
         terminate([proc])
@@ -178,7 +185,7 @@ def test_reaper_removes_a_killed_childs_live_gauges_but_keeps_counters(tmp_path:
                 return False
             return int(response.text) not in pids
 
-        _wait_for(replaced, message="killed child was never replaced")
+        _wait_for(replaced, timeout=_STARTUP_TIMEOUT, message="killed child was never replaced")
         _wait_for(
             lambda: _value(_scrape(port), "probe_live") == 2,
             message="live gauge never settled back to two children",
