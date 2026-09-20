@@ -22,6 +22,18 @@ class EmbeddingAuthError(Exception):
         self.status_code = status_code
 
 
+class EmbeddingRequestRejected(Exception):
+    """The embedding backend understood the credentials but refused the request itself
+    (HTTP 400/404/422) — typically an unknown model or a wrong base URL. ``detail`` is
+    the provider's own explanation, with the API key redacted, for operator logs."""
+
+    def __init__(self, backend: str, status_code: int, detail: str):
+        super().__init__(f"Embedding backend {backend} rejected the request (HTTP {status_code})")
+        self.backend = backend
+        self.status_code = status_code
+        self.detail = detail
+
+
 @dataclass(frozen=True)
 class EmbedderConfig:
     backend_id: str
