@@ -240,3 +240,16 @@ def test_save_many_reports_invalid_temporal_metadata_per_item(service, workspace
 
     assert "error" in results[0]
     assert "note_id" in results[1]
+
+
+def test_save_many_reports_reserved_extras_per_item(service, workspace):
+    """extras are validated while drafting, so a reserved key rejects only its own item
+    instead of aborting the batch at write time."""
+    notes = [
+        NewNote(title="Shadowing", extras={"title": "nope"}),
+        NewNote(title="Plain", extras={"mood": "ok"}),
+    ]
+    results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
+
+    assert "reserved" in results[0]["error"]
+    assert "note_id" in results[1]

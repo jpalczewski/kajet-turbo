@@ -1,7 +1,8 @@
 """Note creation: ``save``/``save_many`` — split off ``NoteService`` under #388.
 
 Both entry points build a note through the same steps (#451): ``_NoteDraft.build``
-normalizes the input, ``_NoteDraft.ensure_path_free`` checks the target path, and
+normalizes and validates the input, ``_NoteDraft.ensure_path_free`` checks the target
+path, and
 ``NoteCreateService._write`` commits rows + tree and does the link/tag/reconcile
 bookkeeping. They differ only in how a failure surfaces (``save`` raises, ``save_many``
 reports a ``BatchNoteError`` per item), how the batch shares one link index, and how the
@@ -23,10 +24,11 @@ from kajet_turbo.repositories.git import GitRepository, target_write_transaction
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
 from kajet_turbo.services.indexing import Indexer
-from kajet_turbo.services.notes.links import NoteLinkService, wikilink_warnings
+from kajet_turbo.services.notes.links import NoteLinkService, WorkspaceLinks, wikilink_warnings
 from kajet_turbo.services.notes.paths import (
     build_path_index,
     conflict_message,
+    note_path_conflict,
     path_conflict_key,
 )
 from kajet_turbo.services.notes.persistence import defer_index_many, defer_index_note, new_note_row
@@ -40,7 +42,10 @@ from kajet_turbo.services.notes.types import (
 )
 from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.workspace import (
+    ExtrasReservedKeyError,
+    InvalidFolderError,
     NoteFrontmatter,
+    TemporalMetadataError,
     normalize_folder,
     normalize_temporal_metadata,
     note_filepath,
@@ -60,28 +65,47 @@ class _NoteDraft:
     folder: str
     occurred_at: str | None
     period: str | None
-    extras: dict[str, object]
     created_at: str
+    meta: NoteFrontmatter
     filepath: str
     relative: str
 
     @classmethod
     def build(cls, note: NewNote, ws_path: str, now: str) -> _NoteDraft:
-        """Normalize ``note``. Raises ``ValueError`` for an invalid folder or temporal
-        metadata; performs no workspace lookup."""
-        folder = normalize_folder(note.folder)
+        """Normalize and validate ``note`` — every per-note input rule lives here, so a
+        batch can report it per item. Raises ``InvalidFolderError``,
+        ``TemporalMetadataError`` or ``ExtrasReservedKeyError``; performs no workspace
+        lookup."""
+        try:
+            folder = normalize_folder(note.folder)
+        except ValueError as e:
+            raise InvalidFolderError(str(e)) from e
         occurred_at, period = normalize_temporal_metadata(note.occurred_at, note.period)
-        filepath = note_filepath(ws_path, folder, note.title)
-        return cls(
-            note_id=generate(size=7),
+        note_id = generate(size=7)
+        tags = NoteTagService.normalize_tags(note.tags)
+        # Built here, not at write time: NoteFrontmatter is what rejects an ``extras`` key
+        # shadowing a reserved one, and that must fail this item, not the whole batch.
+        meta = NoteFrontmatter(
+            id=note_id,
             title=note.title,
-            content=note.content,
-            tags=NoteTagService.normalize_tags(note.tags),
-            folder=folder,
+            tags=tags,
+            created_at=now,
+            updated_at=now,
             occurred_at=occurred_at,
             period=period,
             extras=note.extras or {},
+        )
+        filepath = note_filepath(ws_path, folder, note.title)
+        return cls(
+            note_id=note_id,
+            title=note.title,
+            content=note.content,
+            tags=tags,
+            folder=folder,
+            occurred_at=occurred_at,
+            period=period,
             created_at=now,
+            meta=meta,
             filepath=filepath,
             relative=str(Path(filepath).relative_to(ws_path)),
         )
@@ -94,32 +118,20 @@ class _NoteDraft:
     def indexed(self) -> IndexedNote:
         return IndexedNote(self.note_id, self.folder, self.title)
 
-    def ensure_path_free(self, path_index: dict[str, IndexedNote]) -> None:
-        """Raise ``FileExistsError`` if another row (``path_index``, keyed by
-        ``path_conflict_key``) or an orphan file on disk already claims this path."""
-        conflict = path_index.get(self.path_key)
+    def ensure_path_free(self, conflict: IndexedNote | None) -> None:
+        """Raise ``FileExistsError`` if ``conflict`` (the row the caller found claiming
+        this path — a one-off scan for ``save``, a shared index for ``save_many``) or an
+        orphan file on disk already claims it."""
         if conflict is not None:
             raise FileExistsError(conflict_message(self.title, self.filepath, conflict))
         if Path(self.filepath).exists():
             raise FileExistsError(f"File '{Path(self.filepath).name}' already exists on disk.")
 
     def staged_change(self) -> StagedChange:
-        # Built at write time, not in ``build``: NoteFrontmatter validates ``extras``, and
-        # ``save`` has always rejected a reserved key only after its link check.
-        meta = NoteFrontmatter(
-            id=self.note_id,
-            title=self.title,
-            tags=self.tags,
-            created_at=self.created_at,
-            updated_at=self.created_at,
-            occurred_at=self.occurred_at,
-            period=self.period,
-            extras=self.extras,
-        )
         return StagedChange(
             add=self.relative,
             remove=None,
-            apply=partial(write_note_file, self.filepath, meta, self.content),
+            apply=partial(write_note_file, self.filepath, self.meta, self.content),
         )
 
     def row(self, workspace: str, owner_id: str) -> Note:
@@ -145,6 +157,21 @@ class _PreparedNote:
     links: LinkResolution
 
 
+class _BatchItemRejected(ValueError):
+    """A batch-only rule (blank title, duplicate in batch) failed for one item."""
+
+
+# Everything a single batch item can legitimately fail with. Anything else raised while
+# admitting an item is a bug and propagates instead of being reported as bad input.
+_ITEM_REJECTIONS = (
+    _BatchItemRejected,
+    InvalidFolderError,
+    TemporalMetadataError,
+    ExtrasReservedKeyError,
+    FileExistsError,
+)
+
+
 def _admit_batch_item(
     note: NewNote,
     ws_path: str,
@@ -154,15 +181,17 @@ def _admit_batch_item(
 ) -> _NoteDraft:
     """``save_many``'s Phase 1 for one item: the shared draft + path checks, plus the two
     batch-only rules — a title that is blank once stripped, and a (folder, title) pair an
-    earlier item already took. Raises ``ValueError``/``FileExistsError``; the caller
-    registers an admitted draft in ``accepted``/``path_index``."""
+    earlier item already took. Raises one of ``_ITEM_REJECTIONS``; the caller registers
+    an admitted draft in ``accepted``/``path_index``."""
     title = note.title.strip()
     if not title:
-        raise ValueError("Title is required.")
+        raise _BatchItemRejected("Title is required.")
     draft = _NoteDraft.build(replace(note, title=title), ws_path, now)
     if (draft.folder, title) in accepted:
-        raise ValueError(f"Duplicate in batch: '{title}' in folder '{draft.folder or 'root'}'.")
-    draft.ensure_path_free(path_index)
+        raise _BatchItemRejected(
+            f"Duplicate in batch: '{title}' in folder '{draft.folder or 'root'}'."
+        )
+    draft.ensure_path_free(path_index.get(draft.path_key))
     return draft
 
 
@@ -208,13 +237,15 @@ class NoteCreateService:
             datetime.now(UTC).isoformat(),
         )
         workspace_links = self._link_service.for_workspace(target.name, target.owner_id)
-        draft.ensure_path_free(build_path_index(workspace_links.paths, ws_path))
+        draft.ensure_path_free(
+            note_path_conflict(workspace_links.paths, ws_path, draft.folder, draft.title)
+        )
         prepared = _PreparedNote(draft, workspace_links.validate(content, draft.folder))
 
         self._write(
             target,
             [prepared],
-            workspace_links.affected_sources({title}),
+            workspace_links,
             message=f"note: add {title}",
             operation="insert",
             note_id=draft.note_id,
@@ -259,7 +290,7 @@ class NoteCreateService:
         for index, note in enumerate(notes):
             try:
                 draft = _admit_batch_item(note, ws_path, now, accepted, path_index)
-            except (ValueError, FileExistsError) as e:
+            except _ITEM_REJECTIONS as e:
                 results[index] = BatchNoteError(index=index, error=str(e))
                 continue
             accepted.add((draft.folder, draft.title))
@@ -285,7 +316,7 @@ class NoteCreateService:
             self._write(
                 target,
                 prepared,
-                workspace_links.affected_sources({p.draft.title for p in prepared}),
+                workspace_links,
                 message=f"note: add {n} note{'' if n == 1 else 's'}",
                 operation="insert_many",
                 count=n,
@@ -310,7 +341,7 @@ class NoteCreateService:
         self,
         target: WorkspaceTarget,
         prepared: list[_PreparedNote],
-        affected_sources: set[str],
+        workspace_links: WorkspaceLinks,
         *,
         message: str,
         operation: str,
@@ -318,10 +349,11 @@ class NoteCreateService:
     ) -> None:
         """Persist ``prepared`` — rows first, tree last, in one transaction (#155;
         ``commit_rows_then_tree`` rolls both back on either failure) — then its link
-        graph and tags, and queue link reconciliation for notes whose dangling links the
-        new titles may now resolve. Indexing stays with the caller: ``save`` indexes
-        inline, ``save_many`` only enqueues jobs."""
+        graph and tags, and queue link reconciliation for notes in ``workspace_links``
+        whose dangling links the new titles may now resolve. Indexing stays with the
+        caller: ``save`` indexes inline, ``save_many`` only enqueues jobs."""
         ws_name, owner_id = target.name, target.owner_id
+        affected_sources = workspace_links.affected_sources({p.draft.title for p in prepared})
 
         def write_rows(session: Session) -> None:
             for p in prepared:

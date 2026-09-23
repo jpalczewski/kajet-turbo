@@ -7,6 +7,7 @@ from pydantic_core import PydanticCustomError
 
 from kajet_turbo.api.schemas.base import RequestModel
 from kajet_turbo.errors import ErrorCode, FolderError, NoteError
+from kajet_turbo.services.notes.types import NewNote
 from kajet_turbo.shared.notes import (
     FolderContext,
     MovedNoteResult,
@@ -79,6 +80,17 @@ class CreateNoteRequest(RequestModel):
     )
 
     _validate_title = field_validator("title")(_require_title)
+
+    def to_new_note(self) -> NewNote:
+        return NewNote(
+            title=self.title,
+            content=self.content,
+            tags=self.tags,
+            folder=self.folder,
+            occurred_at=self.occurred_at,
+            period=self.period,
+            extras=self.extras,
+        )
 
 
 class CreateNoteResponse(BaseModel):
