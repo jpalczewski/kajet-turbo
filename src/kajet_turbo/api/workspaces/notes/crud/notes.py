@@ -34,6 +34,7 @@ from kajet_turbo.dependencies import (
 from kajet_turbo.errors import NoteError
 from kajet_turbo.markdown import BrokenWikilinkError, EditSpec
 from kajet_turbo.services.notes import (
+    NewNote,
     NoteCreateService,
     NoteDeleteService,
     NoteEditService,
@@ -131,9 +132,20 @@ async def api_create_notes_batch(
     workspace: WorkspaceTarget = RESOLVE_WORKSPACE_WRITE,
     note_create_service: NoteCreateService = Depends(get_note_create_service),
 ) -> BatchCreateNotesResponse:
-    results = await run_sync(
-        note_create_service.save_many, workspace, [note.model_dump() for note in body.notes]
-    )
+    # No per-item extras yet: the batch must reject a reserved key all-or-nothing first
+    # (#355), so CreateNoteRequest.extras is not forwarded here.
+    notes = [
+        NewNote(
+            title=note.title,
+            content=note.content,
+            tags=note.tags,
+            folder=note.folder,
+            occurred_at=note.occurred_at,
+            period=note.period,
+        )
+        for note in body.notes
+    ]
+    results = await run_sync(note_create_service.save_many, workspace, notes)
     return BatchCreateNotesResponse(results=[NoteResult(**r.model_dump()) for r in results])
 
 

@@ -1,7 +1,15 @@
-"""Note creation: ``save``/``save_many`` — split off ``NoteService`` under #388."""
+"""Note creation: ``save``/``save_many`` — split off ``NoteService`` under #388.
 
-from dataclasses import dataclass
-from datetime import UTC, datetime
+Both entry points build a note through the same steps (#451): ``_NoteDraft.build``
+normalizes the input, ``_NoteDraft.ensure_path_free`` checks the target path, and
+``NoteCreateService._write`` commits rows + tree and does the link/tag/reconcile
+bookkeeping. They differ only in how a failure surfaces (``save`` raises, ``save_many``
+reports a ``BatchNoteError`` per item), how the batch shares one link index, and how the
+result is indexed and returned.
+"""
+
+from dataclasses import dataclass, replace
+from datetime import UTC, date, datetime
 from functools import partial
 from pathlib import Path
 
@@ -10,6 +18,7 @@ from sqlmodel import Session
 
 from kajet_turbo.log import logger
 from kajet_turbo.markdown import BrokenWikilinkError, IndexedNote, LinkResolution
+from kajet_turbo.models import Note
 from kajet_turbo.repositories.git import GitRepository, target_write_transaction
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository
@@ -18,13 +27,17 @@ from kajet_turbo.services.notes.links import NoteLinkService, wikilink_warnings
 from kajet_turbo.services.notes.paths import (
     build_path_index,
     conflict_message,
-    note_path_conflict,
     path_conflict_key,
 )
 from kajet_turbo.services.notes.persistence import defer_index_many, defer_index_note, new_note_row
 from kajet_turbo.services.notes.staged_change import StagedChange, commit_rows_then_tree
 from kajet_turbo.services.notes.tags import NoteTagService
-from kajet_turbo.services.notes.types import BatchNoteError, BatchNoteSuccess, SavedNoteResult
+from kajet_turbo.services.notes.types import (
+    BatchNoteError,
+    BatchNoteSuccess,
+    NewNote,
+    SavedNoteResult,
+)
 from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.workspace import (
     NoteFrontmatter,
@@ -36,28 +49,121 @@ from kajet_turbo.workspace import (
 
 
 @dataclass(frozen=True, slots=True)
-class _SaveCandidate:
-    """One save_many item that passed Phase 1 (uniqueness + id assignment), not yet
-    validated for wikilinks."""
+class _NoteDraft:
+    """A ``NewNote`` with normalized fields, an assigned id, and its computed path —
+    nothing validated against the workspace yet, nothing written."""
 
-    index: int
     note_id: str
     title: str
     content: str
     tags: list[str]
     folder: str
-    filepath: str
-    relative: str
     occurred_at: str | None
     period: str | None
+    extras: dict[str, object]
+    created_at: str
+    filepath: str
+    relative: str
+
+    @classmethod
+    def build(cls, note: NewNote, ws_path: str, now: str) -> _NoteDraft:
+        """Normalize ``note``. Raises ``ValueError`` for an invalid folder or temporal
+        metadata; performs no workspace lookup."""
+        folder = normalize_folder(note.folder)
+        occurred_at, period = normalize_temporal_metadata(note.occurred_at, note.period)
+        filepath = note_filepath(ws_path, folder, note.title)
+        return cls(
+            note_id=generate(size=7),
+            title=note.title,
+            content=note.content,
+            tags=NoteTagService.normalize_tags(note.tags),
+            folder=folder,
+            occurred_at=occurred_at,
+            period=period,
+            extras=note.extras or {},
+            created_at=now,
+            filepath=filepath,
+            relative=str(Path(filepath).relative_to(ws_path)),
+        )
+
+    @property
+    def path_key(self) -> str:
+        return path_conflict_key(self.filepath)
+
+    @property
+    def indexed(self) -> IndexedNote:
+        return IndexedNote(self.note_id, self.folder, self.title)
+
+    def ensure_path_free(self, path_index: dict[str, IndexedNote]) -> None:
+        """Raise ``FileExistsError`` if another row (``path_index``, keyed by
+        ``path_conflict_key``) or an orphan file on disk already claims this path."""
+        conflict = path_index.get(self.path_key)
+        if conflict is not None:
+            raise FileExistsError(conflict_message(self.title, self.filepath, conflict))
+        if Path(self.filepath).exists():
+            raise FileExistsError(f"File '{Path(self.filepath).name}' already exists on disk.")
+
+    def staged_change(self) -> StagedChange:
+        # Built at write time, not in ``build``: NoteFrontmatter validates ``extras``, and
+        # ``save`` has always rejected a reserved key only after its link check.
+        meta = NoteFrontmatter(
+            id=self.note_id,
+            title=self.title,
+            tags=self.tags,
+            created_at=self.created_at,
+            updated_at=self.created_at,
+            occurred_at=self.occurred_at,
+            period=self.period,
+            extras=self.extras,
+        )
+        return StagedChange(
+            add=self.relative,
+            remove=None,
+            apply=partial(write_note_file, self.filepath, meta, self.content),
+        )
+
+    def row(self, workspace: str, owner_id: str) -> Note:
+        return new_note_row(
+            note_id=self.note_id,
+            workspace=workspace,
+            owner_id=owner_id,
+            title=self.title,
+            folder=self.folder,
+            tags=self.tags,
+            created_at=self.created_at,
+            updated_at=self.created_at,
+            occurred_at=self.occurred_at,
+            period=self.period,
+        )
 
 
 @dataclass(frozen=True, slots=True)
-class _PreparedSave:
-    """A fully validated save_many item, ready for the atomic write phase."""
+class _PreparedNote:
+    """A draft whose path is claimed and whose wikilinks resolved — ready to write."""
 
-    candidate: _SaveCandidate
+    draft: _NoteDraft
     links: LinkResolution
+
+
+def _admit_batch_item(
+    note: NewNote,
+    ws_path: str,
+    now: str,
+    accepted: set[tuple[str, str]],
+    path_index: dict[str, IndexedNote],
+) -> _NoteDraft:
+    """``save_many``'s Phase 1 for one item: the shared draft + path checks, plus the two
+    batch-only rules — a title that is blank once stripped, and a (folder, title) pair an
+    earlier item already took. Raises ``ValueError``/``FileExistsError``; the caller
+    registers an admitted draft in ``accepted``/``path_index``."""
+    title = note.title.strip()
+    if not title:
+        raise ValueError("Title is required.")
+    draft = _NoteDraft.build(replace(note, title=title), ws_path, now)
+    if (draft.folder, title) in accepted:
+        raise ValueError(f"Duplicate in batch: '{title}' in folder '{draft.folder or 'root'}'.")
+    draft.ensure_path_free(path_index)
+    return draft
 
 
 class NoteCreateService:
@@ -83,270 +189,162 @@ class NoteCreateService:
         content: str,
         tags: list[str],
         folder: str = "",
-        occurred_at: object = None,
-        period: object = None,
+        occurred_at: date | str | None = None,
+        period: str | None = None,
         extras: dict[str, object] | None = None,
     ) -> SavedNoteResult:
-        user_id = target.owner_id
-        ws_name = target.name
         ws_path = str(target.path)
-        folder = normalize_folder(folder)
-        occurred_at, period = normalize_temporal_metadata(occurred_at, period)
-        tags = NoteTagService.normalize_tags(tags)
-        workspace_links = self._link_service.for_workspace(ws_name, user_id)
-        filepath = note_filepath(ws_path, folder, title)
-        relative = str(Path(filepath).relative_to(ws_path))
-        conflict = note_path_conflict(workspace_links.paths, ws_path, folder, title)
-        if conflict is not None:
-            raise FileExistsError(conflict_message(title, filepath, conflict))
-        if Path(filepath).exists():
-            raise FileExistsError(f"File '{Path(filepath).name}' already exists on disk.")
-        links = workspace_links.validate(content, folder)
-        affected_sources = workspace_links.affected_sources({title})
-        note_id = generate(size=7)
-        now = datetime.now(UTC).isoformat()
-        meta = NoteFrontmatter(
-            id=note_id,
-            title=title,
-            tags=tags,
-            created_at=now,
-            updated_at=now,
-            occurred_at=occurred_at,
-            period=period,
-            extras=extras or {},
+        draft = _NoteDraft.build(
+            NewNote(
+                title=title,
+                content=content,
+                tags=tags,
+                folder=folder,
+                occurred_at=occurred_at,
+                period=period,
+                extras=extras,
+            ),
+            ws_path,
+            datetime.now(UTC).isoformat(),
         )
-        item = StagedChange(
-            add=relative, remove=None, apply=partial(write_note_file, filepath, meta, content)
-        )
+        workspace_links = self._link_service.for_workspace(target.name, target.owner_id)
+        draft.ensure_path_free(build_path_index(workspace_links.paths, ws_path))
+        prepared = _PreparedNote(draft, workspace_links.validate(content, draft.folder))
 
-        def write_row(session: Session) -> None:
-            self._crud_repo.insert_in_session(
-                session,
-                new_note_row(
-                    note_id=note_id,
-                    workspace=ws_name,
-                    owner_id=user_id,
-                    title=title,
-                    folder=folder,
-                    tags=tags,
-                    created_at=now,
-                    updated_at=now,
-                    occurred_at=occurred_at,
-                    period=period,
-                ),
-            )
-
-        commit_rows_then_tree(
-            self._crud_repo,
-            GitRepository(ws_path),
-            [item],
-            f"note: add {title}",
+        self._write(
+            target,
+            [prepared],
+            workspace_links.affected_sources({title}),
+            message=f"note: add {title}",
             operation="insert",
-            write_rows=write_row,
-            note_id=note_id,
-            workspace=ws_name,
-            owner_id=user_id,
+            note_id=draft.note_id,
         )
-        self._link_service.persist(note_id, ws_name, user_id, links)
-        self._tag_service.sync_tags(note_id, ws_name, user_id, tags, content)
-        logger.info("note_saved", note_id=note_id, ws=ws_name, folder=folder)
-        defer_index_note(self._indexer, ws_path, note_id, ws_name, user_id, title, content, 1)
-        if self._reconcile_repo is not None:
-            self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
+        defer_index_note(
+            self._indexer, ws_path, draft.note_id, target.name, target.owner_id, title, content, 1
+        )
         return SavedNoteResult(
-            note_id=note_id,
-            warnings=wikilink_warnings(links),
-            occurred_at=occurred_at,
-            period=period,
+            note_id=draft.note_id,
+            warnings=wikilink_warnings(prepared.links),
+            occurred_at=draft.occurred_at,
+            period=draft.period,
         )
 
     @target_write_transaction
     def save_many(
         self,
         target: WorkspaceTarget,
-        notes: list[dict],
+        notes: list[NewNote],
     ) -> list[BatchNoteSuccess | BatchNoteError]:
         """Create many notes in one batch: one DB transaction, one git commit, one cache
         bump, embeddings parallelized across the indexer threadpool. Best-effort per
-        note — invalid notes are reported and skipped. Each input dict:
-        ``{title, content, tags=[], folder=""}``.
+        note — invalid notes are reported and skipped.
         Returns per-note ``{index, note_id}`` | ``{index, error}``, input order preserved.
         Raises GitError or OSError if a write or the batch commit fails (every file
         actually written is rolled back first).
         """
-        user_id = target.owner_id
-        ws_name = target.name
         ws_path = str(target.path)
         results: list[BatchNoteSuccess | BatchNoteError | None] = [None] * len(notes)
         now = datetime.now(UTC).isoformat()
 
-        # Phase 1: uniqueness + id assignment. Survivors get an id and join the batch's
+        # Phase 1: normalization, uniqueness, id assignment. Survivors join the batch's
         # link index so in-batch wikilinks resolve in Phase 2. `base_links` is a snapshot
         # of the workspace's DB rows, taken once up front under the workspace write lock
         # (Phase 2 extends it via with_extra instead of re-querying). `path_index` maps
         # each already-claimed path (existing rows, then batch items as they're accepted)
-        # to its note for an O(1) conflict check per item, instead of an O(len(notes))
-        # rescan via note_path_conflict on every one of the (potentially many) items.
-        base_links = self._link_service.for_workspace(ws_name, user_id)
+        # to its note, so every item's conflict check is one O(1) lookup.
+        base_links = self._link_service.for_workspace(target.name, target.owner_id)
         path_index = build_path_index(base_links.paths, ws_path)
         accepted: set[tuple[str, str]] = set()
-        batch_notes: list[IndexedNote] = []
-        candidates: list[_SaveCandidate] = []
-        for index, raw in enumerate(notes):
-            title = str(raw.get("title", "")).strip()
-            if not title:
-                results[index] = BatchNoteError(index=index, error="Title is required.")
-                continue
-            folder = normalize_folder(str(raw.get("folder", "")))
-            key = (folder, title)
-            if key in accepted:
-                results[index] = BatchNoteError(
-                    index=index,
-                    error=f"Duplicate in batch: '{title}' in folder '{folder or 'root'}'.",
-                )
-                continue
-            filepath = note_filepath(ws_path, folder, title)
-            conflict = path_index.get(path_conflict_key(filepath))
-            if conflict is not None:
-                results[index] = BatchNoteError(
-                    index=index, error=conflict_message(title, filepath, conflict)
-                )
-                continue
-            note_id = generate(size=7)
-            relative = str(Path(filepath).relative_to(ws_path))
-            if Path(filepath).exists():
-                results[index] = BatchNoteError(
-                    index=index, error=f"File '{Path(filepath).name}' already exists on disk."
-                )
-                continue
+        drafts: list[tuple[int, _NoteDraft]] = []
+        for index, note in enumerate(notes):
             try:
-                candidate_occurred_at, candidate_period = normalize_temporal_metadata(
-                    raw.get("occurred_at"), raw.get("period")
-                )
-            except ValueError as e:
+                draft = _admit_batch_item(note, ws_path, now, accepted, path_index)
+            except (ValueError, FileExistsError) as e:
                 results[index] = BatchNoteError(index=index, error=str(e))
                 continue
-            accepted.add(key)
-            new_note = IndexedNote(note_id, folder, title)
-            batch_notes.append(new_note)
-            path_index[path_conflict_key(filepath)] = new_note
-            candidates.append(
-                _SaveCandidate(
-                    index=index,
-                    note_id=note_id,
-                    title=title,
-                    content=str(raw.get("content", "")),
-                    tags=NoteTagService.normalize_tags(raw.get("tags", []) or []),
-                    folder=folder,
-                    filepath=filepath,
-                    relative=relative,
-                    occurred_at=candidate_occurred_at,
-                    period=candidate_period,
-                )
-            )
+            accepted.add((draft.folder, draft.title))
+            path_index[draft.path_key] = draft.indexed
+            drafts.append((index, draft))
 
         # Phase 2: wikilink resolution against existing notes union the batch, sharing one
         # index. Non-cascading: the index is not rebuilt as notes are dropped, so a link to
         # a later-dropped note still resolves (worst case a harmless orphan edge).
-        valid: list[_PreparedSave] = []
-        workspace_links = base_links.with_extra(batch_notes)
-        for c in candidates:
+        workspace_links = base_links.with_extra(d.indexed for _, d in drafts)
+        valid: list[tuple[int, _PreparedNote]] = []
+        for index, draft in drafts:
             try:
-                links = workspace_links.validate(c.content, c.folder)
+                links = workspace_links.validate(draft.content, draft.folder)
             except BrokenWikilinkError as e:
-                results[c.index] = BatchNoteError(index=c.index, error=str(e))
+                results[index] = BatchNoteError(index=index, error=str(e))
                 continue
-            valid.append(_PreparedSave(candidate=c, links=links))
+            valid.append((index, _PreparedNote(draft, links)))
 
-        if not valid:
-            return [r for r in results if r is not None]
-
-        affected_sources = workspace_links.affected_sources({p.candidate.title for p in valid})
-
-        # Phase 3: rows first, tree last, one transaction (#155) — commit_rows_then_tree
-        # rolls back the batch on either a DB or a git failure.
-        n = len(valid)
-        items = [
-            StagedChange(
-                add=p.candidate.relative,
-                remove=None,
-                apply=partial(
-                    write_note_file,
-                    p.candidate.filepath,
-                    NoteFrontmatter(
-                        id=p.candidate.note_id,
-                        title=p.candidate.title,
-                        tags=p.candidate.tags,
-                        created_at=now,
-                        updated_at=now,
-                        occurred_at=p.candidate.occurred_at,
-                        period=p.candidate.period,
-                    ),
-                    p.candidate.content,
-                ),
+        if valid:
+            n = len(valid)
+            prepared = [p for _, p in valid]
+            self._write(
+                target,
+                prepared,
+                workspace_links.affected_sources({p.draft.title for p in prepared}),
+                message=f"note: add {n} note{'' if n == 1 else 's'}",
+                operation="insert_many",
+                count=n,
             )
-            for p in valid
-        ]
+            # Only enqueues a reindex_note job per note (see NoteIndexer.index_many) —
+            # chunking/FTS/embeddings run later in the background, not before this returns.
+            defer_index_many(
+                self._indexer,
+                ws_path,
+                target.name,
+                target.owner_id,
+                [p.draft.note_id for p in prepared],
+            )
+            for index, p in valid:
+                results[index] = BatchNoteSuccess(
+                    index=index, note_id=p.draft.note_id, warnings=wikilink_warnings(p.links)
+                )
+
+        return [r for r in results if r is not None]
+
+    def _write(
+        self,
+        target: WorkspaceTarget,
+        prepared: list[_PreparedNote],
+        affected_sources: set[str],
+        *,
+        message: str,
+        operation: str,
+        **operation_fields: object,
+    ) -> None:
+        """Persist ``prepared`` — rows first, tree last, in one transaction (#155;
+        ``commit_rows_then_tree`` rolls both back on either failure) — then its link
+        graph and tags, and queue link reconciliation for notes whose dangling links the
+        new titles may now resolve. Indexing stays with the caller: ``save`` indexes
+        inline, ``save_many`` only enqueues jobs."""
+        ws_name, owner_id = target.name, target.owner_id
 
         def write_rows(session: Session) -> None:
-            for p in valid:
-                self._crud_repo.insert_in_session(
-                    session,
-                    new_note_row(
-                        note_id=p.candidate.note_id,
-                        workspace=ws_name,
-                        owner_id=user_id,
-                        title=p.candidate.title,
-                        folder=p.candidate.folder,
-                        tags=p.candidate.tags,
-                        created_at=now,
-                        updated_at=now,
-                        occurred_at=p.candidate.occurred_at,
-                        period=p.candidate.period,
-                    ),
-                )
+            for p in prepared:
+                self._crud_repo.insert_in_session(session, p.draft.row(ws_name, owner_id))
 
         commit_rows_then_tree(
             self._crud_repo,
-            GitRepository(ws_path),
-            items,
-            f"note: add {n} note{'' if n == 1 else 's'}",
-            operation="insert_many",
+            GitRepository(str(target.path)),
+            [p.draft.staged_change() for p in prepared],
+            message,
+            operation=operation,
             write_rows=write_rows,
             workspace=ws_name,
-            owner_id=user_id,
-            count=n,
+            owner_id=owner_id,
+            **operation_fields,
         )
-
-        # Phase 4: link graph + tags.
         self._link_service.persist_many(
-            ws_name,
-            user_id,
-            {p.candidate.note_id: p.links for p in valid},
+            ws_name, owner_id, {p.draft.note_id: p.links for p in prepared}
         )
-        for p in valid:
+        for p in prepared:
             self._tag_service.sync_tags(
-                p.candidate.note_id, ws_name, user_id, p.candidate.tags, p.candidate.content
+                p.draft.note_id, ws_name, owner_id, p.draft.tags, p.draft.content
             )
-
-        # Phase 5: index after releasing the workspace write lock. This only enqueues a
-        # reindex_note job per note (see NoteIndexer.index_many) — chunking/FTS/embeddings
-        # run later in the background, not before this call returns.
-        defer_index_many(
-            self._indexer, ws_path, ws_name, user_id, [p.candidate.note_id for p in valid]
-        )
-
-        for p in valid:
-            results[p.candidate.index] = BatchNoteSuccess(
-                index=p.candidate.index,
-                note_id=p.candidate.note_id,
-                warnings=wikilink_warnings(p.links),
-            )
-            logger.info(
-                "note_saved", note_id=p.candidate.note_id, ws=ws_name, folder=p.candidate.folder
-            )
-
+            logger.info("note_saved", note_id=p.draft.note_id, ws=ws_name, folder=p.draft.folder)
         if self._reconcile_repo is not None:
-            self._reconcile_repo.mark_and_enqueue(user_id, ws_name, affected_sources)
-
-        return [r for r in results if r is not None]
+            self._reconcile_repo.mark_and_enqueue(owner_id, ws_name, affected_sources)

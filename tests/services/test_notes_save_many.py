@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
+from kajet_turbo.services.notes import NewNote
 from kajet_turbo.services.notes import create as service_module
 from tests.services.conftest import workspace_target
 from tests.services.helpers import make_flaky_db_write, make_flaky_write
@@ -23,9 +24,9 @@ def _commit_count(workspace):
 def test_save_many_happy_path_single_commit(service, workspace):
     before = _commit_count(workspace)
     notes = [
-        {"title": "Batch A", "content": "alpha"},
-        {"title": "Batch B", "content": "beta", "tags": ["x"]},
-        {"title": "Batch C", "content": "gamma", "folder": "docs"},
+        NewNote(title="Batch A", content="alpha"),
+        NewNote(title="Batch B", content="beta", tags=["x"]),
+        NewNote(title="Batch C", content="gamma", folder="docs"),
     ]
     results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
@@ -40,10 +41,10 @@ def test_save_many_happy_path_single_commit(service, workspace):
 def test_save_many_best_effort_reports_per_note(service, workspace):
     service.create.save(workspace_target("u1", "ws", workspace), "Existing", "x", [])
     notes = [
-        {"title": "Fresh One", "content": "a"},
-        {"title": "Existing", "content": "dup"},  # collides with DB
-        {"title": "", "content": "no title"},  # empty title
-        {"title": "Fresh Two", "content": "b"},
+        NewNote(title="Fresh One", content="a"),
+        NewNote(title="Existing", content="dup"),  # collides with DB
+        NewNote(title="", content="no title"),  # empty title
+        NewNote(title="Fresh Two", content="b"),
     ]
     results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
@@ -55,8 +56,8 @@ def test_save_many_best_effort_reports_per_note(service, workspace):
 
 def test_save_many_intra_batch_duplicate(service, workspace):
     notes = [
-        {"title": "Same", "content": "first"},
-        {"title": "Same", "content": "second"},  # same (folder, title) within batch
+        NewNote(title="Same", content="first"),
+        NewNote(title="Same", content="second"),  # same (folder, title) within batch
     ]
     results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
@@ -72,8 +73,8 @@ def test_save_many_empty_list(service, workspace):
 def test_save_many_cross_batch_wikilink_order_independent(service, link_service, workspace):
     # Note A links to B; B comes AFTER A in input order — must still resolve.
     notes = [
-        {"title": "A note", "content": "links to [[B note]]"},
-        {"title": "B note", "content": "target"},
+        NewNote(title="A note", content="links to [[B note]]"),
+        NewNote(title="B note", content="target"),
     ]
     results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
@@ -87,8 +88,8 @@ def test_save_many_cross_batch_wikilink_order_independent(service, link_service,
 def test_save_many_non_cascading_drop(service, workspace):
     # A links to B (valid in-batch); B has its own broken link and is dropped.
     notes = [
-        {"title": "A links B", "content": "see [[B broken]]"},
-        {"title": "B broken", "content": "see [[Does Not Exist]]"},
+        NewNote(title="A links B", content="see [[B broken]]"),
+        NewNote(title="B broken", content="see [[Does Not Exist]]"),
     ]
     results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
@@ -99,7 +100,7 @@ def test_save_many_non_cascading_drop(service, workspace):
 def test_save_many_git_error_rolls_back_all_files(service, workspace):
     from kajet_turbo.repositories.git import GitError
 
-    notes = [{"title": "RB One", "content": "a"}, {"title": "RB Two", "content": "b"}]
+    notes = [NewNote(title="RB One", content="a"), NewNote(title="RB Two", content="b")]
     with (
         patch(
             "kajet_turbo.repositories.git.GitRepository.commit_changes",
@@ -130,7 +131,7 @@ def test_save_many_write_failing_partway_rolls_back_and_makes_no_commit(service,
     ):
         service.create.save_many(
             workspace_target("u1", "ws", workspace),
-            [{"title": "Flaky One", "content": "a"}, {"title": "Flaky Two", "content": "b"}],
+            [NewNote(title="Flaky One", content="a"), NewNote(title="Flaky Two", content="b")],
         )
 
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
@@ -151,7 +152,7 @@ def test_save_many_db_failure_leaves_no_files_and_no_commit(service, workspace):
     ):
         service.create.save_many(
             workspace_target("u1", "ws", workspace),
-            [{"title": "DB One", "content": "a"}, {"title": "DB Two", "content": "b"}],
+            [NewNote(title="DB One", content="a"), NewNote(title="DB Two", content="b")],
         )
 
     md_files = [p for p in workspace.rglob("*.md") if ".git" not in str(p)]
@@ -161,7 +162,7 @@ def test_save_many_db_failure_leaves_no_files_and_no_commit(service, workspace):
 
 
 def test_save_many_indexes_every_valid_note(service, workspace):
-    notes = [{"title": "Idx A", "content": "a"}, {"title": "Idx B", "content": "b"}]
+    notes = [NewNote(title="Idx A", content="a"), NewNote(title="Idx B", content="b")]
     with patch.object(service.indexer, "index_many") as idx:
         results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
     idx.assert_called_once()
@@ -172,8 +173,8 @@ def test_save_many_indexes_every_valid_note(service, workspace):
 def test_save_many_filename_collision_dedup(service, workspace):
     # "A:B" and "A B" both sanitize to "A B.md" (colon is Windows-forbidden).
     notes = [
-        {"title": "A:B", "content": "first"},
-        {"title": "A B", "content": "second"},
+        NewNote(title="A:B", content="first"),
+        NewNote(title="A B", content="second"),
     ]
     results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
 
@@ -202,8 +203,8 @@ def test_save_many_item_rejects_collision_with_pre_existing_file(service, worksp
     outside of it, must also be rejected — the other items in the batch still succeed."""
     service.create.save(workspace_target("u1", "ws", workspace), "A B", "existing", [])
     notes = [
-        {"title": "A:B", "content": "collides via normalization"},
-        {"title": "Fresh", "content": "unrelated"},
+        NewNote(title="A:B", content="collides via normalization"),
+        NewNote(title="Fresh", content="unrelated"),
     ]
 
     results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
@@ -214,3 +215,28 @@ def test_save_many_item_rejects_collision_with_pre_existing_file(service, worksp
 
     _, content = read_note_file(str(workspace / "A B.md"))
     assert content.strip() == "existing"
+
+
+def test_save_many_reports_invalid_folder_per_item(service, workspace):
+    """#451: folder normalization moved into the shared draft step, so a bad folder is a
+    per-item BatchNoteError like every other invalid input, not an exception that aborts
+    the whole batch."""
+    notes = [
+        NewNote(title="Escapes", content="x", folder="../outside"),
+        NewNote(title="Fine", content="y"),
+    ]
+    results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
+
+    assert "'..' not allowed" in results[0]["error"]
+    assert "note_id" in results[1]
+
+
+def test_save_many_reports_invalid_temporal_metadata_per_item(service, workspace):
+    notes = [
+        NewNote(title="Bad date", occurred_at="not-a-date"),
+        NewNote(title="Good date", occurred_at="2026-03-04"),
+    ]
+    results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
+
+    assert "error" in results[0]
+    assert "note_id" in results[1]

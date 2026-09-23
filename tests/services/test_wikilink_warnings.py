@@ -1,6 +1,7 @@
 import pytest
 
 from kajet_turbo.markdown import EditSpec
+from kajet_turbo.services.notes import NewNote
 from tests.services.conftest import note_target, workspace_target
 from tests.services.helpers import edit_item
 
@@ -83,7 +84,7 @@ def test_update_and_batch_writes_report_warning(
     )
     created = service.create.save_many(
         workspace_target("u1", "ws", workspace),
-        [{"title": "Batch", "folder": folder, "content": content}],
+        [NewNote(title="Batch", folder=folder, content=content)],
     )
 
     assert updated["warnings"] == [expected]

@@ -36,6 +36,7 @@ from kajet_turbo.mcp.tooling import (
 from kajet_turbo.services.notes import (
     DeleteBatchItem,
     EditBatchItem,
+    NewNote,
     NoteCreateService,
     NoteDeleteService,
     NoteEditService,
@@ -105,7 +106,17 @@ def build_write(
         results = await run_sync(
             note_create_service.save_many,
             target,
-            [n.model_dump() for n in notes],
+            [
+                NewNote(
+                    title=n.title,
+                    content=n.content,
+                    tags=n.tags,
+                    folder=n.folder,
+                    occurred_at=n.occurred_at,
+                    period=n.period,
+                )
+                for n in notes
+            ],
         )
         await publish_workspace_changed(target)
         return results

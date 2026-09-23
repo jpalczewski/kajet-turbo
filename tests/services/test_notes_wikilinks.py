@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from kajet_turbo.markdown import BrokenWikilinkError, EditSpec, IndexedNote, render_markdown
+from kajet_turbo.services.notes import NewNote
 from tests.services.conftest import (
     note_target,
     workspace_target,
@@ -593,13 +594,13 @@ def test_save_many_short_links_between_batch_notes_in_folder(service, link_servi
     # Regression: notes saved together into a folder, linking each other by bare title,
     # used to fail validation because the in-batch targets were keyed by full path only.
     notes = [
-        {"title": "Alpha", "content": "see [[Beta]]", "folder": "Proj/Docs"},
-        {"title": "Beta", "content": "see [[Alpha]] and [[Gamma]]", "folder": "Proj/Docs"},
-        {"title": "Gamma", "content": "see [[Docs/Alpha]]", "folder": "Proj/Docs"},
+        NewNote(title="Alpha", content="see [[Beta]]", folder="Proj/Docs"),
+        NewNote(title="Beta", content="see [[Alpha]] and [[Gamma]]", folder="Proj/Docs"),
+        NewNote(title="Gamma", content="see [[Docs/Alpha]]", folder="Proj/Docs"),
     ]
     results = service.create.save_many(workspace_target("u1", "ws", workspace), notes)
     assert all("note_id" in r for r in results), results
-    ids = {n["title"]: r["note_id"] for n, r in zip(notes, results, strict=True)}
+    ids = {n.title: r["note_id"] for n, r in zip(notes, results, strict=True)}
     links = link_service._link_repo
     assert set(links.outlinks(ids["Beta"])) == {ids["Alpha"], ids["Gamma"]}
     assert links.outlinks(ids["Gamma"]) == [ids["Alpha"]]
