@@ -15,6 +15,7 @@ from kajet_turbo.services.notes.types import (
     EditNotesRejected,
     EditNotesSuccessItem,
     EditNoteSuccess,
+    NewNote,
     SavedNoteResult,
     StaleVersion,
 )
@@ -72,6 +73,16 @@ class NoteInput(ToolInput):
     period: str | None = Field(
         default=None, description="Canonical period key, e.g. 2026-W12 or 2026-03"
     )
+
+    def to_new_note(self) -> NewNote:
+        return NewNote(
+            title=self.title,
+            content=self.content,
+            tags=self.tags,
+            folder=self.folder,
+            occurred_at=self.occurred_at,
+            period=self.period,
+        )
 
 
 class ConflictItem(BaseModel):

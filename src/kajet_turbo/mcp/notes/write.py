@@ -105,7 +105,7 @@ def build_write(
         results = await run_sync(
             note_create_service.save_many,
             target,
-            [n.model_dump() for n in notes],
+            [n.to_new_note() for n in notes],
         )
         await publish_workspace_changed(target)
         return results

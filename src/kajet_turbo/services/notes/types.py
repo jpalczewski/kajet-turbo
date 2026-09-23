@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -30,6 +31,24 @@ class ResultModel(BaseModel):
         if isinstance(other, dict):
             return self.model_dump() == other
         return super().__eq__(other)
+
+
+@dataclass(frozen=True, slots=True)
+class NewNote:
+    """One note to create — the input shared by ``NoteCreateService.save`` and
+    ``save_many``, typed from the MCP/REST boundary instead of a string-keyed dict.
+
+    Carries caller values as given: folder, tags, and temporal fields are normalized (and
+    rejected if invalid) by the create service, not here.
+    """
+
+    title: str
+    content: str = ""
+    tags: list[str] = field(default_factory=list)
+    folder: str = ""
+    occurred_at: date | str | None = None
+    period: str | None = None
+    extras: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)

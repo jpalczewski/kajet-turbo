@@ -36,12 +36,17 @@ Two pieces are shared, not duplicated per file:
   more time each (`save`/`update` call the former, `save_many`/`edit_many`/`reconcile_paths`
   call the latter).
 
-Batch state is typed, not a `list[dict]`: `save_many` builds `_SaveCandidate`/`_PreparedSave`
-(private to `create.py`, mirroring `edit_many`'s pre-existing `_ValidatedDestructiveItem`/
-`_PreparedEdit` two-stage shape — Phase 1 can still fail and skip an item before Phase 2 adds
-its validated links), and `delete_many` takes `deletes: list[DeleteBatchItem]` instead of
-`list[dict]`, matching `edit_many(edits: list[EditBatchItem])`'s existing shape
-(`types.py`). The `indexer` constructor param on all three write services (and on
+Batch state is typed, not a `list[dict]`: `save_many` takes `notes: list[NewNote]`,
+`delete_many` takes `deletes: list[DeleteBatchItem]`, and `edit_many` takes
+`edits: list[EditBatchItem]` (all in `types.py`). `save` and `save_many` share one creation
+path (#451): `_NoteDraft.build` (normalize + id + path), `_NoteDraft.ensure_path_free`,
+then `NoteCreateService._write` (rows + tree, links, tags, reconcile). What stays per entry
+point is only how a failure surfaces (raise vs. `BatchNoteError`), the batch-only rules
+(blank title, duplicate in batch, one shared link index via `with_extra`), indexing
+(`defer_index_note` vs. `defer_index_many`), and the result shape. A new creation
+parameter goes on `NewNote` and `_NoteDraft` once, not into two method bodies.
+
+The `indexer` constructor param on all three write services (and on
 `NoteReconcileService`) is typed `Indexer | None` — a small `Protocol` in `services/indexing.py`
 declaring just `index_note`/`index_many`, not the concrete `NoteIndexer` class — mirroring the
 one other `Protocol` in the codebase (`embedding/base.py`'s `Embedder`).

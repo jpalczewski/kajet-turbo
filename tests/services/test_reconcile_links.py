@@ -5,7 +5,7 @@ from kajet_turbo.markdown import EditSpec
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteLinkRepository, NoteRepository
-from kajet_turbo.services.notes import DeleteBatchItem
+from kajet_turbo.services.notes import DeleteBatchItem, NewNote
 from tests.conftest import seed_user
 from tests.services.conftest import (
     note_target,
@@ -258,7 +258,7 @@ def test_all_identity_paths_share_one_snapshot_and_mark_targeted_sources(
     saved = one_snapshot(
         lambda: service.create.save_many(
             workspace_target("u1", "ws", ws),
-            [{"title": "Renamed", "folder": "New", "content": "body"}],
+            [NewNote(title="Renamed", folder="New", content="body")],
         )
     )
     replacement_id = saved[0]["note_id"]
