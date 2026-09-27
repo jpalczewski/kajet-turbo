@@ -28,6 +28,11 @@ runs:
         ARCHITECTURE: ${{ inputs.architecture }}
       run: echo "sarif_file=trivy-${TARGET}-${ARCHITECTURE}.sarif" >> "$GITHUB_OUTPUT"
 
+    # The gate blocks only on what a build can act on: a finding with a fixed version.
+    # ignore-unfixed skips affected/fix_deferred/will_not_fix/end_of_life, so a new
+    # CVE the distro has not patched yet cannot turn every unrelated PR red. Those
+    # findings are not dropped: the SARIF step below keeps ignore-unfixed off and
+    # uploads them to code scanning, where they are reviewed.
     - name: Trivy gate
       uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
       with:
@@ -37,7 +42,7 @@ runs:
         trivyignores: .trivyignore.yaml
         vuln-type: os,library
         severity: HIGH,CRITICAL
-        ignore-unfixed: false
+        ignore-unfixed: true
         exit-code: "1"
         format: table
         hide-progress: true
