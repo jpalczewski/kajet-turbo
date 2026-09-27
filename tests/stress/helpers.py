@@ -4,6 +4,7 @@ import socket
 import subprocess
 import time
 from contextlib import closing
+from pathlib import Path
 
 import httpx2
 
@@ -14,11 +15,23 @@ def free_port() -> int:
         return sock.getsockname()[1]
 
 
-def wait_ready(port: int, proc: subprocess.Popen, timeout: float = 20.0) -> None:
+def spawn_logged(args: list[str], *, env: dict[str, str], log_path: Path) -> subprocess.Popen:
+    """Start a server process with its combined output going to ``log_path``.
+
+    Never a pipe: nothing drains one while the test runs, and once the 64 KiB kernel
+    buffer is full a child's next log write blocks its event loop mid-request. Every
+    request logs an ``http`` access line (~330 B), so a pipe wedges the server about
+    190 requests in.
+    """
+    with log_path.open("ab") as log:
+        return subprocess.Popen(args, env=env, stdout=log, stderr=subprocess.STDOUT)
+
+
+def wait_ready(port: int, proc: subprocess.Popen, *, log_path: Path, timeout: float = 20.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            out = proc.stdout.read().decode() if proc.stdout else ""
+            out = log_path.read_text(errors="replace")
             raise RuntimeError(f"process on port {port} exited early:\n{out}")
         try:
             if httpx2.get(f"http://127.0.0.1:{port}/readyz", timeout=1.0).status_code == 200:
