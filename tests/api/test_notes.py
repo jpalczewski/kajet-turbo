@@ -966,6 +966,26 @@ def test_batch_create_best_effort_mixed(auth_client):
     assert results[1]["note_id"]
 
 
+def test_batch_create_accepts_extras_per_item(auth_client):
+    """Reserved extras keys follow the batch's best-effort semantics: the offending item
+    reports an error, the valid one is created with its extras."""
+    client, _, ws_path = auth_client
+    resp = client.post(
+        "/api/workspaces/test-ws/notes/batch",
+        json={
+            "notes": [
+                {"title": "Shadowing", "extras": {"id": "evil"}},
+                {"title": "Plain", "extras": {"mood": "great"}},
+            ]
+        },
+    )
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert "reserved" in results[0]["error"]
+    note = auth_client.note_read_service.get_with_content(_note(ws_path, results[1]["note_id"]))
+    assert note is not None and note.extras == {"mood": "great"}
+
+
 def test_batch_create_empty_notes_422(auth_client):
     client, _, _ = auth_client
     resp = client.post("/api/workspaces/test-ws/notes/batch", json={"notes": []})

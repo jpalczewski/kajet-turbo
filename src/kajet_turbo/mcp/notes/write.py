@@ -237,7 +237,8 @@ def build_write(
         Every item needs expected_sha — the note's sha from get_note/get_note_history,
         proof you saw the current version. On a stale one, call get_note to re-read the
         note and retry.
-        Scope: content and tags only — no title/folder changes (use edit_note for those).
+        Scope: content, tags, dates and extras — no title/folder changes (use edit_note
+        for those).
         Search indexing (chunks/FTS/embeddings) is deferred to background jobs — an edited
         note's search_notes results may lag briefly behind this call.
         Max 50 edits per call."""
@@ -252,6 +253,7 @@ def build_write(
                     expected_sha=e.expected_sha,
                     edit=e.to_edit_spec(),
                     tags=e.tags,
+                    extras=e.extras,
                     occurred_at=e.occurred_at,
                     period=e.period,
                     clear_date_metadata=e.clear_date_metadata,

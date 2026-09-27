@@ -237,7 +237,7 @@ async def test_edit_notes_batch_rejects_an_unknown_key_in_an_item(workspaces_dir
 
 
 async def test_edit_notes_batch_rejects_an_item_that_changes_nothing(workspaces_dir, mcp_server):
-    """Batch scope is content + tags; an item carrying neither would commit an untouched file."""
+    """An item carrying no content, tags, dates or extras would commit an untouched file."""
     mcp, _ = mcp_server
     async with Client(mcp) as client:
         note = await seed_note(client, workspace="test-ws", title="Noop", content="Body stays.")
@@ -333,3 +333,75 @@ async def test_delete_notes_mixed_workspace_batch_leaves_both_workspaces_untouch
         assert (await call_json(client, "get_note", {"note_id": second["note_id"]}))[
             "content"
         ] == "two"
+
+
+async def test_save_notes_extras_are_validated_per_item(workspaces_dir, mcp_server):
+    """save_notes is best-effort: a reserved extras key fails its own item only."""
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        out = await call_json(
+            client,
+            "save_notes",
+            {
+                "workspace": "test-ws",
+                "notes": [
+                    {"title": "Shadowing", "extras": {"tags": ["evil"]}},
+                    {"title": "Plain", "extras": {"mood": "ok"}},
+                ],
+            },
+        )
+        assert out[0]["index"] == 0 and "reserved" in out[0]["error"]
+        assert out[1]["index"] == 1
+        note = await call_json(client, "get_note", {"note_id": out[1]["note_id"]})
+        assert note["extras"] == {"mood": "ok"}
+
+
+async def test_edit_notes_merges_extras_and_rejects_reserved_key(workspaces_dir, mcp_server):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        first = await seed_note(
+            client, workspace="test-ws", title="First", extras={"mood": "ok", "keep": 1}
+        )
+        second = await seed_note(client, workspace="test-ws", title="Second")
+        rejected = await call_json(
+            client,
+            "edit_notes",
+            {
+                "edits": [
+                    {
+                        "note_id": first["note_id"],
+                        "expected_sha": first["sha"],
+                        "mode": "overwrite",
+                        "extras": {"mood": "great"},
+                    },
+                    {
+                        "note_id": second["note_id"],
+                        "expected_sha": second["sha"],
+                        "mode": "overwrite",
+                        "extras": {"period": "2026-01"},
+                    },
+                ]
+            },
+        )
+        assert rejected["applied"] is False
+        assert [e["index"] for e in rejected["errors"]] == [1]
+        note = await call_json(client, "get_note", {"note_id": first["note_id"]})
+        assert note["extras"] == {"mood": "ok", "keep": 1}
+
+        applied = await call_json(
+            client,
+            "edit_notes",
+            {
+                "edits": [
+                    {
+                        "note_id": first["note_id"],
+                        "expected_sha": first["sha"],
+                        "mode": "overwrite",
+                        "extras": {"mood": "great"},
+                    }
+                ]
+            },
+        )
+        assert applied["applied"] is True
+        note = await call_json(client, "get_note", {"note_id": first["note_id"]})
+        assert note["extras"] == {"mood": "great", "keep": 1}

@@ -74,6 +74,18 @@ class NoteFrontmatter:
         if (occurred_at, period) != (self.occurred_at, self.period):
             raise ValueError("occurred_at and period must use canonical string values.")
 
+    def merged_extras(
+        self, extras: dict[str, object] | None, *, replace_existing: bool = False
+    ) -> dict[str, object]:
+        """The extras an edit carrying ``extras`` leaves on this note: ``None`` keeps them
+        as they are, ``replace_existing`` swaps them wholesale (restore), and otherwise
+        caller-supplied keys win while hand-written keys not mentioned survive (#352)."""
+        if extras is None:
+            return self.extras
+        if replace_existing:
+            return extras
+        return {**self.extras, **extras}
+
     def temporal_or(
         self, db_occurred_at: str | None, db_period: str | None
     ) -> tuple[str | None, str | None]:

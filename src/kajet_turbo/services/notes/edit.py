@@ -46,6 +46,7 @@ from kajet_turbo.services.notes.types import (
 )
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.workspace import (
+    ExtrasReservedKeyError,
     InvalidFolderError,
     LocatedNote,
     NoteFrontmatter,
@@ -65,6 +66,8 @@ class _PreparedEdit:
     index: int
     note_id: str
     loc: LocatedNote
+    # The frontmatter to write — every edited field already applied, so a reserved extras
+    # key was rejected while validating this item rather than while writing the batch.
     meta: NoteFrontmatter
     new_content: str
     new_tags: list[str]
@@ -163,14 +166,7 @@ class NoteEditService:
             # DB's last-known-good value (already `new_occurred_at`/`new_period` from
             # resolve_temporal_fields above) is kept instead of persisting the drop.
             new_occurred_at, new_period = existing_meta.temporal_or(new_occurred_at, new_period)
-        if extras is None:
-            new_extras = existing_meta.extras
-        elif extras_replace:
-            new_extras = extras
-        else:
-            # Merge, not replace (#352): caller-supplied keys win, existing hand-written
-            # keys not mentioned here survive — matching write_note_file's #105 behavior.
-            new_extras = {**existing_meta.extras, **extras}
+        new_extras = existing_meta.merged_extras(extras, replace_existing=extras_replace)
         # apply_edit owns every mode/parameter rule, including "overwrite without content
         # leaves the body alone" — the metadata-only edit path.
         edit_result = apply_edit(old_content, edit)
@@ -300,8 +296,9 @@ class NoteEditService:
     ) -> EditNotesApplied | EditNotesRejected:
         """Apply multiple surgical edits in ONE atomic commit. All-or-nothing at
         validation: any invalid edit (missing note, duplicate note_id, broken wikilink,
-        bad anchor/heading) rejects the whole batch — nothing is written. Content + tags
-        only; no title/folder changes (a rename needs backlink rewrites across other
+        bad anchor/heading, reserved extras key) rejects the whole batch — nothing is
+        written. Content, tags, dates and extras (merged, as in update()) only; no
+        title/folder changes (a rename needs backlink rewrites across other
         notes, incompatible with one commit_files call — use update() for that).
 
         `target` identifies the single authorized workspace every edit's note_id must
@@ -325,6 +322,7 @@ class NoteEditService:
         workspace_links = self._link_service.for_workspace(ws_name, user_id)
         errors: list[EditNotesError] = []
         prepared: list[_PreparedEdit] = []
+        now = datetime.now(UTC).isoformat()
         for item in _validate_destructive_items(note_ids, expected_shas, located):
             if isinstance(item, _BatchValidationError):
                 errors.append(item.edit_error())
@@ -333,13 +331,14 @@ class NoteEditService:
             edit_item = edits[index]
             existing_meta, old_content, raw = read_note_file_raw(loc.filepath)
             # 'overwrite' without content is edit_note's metadata-only path, but this batch
-            # cannot rename or move — so with no tags either, the item has nothing left to
-            # change and would commit an untouched file while reporting success. Every other
-            # mode already errors on a missing payload inside apply_edit.
+            # cannot rename or move — so with no other metadata either, the item has nothing
+            # left to change and would commit an untouched file while reporting success.
+            # Every other mode already errors on a missing payload inside apply_edit.
             if (
                 edit_item.edit.mode == "overwrite"
                 and edit_item.edit.content is None
                 and edit_item.tags is None
+                and edit_item.extras is None
                 and edit_item.occurred_at is None
                 and edit_item.period is None
                 and not edit_item.clear_date_metadata
@@ -348,8 +347,8 @@ class NoteEditService:
                     EditNotesError(
                         index=index,
                         note_id=note_id,
-                        error="Item changes nothing: it carries neither content nor tags. "
-                        "Use edit_note to change title or folder.",
+                        error="Item changes nothing: it carries no content, tags, dates or "
+                        "extras. Use edit_note to change title or folder.",
                     )
                 )
                 continue
@@ -385,12 +384,27 @@ class NoteEditService:
             except ValueError as e:
                 errors.append(EditNotesError(index=index, note_id=note_id, error=str(e)))
                 continue
+            try:
+                new_meta = replace(
+                    existing_meta,
+                    id=note_id,
+                    title=loc.note.title,
+                    tags=new_tags,
+                    created_at=loc.note.created_at,
+                    updated_at=now,
+                    occurred_at=occurred_at,
+                    period=period,
+                    extras=existing_meta.merged_extras(edit_item.extras),
+                )
+            except ExtrasReservedKeyError as e:
+                errors.append(EditNotesError(index=index, note_id=note_id, error=str(e)))
+                continue
             prepared.append(
                 _PreparedEdit(
                     index=index,
                     note_id=note_id,
                     loc=loc,
-                    meta=existing_meta,
+                    meta=new_meta,
                     new_content=new_content,
                     new_tags=new_tags,
                     occurred_at=occurred_at,
@@ -404,27 +418,12 @@ class NoteEditService:
         if errors:
             return EditNotesRejected(errors=errors)
 
-        now = datetime.now(UTC).isoformat()
         n = len(prepared)
         items = [
             StagedChange(
                 add=p.loc.relative,
                 remove=None,
-                apply=partial(
-                    write_note_file,
-                    p.loc.filepath,
-                    replace(
-                        p.meta,
-                        id=p.note_id,
-                        title=p.loc.note.title,
-                        tags=p.new_tags,
-                        created_at=p.loc.note.created_at,
-                        updated_at=now,
-                        occurred_at=p.occurred_at,
-                        period=p.period,
-                    ),
-                    p.new_content,
-                ),
+                apply=partial(write_note_file, p.loc.filepath, p.meta, p.new_content),
                 known_bytes=p.raw,
             )
             for p in prepared
