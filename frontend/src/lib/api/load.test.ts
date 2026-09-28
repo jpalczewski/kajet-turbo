@@ -12,17 +12,17 @@ const kit = vi.hoisted(() => ({
 vi.mock('@sveltejs/kit', () => kit);
 vi.mock('$lib/routes', () => ({ loginPath: () => '/login' }));
 
-import { loadApi } from './load';
+import { loadApi, loadApiOrNull } from './load';
 
-const rejectedApiCall = <T extends { status: number }>(status: number) =>
+const rejectedApiCall = <T>(status: number) =>
   Promise.reject(Object.assign(new Error(`HTTP ${status}`), { status })) as Promise<T>;
 
-describe('loadApi', () => {
-  beforeEach(() => {
-    kit.error.mockClear();
-    kit.redirect.mockClear();
-  });
+beforeEach(() => {
+  kit.error.mockClear();
+  kit.redirect.mockClear();
+});
 
+describe('loadApi', () => {
   it('returns successful API responses unchanged', async () => {
     const result = await loadApi(
       Promise.resolve({ status: 200 as const, data: 'ok' }),
@@ -60,5 +60,17 @@ describe('loadApi', () => {
       status: 307,
       location: '/login',
     });
+  });
+});
+
+describe('loadApiOrNull', () => {
+  it('resolves to the response data', async () => {
+    await expect(loadApiOrNull(Promise.resolve({ status: 200, data: 'ok' }))).resolves.toBe('ok');
+  });
+
+  it('resolves to null on an API failure instead of rejecting', async () => {
+    await expect(loadApiOrNull(rejectedApiCall<{ data: string }>(500))).resolves.toBeNull();
+    expect(kit.error).not.toHaveBeenCalled();
+    expect(kit.redirect).not.toHaveBeenCalled();
   });
 });
