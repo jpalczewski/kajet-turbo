@@ -40,8 +40,10 @@
   // when the status filter changes.
   $effect(() => {
     void statusFilter; // re-run when the filter changes
-    reload();
-    const timer = setInterval(reload, 5000);
+    // A failed background poll keeps the last good list; the next tick retries.
+    const poll = () => reload().catch(() => {});
+    poll();
+    const timer = setInterval(poll, 5000);
     return () => clearInterval(timer);
   });
 

@@ -25,24 +25,26 @@
   async function selectVersion(sha: string) {
     selectedSha = sha;
     selectedVersion = null;
+    restoreAction.clearError();
     await selectAction.run(async () => {
       const result = await apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGet(
         slug,
         noteId,
         sha,
-      ).catch(() => null);
-      selectedVersion = result?.status === 200 ? result.data : null;
+      );
+      selectedVersion = result.data;
     }, 'Nie udało się załadować wersji');
   }
 
   async function restore() {
-    if (!selectedSha) return;
+    const sha = selectedSha;
+    if (!sha) return;
     await restoreAction.run(async () => {
       await apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePost(
         slug,
         noteId,
-        selectedSha as string,
-      ).catch(() => null);
+        sha,
+      );
       await invalidate('app:workspace-tree');
       goto(notePath(slug, noteId));
     }, 'Nie udało się przywrócić wersji');
@@ -59,12 +61,17 @@
     <section class="history-preview">
       {#if selectAction.busy}
         <p class="history-preview__empty">Ładowanie...</p>
+      {:else if selectAction.error}
+        <p class="history-preview__error">{selectAction.error}</p>
       {:else if selectedVersion}
         <div class="history-preview__actions">
           <button class="btn-restore" onclick={restore} disabled={restoreAction.busy}>
             {restoreAction.busy ? 'Przywracam...' : 'Przywróć tę wersję'}
           </button>
         </div>
+        {#if restoreAction.error}
+          <p class="history-preview__error">{restoreAction.error}</p>
+        {/if}
         <Prose html={selectedVersion.content_html} />
       {:else}
         <p class="history-preview__empty">Wybierz wersję z listy po lewej.</p>
@@ -116,6 +123,12 @@
       font-size: 0.85rem;
       font-family: v.$font-mono;
       color: v.$text-muted;
+    }
+
+    &__error {
+      font-size: 0.85rem;
+      font-family: v.$font-mono;
+      color: v.$error;
     }
 
     &__actions {
