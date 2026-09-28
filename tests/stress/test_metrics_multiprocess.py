@@ -14,7 +14,6 @@ metric families exist yet to observe.
 import os
 import re
 import signal
-import subprocess
 import sys
 import textwrap
 import time
@@ -26,7 +25,7 @@ import httpx2
 import pytest
 
 from kajet_turbo.db import Database
-from tests.stress.helpers import free_port, terminate, wait_ready
+from tests.stress.helpers import free_port, spawn_logged, terminate, wait_ready
 
 _FACTORY = textwrap.dedent(
     """
@@ -91,7 +90,8 @@ def _supervisor(tmp_path: Path, *, prom_dir: Path) -> Iterator[int]:
     if not db_path.exists():
         Database(str(db_path)).close()  # migrate once, so children do not race Alembic
     port = free_port()
-    proc = subprocess.Popen(
+    log_path = tmp_path / "supervisor.log"
+    proc = spawn_logged(
         [sys.executable, str(tmp_path / "supervisor.py"), str(port)],
         env={
             **os.environ,
@@ -104,11 +104,10 @@ def _supervisor(tmp_path: Path, *, prom_dir: Path) -> Iterator[int]:
             "SECRET_KEY": "stress-test-secret",
             "KAJET_SERVE_SPA": "0",
         },
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        log_path=log_path,
     )
     try:
-        wait_ready(port, proc, timeout=_STARTUP_TIMEOUT)
+        wait_ready(port, proc, log_path=log_path, timeout=_STARTUP_TIMEOUT)
         yield port
     finally:
         terminate([proc])
@@ -135,12 +134,20 @@ def _wait_for(check, *, timeout: float = 30.0, message: str) -> None:
 
 
 def _hit_until_two_children(port: int) -> set[int]:
+    # `probe_live == 2` only proves both factories ran; the second child may still be
+    # before `create_server` on a loaded runner, so wait for it on the start-up budget
+    # rather than a fixed number of requests the first child can absorb alone.
     pids: set[int] = set()
-    for _ in range(300):
+
+    def both_served() -> bool:
         pids.add(int(httpx2.get(f"http://127.0.0.1:{port}/probe/hit", timeout=5).text))
-        if len(pids) == 2:
-            break
+        return len(pids) == 2
+
+    _wait_for(both_served, timeout=_STARTUP_TIMEOUT, message="requests never reached both children")
     return pids
+
+
+_HITS = 250
 
 
 def test_two_children_share_one_scrape_without_pid_labels(tmp_path: Path):
@@ -149,12 +156,14 @@ def test_two_children_share_one_scrape_without_pid_labels(tmp_path: Path):
             lambda: _value(_scrape(port), "probe_live") == 2,
             message="both children never reported in",
         )
-        for _ in range(20):
+        # Well past the ~190 requests whose access-log lines once filled an undrained
+        # stdout pipe and wedged the children (see `spawn_logged`).
+        for _ in range(_HITS):
             httpx2.get(f"http://127.0.0.1:{port}/probe/hit", timeout=5)
 
         body = _scrape(port)
 
-    assert _value(body, "probe_hits_total") == 20  # summed across children, not per PID
+    assert _value(body, "probe_hits_total") == _HITS  # summed across children, not per PID
     assert "pid=" not in body
     # Multiprocess exposition has no `_created` series; single-process would (§5).
     assert "_created" not in body
@@ -167,7 +176,6 @@ def test_reaper_removes_a_killed_childs_live_gauges_but_keeps_counters(tmp_path:
             message="both children never reported in",
         )
         pids = _hit_until_two_children(port)
-        assert len(pids) == 2, "requests never reached both children"
         hits_before = _value(_scrape(port), "probe_hits_total")
         assert hits_before is not None
 

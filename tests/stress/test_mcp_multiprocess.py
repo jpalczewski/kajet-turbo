@@ -26,14 +26,16 @@ from fastmcp import Client
 
 from kajet_turbo.db import Database
 from kajet_turbo.repositories.oauth import OAuthRepository
-from tests.stress.helpers import free_port, terminate, wait_ready
+from tests.stress.helpers import free_port, spawn_logged, terminate, wait_ready
 
 _SECRET_KEY = "stress-test-secret"
 _USER_ID = "u1"
 _CLIENT_ID = "cl1"
 
 
-def _spawn_mcp_process(*, db_path: Path, workspaces_dir: Path, port: int) -> subprocess.Popen:
+def _spawn_mcp_process(
+    *, db_path: Path, workspaces_dir: Path, port: int, log_path: Path
+) -> subprocess.Popen:
     env = {
         **os.environ,
         "KAJET_ROLE": "mcp",
@@ -44,11 +46,10 @@ def _spawn_mcp_process(*, db_path: Path, workspaces_dir: Path, port: int) -> sub
         "MCP_BASE_URL": f"http://127.0.0.1:{port}",
         "SECRET_KEY": _SECRET_KEY,
     }
-    return subprocess.Popen(
+    return spawn_logged(
         [sys.executable, "-c", "from kajet_turbo.server import main; main()"],
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        log_path=log_path,
     )
 
 
@@ -153,11 +154,17 @@ def mcp_cluster(request, tmp_path: Path) -> Iterator[tuple[RoundRobin, Path, Pat
 
     ports = [free_port() for _ in range(request.param)]
     procs = [
-        _spawn_mcp_process(db_path=db_path, workspaces_dir=workspaces_dir, port=p) for p in ports
+        _spawn_mcp_process(
+            db_path=db_path,
+            workspaces_dir=workspaces_dir,
+            port=p,
+            log_path=tmp_path / f"mcp-{p}.log",
+        )
+        for p in ports
     ]
     try:
         for port, proc in zip(ports, procs, strict=True):
-            wait_ready(port, proc)
+            wait_ready(port, proc, log_path=tmp_path / f"mcp-{port}.log")
         yield RoundRobin(ports), db_path, workspaces_dir
     finally:
         terminate(procs)
@@ -278,12 +285,17 @@ def test_process_restart_mid_stream_is_not_a_session_not_found():
         workspaces_dir.mkdir()
         ports = [free_port(), free_port()]
         procs = [
-            _spawn_mcp_process(db_path=db_path, workspaces_dir=workspaces_dir, port=p)
+            _spawn_mcp_process(
+                db_path=db_path,
+                workspaces_dir=workspaces_dir,
+                port=p,
+                log_path=tmp_path / f"mcp-{p}.log",
+            )
             for p in ports
         ]
         try:
             for port, proc in zip(ports, procs, strict=True):
-                wait_ready(port, proc)
+                wait_ready(port, proc, log_path=tmp_path / f"mcp-{port}.log")
             rr = RoundRobin(ports)
             access_token, _ = _seed_authenticated_user(db_path)
 
