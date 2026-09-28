@@ -14,7 +14,7 @@ from typing import cast
 from nanoid import generate
 
 from kajet_turbo.log import logger
-from kajet_turbo.repositories.git import GitRepository, workspace_write_transaction
+from kajet_turbo.repositories.git import GitRepository, target_write_transaction
 from kajet_turbo.repositories.link_reconcile import LinkReconcileRepository
 from kajet_turbo.repositories.notes import NoteRepository, NoteTagRepository
 from kajet_turbo.services.indexing import Indexer
@@ -22,6 +22,7 @@ from kajet_turbo.services.notes.links import NoteLinkService
 from kajet_turbo.services.notes.persistence import NoteTeardown, defer_index_many, new_note_row
 from kajet_turbo.services.notes.staged_change import StagedChange, staged_workspace_change
 from kajet_turbo.services.notes.tags import NoteTagService
+from kajet_turbo.services.targets import WorkspaceTarget
 from kajet_turbo.workspace import (
     NoteFrontmatter,
     iter_note_paths,
@@ -137,10 +138,8 @@ class NoteReconcileService:
                 self._teardown.workspace_in_session(session, ws_name, owner_id)
         logger.info("workspace_data_cleared", ws=ws_name, owner_id=owner_id)
 
-    @workspace_write_transaction
-    def reconcile_paths(
-        self, ws_name: str, owner_id: str, ws_path: str, paths: Iterable[str]
-    ) -> ReconcileReport:
+    @target_write_transaction
+    def reconcile_paths(self, target: WorkspaceTarget, paths: Iterable[str]) -> ReconcileReport:
         """Re-derive DB rows from disk for exactly the given workspace-relative paths.
 
         A missing file (in scope, no id found there) removes its row via
@@ -170,7 +169,8 @@ class NoteReconcileService:
           adoptions in one run share a single git commit.
         """
         start = time.monotonic()
-        root = Path(ws_path)
+        ws_name, owner_id, root = target.name, target.owner_id, target.path
+        ws_path = str(root)
         scoped_paths = set(paths)
 
         present: dict[str, _PresentFile] = {}
@@ -412,22 +412,23 @@ class NoteReconcileService:
             adopted=adopted_ids,
         )
 
-    def reindex(self, ws_name: str, owner_id: str, ws_path: str) -> dict:
+    def reindex(self, target: WorkspaceTarget) -> dict:
         """Full-workspace repair: reconcile every path that exists on disk, plus every
         path a DB row currently claims — the union, so a row whose computed path never
         matched any file on disk (stale sanitization, a prior bug's residue) is still
         caught and repaired, not just files that happen to exist right now."""
+        ws_path = str(target.path)
         disk_paths = set(iter_note_paths(ws_path))
-        indexed = self._crud_repo.list_paths(ws_name, owner_id)
+        indexed = self._crud_repo.list_paths(target.name, target.owner_id)
         db_paths = {
             str(Path(note_filepath(ws_path, n.folder, n.title)).relative_to(ws_path))
             for n in indexed
         }
-        report = self.reconcile_paths(ws_name, owner_id, ws_path, disk_paths | db_paths)
+        report = self.reconcile_paths(target, disk_paths | db_paths)
         adopted_clause = f", {len(report.adopted)} adopted" if report.adopted else ""
         return {
             "message": (
-                f"Reconciled workspace '{ws_name}': {len(report.inserted)} inserted, "
+                f"Reconciled workspace '{target.name}': {len(report.inserted)} inserted, "
                 f"{len(report.updated)} updated, {len(report.removed)} removed, "
                 f"{report.unchanged} unchanged{adopted_clause}."
             ),

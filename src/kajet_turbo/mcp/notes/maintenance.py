@@ -24,12 +24,7 @@ def build_maintenance(note_reconcile_service: NoteReconcileService) -> FastMCP:
         notes runs in background jobs afterward — search_notes may lag this call briefly.
 
         workspace: the workspace name to reindex."""
-        result = await run_sync(
-            note_reconcile_service.reindex,
-            target.name,
-            owner_id=target.owner_id,
-            ws_path=str(target.path),
-        )
+        result = await run_sync(note_reconcile_service.reindex, target)
         return ReindexResult.model_validate(result)
 
     return srv

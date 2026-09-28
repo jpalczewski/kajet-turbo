@@ -34,7 +34,7 @@ def test_reconcile_inserts_new_file_not_yet_in_db(
     path = note_file_factory(workspace, "New note", note_id="new1", tags=["x"])
 
     report = reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=[rel_path(workspace, path)]
+        workspace_target("u1", "ws", workspace), paths=[rel_path(workspace, path)]
     )
 
     assert report.inserted == ["new1"]
@@ -55,12 +55,12 @@ def test_reconcile_removes_row_whose_file_is_gone(
 ):
     path = note_file_factory(workspace, "Gone", note_id="gone1")
     relative = rel_path(workspace, path)
-    reconcile_service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=[relative])
+    reconcile_service.reconcile_paths(workspace_target("u1", "ws", workspace), paths=[relative])
     assert service.crud_repo.get("gone1", owner_id="u1") is not None
 
     Path(path).unlink()
     report = reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=[relative]
+        workspace_target("u1", "ws", workspace), paths=[relative]
     )
 
     assert report.removed == ["gone1"]
@@ -75,12 +75,12 @@ def test_reconcile_sweeps_orphan_tags_once_for_a_batch_of_removed_files(
     path_b = note_file_factory(workspace, "Gone B", note_id="goneb", tags=["shared"])
     path_c = note_file_factory(workspace, "Stays", note_id="stays1", tags=["shared"])
     relatives = [rel_path(workspace, p) for p in (path_a, path_b, path_c)]
-    reconcile_service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=relatives)
+    reconcile_service.reconcile_paths(workspace_target("u1", "ws", workspace), paths=relatives)
 
     Path(path_a).unlink()
     Path(path_b).unlink()
     report = reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=relatives
+        workspace_target("u1", "ws", workspace), paths=relatives
     )
 
     assert set(report.removed) == {"gonea", "goneb"}
@@ -97,7 +97,7 @@ def test_reconcile_updates_drifted_metadata_without_touching_other_notes(
     untouched_path = note_file_factory(workspace, "Untouched", note_id="stay1", tags=["keep"])
     path = note_file_factory(workspace, "Old title", note_id="drift1", tags=["a"], folder="")
     paths = [rel_path(workspace, untouched_path), rel_path(workspace, path)]
-    reconcile_service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=paths)
+    reconcile_service.reconcile_paths(workspace_target("u1", "ws", workspace), paths=paths)
     before = service.crud_repo.get("drift1", owner_id="u1")
     assert before is not None
     generation_before = before.index_generation
@@ -127,7 +127,7 @@ def test_reconcile_updates_drifted_metadata_without_touching_other_notes(
     ]
 
     report = reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=new_paths
+        workspace_target("u1", "ws", workspace), paths=new_paths
     )
 
     # The hand-moved file is an UPDATE (same id, new path) — not a delete+insert.
@@ -178,7 +178,7 @@ def test_reconcile_tag_only_drift_does_not_requeue_backlinks(database, git_works
     )
 
     report = reconcile.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(ws), paths=[rel_path(ws, target_path)]
+        workspace_target("u1", "ws", ws), paths=[rel_path(ws, target_path)]
     )
 
     assert report.updated == [target_id]
@@ -192,7 +192,7 @@ def test_reconcile_safety_valve_refuses_mass_deletion_and_leaves_db_untouched(
     for i in range(10):
         p = note_file_factory(workspace, f"Note {i}", note_id=f"n{i}")
         paths.append(rel_path(workspace, p))
-    reconcile_service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=paths)
+    reconcile_service.reconcile_paths(workspace_target("u1", "ws", workspace), paths=paths)
 
     # Delete enough files to exceed both the ratio and the absolute floor.
     to_delete = paths[: _RECONCILE_MIN_DELETE_FLOOR + 1]
@@ -201,7 +201,7 @@ def test_reconcile_safety_valve_refuses_mass_deletion_and_leaves_db_untouched(
         (workspace / relative).unlink()
 
     with pytest.raises(ValueError, match="would delete"):
-        reconcile_service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=paths)
+        reconcile_service.reconcile_paths(workspace_target("u1", "ws", workspace), paths=paths)
 
     # Nothing changed: every one of the 10 rows, including the "missing" ones, is intact.
     for i in range(10):
@@ -217,14 +217,12 @@ def test_reconcile_below_floor_deletes_without_refusing(
     for i in range(3):
         p = note_file_factory(workspace, f"Small {i}", note_id=f"s{i}")
         paths.append(rel_path(workspace, p))
-    reconcile_service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=paths)
+    reconcile_service.reconcile_paths(workspace_target("u1", "ws", workspace), paths=paths)
 
     (workspace / paths[0]).unlink()
     (workspace / paths[1]).unlink()
 
-    report = reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=paths
-    )
+    report = reconcile_service.reconcile_paths(workspace_target("u1", "ws", workspace), paths=paths)
 
     assert set(report.removed) == {"s0", "s1"}
 
@@ -234,12 +232,12 @@ def test_reconcile_skips_unreadable_file_without_deleting_its_row(
 ):
     path = note_file_factory(workspace, "Broken", note_id="broken1")
     relative = rel_path(workspace, path)
-    reconcile_service.reconcile_paths("ws", owner_id="u1", ws_path=str(workspace), paths=[relative])
+    reconcile_service.reconcile_paths(workspace_target("u1", "ws", workspace), paths=[relative])
 
     Path(path).write_text("---\ntitle: [unclosed\n---\nbody\n")
 
     report = reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=[relative]
+        workspace_target("u1", "ws", workspace), paths=[relative]
     )
 
     assert report.unreadable_paths == [relative]
@@ -271,9 +269,7 @@ def test_reconcile_reports_duplicate_id_and_keeps_the_first(service, reconcile_s
     second = write("B second")
     paths = sorted([rel_path(workspace, first), rel_path(workspace, second)])
 
-    report = reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=paths
-    )
+    report = reconcile_service.reconcile_paths(workspace_target("u1", "ws", workspace), paths=paths)
 
     assert report.duplicate_ids == ["dup1"]
     assert report.inserted == ["dup1"]
@@ -295,7 +291,7 @@ def test_reindex_removes_orphan_row_with_no_matching_disk_path(
     service.crud_repo.insert("phantom1", "ws", "u1", "Phantom", [], now, now, folder="")
     note_file_factory(workspace, "Real note", note_id="real1")
 
-    result = reconcile_service.reindex("ws", owner_id="u1", ws_path=str(workspace))
+    result = reconcile_service.reindex(workspace_target("u1", "ws", workspace))
 
     assert result["count"] == 1
     assert service.crud_repo.get("phantom1", owner_id="u1") is None
@@ -331,9 +327,7 @@ def test_reconcile_heals_dangling_link_when_target_appears(database, git_workspa
         ),
         "treść",
     )
-    reconcile.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(ws), paths=[rel_path(ws, target_path)]
-    )
+    reconcile.reconcile_paths(workspace_target("u1", "ws", ws), paths=[rel_path(ws, target_path)])
     assert dirty.list_dirty("u1", "ws")
 
     handler({"user_id": "u1", "workspace": "ws", "mode": "targeted"})
@@ -377,7 +371,7 @@ def test_reconcile_heals_link_to_old_title_when_target_renamed(database, git_wor
     )
 
     report = reconcile.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(ws), paths=[rel_path(ws, new_path)]
+        workspace_target("u1", "ws", ws), paths=[rel_path(ws, new_path)]
     )
     assert report.updated == [target_id]
     assert dirty.list_dirty("u1", "ws")
@@ -412,7 +406,7 @@ def test_reconcile_heals_dangling_link_when_target_removed(database, git_workspa
     relative = rel_path(ws, target_path)
     Path(target_path).unlink()
 
-    report = reconcile.reconcile_paths("ws", owner_id="u1", ws_path=str(ws), paths=[relative])
+    report = reconcile.reconcile_paths(workspace_target("u1", "ws", ws), paths=[relative])
     assert report.removed == [target_id]
     assert dirty.list_dirty("u1", "ws")
 
@@ -436,7 +430,7 @@ def test_reconcile_adopts_headless_file_preserving_extras_in_one_commit(
     relative = rel_path(workspace, path)
 
     report = reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=[relative]
+        workspace_target("u1", "ws", workspace), paths=[relative]
     )
 
     assert len(report.adopted) == 1
@@ -464,9 +458,7 @@ def test_reconcile_batches_multiple_adoptions_into_one_commit(
         for i in range(3)
     ]
 
-    report = reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=paths
-    )
+    report = reconcile_service.reconcile_paths(workspace_target("u1", "ws", workspace), paths=paths)
 
     assert len(report.adopted) == 3
     git_repo = GitRepository(str(workspace))
@@ -495,9 +487,7 @@ def test_reconcile_adoption_failure_restores_file_and_skips_db_insert(
     monkeypatch.setattr(GitRepository, "commit_changes", boom)
 
     with pytest.raises(GitError, match="simulated commit failure"):
-        reconcile_service.reconcile_paths(
-            "ws", owner_id="u1", ws_path=str(workspace), paths=[relative]
-        )
+        reconcile_service.reconcile_paths(workspace_target("u1", "ws", workspace), paths=[relative])
 
     # Nothing changed: the file is byte-identical to before, no id was left half-written.
     assert Path(path).read_bytes() == original_bytes
@@ -541,9 +531,7 @@ def test_reconcile_holds_workspace_lock_against_concurrent_save(
     with ThreadPoolExecutor(max_workers=2) as pool:
         reconcile_future = pool.submit(
             reconcile_service.reconcile_paths,
-            "ws",
-            owner_id="u1",
-            ws_path=str(workspace),
+            workspace_target("u1", "ws", workspace),
             paths=[relative],
         )
         assert reconcile_started.wait(timeout=5)

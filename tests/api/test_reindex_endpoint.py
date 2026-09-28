@@ -1,6 +1,9 @@
 from pathlib import Path
 
+from kajet_turbo.errors import SecurityEvent
+from kajet_turbo.log import setup_logging
 from kajet_turbo.services.targets import WorkspaceTarget
+from tests.helpers import entries_named, read_log_entries
 
 
 def _ws(ws_path) -> WorkspaceTarget:
@@ -32,6 +35,18 @@ def test_reindex_endpoint_refuses_mass_deletion(auth_client):
 
 def test_reindex_403_no_access(no_access_client):
     assert no_access_client.post("/api/workspaces/test-ws/reindex").status_code == 403
+
+
+def test_reindex_denial_is_audited_as_write(no_access_client, capsys):
+    """Reindex rewrites the index, so a denial must be audited as workspace.write via
+    the shared target dependency, not bypass the audit with a local has_access guard."""
+    setup_logging()
+
+    no_access_client.post("/api/workspaces/test-ws/reindex")
+
+    (event,) = entries_named(read_log_entries(capsys), SecurityEvent.PERMISSION_DENIED.value)
+    assert event["action"] == "workspace.write"
+    assert event["workspace"] == "test-ws"
 
 
 def test_reindex_401_anon(anon_client):

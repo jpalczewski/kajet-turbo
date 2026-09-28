@@ -186,7 +186,7 @@ def test_reindex_rebuilds_links(service, reconcile_service, link_service, worksp
     sid = service.create.save(workspace_target("u1", "ws", workspace), "Source", "[[Target]]", [])[
         "note_id"
     ]
-    reconcile_service.reindex("ws", "u1", str(workspace))
+    reconcile_service.reindex(workspace_target("u1", "ws", workspace))
     assert link_service._link_repo.backlinks(tid) == [sid]
 
 
@@ -781,7 +781,7 @@ def test_reindex_resolves_short_links_and_xws_ids(
     sid = service.create.save(
         workspace_target("u1", "ws", workspace), "Source", f"[[Target]] [[note:{other}]]", []
     )["note_id"]
-    reconcile_service.reindex("ws", "u1", str(workspace))
+    reconcile_service.reindex(workspace_target("u1", "ws", workspace))
     assert link_service._link_repo.backlinks(tid) == [sid]
     assert link_service._link_repo.backlinks(other) == [sid]
 

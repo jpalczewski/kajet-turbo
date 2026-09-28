@@ -272,7 +272,7 @@ def test_move_folder_db_failure_leaves_git_committed_and_rows_healable(
     assert read_service.get(b, owner_id="u1")["folder"] == "people"
 
     reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=["team/A.md", "team/B.md"]
+        workspace_target("u1", "ws", workspace), paths=["team/A.md", "team/B.md"]
     )
     assert read_service.get(a, owner_id="u1")["folder"] == "team"
     assert read_service.get(b, owner_id="u1")["folder"] == "team"
