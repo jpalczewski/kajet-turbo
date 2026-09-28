@@ -2,11 +2,9 @@
   import {
     apiRetryJobApiMeJobsJobIdRetryPost,
     apiDismissJobApiMeJobsJobIdDelete,
-    getApiListJobsApiMeJobsGetUrl,
+    apiListJobsApiMeJobsGet,
     type JobItem,
-    type apiListJobsApiMeJobsGetResponse,
   } from '$lib/api';
-  import { customFetch } from '$lib/api/fetcher';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
   import { DEFAULT_DATE_PREFS, formatUnixDateTime } from '$lib/utils/format';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
@@ -20,27 +18,20 @@
   const action = useAsyncAction();
 
   async function reload() {
-    const url = getApiListJobsApiMeJobsGetUrl(statusFilter ? { status: statusFilter } : undefined);
-    const r = await customFetch<apiListJobsApiMeJobsGetResponse>(url);
-    if (r.status === 200) jobs = r.data.jobs;
+    const r = await apiListJobsApiMeJobsGet(statusFilter ? { status: statusFilter } : undefined);
+    jobs = r.data.jobs;
   }
 
   async function retry(id: string) {
     await action.run(async () => {
-      const r = await apiRetryJobApiMeJobsJobIdRetryPost(id);
-      if (r.status !== 200) {
-        throw new Error('Nie udało się ponowić zadania.');
-      }
+      await apiRetryJobApiMeJobsJobIdRetryPost(id);
       await reload();
     }, 'Nie udało się ponowić zadania.');
   }
 
   async function dismiss(id: string) {
     await action.run(async () => {
-      const r = await apiDismissJobApiMeJobsJobIdDelete(id);
-      if (r.status !== 200) {
-        throw new Error('Nie udało się odrzucić zadania.');
-      }
+      await apiDismissJobApiMeJobsJobIdDelete(id);
       await reload();
     }, 'Nie udało się odrzucić zadania.');
   }
@@ -49,8 +40,10 @@
   // when the status filter changes.
   $effect(() => {
     void statusFilter; // re-run when the filter changes
-    reload();
-    const timer = setInterval(reload, 5000);
+    // A failed background poll keeps the last good list; the next tick retries.
+    const poll = () => reload().catch(() => {});
+    poll();
+    const timer = setInterval(poll, 5000);
     return () => clearInterval(timer);
   });
 

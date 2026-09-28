@@ -22,6 +22,7 @@ export default defineConfig({
       '$app/paths': local('./src/test/stubs/app-paths.ts'),
       '$app/environment': local('./src/test/stubs/app-environment.ts'),
       '$app/navigation': local('./src/test/stubs/app-navigation.ts'),
+      '$app/state': local('./src/test/stubs/app-state.ts'),
     },
   },
 });

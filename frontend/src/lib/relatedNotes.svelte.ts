@@ -139,10 +139,6 @@ export class RelatedNotesController {
         // Belt and braces: a response that resolves in the same tick as the cleanup must
         // still be dropped even though the abort raced it.
         if (controller.signal.aborted) return;
-        if (result.status !== 200) {
-          this.phase = 'error';
-          return;
-        }
         const value = { status: result.data.status, items: result.data.items };
         if (value.status === 'ready') cachePut(key, value);
         this.#settle(value);

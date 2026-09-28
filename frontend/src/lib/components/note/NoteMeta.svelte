@@ -127,10 +127,6 @@
     })
       .then((result) => {
         if (request !== graphRequest) return;
-        if (result.status !== 200) {
-          graphError = 'Nie udało się pobrać grafu.';
-          return;
-        }
         graphCache.set(key, result.data);
         graphData = result.data;
       })

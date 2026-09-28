@@ -7,7 +7,6 @@
     type SshKeyItem,
     type WorkspaceRemoteView,
   } from '$lib/api';
-  import { apiErrorMessage } from '$lib/api/mutate';
   import { settingsPath } from '$lib/routes';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
 
@@ -24,13 +23,11 @@
   async function load() {
     try {
       const r = await apiGetWorkspaceRemoteApiWorkspacesNameRemoteGet(name);
-      if (r.status === 200) {
-        remote = r.data.remote;
-        if (remote) {
-          originUrl = remote.origin_url;
-          sshKeyId = remote.ssh_key_id;
-          enabled = remote.enabled;
-        }
+      remote = r.data.remote;
+      if (remote) {
+        originUrl = remote.origin_url;
+        sshKeyId = remote.ssh_key_id;
+        enabled = remote.enabled;
       }
     } catch {
       // Remote not configured or network error — leave remote as null
@@ -54,20 +51,13 @@
         ssh_key_id: sshKeyId,
         enabled,
       });
-      if (r.status === 200) {
-        remote = r.data.remote;
-      } else {
-        throw new Error(apiErrorMessage(r, 'Nie udało się zapisać remote.'));
-      }
+      remote = r.data.remote;
     }, 'Nie udało się zapisać remote.');
   }
 
   async function remove() {
     await action.run(async () => {
-      const r = await apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDelete(name);
-      if (r.status !== 200) {
-        throw new Error(apiErrorMessage(r, 'Nie udało się usunąć remote.'));
-      }
+      await apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDelete(name);
       remote = null;
       originUrl = '';
       sshKeyId = '';
@@ -77,12 +67,8 @@
 
   async function pushNow() {
     await action.run(async () => {
-      const r = await apiTriggerWorkspacePushApiWorkspacesNameRemotePushPost(name);
-      if (r.status === 200) {
-        await load();
-      } else {
-        throw new Error(apiErrorMessage(r, 'Push nie powiódł się.'));
-      }
+      await apiTriggerWorkspacePushApiWorkspacesNameRemotePushPost(name);
+      await load();
     }, 'Push nie powiódł się.');
   }
 

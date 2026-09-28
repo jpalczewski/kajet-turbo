@@ -36,8 +36,7 @@
     reindexMsg = '';
     await reindexAction.run(async () => {
       const res = await apiReindexWorkspaceApiWorkspacesNameReindexPost(slug);
-      reindexMsg = res.status === 200 ? `Zreindeksowano ${res.data.count} notatek.` : '';
-      if (res.status !== 200) throw new Error('Nie udało się zreindeksować.');
+      reindexMsg = `Zreindeksowano ${res.data.count} notatek.`;
     }, 'Nie udało się zreindeksować.');
   }
 
@@ -53,7 +52,6 @@
     await backfillAction.run(async () => {
       const res =
         await apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPost(slug);
-      if (res.status !== 200) throw new Error('Nie udało się przeanalizować metadanych czasowych.');
       backfillPreview = res.data;
     }, 'Nie udało się przeanalizować metadanych czasowych.');
   }
@@ -67,7 +65,6 @@
         slug,
         { candidates: preview.candidates },
       );
-      if (res.status !== 200) throw new Error('Dane zmieniły się — uruchom analizę ponownie.');
       backfillMsg = `Uzupełniono metadane w ${res.data.applied} notatkach.`;
       backfillPreview = null;
     }, 'Nie udało się zastosować backfillu.');
@@ -81,10 +78,8 @@
   onMount(async () => {
     try {
       const res = await getSettings(slug);
-      if (res.status === 200) {
-        definitions = res.data.definitions;
-        values = res.data.values;
-      }
+      definitions = res.data.definitions;
+      values = res.data.values;
     } catch (e) {
       settingsError = apiErrorMessage(e, 'Nie udało się wczytać ustawień.');
     }
@@ -98,11 +93,7 @@
       const patch: UpdateWorkspaceSettingsValues = {};
       patch[key as keyof UpdateWorkspaceSettingsValues] = values[key] as boolean;
       const res = await patchSettings(slug, { values: patch });
-      if (res.status === 200) {
-        values = res.data.values;
-      } else {
-        throw new Error();
-      }
+      values = res.data.values;
     } catch (e) {
       values[key] = prev;
       settingsError = apiErrorMessage(e, 'Nie udało się zapisać ustawienia.');

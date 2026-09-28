@@ -30,7 +30,6 @@
     modal.show();
     await fetchAction.run(async () => {
       const result = await apiWorkspaceContentsApiWorkspacesNameContentsGet(slug);
-      if (result.status !== 200) throw new Error();
       folders = ['', ...(result.data.folders ?? [])].filter((folder) => folder !== currentFolder);
       destination = folders[0] ?? '';
     }, 'Nie udało się pobrać folderów');
@@ -42,7 +41,6 @@
       const result = await apiMoveNoteApiWorkspacesNameNotesNoteIdMovePost(slug, noteId, {
         folder: destination,
       });
-      if (result.status !== 200) throw new Error();
       await onmoved(result.data.folder);
       modal.close();
     }, 'Nie udało się przenieść notatki');

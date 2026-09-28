@@ -6,29 +6,13 @@ import {
   apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGet,
   apiWorkspaceContentsApiWorkspacesNameContentsGet,
 } from '$lib/api';
-import type {
-  LinksResponse,
-  NoteHtmlResponse,
-  NoteItem,
-  NotesListResponse,
-  TagNode,
-  TagsResponse,
-} from '$lib/api';
-import { loadApi } from '$lib/api/load';
+import type { NoteItem, TagNode } from '$lib/api';
+import { loadApi, loadApiOrNull } from '$lib/api/load';
 import { loginPath, workspacesPath } from '$lib/routes';
 import type { PageLoad } from './$types';
 
 function statusOf(e: unknown): number | undefined {
   return (e as { status?: number } | null)?.status;
-}
-
-// customFetch (fetcher.ts) throws on any non-2xx response, so a resolved result here is
-// always the 200 variant at runtime -- this narrows orval's per-status-code response union
-// down to that one. Not loadApi() (load.ts): that helper throws/redirects on a non-200
-// result, but every call site below needs the opposite -- soft-fail to `null`/a caller
-// -supplied default instead of erroring the whole page load.
-function dataOr<T>(result: { status: number; data: unknown } | null | undefined): T | null {
-  return result != null && result.status === 200 ? (result.data as T) : null;
 }
 
 export const load: PageLoad = async ({ params, url, depends }) => {
@@ -46,16 +30,18 @@ export const load: PageLoad = async ({ params, url, depends }) => {
         return null;
       }),
       tagPath
-        ? apiListNotesApiWorkspacesNameNotesGet(slug, {
-            tag: tagPath,
-            include_descendants: includeDescendants,
-          }).catch(() => null)
-        : Promise.resolve(null),
+        ? loadApiOrNull(
+            apiListNotesApiWorkspacesNameNotesGet(slug, {
+              tag: tagPath,
+              include_descendants: includeDescendants,
+            }),
+          )
+        : null,
     ]);
     if (statusOf(tagsError) === 401) redirect(307, loginPath());
     if (statusOf(tagsError) === 403) redirect(307, workspacesPath());
-    const tags: TagNode[] = dataOr<TagsResponse>(tagsResult)?.tags ?? [];
-    const notes: NoteItem[] = dataOr<NotesListResponse>(notesResult)?.notes ?? [];
+    const tags: TagNode[] = tagsResult?.data.tags ?? [];
+    const notes: NoteItem[] = notesResult?.notes ?? [];
     return {
       mode: 'tags' as const,
       slug,
@@ -94,15 +80,13 @@ export const load: PageLoad = async ({ params, url, depends }) => {
   const noteId = contents.selected_note_id ?? contents.default_note_id;
   const noteSelected = contents.resolution === 'note';
 
-  const [noteResult, linksResult] = noteId
+  const [note, linksData] = noteId
     ? await Promise.all([
-        apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet(slug, noteId).catch(() => null),
-        apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGet(slug, noteId).catch(() => null),
+        loadApiOrNull(apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet(slug, noteId)),
+        loadApiOrNull(apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGet(slug, noteId)),
       ])
     : [null, null];
-
-  const note = dataOr<NoteHtmlResponse>(noteResult);
-  const links = dataOr<LinksResponse>(linksResult) ?? { backlinks: [], outlinks: [] };
+  const links = linksData ?? { backlinks: [], outlinks: [] };
 
   return {
     mode: 'files' as const,

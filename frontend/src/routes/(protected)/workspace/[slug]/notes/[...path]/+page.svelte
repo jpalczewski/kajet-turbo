@@ -45,7 +45,6 @@
         folder: data.folderPath,
         content: '',
       });
-      if (result.status !== 201) throw new Error();
       noteId = result.data.note_id;
     } catch (e) {
       throw new Error(apiErrorMessage(e, 'Nie udało się utworzyć notatki'), { cause: e });

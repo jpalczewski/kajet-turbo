@@ -1,3 +1,5 @@
+// Throws on non-2xx. orval.config.ts relies on this (`forceSuccessResponse`) to type every
+// generated call as success-only -- changing that contract means changing the config too.
 export const customFetch = async <T>(url: string, options?: RequestInit): Promise<T> => {
   const response = await fetch(url, { credentials: 'include', ...options });
   const body = [204, 205, 304].includes(response.status) ? null : await response.text();

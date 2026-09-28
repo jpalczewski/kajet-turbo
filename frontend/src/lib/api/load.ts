@@ -15,14 +15,13 @@ export type LoadApiOptions = {
  * an expected error. The fetcher throws on non-OK with `status` attached, so
  * errors arrive here as exceptions, not result objects.
  */
-export async function loadApi<T extends { status: number }>(
+export async function loadApi<T>(
   promise: Promise<T>,
   notFound: string,
   options: LoadApiOptions = {},
-): Promise<T & { status: 200 }> {
-  let result: T;
+): Promise<T> {
   try {
-    result = await promise;
+    return await promise;
   } catch (e) {
     const status = (e as { status?: number } | null)?.status;
     if (status === 401) redirect(307, loginPath());
@@ -31,6 +30,18 @@ export async function loadApi<T extends { status: number }>(
     if (status === 403 || status === 404) error(404, notFound);
     error(500, 'Błąd serwera.');
   }
-  if (result.status !== 200) error(500, 'Błąd serwera.');
-  return result as T & { status: 200 };
+}
+
+/**
+ * Soft-fail counterpart of loadApi(): resolves to the response data, or `null` on
+ * any API failure, for load data that is optional -- the page renders a fallback
+ * instead of an error page.
+ */
+export function loadApiOrNull<T extends { data: unknown }>(
+  promise: Promise<T>,
+): Promise<T['data'] | null> {
+  return promise.then(
+    (result) => result.data,
+    () => null,
+  );
 }
