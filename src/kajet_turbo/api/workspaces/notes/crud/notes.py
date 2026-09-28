@@ -1,4 +1,3 @@
-from dataclasses import replace
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -132,9 +131,7 @@ async def api_create_notes_batch(
     workspace: WorkspaceTarget = RESOLVE_WORKSPACE_WRITE,
     note_create_service: NoteCreateService = Depends(get_note_create_service),
 ) -> BatchCreateNotesResponse:
-    # No per-item extras yet: the batch must reject a reserved key all-or-nothing first
-    # (#355), so CreateNoteRequest.extras is dropped here.
-    notes = [replace(note.to_new_note(), extras=None) for note in body.notes]
+    notes = [note.to_new_note() for note in body.notes]
     results = await run_sync(note_create_service.save_many, workspace, notes)
     return BatchCreateNotesResponse(results=[NoteResult(**r.model_dump()) for r in results])
 

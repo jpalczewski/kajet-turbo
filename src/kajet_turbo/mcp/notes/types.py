@@ -73,6 +73,11 @@ class NoteInput(ToolInput):
     period: str | None = Field(
         default=None, description="Canonical period key, e.g. 2026-W12 or 2026-03"
     )
+    extras: dict[str, object] | None = Field(
+        default=None,
+        description="Extra frontmatter fields beyond title/tags/dates, e.g. {'mood': 'ok'}. "
+        "Keys must not shadow id/title/tags/created_at/updated_at/occurred_at/period.",
+    )
 
     def to_new_note(self) -> NewNote:
         return NewNote(
@@ -82,6 +87,7 @@ class NoteInput(ToolInput):
             folder=self.folder,
             occurred_at=self.occurred_at,
             period=self.period,
+            extras=self.extras,
         )
 
 
@@ -281,6 +287,13 @@ class NoteEditInput(ToolInput):
     replace_all: bool = False
     tags: list[str] | None = Field(
         default=None, description="Replaces this note's frontmatter tags; None = leave them."
+    )
+    extras: dict[str, object] | None = Field(
+        default=None,
+        description="Extra frontmatter fields to merge into this note's existing extras, as "
+        "in edit_note: a key given here overwrites its previous value, existing keys not "
+        "mentioned survive. Omit to leave extras untouched. Keys must not shadow "
+        "id/title/tags/created_at/updated_at/occurred_at/period.",
     )
     occurred_at: str | None = Field(default=None, description="Calendar date this note is about")
     period: str | None = Field(default=None, description="Canonical period key this note covers")

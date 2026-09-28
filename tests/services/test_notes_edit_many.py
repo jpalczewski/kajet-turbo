@@ -263,3 +263,59 @@ def test_edit_many_requires_expected_sha(service, workspace):
     )
     assert result["applied"] is False
     assert "required" in result["errors"][0]["error"]
+
+
+def test_edit_many_merges_extras_per_item(service, read_service, workspace):
+    """Batch extras merge like update()'s: given keys win, unmentioned keys survive."""
+    target = workspace_target("u1", "ws", workspace)
+    r1 = service.create.save(target, "First", "one\n", [], extras={"mood": "ok", "keep": 1})
+    r2 = service.create.save(target, "Second", "two\n", [], extras={"mood": "ok"})
+    result = service.edit.edit_many(
+        target,
+        [
+            edit_item(
+                r1["note_id"],
+                head_sha(workspace, "First.md"),
+                mode="overwrite",
+                extras={"mood": "great", "new": True},
+            ),
+            edit_item(r2["note_id"], head_sha(workspace, "Second.md"), content="more"),
+        ],
+    )
+    assert result["applied"] is True
+    note1 = read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    note2 = read_service.get_with_content(note_target("u1", "ws", workspace, r2["note_id"]))
+    assert note1.extras == {"mood": "great", "keep": 1, "new": True}
+    assert note1.content == "one"  # extras-only item leaves the body alone
+    assert note2.extras == {"mood": "ok"}  # no extras on the item = untouched
+
+
+def test_edit_many_reserved_extras_key_rejects_whole_batch(service, read_service, workspace):
+    """A reserved key fails its own item during validation, so the batch is rejected with
+    that item's index and nothing is written — not raised out of the write phase."""
+    target = workspace_target("u1", "ws", workspace)
+    r1 = service.create.save(target, "First", "one\n", [], extras={"mood": "ok"})
+    r2 = service.create.save(target, "Second", "two\n", [])
+    result = service.edit.edit_many(
+        target,
+        [
+            edit_item(
+                r1["note_id"],
+                head_sha(workspace, "First.md"),
+                mode="overwrite",
+                extras={"mood": "great"},
+            ),
+            edit_item(
+                r2["note_id"],
+                head_sha(workspace, "Second.md"),
+                mode="overwrite",
+                extras={"title": "x"},
+            ),
+        ],
+    )
+    assert result["applied"] is False
+    assert [(e["index"], e["note_id"]) for e in result["errors"]] == [(1, r2["note_id"])]
+    assert "reserved" in result["errors"][0]["error"]
+    note1 = read_service.get_with_content(note_target("u1", "ws", workspace, r1["note_id"]))
+    assert note1.extras == {"mood": "ok"}
+    assert len(GitRepository(str(workspace)).file_history("First.md")) == 1

@@ -76,7 +76,7 @@ EXPECTED: dict[str, tuple[frozenset[str], bool, bool, bool, tuple[str, ...], str
         False,
         False,
         ("edits",),
-        "0fd4e9aebb23814a6b36282195c46bc464933297307e9fe09a4891efa463a38d",
+        "b15c9c086dd5bccae0b9a5b135899110c6d5bd0fba4a7e900a972c21d57d9b51",
     ),
     "get_note_outline": (
         frozenset({"notes", "crud"}),

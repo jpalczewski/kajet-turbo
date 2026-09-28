@@ -67,6 +67,9 @@ class EditBatchItem:
     expected_sha: str
     edit: EditSpec
     tags: list[str] | None = None
+    # Merged into the note's existing extras, never a wholesale replace — see
+    # NoteFrontmatter.merged_extras. None leaves them untouched.
+    extras: dict[str, object] | None = None
     occurred_at: str | None = None
     period: str | None = None
     clear_date_metadata: bool = False
