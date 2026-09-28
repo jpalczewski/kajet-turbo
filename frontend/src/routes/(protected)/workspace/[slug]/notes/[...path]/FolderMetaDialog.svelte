@@ -30,7 +30,6 @@
         slug,
         folder || 'root',
       );
-      if (result.status !== 200) throw new Error();
       description = result.data.description;
       instructions = result.data.instructions;
     }, 'Nie udało się załadować metadanych folderu');
@@ -39,12 +38,10 @@
   async function save() {
     if (fetchAction.busy || saveAction.busy) return;
     await saveAction.run(async () => {
-      const result = await apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPut(
-        slug,
-        folder || 'root',
-        { description, instructions },
-      );
-      if (result.status !== 200) throw new Error();
+      await apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPut(slug, folder || 'root', {
+        description,
+        instructions,
+      });
       await onupdated?.();
       modal.close();
     }, 'Nie udało się zapisać');

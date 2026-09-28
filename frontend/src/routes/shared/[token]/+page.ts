@@ -12,8 +12,7 @@ import type { PageLoad } from './$types';
 export const load: PageLoad = async ({ params }) => {
   try {
     const result = await apiGetPublicNoteApiPublicNotesTokenGet(params.token);
-    const note: NoteHtmlResponse | null = result.status === 200 ? result.data : null;
-    return { note, transientError: false };
+    return { note: result.data, transientError: false };
   } catch (e) {
     const status = (e as { status?: number }).status;
     return { note: null as NoteHtmlResponse | null, transientError: status !== 404 };

@@ -34,10 +34,7 @@
       loading = true;
       error = '';
       apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGet(slug, noteId)
-        .then((result) => {
-          if (result.status === 200) chunks = result.data;
-          else error = 'Nie udało się pobrać chunków';
-        })
+        .then((result) => (chunks = result.data))
         .catch(() => (error = 'Nie udało się pobrać chunków'))
         .finally(() => (loading = false));
     }

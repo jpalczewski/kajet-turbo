@@ -19,25 +19,19 @@
 
   async function reload() {
     const r = await apiListJobsApiMeJobsGet(statusFilter ? { status: statusFilter } : undefined);
-    if (r.status === 200) jobs = r.data.jobs;
+    jobs = r.data.jobs;
   }
 
   async function retry(id: string) {
     await action.run(async () => {
-      const r = await apiRetryJobApiMeJobsJobIdRetryPost(id);
-      if (r.status !== 200) {
-        throw new Error('Nie udało się ponowić zadania.');
-      }
+      await apiRetryJobApiMeJobsJobIdRetryPost(id);
       await reload();
     }, 'Nie udało się ponowić zadania.');
   }
 
   async function dismiss(id: string) {
     await action.run(async () => {
-      const r = await apiDismissJobApiMeJobsJobIdDelete(id);
-      if (r.status !== 200) {
-        throw new Error('Nie udało się odrzucić zadania.');
-      }
+      await apiDismissJobApiMeJobsJobIdDelete(id);
       await reload();
     }, 'Nie udało się odrzucić zadania.');
   }

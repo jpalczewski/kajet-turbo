@@ -62,7 +62,7 @@
 
   async function reload() {
     const r = await apiListEmbeddingProfilesApiMeEmbeddingProfilesGet();
-    if (r.status === 200) profiles = r.data.profiles;
+    profiles = r.data.profiles;
   }
 
   async function create(e: SubmitEvent) {
@@ -110,7 +110,7 @@
 
   async function reloadKeys() {
     const r = await apiListSshKeysApiMeSshKeysGet();
-    if (r.status === 200) keys = r.data.keys;
+    keys = r.data.keys;
   }
 
   async function createKey(e: SubmitEvent) {

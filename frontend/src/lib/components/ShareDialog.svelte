@@ -38,7 +38,6 @@
     modal.show();
     await fetchAction.run(async () => {
       const result = await apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGet(slug, noteId);
-      if (result.status !== 200) throw new Error();
       links = result.data.links;
     }, 'Nie udało się pobrać linków');
   }
@@ -50,18 +49,12 @@
         noteId,
         { preview_description: createPreviewDescription },
       );
-      if (result.status !== 201) throw new Error();
       links = [...links, result.data];
     }, 'Nie udało się utworzyć linku');
   }
 
   async function revokeLink(token: string) {
-    const result = await apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDelete(
-      slug,
-      noteId,
-      token,
-    );
-    if (result.status !== 200) throw new Error('Nie udało się wyłączyć linku');
+    await apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDelete(slug, noteId, token);
     links = links.filter((link) => link.token !== token);
   }
 
@@ -72,8 +65,6 @@
       link.token === token ? { ...link, preview_description: value } : link,
     );
     try {
-      // customFetch throws on a non-2xx response (see $lib/api/fetcher.ts) instead of
-      // resolving with a non-200 status -- a plain status check here would never fire.
       await apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatch(
         slug,
         noteId,
