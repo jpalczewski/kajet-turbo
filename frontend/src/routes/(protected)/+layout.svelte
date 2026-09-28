@@ -9,11 +9,14 @@
   onMount(() => {
     wsConnection.connect();
     return wsConnection.onEvent((event: ServerEvent) => {
-      if (event.type === 'note_updated') {
-        invalidate(`app:note:${event.note_id}`);
-        invalidate('app:workspace-tree');
-      } else if (event.type === 'workspace_changed') {
-        invalidate('app:workspace-tree');
+      switch (event.type) {
+        case 'note_updated':
+          invalidate(`app:note:${event.note_id}`);
+          invalidate('app:workspace-tree');
+          break;
+        case 'workspace_changed':
+          invalidate('app:workspace-tree');
+          break;
       }
     });
   });
