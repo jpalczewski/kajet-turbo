@@ -70,12 +70,12 @@ ARG OS_PKG_CACHE_BUST=0
 # over SSH (workspace auto-push). Without it: FileNotFoundError [Errno 2] 'ssh'.
 # ca-certificates: the uv build image carries them, a bare debian slim does not, and
 # every outbound HTTPS call (embedding provider, git over https) needs them.
+# No `git` package: every Git operation, bundle export included, goes through
+# dulwich. The CLI would ship perl, curl, expat and pcre2 only to be scanned.
 RUN echo "cache-bust: ${OS_PKG_CACHE_BUST}" && \
     apt-get update && apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends git openssh-client ca-certificates && \
-    rm -rf /var/lib/apt/lists/* && \
-    git config --global user.email "kajet@localhost" && \
-    git config --global user.name "kajet-turbo"
+    apt-get install -y --no-install-recommends openssh-client ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=app-build /python /python
 COPY --from=app-build /app/.venv /app/.venv

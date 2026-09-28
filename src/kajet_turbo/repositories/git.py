@@ -10,12 +10,16 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
+from typing import BinaryIO
 
 from dulwich import porcelain
+from dulwich.bundle import Bundle, write_bundle
 from dulwich.diff_tree import TreeChange
 from dulwich.errors import NotGitRepository
+from dulwich.object_format import ObjectFormat
 from dulwich.object_store import iter_tree_contents, tree_lookup_path
 from dulwich.objects import Blob, Commit
+from dulwich.pack import UnpackedObject
 from dulwich.repo import Repo
 from nanoid import generate
 
@@ -156,6 +160,25 @@ class GitSnapshot:
 
     sha: str
     timestamp: int
+
+
+@dataclass(slots=True)
+class _StreamedPack:
+    """dulwich's ``PackDataLike`` over ``generate_pack_data``'s iterator, consumed once
+    by ``write_bundle`` — ``create_bundle_from_repo`` would hold every object in memory."""
+
+    count: int
+    records: Iterator[UnpackedObject]
+    object_format: ObjectFormat
+
+    def __len__(self) -> int:
+        return self.count
+
+    def iter_unpacked(self) -> Iterator[UnpackedObject]:
+        return self.records
+
+    def close(self) -> None:
+        pass
 
 
 _LOCK_TIMEOUT = float(os.getenv("KAJET_GIT_LOCK_TIMEOUT", "10"))
@@ -410,6 +433,26 @@ class GitRepository:
             return GitSnapshot(sha=commit.id.decode("ascii"), timestamp=commit.commit_time)
         except KeyError:
             return None
+        except Exception as e:
+            raise GitError(str(e)) from e
+
+    def write_bundle(self, out: BinaryIO) -> None:
+        """Write every ref, and every object they reach, to ``out`` as a v2 git bundle —
+        what ``git bundle create --all`` produces, without a git binary in the image.
+
+        Refs are recorded unpeeled, so an annotated tag stays a tag object in a clone
+        (``create_bundle_from_repo`` would record the commit it points at instead).
+        """
+        try:
+            refs = {ref: self._repo.refs[ref] for ref in self._repo.refs.allkeys()}
+            count, records = self._repo.generate_pack_data(have=set(), want=set(refs.values()))
+            bundle = Bundle()
+            bundle.version = 2
+            bundle.capabilities = {}
+            bundle.prerequisites = []
+            bundle.references = refs
+            bundle.pack_data = _StreamedPack(count, records, self._repo.object_format)
+            write_bundle(out, bundle)
         except Exception as e:
             raise GitError(str(e)) from e
 

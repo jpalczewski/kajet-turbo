@@ -212,6 +212,10 @@ artifacts: the workflow does not trigger a deployment. The production
 deployment builds both targets from the Dockerfile itself, independent of
 these CI-published images.
 
+The Trivy gate fails a build only on HIGH/CRITICAL findings that have a fixed
+version. Findings the distribution has not patched yet do not block; they are
+uploaded to code scanning as SARIF and reviewed there.
+
 > [!WARNING]
 > Narrow exceptions to the Trivy gate live in `.trivyignore.yaml`. Each one
 > is scoped to a specific package or path and has an expiry date; an

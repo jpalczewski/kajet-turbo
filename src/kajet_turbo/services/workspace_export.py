@@ -1,7 +1,6 @@
 """Create downloadable, point-in-time exports of a workspace Git repository."""
 
 import os
-import subprocess
 import tarfile
 import tempfile
 import zipfile
@@ -52,7 +51,7 @@ class WorkspaceExportService:
             elif format == "tar.zst":
                 self._write_tar_zst(repo, snapshot, root, output)
             else:
-                snapshot = self._write_bundle(repo, ws_path, output)
+                snapshot = self._write_bundle(repo, output)
                 root = _archive_root(workspace, snapshot.sha)
         except Exception:
             output.unlink(missing_ok=True)
@@ -116,21 +115,13 @@ class WorkspaceExportService:
             repo.write_snapshot_files(snapshot, write_file)
 
     @staticmethod
-    def _write_bundle(repo: GitRepository, ws_path: str, output: Path) -> GitSnapshot:
+    def _write_bundle(repo: GitRepository, output: Path) -> GitSnapshot:
         # Bundle reads refs and objects together; serialize it with writers so the
         # exported ref set is a coherent repository state.
         with repo.transaction():
             snapshot = repo.head_snapshot()
             if snapshot is None:
                 raise GitError("workspace has no commits")
-            try:
-                subprocess.run(
-                    ["git", "-C", ws_path, "bundle", "create", str(output), "--all"],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-            except subprocess.CalledProcessError as e:
-                detail = e.stderr.strip() or e.stdout.strip() or str(e)
-                raise GitError(detail) from e
+            with output.open("wb") as out:
+                repo.write_bundle(out)
         return snapshot

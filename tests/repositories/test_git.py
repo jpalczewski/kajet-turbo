@@ -1,6 +1,8 @@
+import subprocess
 from pathlib import Path
 
 import pytest
+from dulwich import porcelain
 from dulwich.objects import Commit, Tree
 from dulwich.repo import Repo as DulwichRepo
 
@@ -436,3 +438,30 @@ def test_rename_master_to_main_idempotent(tmp_path):
     (ws / "n.md").write_text("x")
     GitRepository(str(ws)).commit_file("n.md", "c")
     assert GitRepository(str(ws)).rename_master_to_main() is False
+
+
+def test_write_bundle_keeps_every_ref_and_annotated_tags(git_ws, tmp_path):
+    """The bundle must be what `git bundle create --all` writes — git verifies and clones
+    it — and an annotated tag must survive as a tag object, not its peeled commit."""
+    (tmp_path / "note.md").write_text("# one")
+    git_ws.commit_file("note.md", "note: add note")
+    porcelain.tag_create(str(tmp_path), b"v1", annotated=True, message=b"release")
+    (tmp_path / "note.md").write_text("# two")
+    git_ws.commit_file("note.md", "note: update note")
+
+    bundle = tmp_path.parent / "ws.bundle"
+    with bundle.open("wb") as out:
+        git_ws.write_bundle(out)
+
+    subprocess.run(["git", "bundle", "verify", str(bundle)], check=True, capture_output=True)
+    clone = tmp_path.parent / "clone"
+    subprocess.run(["git", "clone", str(bundle), str(clone)], check=True, capture_output=True)
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(clone), *args], check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    assert git("rev-list", "--count", "HEAD") == "2"
+    assert git("cat-file", "-t", "refs/tags/v1") == "tag"
+    assert (clone / "note.md").read_text() == "# two"
