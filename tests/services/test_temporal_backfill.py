@@ -202,7 +202,7 @@ def test_temporal_backfill_applies_note_with_no_git_history(
     # so its preview candidate carries sha=None; apply must still accept it as fresh.
     path = note_file_factory(workspace, "2026-03-22 Daily", note_id="nogit1", content="body")
     reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=[rel_path(workspace, path)]
+        workspace_target("u1", "ws", workspace), paths=[rel_path(workspace, path)]
     )
 
     preview = temporal_service.temporal_backfill_preview("ws", "u1", str(workspace))

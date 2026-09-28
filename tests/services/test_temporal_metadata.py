@@ -137,7 +137,7 @@ def test_reconcile_paths_keeps_db_occurred_at_when_file_value_is_corrupted(
 
     # reconcile_paths is out of scope for the #246 target migration -- unchanged signature.
     reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=["Corrupt Reconcile.md"]
+        workspace_target("u1", "ws", workspace), paths=["Corrupt Reconcile.md"]
     )
 
     row = service.crud_repo.get(note_id, owner_id="u1")
@@ -172,9 +172,7 @@ def test_save_update_clear_and_reconcile_temporal_metadata(service, reconcile_se
     meta, body = read_note_file(path)
     write_note_file(path, replace(meta, occurred_at="2026-03-23"), body)
     # reconcile_paths is out of scope for the #246 target migration -- unchanged signature.
-    reconcile_service.reconcile_paths(
-        "ws", owner_id="u1", ws_path=str(workspace), paths=["Event.md"]
-    )
+    reconcile_service.reconcile_paths(workspace_target("u1", "ws", workspace), paths=["Event.md"])
     row = service.crud_repo.get(note_id, owner_id="u1")
     assert row is not None and row.occurred_at == "2026-03-23"
 

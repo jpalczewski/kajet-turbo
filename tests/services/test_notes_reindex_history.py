@@ -30,7 +30,7 @@ def test_reindex_rebuilds_fts(service, reconcile_service, database, git_workspac
         ),
         "treść zewnętrzna",
     )
-    result = reconcile_service.reindex("ws", owner_id="u1", ws_path=str(workspace))
+    result = reconcile_service.reindex(workspace_target("u1", "ws", workspace))
     assert result["count"] == 1
 
     jobs = JobRepository(database.engine)
@@ -47,7 +47,7 @@ def test_reindex_finds_notes_in_subfolders(
     note_file_factory(workspace, "Root note", note_id="root-id")
     note_file_factory(workspace, "Nested note", note_id="nested-id", folder="docs")
 
-    result = reconcile_service.reindex("ws", owner_id="u1", ws_path=str(workspace))
+    result = reconcile_service.reindex(workspace_target("u1", "ws", workspace))
 
     assert result["count"] == 2
 
@@ -79,7 +79,7 @@ def test_reindex_batches_note_writes_and_tag_sync(
     monkeypatch.setattr(service.crud_repo, "operation", record_note_op)
     monkeypatch.setattr(service.tag_repo, "sync_note_tags_many", record_tags)
 
-    result = reconcile_service.reindex("ws", owner_id="u1", ws_path=str(workspace))
+    result = reconcile_service.reindex(workspace_target("u1", "ws", workspace))
 
     assert result["count"] == 2
     assert calls == {"note_op": 1, "tags": 1}

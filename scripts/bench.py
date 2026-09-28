@@ -300,12 +300,14 @@ def inproc_search_phase(tmp: Path) -> dict:
             "errors": 0,
         }
 
+    from kajet_turbo.services.targets import WorkspaceTarget
     from kajet_turbo.workspace import workspace_path
 
-    t0 = time.perf_counter()
-    reindexed = reconcile_service.reindex(
-        WS, owner_id=owner_id, ws_path=workspace_path(WS, user_id=owner_id)
+    target = WorkspaceTarget(
+        owner_id=owner_id, name=WS, path=Path(workspace_path(WS, user_id=owner_id))
     )
+    t0 = time.perf_counter()
+    reindexed = reconcile_service.reindex(target)
     wall = time.perf_counter() - t0
     results["reindex_total"] = {
         "latency_ms": percentiles([wall * 1000]),

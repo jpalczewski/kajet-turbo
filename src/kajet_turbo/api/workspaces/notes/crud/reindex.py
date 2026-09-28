@@ -3,14 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from kajet_turbo.api.schemas import ReindexResponse
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.dependencies import (
-    CurrentUser,
+    RESOLVE_WORKSPACE_WRITE,
     get_note_reconcile_service,
-    get_required_user,
-    get_workspace_service,
 )
-from kajet_turbo.errors import AuthError, NoteError
+from kajet_turbo.errors import NoteError
 from kajet_turbo.services.notes import NoteReconcileService
-from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.services.targets import WorkspaceTarget
 
 router = APIRouter(
     responses={
@@ -26,16 +24,11 @@ router = APIRouter(
     responses={409: {"model": ErrorResponse}},
 )
 def api_reindex_workspace(
-    name: str,
-    user: CurrentUser = Depends(get_required_user),
-    ws_service: WorkspaceService = Depends(get_workspace_service),
+    workspace: WorkspaceTarget = RESOLVE_WORKSPACE_WRITE,
     note_reconcile_service: NoteReconcileService = Depends(get_note_reconcile_service),
 ) -> ReindexResponse:
-    if not ws_service.has_access(user.id, name):
-        raise HTTPException(status_code=403, detail=AuthError.ACCESS_DENIED)
-    ws_path = ws_service.workspace_path(user.id, name)
     try:
-        result = note_reconcile_service.reindex(name, owner_id=user.id, ws_path=ws_path)
+        result = note_reconcile_service.reindex(workspace)
     except ValueError as e:
         raise HTTPException(
             status_code=409,
