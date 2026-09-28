@@ -30,7 +30,7 @@
     modal.show();
     await fetchAction.run(async () => {
       const result = await apiWorkspaceContentsApiWorkspacesNameContentsGet(slug);
-      folders = ['', ...(result.data.folders ?? [])].filter((folder) => folder !== currentFolder);
+      folders = ['', ...result.data.folders].filter((folder) => folder !== currentFolder);
       destination = folders[0] ?? '';
     }, 'Nie udało się pobrać folderów');
   }

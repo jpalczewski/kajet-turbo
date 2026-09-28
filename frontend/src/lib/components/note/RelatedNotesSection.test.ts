@@ -94,7 +94,7 @@ describe('RelatedNotesSection results', () => {
 
   it('never renders ranking metrics', () => {
     const { container } = renderSection({ items });
-    const text = container.textContent ?? '';
+    const text = container.textContent;
     for (const metric of ['0.4242', '0.1717', '0.3131', '0.8686', '%']) {
       expect(text).not.toContain(metric);
     }

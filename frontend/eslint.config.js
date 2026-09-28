@@ -30,6 +30,16 @@ export default ts.config(
     },
   },
   {
+    // Type-aware: catches conditions the types prove can never change, like a
+    // status check after a client call that already throws on non-2xx (#397).
+    // Scoped to the files the Svelte block below already type-checks: enabling
+    // projectService for plain .ts too made the whole lint ~6x slower.
+    files: ['src/**/*.svelte', 'src/**/*.svelte.ts'],
+    rules: {
+      '@typescript-eslint/no-unnecessary-condition': 'error',
+    },
+  },
+  {
     files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
     languageOptions: {
       parserOptions: {
