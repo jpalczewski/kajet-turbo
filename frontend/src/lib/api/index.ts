@@ -1076,8 +1076,6 @@ export type apiLoginApiLoginPostResponseError = (apiLoginApiLoginPostResponse400
   headers: Headers;
 };
 
-export type apiLoginApiLoginPostResponse = (apiLoginApiLoginPostResponseSuccess | apiLoginApiLoginPostResponseError)
-
 export const getApiLoginApiLoginPostUrl = () => {
 
 
@@ -1089,7 +1087,7 @@ export const getApiLoginApiLoginPostUrl = () => {
 /**
  * @summary Api Login
  */
-export const apiLoginApiLoginPost = async (loginRequest: LoginRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiLoginApiLoginPostResponse> => {
+export const apiLoginApiLoginPost = async (loginRequest: LoginRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiLoginApiLoginPostResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -1097,7 +1095,7 @@ export const apiLoginApiLoginPost = async (loginRequest: LoginRequest, options?:
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiLoginApiLoginPostResponse>(getApiLoginApiLoginPostUrl(),
+return customFetch<apiLoginApiLoginPostResponseSuccess>(getApiLoginApiLoginPostUrl(),
   {
     ...options,
     method: 'POST',
@@ -1118,8 +1116,6 @@ export type apiSessionGetApiSessionGetResponseSuccess = (apiSessionGetApiSession
 };
 ;
 
-export type apiSessionGetApiSessionGetResponse = (apiSessionGetApiSessionGetResponseSuccess)
-
 export const getApiSessionGetApiSessionGetUrl = () => {
 
 
@@ -1131,9 +1127,9 @@ export const getApiSessionGetApiSessionGetUrl = () => {
 /**
  * @summary Api Session Get
  */
-export const apiSessionGetApiSessionGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiSessionGetApiSessionGetResponse> => {
+export const apiSessionGetApiSessionGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiSessionGetApiSessionGetResponseSuccess> => {
 
-  return customFetch<apiSessionGetApiSessionGetResponse>(getApiSessionGetApiSessionGetUrl(),
+  return customFetch<apiSessionGetApiSessionGetResponseSuccess>(getApiSessionGetApiSessionGetUrl(),
   {
     ...options,
     method: 'GET'
@@ -1154,8 +1150,6 @@ export type apiSessionDeleteApiSessionDeleteResponseSuccess = (apiSessionDeleteA
 };
 ;
 
-export type apiSessionDeleteApiSessionDeleteResponse = (apiSessionDeleteApiSessionDeleteResponseSuccess)
-
 export const getApiSessionDeleteApiSessionDeleteUrl = () => {
 
 
@@ -1167,9 +1161,9 @@ export const getApiSessionDeleteApiSessionDeleteUrl = () => {
 /**
  * @summary Api Session Delete
  */
-export const apiSessionDeleteApiSessionDelete = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiSessionDeleteApiSessionDeleteResponse> => {
+export const apiSessionDeleteApiSessionDelete = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiSessionDeleteApiSessionDeleteResponseSuccess> => {
 
-  return customFetch<apiSessionDeleteApiSessionDeleteResponse>(getApiSessionDeleteApiSessionDeleteUrl(),
+  return customFetch<apiSessionDeleteApiSessionDeleteResponseSuccess>(getApiSessionDeleteApiSessionDeleteUrl(),
   {
     ...options,
     method: 'DELETE'
@@ -1190,8 +1184,6 @@ export type apiSessionsDeleteApiSessionsDeleteResponseSuccess = (apiSessionsDele
 };
 ;
 
-export type apiSessionsDeleteApiSessionsDeleteResponse = (apiSessionsDeleteApiSessionsDeleteResponseSuccess)
-
 export const getApiSessionsDeleteApiSessionsDeleteUrl = () => {
 
 
@@ -1204,9 +1196,9 @@ export const getApiSessionsDeleteApiSessionsDeleteUrl = () => {
  * Sign the current user out of every browser and connected OAuth client.
  * @summary Api Sessions Delete
  */
-export const apiSessionsDeleteApiSessionsDelete = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiSessionsDeleteApiSessionsDeleteResponse> => {
+export const apiSessionsDeleteApiSessionsDelete = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiSessionsDeleteApiSessionsDeleteResponseSuccess> => {
 
-  return customFetch<apiSessionsDeleteApiSessionsDeleteResponse>(getApiSessionsDeleteApiSessionsDeleteUrl(),
+  return customFetch<apiSessionsDeleteApiSessionsDeleteResponseSuccess>(getApiSessionsDeleteApiSessionsDeleteUrl(),
   {
     ...options,
     method: 'DELETE'
@@ -1239,8 +1231,6 @@ export type apiConsentApiConsentPostResponseError = (apiConsentApiConsentPostRes
   headers: Headers;
 };
 
-export type apiConsentApiConsentPostResponse = (apiConsentApiConsentPostResponseSuccess | apiConsentApiConsentPostResponseError)
-
 export const getApiConsentApiConsentPostUrl = () => {
 
 
@@ -1252,7 +1242,7 @@ export const getApiConsentApiConsentPostUrl = () => {
 /**
  * @summary Api Consent
  */
-export const apiConsentApiConsentPost = async (consentRequest: ConsentRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiConsentApiConsentPostResponse> => {
+export const apiConsentApiConsentPost = async (consentRequest: ConsentRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiConsentApiConsentPostResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -1260,7 +1250,7 @@ export const apiConsentApiConsentPost = async (consentRequest: ConsentRequest, o
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiConsentApiConsentPostResponse>(getApiConsentApiConsentPostUrl(),
+return customFetch<apiConsentApiConsentPostResponseSuccess>(getApiConsentApiConsentPostUrl(),
   {
     ...options,
     method: 'POST',
@@ -1293,8 +1283,6 @@ export type apiPendingInfoApiPendingGetResponseError = (apiPendingInfoApiPending
   headers: Headers;
 };
 
-export type apiPendingInfoApiPendingGetResponse = (apiPendingInfoApiPendingGetResponseSuccess | apiPendingInfoApiPendingGetResponseError)
-
 export const getApiPendingInfoApiPendingGetUrl = (params: ApiPendingInfoApiPendingGetParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -1317,9 +1305,9 @@ export const getApiPendingInfoApiPendingGetUrl = (params: ApiPendingInfoApiPendi
  * condition as api_consent's.
  * @summary Api Pending Info
  */
-export const apiPendingInfoApiPendingGet = async (params: ApiPendingInfoApiPendingGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiPendingInfoApiPendingGetResponse> => {
+export const apiPendingInfoApiPendingGet = async (params: ApiPendingInfoApiPendingGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiPendingInfoApiPendingGetResponseSuccess> => {
 
-  return customFetch<apiPendingInfoApiPendingGetResponse>(getApiPendingInfoApiPendingGetUrl(params),
+  return customFetch<apiPendingInfoApiPendingGetResponseSuccess>(getApiPendingInfoApiPendingGetUrl(params),
   {
     ...options,
     method: 'GET'
@@ -1352,8 +1340,6 @@ export type apiListWorkspacesApiWorkspacesGetResponseError = (apiListWorkspacesA
   headers: Headers;
 };
 
-export type apiListWorkspacesApiWorkspacesGetResponse = (apiListWorkspacesApiWorkspacesGetResponseSuccess | apiListWorkspacesApiWorkspacesGetResponseError)
-
 export const getApiListWorkspacesApiWorkspacesGetUrl = () => {
 
 
@@ -1365,9 +1351,9 @@ export const getApiListWorkspacesApiWorkspacesGetUrl = () => {
 /**
  * @summary Api List Workspaces
  */
-export const apiListWorkspacesApiWorkspacesGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiListWorkspacesApiWorkspacesGetResponse> => {
+export const apiListWorkspacesApiWorkspacesGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiListWorkspacesApiWorkspacesGetResponseSuccess> => {
 
-  return customFetch<apiListWorkspacesApiWorkspacesGetResponse>(getApiListWorkspacesApiWorkspacesGetUrl(),
+  return customFetch<apiListWorkspacesApiWorkspacesGetResponseSuccess>(getApiListWorkspacesApiWorkspacesGetUrl(),
   {
     ...options,
     method: 'GET'
@@ -1410,8 +1396,6 @@ export type apiCreateWorkspaceApiWorkspacesPostResponseError = (apiCreateWorkspa
   headers: Headers;
 };
 
-export type apiCreateWorkspaceApiWorkspacesPostResponse = (apiCreateWorkspaceApiWorkspacesPostResponseSuccess | apiCreateWorkspaceApiWorkspacesPostResponseError)
-
 export const getApiCreateWorkspaceApiWorkspacesPostUrl = () => {
 
 
@@ -1423,7 +1407,7 @@ export const getApiCreateWorkspaceApiWorkspacesPostUrl = () => {
 /**
  * @summary Api Create Workspace
  */
-export const apiCreateWorkspaceApiWorkspacesPost = async (createWorkspaceRequest: CreateWorkspaceRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateWorkspaceApiWorkspacesPostResponse> => {
+export const apiCreateWorkspaceApiWorkspacesPost = async (createWorkspaceRequest: CreateWorkspaceRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateWorkspaceApiWorkspacesPostResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -1431,7 +1415,7 @@ export const apiCreateWorkspaceApiWorkspacesPost = async (createWorkspaceRequest
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiCreateWorkspaceApiWorkspacesPostResponse>(getApiCreateWorkspaceApiWorkspacesPostUrl(),
+return customFetch<apiCreateWorkspaceApiWorkspacesPostResponseSuccess>(getApiCreateWorkspaceApiWorkspacesPostUrl(),
   {
     ...options,
     method: 'POST',
@@ -1469,8 +1453,6 @@ export type apiUpdateWorkspaceApiWorkspacesNamePatchResponseError = (apiUpdateWo
   headers: Headers;
 };
 
-export type apiUpdateWorkspaceApiWorkspacesNamePatchResponse = (apiUpdateWorkspaceApiWorkspacesNamePatchResponseSuccess | apiUpdateWorkspaceApiWorkspacesNamePatchResponseError)
-
 export const getApiUpdateWorkspaceApiWorkspacesNamePatchUrl = (name: string,) => {
 
 
@@ -1483,7 +1465,7 @@ export const getApiUpdateWorkspaceApiWorkspacesNamePatchUrl = (name: string,) =>
  * @summary Api Update Workspace
  */
 export const apiUpdateWorkspaceApiWorkspacesNamePatch = async (name: string,
-    updateWorkspaceRequest: UpdateWorkspaceRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateWorkspaceApiWorkspacesNamePatchResponse> => {
+    updateWorkspaceRequest: UpdateWorkspaceRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateWorkspaceApiWorkspacesNamePatchResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -1491,7 +1473,7 @@ export const apiUpdateWorkspaceApiWorkspacesNamePatch = async (name: string,
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiUpdateWorkspaceApiWorkspacesNamePatchResponse>(getApiUpdateWorkspaceApiWorkspacesNamePatchUrl(name),
+return customFetch<apiUpdateWorkspaceApiWorkspacesNamePatchResponseSuccess>(getApiUpdateWorkspaceApiWorkspacesNamePatchUrl(name),
   {
     ...options,
     method: 'PATCH',
@@ -1529,8 +1511,6 @@ export type apiDeleteWorkspaceApiWorkspacesNameDeleteResponseError = (apiDeleteW
   headers: Headers;
 };
 
-export type apiDeleteWorkspaceApiWorkspacesNameDeleteResponse = (apiDeleteWorkspaceApiWorkspacesNameDeleteResponseSuccess | apiDeleteWorkspaceApiWorkspacesNameDeleteResponseError)
-
 export const getApiDeleteWorkspaceApiWorkspacesNameDeleteUrl = (name: string,) => {
 
 
@@ -1542,9 +1522,9 @@ export const getApiDeleteWorkspaceApiWorkspacesNameDeleteUrl = (name: string,) =
 /**
  * @summary Api Delete Workspace
  */
-export const apiDeleteWorkspaceApiWorkspacesNameDelete = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiDeleteWorkspaceApiWorkspacesNameDeleteResponse> => {
+export const apiDeleteWorkspaceApiWorkspacesNameDelete = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiDeleteWorkspaceApiWorkspacesNameDeleteResponseSuccess> => {
 
-  return customFetch<apiDeleteWorkspaceApiWorkspacesNameDeleteResponse>(getApiDeleteWorkspaceApiWorkspacesNameDeleteUrl(name),
+  return customFetch<apiDeleteWorkspaceApiWorkspacesNameDeleteResponseSuccess>(getApiDeleteWorkspaceApiWorkspacesNameDeleteUrl(name),
   {
     ...options,
     method: 'DELETE'
@@ -1582,8 +1562,6 @@ export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponseError = (
   headers: Headers;
 };
 
-export type apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse = (apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponseSuccess | apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponseError)
-
 export const getApiGetWorkspaceSettingsApiWorkspacesNameSettingsGetUrl = (name: string,) => {
 
 
@@ -1595,9 +1573,9 @@ export const getApiGetWorkspaceSettingsApiWorkspacesNameSettingsGetUrl = (name: 
 /**
  * @summary Api Get Workspace Settings
  */
-export const apiGetWorkspaceSettingsApiWorkspacesNameSettingsGet = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse> => {
+export const apiGetWorkspaceSettingsApiWorkspacesNameSettingsGet = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponseSuccess> => {
 
-  return customFetch<apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponse>(getApiGetWorkspaceSettingsApiWorkspacesNameSettingsGetUrl(name),
+  return customFetch<apiGetWorkspaceSettingsApiWorkspacesNameSettingsGetResponseSuccess>(getApiGetWorkspaceSettingsApiWorkspacesNameSettingsGetUrl(name),
   {
     ...options,
     method: 'GET'
@@ -1635,8 +1613,6 @@ export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponseErro
   headers: Headers;
 };
 
-export type apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse = (apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponseSuccess | apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponseError)
-
 export const getApiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchUrl = (name: string,) => {
 
 
@@ -1649,7 +1625,7 @@ export const getApiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchUrl = (n
  * @summary Api Update Workspace Settings
  */
 export const apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatch = async (name: string,
-    updateWorkspaceSettingsRequest: UpdateWorkspaceSettingsRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse> => {
+    updateWorkspaceSettingsRequest: UpdateWorkspaceSettingsRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -1657,7 +1633,7 @@ export const apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatch = async (n
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponse>(getApiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchUrl(name),
+return customFetch<apiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchResponseSuccess>(getApiUpdateWorkspaceSettingsApiWorkspacesNameSettingsPatchUrl(name),
   {
     ...options,
     method: 'PATCH',
@@ -1695,8 +1671,6 @@ export type apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillP
   headers: Headers;
 };
 
-export type apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse = (apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponseSuccess | apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponseError)
-
 export const getApiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostUrl = (name: string,) => {
 
 
@@ -1708,9 +1682,9 @@ export const getApiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackf
 /**
  * @summary Api Temporal Backfill Preview
  */
-export const apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPost = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse> => {
+export const apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPost = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponseSuccess> => {
 
-  return customFetch<apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponse>(getApiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostUrl(name),
+  return customFetch<apiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostResponseSuccess>(getApiTemporalBackfillPreviewApiWorkspacesNameSettingsTemporalBackfillPreviewPostUrl(name),
   {
     ...options,
     method: 'POST'
@@ -1753,8 +1727,6 @@ export type apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApp
   headers: Headers;
 };
 
-export type apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse = (apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponseSuccess | apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponseError)
-
 export const getApiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostUrl = (name: string,) => {
 
 
@@ -1767,7 +1739,7 @@ export const getApiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfil
  * @summary Api Apply Temporal Backfill
  */
 export const apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPost = async (name: string,
-    applyTemporalBackfillRequest: ApplyTemporalBackfillRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse> => {
+    applyTemporalBackfillRequest: ApplyTemporalBackfillRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -1775,7 +1747,7 @@ export const apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillAp
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponse>(getApiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostUrl(name),
+return customFetch<apiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostResponseSuccess>(getApiApplyTemporalBackfillApiWorkspacesNameSettingsTemporalBackfillApplyPostUrl(name),
   {
     ...options,
     method: 'POST',
@@ -1818,8 +1790,6 @@ export type apiExportWorkspaceApiWorkspacesNameExportGetResponseError = (apiExpo
   headers: Headers;
 };
 
-export type apiExportWorkspaceApiWorkspacesNameExportGetResponse = (apiExportWorkspaceApiWorkspacesNameExportGetResponseSuccess | apiExportWorkspaceApiWorkspacesNameExportGetResponseError)
-
 export const getApiExportWorkspaceApiWorkspacesNameExportGetUrl = (name: string,
     params?: ApiExportWorkspaceApiWorkspacesNameExportGetParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -1840,9 +1810,9 @@ export const getApiExportWorkspaceApiWorkspacesNameExportGetUrl = (name: string,
  * @summary Api Export Workspace
  */
 export const apiExportWorkspaceApiWorkspacesNameExportGet = async (name: string,
-    params?: ApiExportWorkspaceApiWorkspacesNameExportGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiExportWorkspaceApiWorkspacesNameExportGetResponse> => {
+    params?: ApiExportWorkspaceApiWorkspacesNameExportGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiExportWorkspaceApiWorkspacesNameExportGetResponseSuccess> => {
 
-  return customFetch<apiExportWorkspaceApiWorkspacesNameExportGetResponse>(getApiExportWorkspaceApiWorkspacesNameExportGetUrl(name,params),
+  return customFetch<apiExportWorkspaceApiWorkspacesNameExportGetResponseSuccess>(getApiExportWorkspaceApiWorkspacesNameExportGetUrl(name,params),
   {
     ...options,
     method: 'GET'
@@ -1880,8 +1850,6 @@ export type apiListCollectionsApiWorkspacesNameCollectionsGetResponseError = (ap
   headers: Headers;
 };
 
-export type apiListCollectionsApiWorkspacesNameCollectionsGetResponse = (apiListCollectionsApiWorkspacesNameCollectionsGetResponseSuccess | apiListCollectionsApiWorkspacesNameCollectionsGetResponseError)
-
 export const getApiListCollectionsApiWorkspacesNameCollectionsGetUrl = (name: string,) => {
 
 
@@ -1893,9 +1861,9 @@ export const getApiListCollectionsApiWorkspacesNameCollectionsGetUrl = (name: st
 /**
  * @summary Api List Collections
  */
-export const apiListCollectionsApiWorkspacesNameCollectionsGet = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiListCollectionsApiWorkspacesNameCollectionsGetResponse> => {
+export const apiListCollectionsApiWorkspacesNameCollectionsGet = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiListCollectionsApiWorkspacesNameCollectionsGetResponseSuccess> => {
 
-  return customFetch<apiListCollectionsApiWorkspacesNameCollectionsGetResponse>(getApiListCollectionsApiWorkspacesNameCollectionsGetUrl(name),
+  return customFetch<apiListCollectionsApiWorkspacesNameCollectionsGetResponseSuccess>(getApiListCollectionsApiWorkspacesNameCollectionsGetUrl(name),
   {
     ...options,
     method: 'GET'
@@ -1938,8 +1906,6 @@ export type apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntrie
   headers: Headers;
 };
 
-export type apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse = (apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponseSuccess | apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponseError)
-
 export const getApiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetUrl = (name: string,
     collection: string,) => {
 
@@ -1953,9 +1919,9 @@ export const getApiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEn
  * @summary Api List Collection Entries
  */
 export const apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGet = async (name: string,
-    collection: string, options?: Parameters<typeof customFetch>[1]): Promise<apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse> => {
+    collection: string, options?: Parameters<typeof customFetch>[1]): Promise<apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponseSuccess> => {
 
-  return customFetch<apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponse>(getApiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetUrl(name,collection),
+  return customFetch<apiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetResponseSuccess>(getApiListCollectionEntriesApiWorkspacesNameCollectionsCollectionEntriesGetUrl(name,collection),
   {
     ...options,
     method: 'GET'
@@ -1993,8 +1959,6 @@ export type apiListNotesApiWorkspacesNameNotesGetResponseError = (apiListNotesAp
   headers: Headers;
 };
 
-export type apiListNotesApiWorkspacesNameNotesGetResponse = (apiListNotesApiWorkspacesNameNotesGetResponseSuccess | apiListNotesApiWorkspacesNameNotesGetResponseError)
-
 export const getApiListNotesApiWorkspacesNameNotesGetUrl = (name: string,
     params?: ApiListNotesApiWorkspacesNameNotesGetParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -2015,9 +1979,9 @@ export const getApiListNotesApiWorkspacesNameNotesGetUrl = (name: string,
  * @summary Api List Notes
  */
 export const apiListNotesApiWorkspacesNameNotesGet = async (name: string,
-    params?: ApiListNotesApiWorkspacesNameNotesGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiListNotesApiWorkspacesNameNotesGetResponse> => {
+    params?: ApiListNotesApiWorkspacesNameNotesGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiListNotesApiWorkspacesNameNotesGetResponseSuccess> => {
 
-  return customFetch<apiListNotesApiWorkspacesNameNotesGetResponse>(getApiListNotesApiWorkspacesNameNotesGetUrl(name,params),
+  return customFetch<apiListNotesApiWorkspacesNameNotesGetResponseSuccess>(getApiListNotesApiWorkspacesNameNotesGetUrl(name,params),
   {
     ...options,
     method: 'GET'
@@ -2060,8 +2024,6 @@ export type apiCreateNoteApiWorkspacesNameNotesPostResponseError = (apiCreateNot
   headers: Headers;
 };
 
-export type apiCreateNoteApiWorkspacesNameNotesPostResponse = (apiCreateNoteApiWorkspacesNameNotesPostResponseSuccess | apiCreateNoteApiWorkspacesNameNotesPostResponseError)
-
 export const getApiCreateNoteApiWorkspacesNameNotesPostUrl = (name: string,) => {
 
 
@@ -2074,7 +2036,7 @@ export const getApiCreateNoteApiWorkspacesNameNotesPostUrl = (name: string,) => 
  * @summary Api Create Note
  */
 export const apiCreateNoteApiWorkspacesNameNotesPost = async (name: string,
-    createNoteRequest: CreateNoteRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateNoteApiWorkspacesNameNotesPostResponse> => {
+    createNoteRequest: CreateNoteRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateNoteApiWorkspacesNameNotesPostResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -2082,7 +2044,7 @@ export const apiCreateNoteApiWorkspacesNameNotesPost = async (name: string,
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiCreateNoteApiWorkspacesNameNotesPostResponse>(getApiCreateNoteApiWorkspacesNameNotesPostUrl(name),
+return customFetch<apiCreateNoteApiWorkspacesNameNotesPostResponseSuccess>(getApiCreateNoteApiWorkspacesNameNotesPostUrl(name),
   {
     ...options,
     method: 'POST',
@@ -2120,8 +2082,6 @@ export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponseError = (a
   headers: Headers;
 };
 
-export type apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse = (apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponseSuccess | apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponseError)
-
 export const getApiCreateNotesBatchApiWorkspacesNameNotesBatchPostUrl = (name: string,) => {
 
 
@@ -2134,7 +2094,7 @@ export const getApiCreateNotesBatchApiWorkspacesNameNotesBatchPostUrl = (name: s
  * @summary Api Create Notes Batch
  */
 export const apiCreateNotesBatchApiWorkspacesNameNotesBatchPost = async (name: string,
-    batchCreateNotesRequest: BatchCreateNotesRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse> => {
+    batchCreateNotesRequest: BatchCreateNotesRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -2142,7 +2102,7 @@ export const apiCreateNotesBatchApiWorkspacesNameNotesBatchPost = async (name: s
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponse>(getApiCreateNotesBatchApiWorkspacesNameNotesBatchPostUrl(name),
+return customFetch<apiCreateNotesBatchApiWorkspacesNameNotesBatchPostResponseSuccess>(getApiCreateNotesBatchApiWorkspacesNameNotesBatchPostUrl(name),
   {
     ...options,
     method: 'POST',
@@ -2190,8 +2150,6 @@ export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponseError = (apiUp
   headers: Headers;
 };
 
-export type apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse = (apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponseSuccess | apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponseError)
-
 export const getApiUpdateNoteApiWorkspacesNameNotesNoteIdPatchUrl = (name: string,
     noteId: string,) => {
 
@@ -2206,7 +2164,7 @@ export const getApiUpdateNoteApiWorkspacesNameNotesNoteIdPatchUrl = (name: strin
  */
 export const apiUpdateNoteApiWorkspacesNameNotesNoteIdPatch = async (name: string,
     noteId: string,
-    updateNoteRequest: UpdateNoteRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse> => {
+    updateNoteRequest: UpdateNoteRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -2214,7 +2172,7 @@ export const apiUpdateNoteApiWorkspacesNameNotesNoteIdPatch = async (name: strin
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponse>(getApiUpdateNoteApiWorkspacesNameNotesNoteIdPatchUrl(name,noteId),
+return customFetch<apiUpdateNoteApiWorkspacesNameNotesNoteIdPatchResponseSuccess>(getApiUpdateNoteApiWorkspacesNameNotesNoteIdPatchUrl(name,noteId),
   {
     ...options,
     method: 'PATCH',
@@ -2257,8 +2215,6 @@ export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponseError = (apiD
   headers: Headers;
 };
 
-export type apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse = (apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponseSuccess | apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponseError)
-
 export const getApiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteUrl = (name: string,
     noteId: string,) => {
 
@@ -2272,9 +2228,9 @@ export const getApiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteUrl = (name: stri
  * @summary Api Delete Note
  */
 export const apiDeleteNoteApiWorkspacesNameNotesNoteIdDelete = async (name: string,
-    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse> => {
+    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponseSuccess> => {
 
-  return customFetch<apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponse>(getApiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteUrl(name,noteId),
+  return customFetch<apiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteResponseSuccess>(getApiDeleteNoteApiWorkspacesNameNotesNoteIdDeleteUrl(name,noteId),
   {
     ...options,
     method: 'DELETE'
@@ -2322,8 +2278,6 @@ export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponseError = (apiM
   headers: Headers;
 };
 
-export type apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse = (apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponseSuccess | apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponseError)
-
 export const getApiMoveNoteApiWorkspacesNameNotesNoteIdMovePostUrl = (name: string,
     noteId: string,) => {
 
@@ -2338,7 +2292,7 @@ export const getApiMoveNoteApiWorkspacesNameNotesNoteIdMovePostUrl = (name: stri
  */
 export const apiMoveNoteApiWorkspacesNameNotesNoteIdMovePost = async (name: string,
     noteId: string,
-    moveNoteRequest: MoveNoteRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse> => {
+    moveNoteRequest: MoveNoteRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -2346,7 +2300,7 @@ export const apiMoveNoteApiWorkspacesNameNotesNoteIdMovePost = async (name: stri
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponse>(getApiMoveNoteApiWorkspacesNameNotesNoteIdMovePostUrl(name,noteId),
+return customFetch<apiMoveNoteApiWorkspacesNameNotesNoteIdMovePostResponseSuccess>(getApiMoveNoteApiWorkspacesNameNotesNoteIdMovePostUrl(name,noteId),
   {
     ...options,
     method: 'POST',
@@ -2389,8 +2343,6 @@ export type apiWorkspaceContentsApiWorkspacesNameContentsGetResponseError = (api
   headers: Headers;
 };
 
-export type apiWorkspaceContentsApiWorkspacesNameContentsGetResponse = (apiWorkspaceContentsApiWorkspacesNameContentsGetResponseSuccess | apiWorkspaceContentsApiWorkspacesNameContentsGetResponseError)
-
 export const getApiWorkspaceContentsApiWorkspacesNameContentsGetUrl = (name: string,
     params?: ApiWorkspaceContentsApiWorkspacesNameContentsGetParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -2411,9 +2363,9 @@ export const getApiWorkspaceContentsApiWorkspacesNameContentsGetUrl = (name: str
  * @summary Api Workspace Contents
  */
 export const apiWorkspaceContentsApiWorkspacesNameContentsGet = async (name: string,
-    params?: ApiWorkspaceContentsApiWorkspacesNameContentsGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiWorkspaceContentsApiWorkspacesNameContentsGetResponse> => {
+    params?: ApiWorkspaceContentsApiWorkspacesNameContentsGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiWorkspaceContentsApiWorkspacesNameContentsGetResponseSuccess> => {
 
-  return customFetch<apiWorkspaceContentsApiWorkspacesNameContentsGetResponse>(getApiWorkspaceContentsApiWorkspacesNameContentsGetUrl(name,params),
+  return customFetch<apiWorkspaceContentsApiWorkspacesNameContentsGetResponseSuccess>(getApiWorkspaceContentsApiWorkspacesNameContentsGetUrl(name,params),
   {
     ...options,
     method: 'GET'
@@ -2451,8 +2403,6 @@ export type apiEntriesInApiWorkspacesNameEntriesGetResponseError = (apiEntriesIn
   headers: Headers;
 };
 
-export type apiEntriesInApiWorkspacesNameEntriesGetResponse = (apiEntriesInApiWorkspacesNameEntriesGetResponseSuccess | apiEntriesInApiWorkspacesNameEntriesGetResponseError)
-
 export const getApiEntriesInApiWorkspacesNameEntriesGetUrl = (name: string,
     params: ApiEntriesInApiWorkspacesNameEntriesGetParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -2473,9 +2423,9 @@ export const getApiEntriesInApiWorkspacesNameEntriesGetUrl = (name: string,
  * @summary Api Entries In
  */
 export const apiEntriesInApiWorkspacesNameEntriesGet = async (name: string,
-    params: ApiEntriesInApiWorkspacesNameEntriesGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiEntriesInApiWorkspacesNameEntriesGetResponse> => {
+    params: ApiEntriesInApiWorkspacesNameEntriesGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiEntriesInApiWorkspacesNameEntriesGetResponseSuccess> => {
 
-  return customFetch<apiEntriesInApiWorkspacesNameEntriesGetResponse>(getApiEntriesInApiWorkspacesNameEntriesGetUrl(name,params),
+  return customFetch<apiEntriesInApiWorkspacesNameEntriesGetResponseSuccess>(getApiEntriesInApiWorkspacesNameEntriesGetUrl(name,params),
   {
     ...options,
     method: 'GET'
@@ -2513,8 +2463,6 @@ export type apiListTagsApiWorkspacesNameTagsGetResponseError = (apiListTagsApiWo
   headers: Headers;
 };
 
-export type apiListTagsApiWorkspacesNameTagsGetResponse = (apiListTagsApiWorkspacesNameTagsGetResponseSuccess | apiListTagsApiWorkspacesNameTagsGetResponseError)
-
 export const getApiListTagsApiWorkspacesNameTagsGetUrl = (name: string,) => {
 
 
@@ -2526,9 +2474,9 @@ export const getApiListTagsApiWorkspacesNameTagsGetUrl = (name: string,) => {
 /**
  * @summary Api List Tags
  */
-export const apiListTagsApiWorkspacesNameTagsGet = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiListTagsApiWorkspacesNameTagsGetResponse> => {
+export const apiListTagsApiWorkspacesNameTagsGet = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiListTagsApiWorkspacesNameTagsGetResponseSuccess> => {
 
-  return customFetch<apiListTagsApiWorkspacesNameTagsGetResponse>(getApiListTagsApiWorkspacesNameTagsGetUrl(name),
+  return customFetch<apiListTagsApiWorkspacesNameTagsGetResponseSuccess>(getApiListTagsApiWorkspacesNameTagsGetUrl(name),
   {
     ...options,
     method: 'GET'
@@ -2566,8 +2514,6 @@ export type apiCreateFolderApiWorkspacesNameFoldersPostResponseError = (apiCreat
   headers: Headers;
 };
 
-export type apiCreateFolderApiWorkspacesNameFoldersPostResponse = (apiCreateFolderApiWorkspacesNameFoldersPostResponseSuccess | apiCreateFolderApiWorkspacesNameFoldersPostResponseError)
-
 export const getApiCreateFolderApiWorkspacesNameFoldersPostUrl = (name: string,) => {
 
 
@@ -2580,7 +2526,7 @@ export const getApiCreateFolderApiWorkspacesNameFoldersPostUrl = (name: string,)
  * @summary Api Create Folder
  */
 export const apiCreateFolderApiWorkspacesNameFoldersPost = async (name: string,
-    createFolderRequest: CreateFolderRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateFolderApiWorkspacesNameFoldersPostResponse> => {
+    createFolderRequest: CreateFolderRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateFolderApiWorkspacesNameFoldersPostResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -2588,7 +2534,7 @@ export const apiCreateFolderApiWorkspacesNameFoldersPost = async (name: string,
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiCreateFolderApiWorkspacesNameFoldersPostResponse>(getApiCreateFolderApiWorkspacesNameFoldersPostUrl(name),
+return customFetch<apiCreateFolderApiWorkspacesNameFoldersPostResponseSuccess>(getApiCreateFolderApiWorkspacesNameFoldersPostUrl(name),
   {
     ...options,
     method: 'POST',
@@ -2626,8 +2572,6 @@ export type apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponseError = (
   headers: Headers;
 };
 
-export type apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse = (apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponseSuccess | apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponseError)
-
 export const getApiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetUrl = (name: string,
     path: string,) => {
 
@@ -2641,9 +2585,9 @@ export const getApiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetUrl = (name: 
  * @summary Api Get Folder Meta
  */
 export const apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGet = async (name: string,
-    path: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse> => {
+    path: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponseSuccess> => {
 
-  return customFetch<apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponse>(getApiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetUrl(name,path),
+  return customFetch<apiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetResponseSuccess>(getApiGetFolderMetaApiWorkspacesNameFoldersPathMetaGetUrl(name,path),
   {
     ...options,
     method: 'GET'
@@ -2681,8 +2625,6 @@ export type apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponseError 
   headers: Headers;
 };
 
-export type apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse = (apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponseSuccess | apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponseError)
-
 export const getApiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutUrl = (name: string,
     path: string,) => {
 
@@ -2697,7 +2639,7 @@ export const getApiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutUrl = (nam
  */
 export const apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPut = async (name: string,
     path: string,
-    updateFolderMetaRequest: UpdateFolderMetaRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse> => {
+    updateFolderMetaRequest: UpdateFolderMetaRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -2705,7 +2647,7 @@ export const apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPut = async (nam
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponse>(getApiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutUrl(name,path),
+return customFetch<apiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutResponseSuccess>(getApiUpdateFolderMetaApiWorkspacesNameFoldersPathMetaPutUrl(name,path),
   {
     ...options,
     method: 'PUT',
@@ -2748,8 +2690,6 @@ export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponseError = (apiR
   headers: Headers;
 };
 
-export type apiReindexWorkspaceApiWorkspacesNameReindexPostResponse = (apiReindexWorkspaceApiWorkspacesNameReindexPostResponseSuccess | apiReindexWorkspaceApiWorkspacesNameReindexPostResponseError)
-
 export const getApiReindexWorkspaceApiWorkspacesNameReindexPostUrl = (name: string,) => {
 
 
@@ -2761,9 +2701,9 @@ export const getApiReindexWorkspaceApiWorkspacesNameReindexPostUrl = (name: stri
 /**
  * @summary Api Reindex Workspace
  */
-export const apiReindexWorkspaceApiWorkspacesNameReindexPost = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiReindexWorkspaceApiWorkspacesNameReindexPostResponse> => {
+export const apiReindexWorkspaceApiWorkspacesNameReindexPost = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiReindexWorkspaceApiWorkspacesNameReindexPostResponseSuccess> => {
 
-  return customFetch<apiReindexWorkspaceApiWorkspacesNameReindexPostResponse>(getApiReindexWorkspaceApiWorkspacesNameReindexPostUrl(name),
+  return customFetch<apiReindexWorkspaceApiWorkspacesNameReindexPostResponseSuccess>(getApiReindexWorkspaceApiWorkspacesNameReindexPostUrl(name),
   {
     ...options,
     method: 'POST'
@@ -2806,8 +2746,6 @@ export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponseError = (ap
   headers: Headers;
 };
 
-export type apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse = (apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponseSuccess | apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponseError)
-
 export const getApiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetUrl = (name: string,
     noteId: string,) => {
 
@@ -2821,9 +2759,9 @@ export const getApiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetUrl = (name: st
  * @summary Api Get Note Html
  */
 export const apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGet = async (name: string,
-    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse> => {
+    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponseSuccess> => {
 
-  return customFetch<apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponse>(getApiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetUrl(name,noteId),
+  return customFetch<apiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetResponseSuccess>(getApiGetNoteHtmlApiWorkspacesNameNotesNoteIdHtmlGetUrl(name,noteId),
   {
     ...options,
     method: 'GET'
@@ -2866,8 +2804,6 @@ export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponseErr
   headers: Headers;
 };
 
-export type apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse = (apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponseSuccess | apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponseError)
-
 export const getApiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetUrl = (name: string,
     noteId: string,) => {
 
@@ -2881,9 +2817,9 @@ export const getApiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetUrl = (
  * @summary Api Get Note Markdown
  */
 export const apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGet = async (name: string,
-    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse> => {
+    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponseSuccess> => {
 
-  return customFetch<apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponse>(getApiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetUrl(name,noteId),
+  return customFetch<apiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetResponseSuccess>(getApiGetNoteMarkdownApiWorkspacesNameNotesNoteIdMarkdownGetUrl(name,noteId),
   {
     ...options,
     method: 'GET'
@@ -2926,8 +2862,6 @@ export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponseError =
   headers: Headers;
 };
 
-export type apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse = (apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponseSuccess | apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponseError)
-
 export const getApiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetUrl = (name: string,
     noteId: string,) => {
 
@@ -2941,9 +2875,9 @@ export const getApiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetUrl = (name
  * @summary Api Get Note Chunks
  */
 export const apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGet = async (name: string,
-    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse> => {
+    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponseSuccess> => {
 
-  return customFetch<apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponse>(getApiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetUrl(name,noteId),
+  return customFetch<apiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetResponseSuccess>(getApiGetNoteChunksApiWorkspacesNameNotesNoteIdChunksGetUrl(name,noteId),
   {
     ...options,
     method: 'GET'
@@ -2986,8 +2920,6 @@ export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponseError = (api
   headers: Headers;
 };
 
-export type apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse = (apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponseSuccess | apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponseError)
-
 export const getApiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetUrl = (name: string,
     noteId: string,) => {
 
@@ -3001,9 +2933,9 @@ export const getApiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetUrl = (name: str
  * @summary Api Note Links
  */
 export const apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGet = async (name: string,
-    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse> => {
+    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponseSuccess> => {
 
-  return customFetch<apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponse>(getApiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetUrl(name,noteId),
+  return customFetch<apiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetResponseSuccess>(getApiNoteLinksApiWorkspacesNameNotesNoteIdLinksGetUrl(name,noteId),
   {
     ...options,
     method: 'GET'
@@ -3046,8 +2978,6 @@ export type apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetRespon
   headers: Headers;
 };
 
-export type apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse = (apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponseSuccess | apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponseError)
-
 export const getApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetUrl = (name: string,
     noteId: string,
     params?: ApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetParams,) => {
@@ -3070,9 +3000,9 @@ export const getApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetUr
  */
 export const apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGet = async (name: string,
     noteId: string,
-    params?: ApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse> => {
+    params?: ApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponseSuccess> => {
 
-  return customFetch<apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponse>(getApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetUrl(name,noteId,params),
+  return customFetch<apiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetResponseSuccess>(getApiNoteNeighborhoodApiWorkspacesNameNotesNoteIdNeighborhoodGetUrl(name,noteId,params),
   {
     ...options,
     method: 'GET'
@@ -3110,8 +3040,6 @@ export type apiNoteGraphApiWorkspacesNameNotesGraphGetResponseError = (apiNoteGr
   headers: Headers;
 };
 
-export type apiNoteGraphApiWorkspacesNameNotesGraphGetResponse = (apiNoteGraphApiWorkspacesNameNotesGraphGetResponseSuccess | apiNoteGraphApiWorkspacesNameNotesGraphGetResponseError)
-
 export const getApiNoteGraphApiWorkspacesNameNotesGraphGetUrl = (name: string,
     params?: ApiNoteGraphApiWorkspacesNameNotesGraphGetParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -3132,9 +3060,9 @@ export const getApiNoteGraphApiWorkspacesNameNotesGraphGetUrl = (name: string,
  * @summary Api Note Graph
  */
 export const apiNoteGraphApiWorkspacesNameNotesGraphGet = async (name: string,
-    params?: ApiNoteGraphApiWorkspacesNameNotesGraphGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteGraphApiWorkspacesNameNotesGraphGetResponse> => {
+    params?: ApiNoteGraphApiWorkspacesNameNotesGraphGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteGraphApiWorkspacesNameNotesGraphGetResponseSuccess> => {
 
-  return customFetch<apiNoteGraphApiWorkspacesNameNotesGraphGetResponse>(getApiNoteGraphApiWorkspacesNameNotesGraphGetUrl(name,params),
+  return customFetch<apiNoteGraphApiWorkspacesNameNotesGraphGetResponseSuccess>(getApiNoteGraphApiWorkspacesNameNotesGraphGetUrl(name,params),
   {
     ...options,
     method: 'GET'
@@ -3177,8 +3105,6 @@ export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponseError = 
   headers: Headers;
 };
 
-export type apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse = (apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponseSuccess | apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponseError)
-
 export const getApiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetUrl = (name: string,
     noteId: string,) => {
 
@@ -3192,9 +3118,9 @@ export const getApiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetUrl = (name:
  * @summary Api Note History
  */
 export const apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGet = async (name: string,
-    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse> => {
+    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponseSuccess> => {
 
-  return customFetch<apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponse>(getApiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetUrl(name,noteId),
+  return customFetch<apiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetResponseSuccess>(getApiNoteHistoryApiWorkspacesNameNotesNoteIdHistoryGetUrl(name,noteId),
   {
     ...options,
     method: 'GET'
@@ -3237,8 +3163,6 @@ export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponseError
   headers: Headers;
 };
 
-export type apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse = (apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponseSuccess | apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponseError)
-
 export const getApiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetUrl = (name: string,
     noteId: string,
     sha: string,) => {
@@ -3254,9 +3178,9 @@ export const getApiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetUrl = (na
  */
 export const apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGet = async (name: string,
     noteId: string,
-    sha: string, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse> => {
+    sha: string, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponseSuccess> => {
 
-  return customFetch<apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponse>(getApiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetUrl(name,noteId,sha),
+  return customFetch<apiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetResponseSuccess>(getApiNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaGetUrl(name,noteId,sha),
   {
     ...options,
     method: 'GET'
@@ -3299,8 +3223,6 @@ export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePo
   headers: Headers;
 };
 
-export type apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse = (apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponseSuccess | apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponseError)
-
 export const getApiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostUrl = (name: string,
     noteId: string,
     sha: string,) => {
@@ -3316,9 +3238,9 @@ export const getApiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaResto
  */
 export const apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePost = async (name: string,
     noteId: string,
-    sha: string, options?: Parameters<typeof customFetch>[1]): Promise<apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse> => {
+    sha: string, options?: Parameters<typeof customFetch>[1]): Promise<apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponseSuccess> => {
 
-  return customFetch<apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponse>(getApiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostUrl(name,noteId,sha),
+  return customFetch<apiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostResponseSuccess>(getApiRestoreNoteVersionApiWorkspacesNameNotesNoteIdHistoryShaRestorePostUrl(name,noteId,sha),
   {
     ...options,
     method: 'POST'
@@ -3361,8 +3283,6 @@ export type apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponseError = 
   headers: Headers;
 };
 
-export type apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse = (apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponseSuccess | apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponseError)
-
 export const getApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetUrl = (name: string,
     noteId: string,
     params?: ApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetParams,) => {
@@ -3385,9 +3305,9 @@ export const getApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetUrl = (name:
  */
 export const apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGet = async (name: string,
     noteId: string,
-    params?: ApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse> => {
+    params?: ApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponseSuccess> => {
 
-  return customFetch<apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponse>(getApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetUrl(name,noteId,params),
+  return customFetch<apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponseSuccess>(getApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetUrl(name,noteId,params),
   {
     ...options,
     method: 'GET'
@@ -3430,8 +3350,6 @@ export type apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse
   headers: Headers;
 };
 
-export type apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse = (apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponseSuccess | apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponseError)
-
 export const getApiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostUrl = (name: string,
     noteId: string,) => {
 
@@ -3446,7 +3364,7 @@ export const getApiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostUrl 
  */
 export const apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPost = async (name: string,
     noteId: string,
-    createShareLinkRequest: CreateShareLinkRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse> => {
+    createShareLinkRequest: CreateShareLinkRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -3454,7 +3372,7 @@ export const apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPost = asyn
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponse>(getApiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostUrl(name,noteId),
+return customFetch<apiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostResponseSuccess>(getApiCreateShareLinkApiWorkspacesNameNotesNoteIdShareLinksPostUrl(name,noteId),
   {
     ...options,
     method: 'POST',
@@ -3497,8 +3415,6 @@ export type apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponseEr
   headers: Headers;
 };
 
-export type apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse = (apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponseSuccess | apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponseError)
-
 export const getApiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetUrl = (name: string,
     noteId: string,) => {
 
@@ -3512,9 +3428,9 @@ export const getApiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetUrl = 
  * @summary Api List Share Links
  */
 export const apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGet = async (name: string,
-    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse> => {
+    noteId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponseSuccess> => {
 
-  return customFetch<apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponse>(getApiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetUrl(name,noteId),
+  return customFetch<apiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetResponseSuccess>(getApiListShareLinksApiWorkspacesNameNotesNoteIdShareLinksGetUrl(name,noteId),
   {
     ...options,
     method: 'GET'
@@ -3557,8 +3473,6 @@ export type apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksToken
   headers: Headers;
 };
 
-export type apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse = (apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponseSuccess | apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponseError)
-
 export const getApiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchUrl = (name: string,
     noteId: string,
     token: string,) => {
@@ -3575,7 +3489,7 @@ export const getApiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksT
 export const apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatch = async (name: string,
     noteId: string,
     token: string,
-    updateShareLinkPreviewRequest: UpdateShareLinkPreviewRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse> => {
+    updateShareLinkPreviewRequest: UpdateShareLinkPreviewRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -3583,7 +3497,7 @@ export const apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksToke
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponse>(getApiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchUrl(name,noteId,token),
+return customFetch<apiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchResponseSuccess>(getApiUpdateShareLinkPreviewApiWorkspacesNameNotesNoteIdShareLinksTokenPatchUrl(name,noteId,token),
   {
     ...options,
     method: 'PATCH',
@@ -3626,8 +3540,6 @@ export type apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteR
   headers: Headers;
 };
 
-export type apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse = (apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponseSuccess | apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponseError)
-
 export const getApiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteUrl = (name: string,
     noteId: string,
     token: string,) => {
@@ -3643,9 +3555,9 @@ export const getApiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDel
  */
 export const apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDelete = async (name: string,
     noteId: string,
-    token: string, options?: Parameters<typeof customFetch>[1]): Promise<apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse> => {
+    token: string, options?: Parameters<typeof customFetch>[1]): Promise<apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponseSuccess> => {
 
-  return customFetch<apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponse>(getApiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteUrl(name,noteId,token),
+  return customFetch<apiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteResponseSuccess>(getApiRevokeShareLinkApiWorkspacesNameNotesNoteIdShareLinksTokenDeleteUrl(name,noteId,token),
   {
     ...options,
     method: 'DELETE'
@@ -3678,8 +3590,6 @@ export type apiGetPublicNoteApiPublicNotesTokenGetResponseError = (apiGetPublicN
   headers: Headers;
 };
 
-export type apiGetPublicNoteApiPublicNotesTokenGetResponse = (apiGetPublicNoteApiPublicNotesTokenGetResponseSuccess | apiGetPublicNoteApiPublicNotesTokenGetResponseError)
-
 export const getApiGetPublicNoteApiPublicNotesTokenGetUrl = (token: string,) => {
 
 
@@ -3691,9 +3601,9 @@ export const getApiGetPublicNoteApiPublicNotesTokenGetUrl = (token: string,) => 
 /**
  * @summary Api Get Public Note
  */
-export const apiGetPublicNoteApiPublicNotesTokenGet = async (token: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetPublicNoteApiPublicNotesTokenGetResponse> => {
+export const apiGetPublicNoteApiPublicNotesTokenGet = async (token: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetPublicNoteApiPublicNotesTokenGetResponseSuccess> => {
 
-  return customFetch<apiGetPublicNoteApiPublicNotesTokenGetResponse>(getApiGetPublicNoteApiPublicNotesTokenGetUrl(token),
+  return customFetch<apiGetPublicNoteApiPublicNotesTokenGetResponseSuccess>(getApiGetPublicNoteApiPublicNotesTokenGetUrl(token),
   {
     ...options,
     method: 'GET'
@@ -3714,8 +3624,6 @@ export type apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponseSuccess = (
 };
 ;
 
-export type apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponse = (apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponseSuccess)
-
 export const getApiListEmbeddingProfilesApiMeEmbeddingProfilesGetUrl = () => {
 
 
@@ -3727,9 +3635,9 @@ export const getApiListEmbeddingProfilesApiMeEmbeddingProfilesGetUrl = () => {
 /**
  * @summary Api List Embedding Profiles
  */
-export const apiListEmbeddingProfilesApiMeEmbeddingProfilesGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponse> => {
+export const apiListEmbeddingProfilesApiMeEmbeddingProfilesGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponseSuccess> => {
 
-  return customFetch<apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponse>(getApiListEmbeddingProfilesApiMeEmbeddingProfilesGetUrl(),
+  return customFetch<apiListEmbeddingProfilesApiMeEmbeddingProfilesGetResponseSuccess>(getApiListEmbeddingProfilesApiMeEmbeddingProfilesGetUrl(),
   {
     ...options,
     method: 'GET'
@@ -3762,8 +3670,6 @@ export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseError = (
   headers: Headers;
 };
 
-export type apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse = (apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess | apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseError)
-
 export const getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl = () => {
 
 
@@ -3775,7 +3681,7 @@ export const getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl = () => {
 /**
  * @summary Api Create Embedding Profile
  */
-export const apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost = async (createEmbeddingProfileRequest: CreateEmbeddingProfileRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse> => {
+export const apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost = async (createEmbeddingProfileRequest: CreateEmbeddingProfileRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -3783,7 +3689,7 @@ export const apiCreateEmbeddingProfileApiMeEmbeddingProfilesPost = async (create
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponse>(getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl(),
+return customFetch<apiCreateEmbeddingProfileApiMeEmbeddingProfilesPostResponseSuccess>(getApiCreateEmbeddingProfileApiMeEmbeddingProfilesPostUrl(),
   {
     ...options,
     method: 'POST',
@@ -3821,8 +3727,6 @@ export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseE
   headers: Headers;
 };
 
-export type apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse = (apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseSuccess | apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseError)
-
 export const getApiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutUrl = (profileId: string,) => {
 
 
@@ -3835,7 +3739,7 @@ export const getApiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutUrl =
  * @summary Api Update Embedding Profile
  */
 export const apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPut = async (profileId: string,
-    updateEmbeddingProfileRequest: UpdateEmbeddingProfileRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse> => {
+    updateEmbeddingProfileRequest: UpdateEmbeddingProfileRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -3843,7 +3747,7 @@ export const apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPut = async
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponse>(getApiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutUrl(profileId),
+return customFetch<apiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutResponseSuccess>(getApiUpdateEmbeddingProfileApiMeEmbeddingProfilesProfileIdPutUrl(profileId),
   {
     ...options,
     method: 'PUT',
@@ -3871,8 +3775,6 @@ export type apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteRespon
   headers: Headers;
 };
 
-export type apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponse = (apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponseSuccess | apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponseError)
-
 export const getApiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteUrl = (profileId: string,) => {
 
 
@@ -3884,9 +3786,9 @@ export const getApiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteUr
 /**
  * @summary Api Delete Embedding Profile
  */
-export const apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDelete = async (profileId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponse> => {
+export const apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDelete = async (profileId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponseSuccess> => {
 
-  return customFetch<apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponse>(getApiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteUrl(profileId),
+  return customFetch<apiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteResponseSuccess>(getApiDeleteEmbeddingProfileApiMeEmbeddingProfilesProfileIdDeleteUrl(profileId),
   {
     ...options,
     method: 'DELETE'
@@ -3919,8 +3821,6 @@ export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePo
   headers: Headers;
 };
 
-export type apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse = (apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseSuccess | apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseError)
-
 export const getApiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostUrl = (profileId: string,) => {
 
 
@@ -3932,9 +3832,9 @@ export const getApiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActiva
 /**
  * @summary Api Activate Embedding Profile
  */
-export const apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePost = async (profileId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse> => {
+export const apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePost = async (profileId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseSuccess> => {
 
-  return customFetch<apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponse>(getApiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostUrl(profileId),
+  return customFetch<apiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostResponseSuccess>(getApiActivateEmbeddingProfileApiMeEmbeddingProfilesProfileIdActivatePostUrl(profileId),
   {
     ...options,
     method: 'POST'
@@ -3955,8 +3855,6 @@ export type apiListSshKeysApiMeSshKeysGetResponseSuccess = (apiListSshKeysApiMeS
 };
 ;
 
-export type apiListSshKeysApiMeSshKeysGetResponse = (apiListSshKeysApiMeSshKeysGetResponseSuccess)
-
 export const getApiListSshKeysApiMeSshKeysGetUrl = () => {
 
 
@@ -3968,9 +3866,9 @@ export const getApiListSshKeysApiMeSshKeysGetUrl = () => {
 /**
  * @summary Api List Ssh Keys
  */
-export const apiListSshKeysApiMeSshKeysGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiListSshKeysApiMeSshKeysGetResponse> => {
+export const apiListSshKeysApiMeSshKeysGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiListSshKeysApiMeSshKeysGetResponseSuccess> => {
 
-  return customFetch<apiListSshKeysApiMeSshKeysGetResponse>(getApiListSshKeysApiMeSshKeysGetUrl(),
+  return customFetch<apiListSshKeysApiMeSshKeysGetResponseSuccess>(getApiListSshKeysApiMeSshKeysGetUrl(),
   {
     ...options,
     method: 'GET'
@@ -4003,8 +3901,6 @@ export type apiCreateSshKeyApiMeSshKeysPostResponseError = (apiCreateSshKeyApiMe
   headers: Headers;
 };
 
-export type apiCreateSshKeyApiMeSshKeysPostResponse = (apiCreateSshKeyApiMeSshKeysPostResponseSuccess | apiCreateSshKeyApiMeSshKeysPostResponseError)
-
 export const getApiCreateSshKeyApiMeSshKeysPostUrl = () => {
 
 
@@ -4016,7 +3912,7 @@ export const getApiCreateSshKeyApiMeSshKeysPostUrl = () => {
 /**
  * @summary Api Create Ssh Key
  */
-export const apiCreateSshKeyApiMeSshKeysPost = async (createSshKeyRequest: CreateSshKeyRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateSshKeyApiMeSshKeysPostResponse> => {
+export const apiCreateSshKeyApiMeSshKeysPost = async (createSshKeyRequest: CreateSshKeyRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiCreateSshKeyApiMeSshKeysPostResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -4024,7 +3920,7 @@ export const apiCreateSshKeyApiMeSshKeysPost = async (createSshKeyRequest: Creat
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiCreateSshKeyApiMeSshKeysPostResponse>(getApiCreateSshKeyApiMeSshKeysPostUrl(),
+return customFetch<apiCreateSshKeyApiMeSshKeysPostResponseSuccess>(getApiCreateSshKeyApiMeSshKeysPostUrl(),
   {
     ...options,
     method: 'POST',
@@ -4057,8 +3953,6 @@ export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseError = (apiDeleteSshK
   headers: Headers;
 };
 
-export type apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse = (apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseSuccess | apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseError)
-
 export const getApiDeleteSshKeyApiMeSshKeysKeyIdDeleteUrl = (keyId: string,) => {
 
 
@@ -4070,9 +3964,9 @@ export const getApiDeleteSshKeyApiMeSshKeysKeyIdDeleteUrl = (keyId: string,) => 
 /**
  * @summary Api Delete Ssh Key
  */
-export const apiDeleteSshKeyApiMeSshKeysKeyIdDelete = async (keyId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse> => {
+export const apiDeleteSshKeyApiMeSshKeysKeyIdDelete = async (keyId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseSuccess> => {
 
-  return customFetch<apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponse>(getApiDeleteSshKeyApiMeSshKeysKeyIdDeleteUrl(keyId),
+  return customFetch<apiDeleteSshKeyApiMeSshKeysKeyIdDeleteResponseSuccess>(getApiDeleteSshKeyApiMeSshKeysKeyIdDeleteUrl(keyId),
   {
     ...options,
     method: 'DELETE'
@@ -4100,8 +3994,6 @@ export type apiGetPreferencesApiMePreferencesGetResponseError = (apiGetPreferenc
   headers: Headers;
 };
 
-export type apiGetPreferencesApiMePreferencesGetResponse = (apiGetPreferencesApiMePreferencesGetResponseSuccess | apiGetPreferencesApiMePreferencesGetResponseError)
-
 export const getApiGetPreferencesApiMePreferencesGetUrl = () => {
 
 
@@ -4113,9 +4005,9 @@ export const getApiGetPreferencesApiMePreferencesGetUrl = () => {
 /**
  * @summary Api Get Preferences
  */
-export const apiGetPreferencesApiMePreferencesGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiGetPreferencesApiMePreferencesGetResponse> => {
+export const apiGetPreferencesApiMePreferencesGet = async ( options?: Parameters<typeof customFetch>[1]): Promise<apiGetPreferencesApiMePreferencesGetResponseSuccess> => {
 
-  return customFetch<apiGetPreferencesApiMePreferencesGetResponse>(getApiGetPreferencesApiMePreferencesGetUrl(),
+  return customFetch<apiGetPreferencesApiMePreferencesGetResponseSuccess>(getApiGetPreferencesApiMePreferencesGetUrl(),
   {
     ...options,
     method: 'GET'
@@ -4148,8 +4040,6 @@ export type apiUpdatePreferencesApiMePreferencesPatchResponseError = (apiUpdateP
   headers: Headers;
 };
 
-export type apiUpdatePreferencesApiMePreferencesPatchResponse = (apiUpdatePreferencesApiMePreferencesPatchResponseSuccess | apiUpdatePreferencesApiMePreferencesPatchResponseError)
-
 export const getApiUpdatePreferencesApiMePreferencesPatchUrl = () => {
 
 
@@ -4161,7 +4051,7 @@ export const getApiUpdatePreferencesApiMePreferencesPatchUrl = () => {
 /**
  * @summary Api Update Preferences
  */
-export const apiUpdatePreferencesApiMePreferencesPatch = async (updatePreferencesRequest: UpdatePreferencesRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdatePreferencesApiMePreferencesPatchResponse> => {
+export const apiUpdatePreferencesApiMePreferencesPatch = async (updatePreferencesRequest: UpdatePreferencesRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiUpdatePreferencesApiMePreferencesPatchResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -4169,7 +4059,7 @@ export const apiUpdatePreferencesApiMePreferencesPatch = async (updatePreference
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiUpdatePreferencesApiMePreferencesPatchResponse>(getApiUpdatePreferencesApiMePreferencesPatchUrl(),
+return customFetch<apiUpdatePreferencesApiMePreferencesPatchResponseSuccess>(getApiUpdatePreferencesApiMePreferencesPatchUrl(),
   {
     ...options,
     method: 'PATCH',
@@ -4207,8 +4097,6 @@ export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseError = (apiG
   headers: Headers;
 };
 
-export type apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse = (apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseSuccess | apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseError)
-
 export const getApiGetWorkspaceRemoteApiWorkspacesNameRemoteGetUrl = (name: string,) => {
 
 
@@ -4220,9 +4108,9 @@ export const getApiGetWorkspaceRemoteApiWorkspacesNameRemoteGetUrl = (name: stri
 /**
  * @summary Api Get Workspace Remote
  */
-export const apiGetWorkspaceRemoteApiWorkspacesNameRemoteGet = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse> => {
+export const apiGetWorkspaceRemoteApiWorkspacesNameRemoteGet = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseSuccess> => {
 
-  return customFetch<apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponse>(getApiGetWorkspaceRemoteApiWorkspacesNameRemoteGetUrl(name),
+  return customFetch<apiGetWorkspaceRemoteApiWorkspacesNameRemoteGetResponseSuccess>(getApiGetWorkspaceRemoteApiWorkspacesNameRemoteGetUrl(name),
   {
     ...options,
     method: 'GET'
@@ -4265,8 +4153,6 @@ export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseError = (apiS
   headers: Headers;
 };
 
-export type apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse = (apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseSuccess | apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseError)
-
 export const getApiSetWorkspaceRemoteApiWorkspacesNameRemotePutUrl = (name: string,) => {
 
 
@@ -4279,7 +4165,7 @@ export const getApiSetWorkspaceRemoteApiWorkspacesNameRemotePutUrl = (name: stri
  * @summary Api Set Workspace Remote
  */
 export const apiSetWorkspaceRemoteApiWorkspacesNameRemotePut = async (name: string,
-    setWorkspaceRemoteRequest: SetWorkspaceRemoteRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse> => {
+    setWorkspaceRemoteRequest: SetWorkspaceRemoteRequest, options?: Parameters<typeof customFetch>[1]): Promise<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseSuccess> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -4287,7 +4173,7 @@ export const apiSetWorkspaceRemoteApiWorkspacesNameRemotePut = async (name: stri
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponse>(getApiSetWorkspaceRemoteApiWorkspacesNameRemotePutUrl(name),
+return customFetch<apiSetWorkspaceRemoteApiWorkspacesNameRemotePutResponseSuccess>(getApiSetWorkspaceRemoteApiWorkspacesNameRemotePutUrl(name),
   {
     ...options,
     method: 'PUT',
@@ -4330,8 +4216,6 @@ export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseError =
   headers: Headers;
 };
 
-export type apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse = (apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseSuccess | apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseError)
-
 export const getApiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteUrl = (name: string,) => {
 
 
@@ -4343,9 +4227,9 @@ export const getApiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteUrl = (name
 /**
  * @summary Api Delete Workspace Remote
  */
-export const apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDelete = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse> => {
+export const apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDelete = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseSuccess> => {
 
-  return customFetch<apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponse>(getApiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteUrl(name),
+  return customFetch<apiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteResponseSuccess>(getApiDeleteWorkspaceRemoteApiWorkspacesNameRemoteDeleteUrl(name),
   {
     ...options,
     method: 'DELETE'
@@ -4388,8 +4272,6 @@ export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseError 
   headers: Headers;
 };
 
-export type apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse = (apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseSuccess | apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseError)
-
 export const getApiTriggerWorkspacePushApiWorkspacesNameRemotePushPostUrl = (name: string,) => {
 
 
@@ -4401,9 +4283,9 @@ export const getApiTriggerWorkspacePushApiWorkspacesNameRemotePushPostUrl = (nam
 /**
  * @summary Api Trigger Workspace Push
  */
-export const apiTriggerWorkspacePushApiWorkspacesNameRemotePushPost = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse> => {
+export const apiTriggerWorkspacePushApiWorkspacesNameRemotePushPost = async (name: string, options?: Parameters<typeof customFetch>[1]): Promise<apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseSuccess> => {
 
-  return customFetch<apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponse>(getApiTriggerWorkspacePushApiWorkspacesNameRemotePushPostUrl(name),
+  return customFetch<apiTriggerWorkspacePushApiWorkspacesNameRemotePushPostResponseSuccess>(getApiTriggerWorkspacePushApiWorkspacesNameRemotePushPostUrl(name),
   {
     ...options,
     method: 'POST'
@@ -4436,8 +4318,6 @@ export type apiListJobsApiMeJobsGetResponseError = (apiListJobsApiMeJobsGetRespo
   headers: Headers;
 };
 
-export type apiListJobsApiMeJobsGetResponse = (apiListJobsApiMeJobsGetResponseSuccess | apiListJobsApiMeJobsGetResponseError)
-
 export const getApiListJobsApiMeJobsGetUrl = (params?: ApiListJobsApiMeJobsGetParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -4456,9 +4336,9 @@ export const getApiListJobsApiMeJobsGetUrl = (params?: ApiListJobsApiMeJobsGetPa
 /**
  * @summary Api List Jobs
  */
-export const apiListJobsApiMeJobsGet = async (params?: ApiListJobsApiMeJobsGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiListJobsApiMeJobsGetResponse> => {
+export const apiListJobsApiMeJobsGet = async (params?: ApiListJobsApiMeJobsGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiListJobsApiMeJobsGetResponseSuccess> => {
 
-  return customFetch<apiListJobsApiMeJobsGetResponse>(getApiListJobsApiMeJobsGetUrl(params),
+  return customFetch<apiListJobsApiMeJobsGetResponseSuccess>(getApiListJobsApiMeJobsGetUrl(params),
   {
     ...options,
     method: 'GET'
@@ -4496,8 +4376,6 @@ export type apiRetryJobApiMeJobsJobIdRetryPostResponseError = (apiRetryJobApiMeJ
   headers: Headers;
 };
 
-export type apiRetryJobApiMeJobsJobIdRetryPostResponse = (apiRetryJobApiMeJobsJobIdRetryPostResponseSuccess | apiRetryJobApiMeJobsJobIdRetryPostResponseError)
-
 export const getApiRetryJobApiMeJobsJobIdRetryPostUrl = (jobId: string,) => {
 
 
@@ -4509,9 +4387,9 @@ export const getApiRetryJobApiMeJobsJobIdRetryPostUrl = (jobId: string,) => {
 /**
  * @summary Api Retry Job
  */
-export const apiRetryJobApiMeJobsJobIdRetryPost = async (jobId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiRetryJobApiMeJobsJobIdRetryPostResponse> => {
+export const apiRetryJobApiMeJobsJobIdRetryPost = async (jobId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiRetryJobApiMeJobsJobIdRetryPostResponseSuccess> => {
 
-  return customFetch<apiRetryJobApiMeJobsJobIdRetryPostResponse>(getApiRetryJobApiMeJobsJobIdRetryPostUrl(jobId),
+  return customFetch<apiRetryJobApiMeJobsJobIdRetryPostResponseSuccess>(getApiRetryJobApiMeJobsJobIdRetryPostUrl(jobId),
   {
     ...options,
     method: 'POST'
@@ -4549,8 +4427,6 @@ export type apiDismissJobApiMeJobsJobIdDeleteResponseError = (apiDismissJobApiMe
   headers: Headers;
 };
 
-export type apiDismissJobApiMeJobsJobIdDeleteResponse = (apiDismissJobApiMeJobsJobIdDeleteResponseSuccess | apiDismissJobApiMeJobsJobIdDeleteResponseError)
-
 export const getApiDismissJobApiMeJobsJobIdDeleteUrl = (jobId: string,) => {
 
 
@@ -4562,9 +4438,9 @@ export const getApiDismissJobApiMeJobsJobIdDeleteUrl = (jobId: string,) => {
 /**
  * @summary Api Dismiss Job
  */
-export const apiDismissJobApiMeJobsJobIdDelete = async (jobId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiDismissJobApiMeJobsJobIdDeleteResponse> => {
+export const apiDismissJobApiMeJobsJobIdDelete = async (jobId: string, options?: Parameters<typeof customFetch>[1]): Promise<apiDismissJobApiMeJobsJobIdDeleteResponseSuccess> => {
 
-  return customFetch<apiDismissJobApiMeJobsJobIdDeleteResponse>(getApiDismissJobApiMeJobsJobIdDeleteUrl(jobId),
+  return customFetch<apiDismissJobApiMeJobsJobIdDeleteResponseSuccess>(getApiDismissJobApiMeJobsJobIdDeleteUrl(jobId),
   {
     ...options,
     method: 'DELETE'

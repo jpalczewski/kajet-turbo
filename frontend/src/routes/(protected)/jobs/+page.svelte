@@ -2,11 +2,9 @@
   import {
     apiRetryJobApiMeJobsJobIdRetryPost,
     apiDismissJobApiMeJobsJobIdDelete,
-    getApiListJobsApiMeJobsGetUrl,
+    apiListJobsApiMeJobsGet,
     type JobItem,
-    type apiListJobsApiMeJobsGetResponse,
   } from '$lib/api';
-  import { customFetch } from '$lib/api/fetcher';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
   import { DEFAULT_DATE_PREFS, formatUnixDateTime } from '$lib/utils/format';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
@@ -20,8 +18,7 @@
   const action = useAsyncAction();
 
   async function reload() {
-    const url = getApiListJobsApiMeJobsGetUrl(statusFilter ? { status: statusFilter } : undefined);
-    const r = await customFetch<apiListJobsApiMeJobsGetResponse>(url);
+    const r = await apiListJobsApiMeJobsGet(statusFilter ? { status: statusFilter } : undefined);
     if (r.status === 200) jobs = r.data.jobs;
   }
 
