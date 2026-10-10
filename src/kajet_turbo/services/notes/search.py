@@ -1,8 +1,15 @@
 import asyncio
 from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Literal
 
 from kajet_turbo.concurrency import run_sync
-from kajet_turbo.embedding.base import Embedder, EmbedderConfig, EmbeddingAuthError
+from kajet_turbo.embedding.base import (
+    Embedder,
+    EmbedderConfig,
+    EmbeddingAuthError,
+    EmbeddingRequestRejected,
+)
 from kajet_turbo.embedding.cache import pack_vector
 from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.log import logger
@@ -18,6 +25,49 @@ from kajet_turbo.services.notes.fusion import (
     fuse_hybrid,
 )
 from kajet_turbo.workspace import folder_scope
+
+# Why semantic ranking was dropped for one search. "auth_failed": the backend rejected the
+# API key (401/403). "misconfigured": it rejected the request itself (400/404/422 — unknown
+# model, wrong base URL), so a retry cannot help either. "unavailable": anything else —
+# timeout, 5xx, 429, or the backend config could not be resolved — worth a retry.
+type DegradedReason = Literal["auth_failed", "misconfigured", "unavailable"]
+type SearchMode = Literal["hybrid", "keyword_only"]
+
+
+@dataclass(frozen=True, slots=True)
+class QueryVector:
+    """The query embedding search ranks against, or why there is none.
+
+    ``degraded_reason`` is None both when the embedding succeeded and when no backend is
+    configured: keyword-only search by configuration is not a degradation."""
+
+    embedding: bytes | None = None
+    identity: IndexIdentity | None = None
+    degraded_reason: DegradedReason | None = None
+
+    @classmethod
+    def embedded(cls, vector: list[float], cfg: EmbedderConfig) -> QueryVector:
+        return cls(embedding=pack_vector(vector), identity=IndexIdentity.from_config(cfg))
+
+
+@dataclass(frozen=True, slots=True)
+class SearchOutcome:
+    results: list[ChunkHit]
+    search_mode: SearchMode
+    degraded_reason: DegradedReason | None
+    # True when more hits ranked below the limit; the recourse is a larger limit, not
+    # paging — deep offsets into an RRF ranking are not worth their cost.
+    has_more: bool
+
+
+def degraded_reason_for(exc: BaseException) -> DegradedReason:
+    match exc:
+        case EmbeddingAuthError():
+            return "auth_failed"
+        case EmbeddingRequestRejected():
+            return "misconfigured"
+        case _:
+            return "unavailable"
 
 
 class NoteSearchService:
@@ -47,22 +97,21 @@ class NoteSearchService:
         limit: int = 10,
         folder: str | None = None,
         tags: list[str] | None = None,
-    ) -> list[ChunkHit]:
+    ) -> SearchOutcome:
         """Sync search: runs entirely on the calling (worker) thread, driving the
         embedder with ``asyncio.run``. The MCP boundary uses ``search_async`` instead
         so the query-embedding HTTP roundtrip doesn't pin a run_sync slot."""
         folder = folder_scope(folder)
-        cfg = self._prepare(owner_id)
-        embedding = None
-        identity = None
-        if cfg is not None:
-            try:
-                vec = self._embed_query(cfg, query)
-                embedding = pack_vector(vec)
-                identity = IndexIdentity.from_config(cfg)
-            except Exception as e:
-                self._log_embed_failure(cfg, e)
-        return self._execute(query, workspaces, owner_id, limit, folder, tags, embedding, identity)
+        prepared = self._prepare(owner_id)
+        match prepared:
+            case EmbedderConfig() as cfg:
+                try:
+                    vector = QueryVector.embedded(self._embed_query(cfg, query), cfg)
+                except Exception as e:
+                    vector = self._embed_failed(cfg, e)
+            case _:
+                vector = prepared
+        return self._execute(query, workspaces, owner_id, limit, folder, tags, vector)
 
     async def search_async(
         self,
@@ -72,7 +121,7 @@ class NoteSearchService:
         limit: int = 10,
         folder: str | None = None,
         tags: list[str] | None = None,
-    ) -> list[ChunkHit]:
+    ) -> SearchOutcome:
         """Async search: DB phases (_prepare/_execute) borrow a run_sync slot only for
         ms-scale work, while the query-embedding HTTP call is awaited natively on the
         event loop through the shared client — a slow embedding endpoint no longer
@@ -82,25 +131,25 @@ class NoteSearchService:
             # No async embedder wired (test doubles / legacy wiring): run the whole
             # sync search in one worker-thread slot, as before.
             return await run_sync(self.search, query, workspaces, owner_id, limit, folder, tags)
-        cfg = await run_sync(self._prepare, owner_id)
-        embedding = None
-        identity = None
-        if cfg is not None:
-            try:
-                vec = await self._embed_query_async(cfg, query)
-                embedding = pack_vector(vec)
-                identity = IndexIdentity.from_config(cfg)
-            except Exception as e:
-                self._log_embed_failure(cfg, e)
+        prepared = await run_sync(self._prepare, owner_id)
+        match prepared:
+            case EmbedderConfig() as cfg:
+                try:
+                    vector = QueryVector.embedded(await self._embed_query_async(cfg, query), cfg)
+                except Exception as e:
+                    vector = self._embed_failed(cfg, e)
+            case _:
+                vector = prepared
         return await run_sync(
-            self._execute, query, workspaces, owner_id, limit, folder, tags, embedding, identity
+            self._execute, query, workspaces, owner_id, limit, folder, tags, vector
         )
 
     @staticmethod
-    def _log_embed_failure(cfg: EmbedderConfig, exc: Exception) -> None:
+    def _embed_failed(cfg: EmbedderConfig, exc: Exception) -> QueryVector:
         """Search degrades to keyword-only when the query can't be embedded. A rejected
         key is a persistent misconfiguration, not a blip, so it gets its own ERROR
         record; everything else stays a warning."""
+        reason = degraded_reason_for(exc)
         if isinstance(exc, EmbeddingAuthError):
             logger.error(
                 "embedding_auth_failed",
@@ -109,17 +158,23 @@ class NoteSearchService:
                 degraded_to="fts",
             )
         else:
-            logger.opt(exception=exc).warning("search_embed_failed", backend=cfg.backend_id)
+            logger.opt(exception=exc).warning(
+                "search_embed_failed", backend=cfg.backend_id, degraded_reason=reason
+            )
+        return QueryVector(degraded_reason=reason)
 
-    def _prepare(self, owner_id: str) -> EmbedderConfig | None:
-        """Resolve the active embedding backend, if any. Sync — cheap indexed DB read."""
+    def _prepare(self, owner_id: str) -> EmbedderConfig | QueryVector:
+        """Resolve the active embedding backend. Sync — cheap indexed DB read. Without a
+        backend the search is keyword-only by configuration; a failed resolution is a
+        degradation, not "no backend", so it carries a reason."""
         if self._query_resolver is None:
-            return None
+            return QueryVector()
         try:
-            return self._query_resolver(owner_id)
+            cfg = self._query_resolver(owner_id)
         except Exception as e:
             logger.opt(exception=e).warning("search_resolve_failed", owner_id=owner_id)
-            return None
+            return QueryVector(degraded_reason="unavailable")
+        return QueryVector() if cfg is None else cfg
 
     def _execute(
         self,
@@ -129,11 +184,11 @@ class NoteSearchService:
         limit: int,
         folder: str | None,
         tags: list[str] | None,
-        embedding: bytes | None,
-        identity: IndexIdentity | None,
-    ) -> list[ChunkHit]:
+        vector: QueryVector,
+    ) -> SearchOutcome:
         """Narrow, fetch candidates, fuse them, and log. Sync DB work."""
-        per_ws_limit = limit * 3 if len(workspaces) > 1 else limit
+        # One hit past the limit is what tells has_more apart from an exact fit.
+        per_ws_limit = (limit * 3 if len(workspaces) > 1 else limit) + 1
         results: list[ChunkHit] = []
         for ws in workspaces:
             allowed: set[str] | None = None
@@ -158,9 +213,9 @@ class NoteSearchService:
             fts = self._chunk_repo.search_fts(query, ws, owner_id, limit=candidate_limit)
             vec = (
                 self._chunk_repo.search_chunks_vec(
-                    embedding, ws, owner_id, identity=identity, k=candidate_limit
+                    vector.embedding, ws, owner_id, identity=vector.identity, k=candidate_limit
                 )
-                if embedding is not None and identity is not None
+                if vector.embedding is not None and vector.identity is not None
                 else []
             )
             hits = fuse_hybrid(
@@ -175,11 +230,23 @@ class NoteSearchService:
         # signal — but sorting by it beats leaving results in arbitrary workspace-iteration
         # order. No-op for the single-workspace case (fuse_hybrid already returns sorted).
         results.sort(key=lambda result: result.score, reverse=True)
+        has_more = len(results) > limit
         results = results[:limit]
+        search_mode: SearchMode = "hybrid" if vector.embedding is not None else "keyword_only"
         logger.info(
-            "search_performed", query_len=len(query), results=len(results), ws_count=len(workspaces)
+            "search_performed",
+            query_len=len(query),
+            results=len(results),
+            ws_count=len(workspaces),
+            search_mode=search_mode,
+            degraded_reason=vector.degraded_reason,
         )
-        return results
+        return SearchOutcome(
+            results=results,
+            search_mode=search_mode,
+            degraded_reason=vector.degraded_reason,
+            has_more=has_more,
+        )
 
     def _embed_query(self, cfg, query: str) -> list[float]:
         if self._query_cache is not None:
