@@ -7,3 +7,25 @@ vulnerabilities:
     purls: ["pkg:deb/debian/libpcre2-8-0"]
     expired_at: 2026-09-30
     statement: Trivy still flags Debian's pcre2 point release; review when its advisory is updated.
+
+  # Caddy 2.11.7 is the latest upstream release, but its binary was compiled
+  # before these Go fixes (x/net 0.60.0, Go 1.26.9). Scope each exception to that
+  # exact binary/package version so a rebuilt Caddy cannot silently inherit it.
+  # Review on expiry.
+  - id: CVE-2026-78669
+    paths: [usr/bin/caddy]
+    purls:
+      - "pkg:golang/golang.org/x/net@v0.59.0"
+      - "pkg:golang/stdlib@v1.26.8"
+    expired_at: 2026-11-10
+    statement: HTTP/2 SETTINGS DoS; awaiting a Caddy release built with patched Go dependencies.
+  - id: CVE-2026-78667
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/stdlib@v1.26.8"]
+    expired_at: 2026-11-10
+    statement: net/http Range-header DoS; awaiting a Caddy release built with a patched Go toolchain.
+  - id: CVE-2026-97031
+    paths: [usr/bin/caddy]
+    purls: ["pkg:golang/stdlib@v1.26.8"]
+    expired_at: 2026-11-10
+    statement: crypto/tls ECH DoS; awaiting a Caddy release built with a patched Go toolchain.
