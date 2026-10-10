@@ -26,6 +26,7 @@ from kajet_turbo.services.notes import (
     NoteGraphService,
     NoteLinkService,
     NoteReconcileService,
+    NoteRelatedService,
     NoteTagService,
     NoteTemporalService,
 )
@@ -135,6 +136,11 @@ def _build_context(database: Database, monkeypatch: pytest.MonkeyPatch) -> McpTe
         note_read_service=note_read_service,
         note_reconcile_service=note_reconcile_service_inst,
         note_search_service=note_search_service,
+        # No embedding backend, same as the indexer above: the real service answers
+        # `unavailable`; tests needing other states patch related_async.
+        note_related_service=NoteRelatedService(
+            note_chunk_repository, note_repository, resolve_backend=lambda o: None
+        ),
         workspace_service=workspace_service,
         target_resolver=TargetResolver(note_repository, workspace_service),
         folder_meta_repo=folder_meta_repository,

@@ -43,8 +43,10 @@ def build_search(search_service: NoteSearchService, workspace_service: Workspace
         folder and tags narrow the candidate notes; when both are present they intersect.
         Returns chunks with note_id, title, folder, updated_at, header_path, content, score,
         and optional matched_on. It never returns a complete note. Use search_notes to find
-        note IDs, then get_note or get_notes for complete current content. Cross-workspace
-        note IDs can be linked with [[note:NOTE_ID]]. Returns [] when nothing matches."""
+        note IDs, then get_note or get_notes for complete current content. When you already
+        hold a note_id and want notes like it, use get_related_notes instead — it needs no
+        query text and no new embedding. Cross-workspace note IDs can be linked with
+        [[note:NOTE_ID]]. Returns [] when nothing matches."""
         ws_param = workspace or "all"
         if ws_param == "active":
             raise ToolError(
