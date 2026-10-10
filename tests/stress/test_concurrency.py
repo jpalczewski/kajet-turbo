@@ -1,6 +1,7 @@
 """Parallel save/search/history on one workspace — catches git races and
 SQLite pool exhaustion under real threads."""
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -52,7 +53,9 @@ def test_parallel_save_search_history(svc, tmp_path):
 
     def search(i: int) -> None:
         try:
-            search_service.search("treść", [WS], owner_id=OWNER, limit=10)
+            # A fresh event loop per worker thread: the DB phases still dispatch
+            # through run_sync, so the threads contend on SQLite as before.
+            asyncio.run(search_service.search_async("treść", [WS], owner_id=OWNER, limit=10))
         except Exception as e:
             errors.append(e)
 

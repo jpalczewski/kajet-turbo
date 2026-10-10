@@ -48,8 +48,14 @@ class EmbedderConfig:
     api_key: str | None = field(default=None, repr=False)
 
 
+class QueryEmbedder(Protocol):
+    """The one capability query-time search needs: embed a single search query."""
+
+    async def embed_query(self, text: str) -> list[float]: ...
+
+
 @runtime_checkable
-class Embedder(Protocol):
+class Embedder(QueryEmbedder, Protocol):
     @property
     def name(self) -> str: ...
     @property
@@ -60,4 +66,3 @@ class Embedder(Protocol):
     def passage_prefix(self) -> str: ...
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]: ...
-    async def embed_query(self, text: str) -> list[float]: ...
