@@ -49,7 +49,8 @@ parameter goes on `NewNote` and `_NoteDraft` once, not into two method bodies.
 The `indexer` constructor param on all three write services (and on
 `NoteReconcileService`) is typed `Indexer | None` — a small `Protocol` in `services/indexing.py`
 declaring just `index_note`/`index_many`, not the concrete `NoteIndexer` class — mirroring the
-one other `Protocol` in the codebase (`embedding/base.py`'s `Embedder`).
+other `Protocol`s in the codebase (`embedding/base.py`'s `Embedder` and its narrow
+`QueryEmbedder`, which is all `NoteSearchService` needs).
 
 `NoteTemporalService` (`temporal.py`) was a deliberate exception to how every other
 collaborator here used to be exposed: REST and MCP call `NoteTemporalService.entries_in`/

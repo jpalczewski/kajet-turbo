@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from kajet_turbo.db import Database
-from kajet_turbo.embedding.cache import EmbeddingCacheRepository
+from kajet_turbo.embedding.base import EmbedderConfig, QueryEmbedder
+from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbeddingCache
 from kajet_turbo.repositories.dangling_links import DanglingLinkRepository
 from kajet_turbo.repositories.folder_meta import FolderMetaRepository
 from kajet_turbo.repositories.jobs import JobRepository
@@ -139,18 +140,23 @@ def build_note_wiring(
     )
 
 
+def _unused_embedder(cfg: EmbedderConfig) -> QueryEmbedder:
+    raise AssertionError("query_resolver returned a backend but no embedder was wired")
+
+
 def build_note_search_service(
     database: Database,
-    query_resolver=None,
-    build_embedder=None,
-    query_cache=None,
+    query_resolver: Callable[[str], EmbedderConfig | None] | None = None,
+    build_embedder: Callable[[EmbedderConfig], QueryEmbedder] = _unused_embedder,
+    query_cache: QueryEmbeddingCache | None = None,
     chunk_repo: NoteChunkRepository | None = None,
-    async_build_embedder=None,
 ) -> NoteSearchService:
     """Construct a NoteSearchService reading the same Database as build_note_wiring.
 
     Fresh repo instances on the same engine — stateless, so they see everything a
-    NoteWiring built against the same Database has already written."""
+    NoteWiring built against the same Database has already written. Without a
+    query_resolver no backend resolves and the embedder is never called; a test that
+    resolves one must also pass build_embedder, or the default fails loudly."""
     engine = database.engine
     crud_repo = NoteRepository(engine)
     tag_repo = NoteTagRepository(engine)
@@ -163,7 +169,6 @@ def build_note_search_service(
         query_cache,
         crud_repo,
         tag_repo,
-        async_build_embedder=async_build_embedder,
     )
 
 

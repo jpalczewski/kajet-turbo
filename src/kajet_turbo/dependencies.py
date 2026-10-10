@@ -323,11 +323,10 @@ def build_resources(config: AppConfig) -> AppResources:
         note_search_service = NoteSearchService(
             note_chunk_repo,
             profile_resolver.resolve_backend,
-            pooled_embedder_factory(),
+            lambda cfg: build_embedder(cfg, shared_embed_client.get()),
             QueryEmbeddingCache(),
             note_repo,
             note_tag_repo,
-            async_build_embedder=lambda cfg: build_embedder(cfg, shared_embed_client.get()),
         )
         note_related_service = NoteRelatedService(
             note_chunk_repo, note_repo, profile_resolver.resolve_backend
