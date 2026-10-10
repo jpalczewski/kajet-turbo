@@ -1,6 +1,6 @@
 import {
   apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGet,
-  type RelatedNoteItem,
+  type RelatedNoteResponseItem,
   type RelatedNotesStatus,
 } from '$lib/api';
 import type { RelatedScope } from '$lib/relatedNotes';
@@ -15,7 +15,7 @@ export const PENDING_RETRY_MS = [5_000, 15_000, 30_000, 60_000];
 const CACHE_TTL_MS = 60_000;
 const CACHE_MAX_ENTRIES = 30;
 
-type Ready = { status: RelatedNotesStatus; items: RelatedNoteItem[] };
+type Ready = { status: RelatedNotesStatus; items: RelatedNoteResponseItem[] };
 
 // Module-level so that revisiting a note (or the same note in the other view) is instant.
 // Only settled `ready` answers are kept; a short TTL bounds staleness from edits to *other*
@@ -65,7 +65,7 @@ export class RelatedNotesController {
   scope = $state<RelatedScope>('workspace');
   phase = $state<'loading' | 'error' | 'ready'>('loading');
   status = $state<RelatedNotesStatus | null>(null);
-  items = $state<RelatedNoteItem[]>([]);
+  items = $state<RelatedNoteResponseItem[]>([]);
 
   // Bumped to re-run the load effect for the same note (retry, poll, live update).
   #refresh = $state(0);

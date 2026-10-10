@@ -670,7 +670,7 @@ export interface ReindexResponse {
  * unconverted so a quality threshold can be calibrated later (#214) — do not present
  * them to users as a percentage.
  */
-export interface RelatedNoteItem {
+export interface RelatedNoteResponseItem {
   /** Related note id */
   note_id: string;
   /** Related note title */
@@ -716,7 +716,7 @@ export interface RelatedNotesResponse {
   /** `ready`: ranking completed and `items` may still be empty; `pending`: the note has chunks but none is embedded under the active embedding profile yet; `unavailable`: no embedding profile is configured; `empty`: the note has no chunks to embed. Only `ready` can carry items */
   status: RelatedNotesStatus;
   /** Related notes, best first */
-  items: RelatedNoteItem[];
+  items: RelatedNoteResponseItem[];
 }
 
 export interface RestoreVersionResponse {

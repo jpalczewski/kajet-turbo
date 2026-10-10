@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from kajet_turbo.api.schemas import RelatedNoteItem, RelatedNotesResponse
+from kajet_turbo.api.schemas import RelatedNotesResponse
 from kajet_turbo.api.schemas.errors import ErrorResponse
 from kajet_turbo.dependencies import (
     CurrentUser,
@@ -54,7 +54,4 @@ async def api_note_related(
     )
     if result is None:
         raise HTTPException(status_code=404, detail=NoteError.NOT_FOUND)
-    return RelatedNotesResponse(
-        status=result.state,
-        items=[RelatedNoteItem.model_validate(item, from_attributes=True) for item in result.items],
-    )
+    return RelatedNotesResponse.model_validate(result, from_attributes=True)

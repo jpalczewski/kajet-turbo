@@ -173,7 +173,7 @@ class GraphBase(BaseModel):
 type RelatedNotesStatus = Literal["ready", "pending", "unavailable", "empty"]
 
 
-class RelatedNoteItem(BaseModel):
+class RelatedNoteResponseItem(BaseModel):
     """One note ranked as semantically related to a source note, with its best evidence.
 
     ``best_distance``/``hub_margin``/``coverage``/``score`` are raw ranking metrics, kept
@@ -208,4 +208,4 @@ class RelatedNotesResponse(BaseModel):
         "profile yet; `unavailable`: no embedding profile is configured; `empty`: the "
         "note has no chunks to embed. Only `ready` can carry items"
     )
-    items: list[RelatedNoteItem] = Field(description="Related notes, best first")
+    items: list[RelatedNoteResponseItem] = Field(description="Related notes, best first")

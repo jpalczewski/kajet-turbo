@@ -42,7 +42,7 @@ def test_related_unavailable_when_no_backend(database):
     service, _ = _service(database, resolve_backend=lambda owner_id: None)
     _add_notes(database, _note("src"))
     result = service.related("src", "u1", "ws")
-    assert result.state == "unavailable"
+    assert result.status == "unavailable"
     assert result.items == []
 
 
@@ -50,7 +50,7 @@ def test_related_empty_when_note_has_no_chunks(database):
     service, _ = _service(database)
     _add_notes(database, _note("src"))
     result = service.related("src", "u1", "ws")
-    assert result.state == "empty"
+    assert result.status == "empty"
     assert result.items == []
 
 
@@ -59,7 +59,7 @@ def test_related_pending_when_chunks_unembedded(database):
     _add_notes(database, _note("src"))
     chunk_repo.replace_chunks("src", "ws", "u1", "src", [Chunk(0, ["# S"], "s", 0, 1)], None, None)
     result = service.related("src", "u1", "ws")
-    assert result.state == "pending"
+    assert result.status == "pending"
     assert result.source_chunks_total == 1
     assert result.items == []
 
@@ -81,7 +81,7 @@ def test_related_ready_hydrates_ranked_items(database):
 
     result = service.related("src", "u1", "ws", limit=5)
 
-    assert result.state == "ready"
+    assert result.status == "ready"
     assert [item.note_id for item in result.items] == ["near", "far"]
     near = result.items[0]
     assert near.title == "near"
@@ -104,7 +104,7 @@ def test_related_ready_with_zero_items_when_nothing_else_indexed(database):
         "src", "ws", "u1", "src", [Chunk(0, ["# S"], "s", 0, 1)], [[1.0, 0.0]], identity
     )
     result = service.related("src", "u1", "ws")
-    assert result.state == "ready"
+    assert result.status == "ready"
     assert result.items == []
 
 
@@ -193,7 +193,7 @@ def test_related_accepts_boundary_limits(database, limit):
     service, _ = _service(database)
     _add_notes(database, _note("src"))
     result = service.related("src", "u1", "ws", limit=limit)
-    assert result.state == "empty"  # no chunks — limit validation alone is under test
+    assert result.status == "empty"  # no chunks — limit validation alone is under test
 
 
 def test_related_never_calls_embedder_or_touches_jobs(database):
@@ -221,7 +221,7 @@ def test_related_never_calls_embedder_or_touches_jobs(database):
 
     result = service.related("src", "u1", "ws")
 
-    assert result.state == "ready"
+    assert result.status == "ready"
     # resolve_backend is used only to derive the identity — never to build/call an
     # embedder — and the call itself is not what enqueues a job.
     assert calls["resolve"] == 1
@@ -242,5 +242,5 @@ async def test_related_async_matches_sync_result(database):
 
     result = await service.related_async("src", "u1", "ws")
 
-    assert result.state == "ready"
+    assert result.status == "ready"
     assert [item.note_id for item in result.items] == ["near"]

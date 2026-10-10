@@ -1,6 +1,8 @@
-import type { NoteLinkItem, RelatedNoteItem } from '$lib/api';
+import type { NoteLinkItem, RelatedNoteResponseItem } from '$lib/api';
 
-export const relatedItem = (overrides: Partial<RelatedNoteItem> = {}): RelatedNoteItem => ({
+export const relatedItem = (
+  overrides: Partial<RelatedNoteResponseItem> = {},
+): RelatedNoteResponseItem => ({
   note_id: 'n-1',
   title: 'Sample related',
   folder: '',
