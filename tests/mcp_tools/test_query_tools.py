@@ -1,12 +1,16 @@
 """list_notes/search/grep/export/reindex tool coverage."""
 
 import json
+from dataclasses import fields, replace
 
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+from kajet_turbo.mcp.notes.types import SearchChunkResult, SearchNotesResult
 from kajet_turbo.repositories.git import GitRepository
+from kajet_turbo.repositories.notes import ChunkHit
+from kajet_turbo.services.notes import NoteSearchService, SearchOutcome
 from tests.mcp_tools.helpers import call_json
 
 
@@ -174,15 +178,21 @@ async def test_search_all_excludes_opted_out_workspace_but_named_search_finds_it
         )
 
     async with Client(mcp) as client:
-        all_result = await client.call_tool(
-            "search_notes", {"query": "selective-keyword", "workspace": "all"}
+        all_result = await call_json(
+            client, "search_notes", {"query": "selective-keyword", "workspace": "all"}
         )
-        named_result = await client.call_tool(
-            "search_notes", {"query": "selective-keyword", "workspace": "test-ws"}
+        named_result = await call_json(
+            client, "search_notes", {"query": "selective-keyword", "workspace": "test-ws"}
         )
 
-    assert all_result.content == []
-    assert "Private search note" in named_result.content[0].text
+    # Nothing searchable under "all": the envelope still arrives, with no results.
+    assert all_result == {
+        "results": [],
+        "search_mode": "keyword_only",
+        "degraded_reason": None,
+        "has_more": False,
+    }
+    assert [hit["title"] for hit in named_result["results"]] == ["Private search note"]
 
 
 async def test_search_notes_unknown_workspace_lists_available(workspaces_dir, mcp_server):
@@ -388,3 +398,37 @@ async def test_entries_in_rejects_folder_and_collection_together(workspaces_dir,
                     "workspace": "test-ws",
                 },
             )
+
+
+def test_search_notes_result_mirrors_search_outcome():
+    # One model_validate(from_attributes=True) converts the whole outcome; a field added on
+    # only one side would silently vanish from the wire or fail validation.
+    assert {f.name for f in fields(SearchOutcome)} == set(SearchNotesResult.model_fields)
+    assert set(SearchChunkResult.model_fields) <= {f.name for f in fields(ChunkHit)}
+
+
+async def test_search_notes_reports_degraded_semantic_search(
+    workspaces_dir, mcp_server, monkeypatch
+):
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "save_note", {"title": "Keyword note", "content": "wombatword", "workspace": "test-ws"}
+        )
+
+    real_search = NoteSearchService.search_async
+
+    async def rejected_key(self, *args, **kwargs):
+        outcome = await real_search(self, *args, **kwargs)
+        return replace(outcome, search_mode="keyword_only", degraded_reason="auth_failed")
+
+    monkeypatch.setattr(NoteSearchService, "search_async", rejected_key)
+    async with Client(mcp) as client:
+        result = await call_json(
+            client, "search_notes", {"query": "wombatword", "workspace": "test-ws", "limit": 5}
+        )
+
+    assert result["search_mode"] == "keyword_only"
+    assert result["degraded_reason"] == "auth_failed"
+    assert result["has_more"] is False
+    assert [hit["title"] for hit in result["results"]] == ["Keyword note"]

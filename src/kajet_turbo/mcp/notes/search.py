@@ -6,7 +6,7 @@ from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.mcp.context import require_user_id, require_workspace_access
-from kajet_turbo.mcp.notes.types import SearchChunkResult
+from kajet_turbo.mcp.notes.types import SearchNotesResult
 from kajet_turbo.mcp.tooling import read_tool
 from kajet_turbo.services.notes import NoteSearchService
 from kajet_turbo.services.workspaces import WorkspaceService
@@ -34,19 +34,31 @@ def build_search(search_service: NoteSearchService, workspace_service: Workspace
                 "as in list_notes)."
             ),
         ] = None,
-    ) -> list[SearchChunkResult]:
+    ) -> SearchNotesResult:
         """Search notes using chunk-level hybrid ranking: FTS, semantic similarity, and
         exact title/tag/folder matches.
         workspace='all' (default) searches every accessible workspace that allows global
         search. Passing an exact workspace name searches that workspace even when it is
         excluded from 'all'.
         folder and tags narrow the candidate notes; when both are present they intersect.
-        Returns chunks with note_id, title, folder, updated_at, header_path, content, score,
-        and optional matched_on. It never returns a complete note. Use search_notes to find
-        note IDs, then get_note or get_notes for complete current content. When you already
-        hold a note_id and want notes like it, use get_related_notes instead — it needs no
-        query text and no new embedding. Cross-workspace note IDs can be linked with
-        [[note:NOTE_ID]]. Returns [] when nothing matches."""
+        Returns {results, search_mode, degraded_reason, has_more}. results holds chunks with
+        note_id, title, folder, updated_at, header_path, content, score, and optional
+        matched_on; it is empty when nothing matches. It never returns a complete note. Use
+        search_notes to find note IDs, then get_note or get_notes for complete current
+        content. When you already hold a note_id and want notes like it, use
+        get_related_notes instead — it needs no query text and no new embedding.
+        Cross-workspace note IDs can be linked with [[note:NOTE_ID]].
+        has_more=true means more matches ranked below limit; raise limit to see them.
+        search_mode='keyword_only' with degraded_reason=null is normal: no embedding backend
+        is configured, or no workspace was searched. A non-null degraded_reason means
+        semantic ranking failed for this call and results are keyword-only:
+        - 'auth_failed': the embedding API key is being rejected. Tell the user, so they
+          can update the key; retrying will not help.
+        - 'misconfigured': the embedding backend rejects the request itself (unknown model
+          or wrong URL). Tell the user to check the embedding profile; retrying will not
+          help.
+        - 'unavailable': a transient failure. Treat these results as keyword-only; a retry
+          may restore semantic ranking."""
         ws_param = workspace or "all"
         if ws_param == "active":
             raise ToolError(
@@ -61,10 +73,12 @@ def build_search(search_service: NoteSearchService, workspace_service: Workspace
             await require_workspace_access(ws_param, owner_id)
             workspaces = [ws_param]
         if not workspaces:
-            return []
+            return SearchNotesResult(
+                results=[], search_mode="keyword_only", degraded_reason=None, has_more=False
+            )
         # search_async borrows a run_sync slot only for the ms-scale DB phases; the
         # query-embedding HTTP call is awaited natively on the event loop.
-        results = await search_service.search_async(
+        outcome = await search_service.search_async(
             query,
             workspaces,
             owner_id=owner_id,
@@ -72,8 +86,6 @@ def build_search(search_service: NoteSearchService, workspace_service: Workspace
             folder=folder,
             tags=tags,
         )
-        return [
-            SearchChunkResult.model_validate(result, from_attributes=True) for result in results
-        ]
+        return SearchNotesResult.model_validate(outcome, from_attributes=True)
 
     return srv

@@ -8,7 +8,12 @@ from kajet_turbo.services.notes.links import NoteLinkService, WorkspaceLinks
 from kajet_turbo.services.notes.read import NoteReadService
 from kajet_turbo.services.notes.reconcile import NoteReconcileService
 from kajet_turbo.services.notes.related import NoteRelatedService
-from kajet_turbo.services.notes.search import NoteSearchService
+from kajet_turbo.services.notes.search import (
+    DegradedReason,
+    NoteSearchService,
+    SearchMode,
+    SearchOutcome,
+)
 from kajet_turbo.services.notes.share_links import NoteShareLinkService
 from kajet_turbo.services.notes.tags import NoteTagService
 from kajet_turbo.services.notes.temporal import NoteTemporalService
@@ -35,6 +40,7 @@ from kajet_turbo.services.notes.types import (
 __all__ = [
     "BatchNoteError",
     "BatchNoteSuccess",
+    "DegradedReason",
     "DeleteBatchItem",
     "DeleteNotesApplied",
     "DeleteNotesError",
@@ -63,6 +69,8 @@ __all__ = [
     "NoteTemporalService",
     "NoteVersionService",
     "SavedNoteResult",
+    "SearchMode",
+    "SearchOutcome",
     "StaleVersion",
     "WorkspaceLinks",
 ]

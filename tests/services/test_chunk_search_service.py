@@ -1,6 +1,7 @@
+import httpx2
 import pytest
 
-from kajet_turbo.embedding.base import EmbedderConfig, EmbeddingAuthError
+from kajet_turbo.embedding.base import EmbedderConfig, EmbeddingAuthError, EmbeddingRequestRejected
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.repositories.jobs import JobRepository
@@ -36,7 +37,7 @@ def test_search_returns_chunk_shape_fts_only(database, git_workspace_factory):
         "# Recipes\n\n## Soup\n\ntomato basil soup\n",
         tags=[],
     )
-    hits = search_service.search("tomato", ["ws"], owner_id="u1", limit=10)
+    hits = search_service.search("tomato", ["ws"], owner_id="u1", limit=10).results
     assert len(hits) >= 1
     h = hits[0]
     assert {"note_id", "title", "header_path", "content", "score", "updated_at"} <= set(
@@ -51,7 +52,7 @@ def test_search_empty_when_no_match(database, git_workspace_factory):
     service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(workspace_target("u1", "ws", ws), "Recipes", "# Recipes\n\ntomato soup\n", tags=[])
-    assert search_service.search("zzzznomatch", ["ws"], owner_id="u1", limit=10) == []
+    assert search_service.search("zzzznomatch", ["ws"], owner_id="u1", limit=10).results == []
 
 
 def test_search_matches_tag_and_folder_for_contentless_note(database, git_workspace_factory):
@@ -64,7 +65,7 @@ def test_search_matches_tag_and_folder_for_contentless_note(database, git_worksp
         tags=["alice"],
         folder="książki/Alice",
     )
-    hits = search_service.search("alice", ["ws"], owner_id="u1", limit=10)
+    hits = search_service.search("alice", ["ws"], owner_id="u1", limit=10).results
     assert len(hits) == 1
     assert set(hits[0].matched_on) == {"folder", "tag"}
     assert hits[0].content == ""
@@ -75,7 +76,9 @@ def test_search_matches_title_of_contentless_note(database, git_workspace_factor
     service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(workspace_target("u1", "ws", ws), "Unikalny Tytul Beztresciowy", "", tags=[])
-    hits = search_service.search("Unikalny Tytul Beztresciowy", ["ws"], owner_id="u1", limit=10)
+    hits = search_service.search(
+        "Unikalny Tytul Beztresciowy", ["ws"], owner_id="u1", limit=10
+    ).results
     assert len(hits) == 1
     assert hits[0].matched_on == ["title"]
 
@@ -114,7 +117,7 @@ def test_search_survives_backend_switch_with_no_vectors_at_new_dim(database, git
         base_url="http://x",
         api_key="k",
     )
-    hits = search_svc.search("alpha", ["ws"], owner_id="u1")
+    hits = search_svc.search("alpha", ["ws"], owner_id="u1").results
     assert len(hits) == 1
 
 
@@ -138,7 +141,7 @@ def test_search_across_workspaces_sorts_by_score_globally(database, git_workspac
         "# findmequery\n\nfindmequery here too\n",
         tags=[],
     )
-    hits = search_service.search("findmequery", ["ws1", "ws2"], owner_id="u1", limit=1)
+    hits = search_service.search("findmequery", ["ws1", "ws2"], owner_id="u1", limit=1).results
     assert len(hits) == 1
     assert hits[0].title == "findmequery"
 
@@ -150,7 +153,7 @@ def test_search_narrows_by_folder(database, git_workspace_factory):
     service.save(
         workspace_target("u1", "ws", ws), "Out of scope", "keyword here", tags=[], folder="b"
     )
-    hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, folder="a")
+    hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, folder="a").results
     assert [h.title for h in hits] == ["In scope"]
 
 
@@ -166,7 +169,7 @@ def test_search_root_folder_scopes_to_whole_workspace(database, git_workspace_fa
     service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     _seed_folders(service, ws)
-    hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, folder=root)
+    hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, folder=root).results
     assert {h.title for h in hits} == {"Nested", "Top", "Other", "Rooted"}
 
 
@@ -177,7 +180,7 @@ def test_search_folder_is_normalized_and_includes_descendants(
     service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     _seed_folders(service, ws)
-    hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, folder=folder)
+    hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, folder=folder).results
     assert {h.title for h in hits} == {"Nested", "Top"}
 
 
@@ -200,7 +203,7 @@ def test_search_narrows_by_folder_widens_metadata_candidate_window(database, git
     service.save(
         workspace_target("u1", "ws", ws), "Late alice note", "", tags=["alice"], folder="b"
     )
-    hits = search_service.search("alice", ["ws"], owner_id="u1", limit=1, folder="a")
+    hits = search_service.search("alice", ["ws"], owner_id="u1", limit=1, folder="a").results
     assert [h.title for h in hits] == ["Early alice note"]
 
 
@@ -209,7 +212,7 @@ def test_search_narrows_by_tags(database, git_workspace_factory):
     ws = git_workspace_factory("ws")
     service.save(workspace_target("u1", "ws", ws), "Tagged", "keyword here", tags=["work"])
     service.save(workspace_target("u1", "ws", ws), "Untagged", "keyword here", tags=[])
-    hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, tags=["work"])
+    hits = search_service.search("keyword", ["ws"], owner_id="u1", limit=10, tags=["work"]).results
     assert [h.title for h in hits] == ["Tagged"]
 
 
@@ -227,7 +230,7 @@ def test_search_folder_and_tags_intersect(database, git_workspace_factory):
     )
     hits = search_service.search(
         "keyword", ["ws"], owner_id="u1", limit=10, folder="a", tags=["work"]
-    )
+    ).results
     assert [h.title for h in hits] == ["Both"]
 
 
@@ -267,7 +270,7 @@ def test_search_reflects_deferred_embed_once_attached(database, git_workspace_fa
 
     # "banana" has no lexical match in "alpha" — before the embed lands, neither FTS nor
     # (no-vectors-yet) vector search can find it.
-    assert search_svc.search("banana", ["ws"], owner_id="u1") == []
+    assert search_svc.search("banana", ["ws"], owner_id="u1").results == []
 
     # The deferred attach must use the SAME identity the search resolves from cfg —
     # a vector written under another identity is in a partition search never scans.
@@ -282,7 +285,7 @@ def test_search_reflects_deferred_embed_once_attached(database, git_workspace_fa
     # _FakeEmbedder always returns [1.0, 0.0, 0.0], matching the stored vector exactly
     # (cosine similarity 1.0) — a "banana" hit here can only come from the vector path,
     # proving search actually picked up the deferred embed rather than re-running FTS.
-    hits = search_svc.search("banana", ["ws"], owner_id="u1")
+    hits = search_svc.search("banana", ["ws"], owner_id="u1").results
     assert len(hits) == 1
     assert hits[0].note_id == res["note_id"]
 
@@ -296,7 +299,12 @@ class _AsyncCountingEmbedder:
         return [1.0, 0.0, 0.0]
 
 
-def _async_service(database, chunk_repo=None, *, query_cache=None):
+_CFG = EmbedderConfig(
+    backend_id="b", type="openai", model="m", dim=3, base_url="http://x", api_key="k"
+)
+
+
+def _async_service(database, chunk_repo=None, *, query_cache=None, query_resolver=lambda o: _CFG):
     """A NoteCreateService for seeding plus a NoteSearchService wired for async query
     embedding; the sync build_embedder seam raises so a regression back to the
     run_sync-slot path is loud."""
@@ -308,14 +316,6 @@ def _async_service(database, chunk_repo=None, *, query_cache=None):
         resolve_backend=lambda o: None,
         jobs=JobRepository(database.engine),
     )
-    cfg = EmbedderConfig(
-        backend_id="b",
-        type="openai",
-        model="m",
-        dim=3,
-        base_url="http://x",
-        api_key="k",
-    )
     emb = _AsyncCountingEmbedder()
 
     def _sync_seam_must_not_be_used(c):
@@ -324,7 +324,7 @@ def _async_service(database, chunk_repo=None, *, query_cache=None):
     svc = build_note_wiring(database, indexer=indexer, chunk_repo=chunk_repo).create
     search_svc = build_note_search_service(
         database,
-        query_resolver=lambda o: cfg,
+        query_resolver=query_resolver,
         build_embedder=_sync_seam_must_not_be_used,
         query_cache=query_cache,
         chunk_repo=chunk_repo,
@@ -339,7 +339,7 @@ async def test_search_async_matches_sync_shape(database, git_workspace_factory):
     svc.save(
         workspace_target("u1", "ws", ws), "Recipes", "# Recipes\n\ntomato basil soup\n", tags=[]
     )
-    hits = await search_svc.search_async("tomato", ["ws"], owner_id="u1", limit=10)
+    hits = (await search_svc.search_async("tomato", ["ws"], owner_id="u1", limit=10)).results
     assert len(hits) >= 1
     assert {"note_id", "title", "header_path", "content", "score", "updated_at"} <= set(
         hits[0].__dataclass_fields__
@@ -376,7 +376,7 @@ async def test_search_async_embed_failure_degrades_to_fts(database, git_workspac
     emb.embed_query = _boom  # type: ignore[method-assign]
     ws = git_workspace_factory("ws")
     svc.save(workspace_target("u1", "ws", ws), "T", "# T\n\nalpha\n", tags=[])
-    hits = await search_svc.search_async("alpha", ["ws"], owner_id="u1")
+    hits = (await search_svc.search_async("alpha", ["ws"], owner_id="u1")).results
     assert len(hits) >= 1  # FTS still answers
 
 
@@ -396,7 +396,7 @@ async def test_search_async_rejected_key_degrades_to_fts_and_logs_error(
     svc.save(workspace_target("u1", "ws", ws), "T", "# T\n\nalpha\n", tags=[])
     capsys.readouterr()
 
-    hits = await search_svc.search_async("alpha", ["ws"], owner_id="u1")
+    hits = (await search_svc.search_async("alpha", ["ws"], owner_id="u1")).results
 
     assert len(hits) >= 1  # FTS still answers
     entries = read_log_entries(capsys)
@@ -414,5 +414,106 @@ async def test_search_async_falls_back_to_sync_without_async_embedder(
     service, search_service = _service(database)
     ws = git_workspace_factory("ws")
     service.save(workspace_target("u1", "ws", ws), "Recipes", "# Recipes\n\ntomato soup\n", tags=[])
-    hits = await search_service.search_async("tomato", ["ws"], owner_id="u1", limit=10)
+    hits = (await search_service.search_async("tomato", ["ws"], owner_id="u1", limit=10)).results
     assert len(hits) >= 1
+
+
+def _resolver_raises(owner_id):
+    raise RuntimeError("profile table unreadable")
+
+
+async def _embed_raises(exc: Exception):
+    raise exc
+
+
+@pytest.mark.parametrize(
+    ("resolver", "failure", "mode", "reason"),
+    [
+        pytest.param(lambda o: _CFG, None, "hybrid", None, id="embedded"),
+        pytest.param(lambda o: None, None, "keyword_only", None, id="no-backend"),
+        pytest.param(None, None, "keyword_only", None, id="no-resolver"),
+        pytest.param(
+            lambda o: _CFG, EmbeddingAuthError("b", 401), "keyword_only", "auth_failed", id="401"
+        ),
+        pytest.param(
+            lambda o: _CFG, EmbeddingAuthError("b", 403), "keyword_only", "auth_failed", id="403"
+        ),
+        pytest.param(
+            lambda o: _CFG,
+            EmbeddingRequestRejected("b", 404, "model not found"),
+            "keyword_only",
+            "misconfigured",
+            id="request-rejected",
+        ),
+        pytest.param(
+            lambda o: _CFG,
+            httpx2.ReadTimeout("timed out"),
+            "keyword_only",
+            "unavailable",
+            id="timeout",
+        ),
+        pytest.param(
+            lambda o: _CFG, RuntimeError("503"), "keyword_only", "unavailable", id="other"
+        ),
+        pytest.param(_resolver_raises, None, "keyword_only", "unavailable", id="resolver-raises"),
+    ],
+)
+async def test_search_async_reports_search_mode_and_degraded_reason(
+    database, git_workspace_factory, resolver, failure, mode, reason
+):
+    svc, search_svc, emb = _async_service(database, query_resolver=resolver)
+    if failure is not None:
+        emb.embed_query = lambda text: _embed_raises(failure)  # type: ignore[method-assign]
+    ws = git_workspace_factory("ws")
+    svc.save(workspace_target("u1", "ws", ws), "T", "# T\n\nalpha\n", tags=[])
+
+    outcome = await search_svc.search_async("alpha", ["ws"], owner_id="u1")
+
+    assert (outcome.search_mode, outcome.degraded_reason) == (mode, reason)
+    # Degradation never costs the keyword results.
+    assert [hit.title for hit in outcome.results] == ["T"]
+
+
+@pytest.mark.parametrize(
+    ("layout", "limit", "has_more"),
+    [
+        pytest.param({"ws": 3}, 2, True, id="single-ws-cut"),
+        pytest.param({"ws": 3}, 3, False, id="single-ws-exact-fit"),
+        pytest.param({"ws": 3}, 4, False, id="single-ws-room-left"),
+        pytest.param({"ws1": 2, "ws2": 1}, 2, True, id="multi-ws-cut"),
+        pytest.param({"ws1": 2, "ws2": 1}, 3, False, id="multi-ws-exact-fit"),
+    ],
+)
+async def test_search_async_has_more_only_when_hits_were_cut(
+    database, git_workspace_factory, layout, limit, has_more
+):
+    svc, search_svc, _ = _async_service(database, query_resolver=lambda o: None)
+    for ws_name, count in layout.items():
+        ws = git_workspace_factory(ws_name)
+        for i in range(count):
+            svc.save(workspace_target("u1", ws_name, ws), f"Note {i}", "quokkaword\n", tags=[])
+
+    outcome = await search_svc.search_async("quokkaword", list(layout), owner_id="u1", limit=limit)
+
+    assert len(outcome.results) == min(limit, sum(layout.values()))
+    assert outcome.has_more is has_more
+
+
+async def test_search_async_rejected_request_logs_error(database, git_workspace_factory, capsys):
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    svc, search_svc, emb = _async_service(database)
+    failure = EmbeddingRequestRejected("b", 404, "model not found")
+    emb.embed_query = lambda text: _embed_raises(failure)  # type: ignore[method-assign]
+    ws = git_workspace_factory("ws")
+    svc.save(workspace_target("u1", "ws", ws), "T", "# T\n\nalpha\n", tags=[])
+    capsys.readouterr()
+
+    await search_svc.search_async("alpha", ["ws"], owner_id="u1")
+
+    entries = read_log_entries(capsys)
+    (rejected,) = entries_named(entries, "embedding_request_rejected")
+    assert rejected["level"] == "error"
+    assert rejected["status_code"] == 404
+    assert entries_named(entries, "search_embed_failed") == []
