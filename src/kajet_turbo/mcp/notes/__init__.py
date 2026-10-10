@@ -11,6 +11,7 @@ from kajet_turbo.services.notes import (
     NoteLinkService,
     NoteReadService,
     NoteReconcileService,
+    NoteRelatedService,
     NoteSearchService,
     NoteTagService,
     NoteTemporalService,
@@ -23,6 +24,7 @@ from .graph import build_graph
 from .history import build_history
 from .maintenance import build_maintenance
 from .read import build_read
+from .related import build_related
 from .search import build_search
 from .tags import build_tags
 from .temporal import build_temporal
@@ -42,6 +44,7 @@ def build_notes(
     note_read_service: NoteReadService,
     note_reconcile_service: NoteReconcileService,
     note_search_service: NoteSearchService,
+    note_related_service: NoteRelatedService,
     workspace_service: WorkspaceService,
     folder_meta_repo: FolderMetaRepository,
     collection_service: CollectionService,
@@ -50,6 +53,7 @@ def build_notes(
     srv.mount(build_write(note_create_service, note_edit_service, note_delete_service))
     srv.mount(build_read(note_read_service, folder_meta_repo))
     srv.mount(build_search(note_search_service, workspace_service))
+    srv.mount(build_related(note_related_service))
     srv.mount(build_temporal(note_temporal_service, collection_service))
     srv.mount(build_maintenance(note_reconcile_service))
     srv.mount(build_folders(note_folder_service, workspace_service, folder_meta_repo))

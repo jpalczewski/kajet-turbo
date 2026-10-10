@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { RelatedNoteItem, RelatedNotesStatus } from '$lib/api';
+  import type { RelatedNoteResponseItem, RelatedNotesStatus } from '$lib/api';
   import { headingLabel, type LinkRelation, type RelatedScope } from '$lib/relatedNotes';
   import { noteInTreePath } from '$lib/routes';
 
@@ -17,7 +17,7 @@
     slug: string;
     phase: 'loading' | 'error' | 'ready';
     status: RelatedNotesStatus | null;
-    items: RelatedNoteItem[];
+    items: RelatedNoteResponseItem[];
     scope: RelatedScope;
     canScopeToFolder: boolean;
     relations: Map<string, LinkRelation>;

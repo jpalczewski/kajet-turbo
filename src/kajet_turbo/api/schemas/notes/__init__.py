@@ -6,7 +6,7 @@ from .content import (
     NoteHtmlResponse,
     NoteLinkItem,
     NoteMarkdownResponse,
-    RelatedNoteItem,
+    RelatedNoteResponseItem,
     RelatedNotesResponse,
 )
 from .crud import (
@@ -69,7 +69,7 @@ __all__ = [
     "NoteSort",
     "NotesListResponse",
     "ReindexResponse",
-    "RelatedNoteItem",
+    "RelatedNoteResponseItem",
     "RelatedNotesResponse",
     "RestoreVersionResponse",
     "ShareLinkItem",

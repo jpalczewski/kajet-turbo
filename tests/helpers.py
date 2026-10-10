@@ -5,7 +5,10 @@ test that checks a log line has to capture, split and parse it.
 """
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from kajet_turbo.repositories.notes import RelatedNotesResult
 
 
 def vec_identity(dim: int, model: str = "test-model", backend: str = "http://test"):
@@ -87,3 +90,57 @@ def make_logging_app(resources=None):
     app = FastAPI()
     app.add_middleware(LoggingMiddleware, resources=resources)
     return app
+
+
+def related_item(note_id: str = "n2"):
+    """One fully-populated service-layer item; its wire form is ``RELATED_ITEM_JSON``."""
+    from kajet_turbo.repositories.notes import RelatedNoteItem
+
+    return RelatedNoteItem(
+        note_id=note_id,
+        title="Soup",
+        folder="Recipes",
+        updated_at="2026-01-02T00:00:00+00:00",
+        source_chunk_id="c-src",
+        target_chunk_id="c-tgt",
+        source_header_path=["Dinner"],
+        target_header_path=["Recipes", "Soup"],
+        target_content="tomato soup",
+        best_distance=0.25,
+        hub_margin=0.1,
+        coverage=0.5,
+        score=0.8,
+    )
+
+
+RELATED_ITEM_JSON = {
+    "note_id": "n2",
+    "title": "Soup",
+    "folder": "Recipes",
+    "updated_at": "2026-01-02T00:00:00+00:00",
+    "source_chunk_id": "c-src",
+    "target_chunk_id": "c-tgt",
+    "source_header_path": ["Dinner"],
+    "target_header_path": ["Recipes", "Soup"],
+    "target_content": "tomato soup",
+    "best_distance": 0.25,
+    "hub_margin": 0.1,
+    "coverage": 0.5,
+    "score": 0.8,
+}
+
+
+class FakeRelatedService:
+    """Stands in for ``NoteRelatedService`` behind REST and MCP alike — both surfaces only
+    call ``related_async``. Records what the caller forwards; ``result`` may also be an
+    exception to raise."""
+
+    def __init__(self, result: RelatedNotesResult | Exception | None):
+        self.result = result
+        self.calls: list[tuple] = []
+
+    async def related_async(self, note_id, owner_id, workspace, *, folder=None, limit=5):
+        self.calls.append((note_id, owner_id, workspace, folder, limit))
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result

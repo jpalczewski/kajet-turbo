@@ -13,6 +13,7 @@ READ_TOOLS = {
     "get_note_at_version",
     "get_note_links",
     "get_note_neighborhood",
+    "get_related_notes",
     "get_workspace_graph",
 }
 

@@ -1,3 +1,4 @@
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -5,7 +6,9 @@ import pytest
 from kajet_turbo.dependencies import get_note_related_service
 from kajet_turbo.repositories.notes import RelatedNoteItem, RelatedNotesResult
 from kajet_turbo.services.targets import WorkspaceTarget
+from kajet_turbo.shared.notes import RelatedNoteResponseItem, RelatedNotesResponse
 from kajet_turbo.workspace import InvalidFolderError
+from tests.helpers import RELATED_ITEM_JSON, FakeRelatedService, related_item
 
 URL = "/api/workspaces/test-ws/notes/{note_id}/related"
 
@@ -14,36 +17,11 @@ def _ws(ws_path) -> WorkspaceTarget:
     return WorkspaceTarget(owner_id="u1", name="test-ws", path=Path(ws_path))
 
 
-def _item(note_id: str = "n2") -> RelatedNoteItem:
-    return RelatedNoteItem(
-        note_id=note_id,
-        title="Soup",
-        folder="Recipes",
-        updated_at="2026-01-02T00:00:00+00:00",
-        source_chunk_id="c-src",
-        target_chunk_id="c-tgt",
-        source_header_path=["Dinner"],
-        target_header_path=["Recipes", "Soup"],
-        target_content="tomato soup",
-        best_distance=0.25,
-        hub_margin=0.1,
-        coverage=0.5,
-        score=0.8,
-    )
-
-
-class FakeRelatedService:
-    """Records what the route forwards; ``result`` may also be an exception to raise."""
-
-    def __init__(self, result: RelatedNotesResult | Exception | None):
-        self.result = result
-        self.calls: list[tuple] = []
-
-    async def related_async(self, note_id, owner_id, workspace, *, folder=None, limit=5):
-        self.calls.append((note_id, owner_id, workspace, folder, limit))
-        if isinstance(self.result, Exception):
-            raise self.result
-        return self.result
+def test_related_wire_models_match_service_dataclasses():
+    # REST and MCP both build the response with model_validate(from_attributes=True), which
+    # silently drops a dataclass field the wire model lacks — this is the tie (#441).
+    assert {f.name for f in fields(RelatedNoteItem)} == set(RelatedNoteResponseItem.model_fields)
+    assert set(RelatedNotesResponse.model_fields) <= {f.name for f in fields(RelatedNotesResult)}
 
 
 def _use(auth_client, result) -> FakeRelatedService:
@@ -60,30 +38,14 @@ def _note_id(auth_client) -> str:
 
 def test_related_ready_serializes_items(auth_client):
     note_id = _note_id(auth_client)
-    _use(auth_client, RelatedNotesResult("ready", [_item()], 3, 3, 8))
+    _use(auth_client, RelatedNotesResult("ready", [related_item()], 3, 3, 8))
 
     resp = auth_client.client.get(URL.format(note_id=note_id))
 
     assert resp.status_code == 200
     assert resp.json() == {
         "status": "ready",
-        "items": [
-            {
-                "note_id": "n2",
-                "title": "Soup",
-                "folder": "Recipes",
-                "updated_at": "2026-01-02T00:00:00+00:00",
-                "source_chunk_id": "c-src",
-                "target_chunk_id": "c-tgt",
-                "source_header_path": ["Dinner"],
-                "target_header_path": ["Recipes", "Soup"],
-                "target_content": "tomato soup",
-                "best_distance": 0.25,
-                "hub_margin": 0.1,
-                "coverage": 0.5,
-                "score": 0.8,
-            }
-        ],
+        "items": [RELATED_ITEM_JSON],
     }
 
 

@@ -68,6 +68,9 @@ resolve within the note's own workspace.
   loading its body, then edit just that section surgically
 - export_folder — concatenate a folder's subtree into one markdown corpus, for
   reconnaissance across many related notes instead of N x get_note
+- get_related_notes(note_id=...) — semantic neighbours of a note you already hold, from
+  stored embeddings (no query text, no new embedding call); returns fragments, so follow
+  up with get_note for full content
 - entries_in(period=..., folder=...) — notes whose date falls in a calendar period
   (year/month/ISO week/day), e.g. "what happened in 2026-W12"; use instead of
   list_notes/search_notes for date-range questions
@@ -133,6 +136,7 @@ def build_mcp(resources: AppResources) -> FastMCP:
             resources.note_read_service,
             resources.note_reconcile_service,
             resources.note_search_service,
+            resources.note_related_service,
             resources.workspace_service,
             resources.folder_meta_repo,
             resources.collection_service,

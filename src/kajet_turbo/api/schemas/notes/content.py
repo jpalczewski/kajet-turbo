@@ -4,7 +4,7 @@ from kajet_turbo.shared.notes import (
     GraphBase,
     NoteLinkItem,
     NoteLinksBase,
-    RelatedNoteItem,
+    RelatedNoteResponseItem,
     RelatedNotesResponse,
 )
 
@@ -16,7 +16,7 @@ __all__ = [
     "NoteHtmlResponse",
     "NoteLinkItem",
     "NoteMarkdownResponse",
-    "RelatedNoteItem",
+    "RelatedNoteResponseItem",
     "RelatedNotesResponse",
 ]
 

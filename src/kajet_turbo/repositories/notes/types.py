@@ -124,10 +124,6 @@ class RelatedNoteItem:
     coverage: float
     score: float
 
-    def __getitem__(self, key: str) -> object:
-        """Compatibility bridge for internal callers migrating from row dictionaries."""
-        return getattr(self, key)
-
 
 @dataclass(frozen=True, slots=True)
 class RelatedNotesResult:
@@ -135,7 +131,7 @@ class RelatedNotesResult:
     -scoped read, with an explicit readiness state instead of collapsing "not ready" into
     an empty list (see #210's design doc)."""
 
-    state: RelatedNotesStatus
+    status: RelatedNotesStatus
     items: list[RelatedNoteItem]
     source_chunks_total: int
     source_chunks_used: int

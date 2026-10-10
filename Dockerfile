@@ -93,7 +93,7 @@ EXPOSE 8000
 
 CMD ["/app/entrypoint.sh"]
 
-FROM caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 AS ingress
+FROM caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f AS ingress
 LABEL org.opencontainers.image.source="https://github.com/jpalczewski/kajet-turbo"
 # See OS_PKG_CACHE_BUST above (app-deps stage) — same cached-forever problem applies here.
 ARG OS_PKG_CACHE_BUST=0

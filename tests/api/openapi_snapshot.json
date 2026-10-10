@@ -376,7 +376,7 @@
     "PendingInfoResponse",
     "PreferencesError",
     "ReindexResponse",
-    "RelatedNoteItem",
+    "RelatedNoteResponseItem",
     "RelatedNotesResponse",
     "RelatedNotesStatus",
     "RequestError",
