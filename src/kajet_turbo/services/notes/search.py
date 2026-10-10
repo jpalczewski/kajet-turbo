@@ -147,20 +147,28 @@ class NoteSearchService:
     @staticmethod
     def _embed_failed(cfg: EmbedderConfig, exc: Exception) -> QueryVector:
         """Search degrades to keyword-only when the query can't be embedded. A rejected
-        key is a persistent misconfiguration, not a blip, so it gets its own ERROR
-        record; everything else stays a warning."""
+        key or a rejected request is a persistent misconfiguration, not a blip, so it gets
+        an ERROR record; transient failures stay a warning."""
         reason = degraded_reason_for(exc)
-        if isinstance(exc, EmbeddingAuthError):
-            logger.error(
-                "embedding_auth_failed",
-                backend=cfg.backend_id,
-                status_code=exc.status_code,
-                degraded_to="fts",
-            )
-        else:
-            logger.opt(exception=exc).warning(
-                "search_embed_failed", backend=cfg.backend_id, degraded_reason=reason
-            )
+        match exc:
+            case EmbeddingAuthError():
+                logger.error(
+                    "embedding_auth_failed",
+                    backend=cfg.backend_id,
+                    status_code=exc.status_code,
+                    degraded_to="fts",
+                )
+            case EmbeddingRequestRejected():
+                logger.error(
+                    "embedding_request_rejected",
+                    backend=cfg.backend_id,
+                    status_code=exc.status_code,
+                    degraded_to="fts",
+                )
+            case _:
+                logger.opt(exception=exc).warning(
+                    "search_embed_failed", backend=cfg.backend_id, degraded_reason=reason
+                )
         return QueryVector(degraded_reason=reason)
 
     def _prepare(self, owner_id: str) -> EmbedderConfig | QueryVector:

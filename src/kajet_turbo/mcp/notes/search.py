@@ -50,8 +50,8 @@ def build_search(search_service: NoteSearchService, workspace_service: Workspace
         Cross-workspace note IDs can be linked with [[note:NOTE_ID]].
         has_more=true means more matches ranked below limit; raise limit to see them.
         search_mode='keyword_only' with degraded_reason=null is normal: no embedding backend
-        is configured. A non-null degraded_reason means semantic ranking failed for this
-        call and results are keyword-only:
+        is configured, or no workspace was searched. A non-null degraded_reason means
+        semantic ranking failed for this call and results are keyword-only:
         - 'auth_failed': the embedding API key is being rejected. Tell the user, so they
           can update the key; retrying will not help.
         - 'misconfigured': the embedding backend rejects the request itself (unknown model

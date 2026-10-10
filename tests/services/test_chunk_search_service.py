@@ -497,3 +497,23 @@ async def test_search_async_has_more_only_when_hits_were_cut(
 
     assert len(outcome.results) == min(limit, sum(layout.values()))
     assert outcome.has_more is has_more
+
+
+async def test_search_async_rejected_request_logs_error(database, git_workspace_factory, capsys):
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    svc, search_svc, emb = _async_service(database)
+    failure = EmbeddingRequestRejected("b", 404, "model not found")
+    emb.embed_query = lambda text: _embed_raises(failure)  # type: ignore[method-assign]
+    ws = git_workspace_factory("ws")
+    svc.save(workspace_target("u1", "ws", ws), "T", "# T\n\nalpha\n", tags=[])
+    capsys.readouterr()
+
+    await search_svc.search_async("alpha", ["ws"], owner_id="u1")
+
+    entries = read_log_entries(capsys)
+    (rejected,) = entries_named(entries, "embedding_request_rejected")
+    assert rejected["level"] == "error"
+    assert rejected["status_code"] == 404
+    assert entries_named(entries, "search_embed_failed") == []
