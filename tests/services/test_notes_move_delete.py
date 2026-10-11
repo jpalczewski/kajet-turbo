@@ -329,7 +329,7 @@ def test_search_across_workspaces(service, search_service, workspace):
     GitRepository.init(str(ws2))
     service.create.save(workspace_target("u1", "ws", workspace), "Python w ws1", "asyncio", [])
     service.create.save(workspace_target("u1", "ws2", ws2), "Python w ws2", "asyncio", [])
-    results = search_service.search("Python", ["ws", "ws2"], owner_id="u1", limit=10)
+    results = search_service.search("Python", ["ws", "ws2"], owner_id="u1", limit=10).results
     titles = [r["title"] for r in results]
     assert "Python w ws1" in titles
     assert "Python w ws2" in titles
