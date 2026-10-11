@@ -256,6 +256,31 @@ describe('cache and refresh', () => {
     expect(await screen.findByRole('link', { name: /New/ })).toBeInTheDocument();
   });
 
+  it('refetches once for a burst of updates to the note', async () => {
+    const [a, b] = queue(2);
+    render(RelatedHarness, props());
+    a.resolve(ready('Old'));
+    await screen.findByRole('link', { name: /Old/ });
+
+    // Each WS message is its own task, so let effects settle between them.
+    for (let i = 0; i < 5; i++) {
+      mocks.handlers.forEach((h) =>
+        h({
+          type: 'note_updated',
+          workspace: 'ws',
+          note_id: 'note-a',
+          owner_id: 'u',
+          updated_at: '',
+        }),
+      );
+      await flush();
+    }
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledTimes(2));
+    b.resolve(ready('New'));
+    expect(await screen.findByRole('link', { name: /New/ })).toBeInTheDocument();
+    expect(mocks.api).toHaveBeenCalledTimes(2);
+  });
+
   it('ignores updates of other notes', async () => {
     const [a] = queue(1);
     render(RelatedHarness, props());

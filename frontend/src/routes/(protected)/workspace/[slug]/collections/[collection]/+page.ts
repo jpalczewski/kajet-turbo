@@ -8,7 +8,7 @@ const NOT_FOUND = 'Kolekcja nie istnieje.';
 
 export const load: PageLoad = async ({ params, parent, depends }) => {
   depends(loadKeys.workspaceTree(params.slug));
-  depends(loadKeys.collection(params.collection));
+  depends(loadKeys.collection(params.slug, params.collection));
   // Entries carry no grain or cardinality; those come from the definition the layout loaded.
   const [{ collections }, entries] = await Promise.all([
     parent(),

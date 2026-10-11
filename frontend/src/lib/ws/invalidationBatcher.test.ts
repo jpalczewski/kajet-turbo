@@ -15,8 +15,8 @@ describe('eventKeys', () => {
     expect(eventKeys(noteUpdated('n1'))).toEqual(['app:note:n1', 'app:workspace-tree:ws-1']);
   });
 
-  it('maps workspace_changed to its workspace tree only', () => {
-    const event: ServerEvent = { type: 'workspace_changed', owner_id: 'u1', workspace: 'ws-2' };
+  it('maps workspace_changed to its workspace tree only, case-folded like the route slug', () => {
+    const event: ServerEvent = { type: 'workspace_changed', owner_id: 'u1', workspace: 'WS-2' };
     expect(eventKeys(event)).toEqual(['app:workspace-tree:ws-2']);
   });
 });

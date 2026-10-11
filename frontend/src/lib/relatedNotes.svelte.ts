@@ -5,6 +5,7 @@ import {
 } from '$lib/api';
 import type { RelatedScope } from '$lib/relatedNotes';
 import { wsConnection } from '$lib/ws/connection.svelte';
+import { createInvalidationBatcher } from '$lib/ws/invalidationBatcher';
 
 export const RELATED_LIMIT = 5;
 
@@ -170,15 +171,26 @@ export class RelatedNotesController {
   }
 
   #watchUpdates(): () => void {
-    return wsConnection.onEvent((event) => {
+    // A burst of edits to the note on screen refetches once, not once per event. The
+    // flush re-checks the note: the user may have moved on while the burst settled.
+    const updates = createInvalidationBatcher((key) => {
+      const { slug, noteId } = this.#input();
+      if (key !== cacheKey(slug, noteId, null)) return;
+      this.#attempts = 0;
+      this.#quiet = true;
+      this.#refresh += 1;
+    });
+    const unsubscribe = wsConnection.onEvent((event) => {
       const { slug, noteId } = this.#input();
       if (event.type !== 'note_updated' || event.workspace !== slug || event.note_id !== noteId) {
         return;
       }
       cacheEvictNote(slug, noteId);
-      this.#attempts = 0;
-      this.#quiet = true;
-      this.#refresh += 1;
+      updates.push([cacheKey(slug, noteId, null)]);
     });
+    return () => {
+      unsubscribe();
+      updates.dispose();
+    };
   }
 }
