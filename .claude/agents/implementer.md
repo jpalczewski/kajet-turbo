@@ -4,6 +4,12 @@ description: Implements a scoped, already-planned change in kajet-turbo — a fe
 disallowedTools: Agent
 model: sonnet
 maxTurns: 40
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: '"$CLAUDE_PROJECT_DIR"/.claude/hooks/implementer-gate.sh'
+          timeout: 120
 ---
 
 You implement one scoped change in kajet-turbo from a brief written by a
@@ -47,6 +53,10 @@ Run the narrowest relevant tests (`uv run pytest tests/<area>/...`), then
 `uv run ty check`. For frontend changes run `cd frontend && bun run check`.
 If an API model changed, regenerate the client with
 `bash scripts/generate-api.sh` — never hand-edit `frontend/src/lib/api/`.
+
+A stop hook re-runs ruff on your changed Python files and `ty check` on the
+project when you try to finish, and sends failures back to you once. Fix them;
+it does not run tests, so the pytest run above is still yours to do.
 
 ## Report
 
