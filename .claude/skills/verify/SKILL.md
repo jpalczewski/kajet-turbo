@@ -7,21 +7,35 @@ description: Run kajet-turbo locally against a temp DB and a fake embedding endp
 
 ## Launch recipe (temp everything, no prod deps)
 
+Ports are never fixed: several sessions may run `/verify` at once from
+different worktrees, so both servers bind free ports and every later command
+uses `$APP` / `$EMBED_PORT`.
+
 ```bash
 SCRATCH=$(mktemp -d)
-# Fake OpenAI-compatible embeddings endpoint (returns deterministic vectors,
-# ~150ms artificial delay). Any script serving POST /v1/embeddings with
-# {"data":[{"index":i,"embedding":[...]}]} works; dim is probed automatically.
-python3 fake_embed.py &   # port 8899
+# Fake OpenAI-compatible embeddings endpoint next to this file: deterministic
+# vectors, ~150ms artificial delay, binds a free port and prints it first.
+python3 .claude/skills/verify/fake_embed.py > $SCRATCH/embed.port &
+EMBED_PID=$!
+until [ -s $SCRATCH/embed.port ]; do sleep 0.1; done
+EMBED_PORT=$(head -1 $SCRATCH/embed.port)
+
+APP_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
+APP=http://localhost:$APP_PORT
 
 DB_PATH=$SCRATCH/kajet.db WORKSPACES_DIR=$SCRATCH/ws \
 SECRET_KEY=verify-secret-key-0123456789abcdef \
 KAJET_ADMIN_EMAIL=admin@test.local KAJET_ADMIN_PASSWORD=verify-pass \
-MCP_BASE_URL=http://localhost:8801 MCP_PORT=8801 \
+MCP_BASE_URL=$APP MCP_PORT=$APP_PORT \
 KAJET_WORKER_POLL_INTERVAL=0.25 \
 uv run kajet-turbo > $SCRATCH/app.log 2>&1 &
-# readiness: curl localhost:8801/readyz
+APP_PID=$!
+until curl -sf $APP/readyz > /dev/null; do sleep 0.2; done
 ```
+
+Shell variables, including the random `$SCRATCH` path, do not survive between
+Bash calls. Run launch, the requests below, and cleanup in a single Bash call,
+ending with `kill $APP_PID $EMBED_PID`.
 
 Role `all` runs an in-process worker thread (job queue drains without a
 separate worker process). `KAJET_WORKER_POLL_INTERVAL=0.25` makes deferred
@@ -30,12 +44,12 @@ jobs observable within ~1s.
 ## Driving the REST surface
 
 ```bash
-curl -c cookies.txt -X POST :8801/api/login -d '{"email":...,"password":...}'
-curl -b cookies.txt -X POST :8801/api/workspaces -d '{"name":"notes"}'
+curl -c cookies.txt -X POST $APP/api/login -d '{"email":...,"password":...}'
+curl -b cookies.txt -X POST $APP/api/workspaces -d '{"name":"notes"}'
 # keyless profile → probes the endpoint, captures dim, activates:
-curl -b cookies.txt -X POST :8801/api/me/embedding-profiles \
-  -d '{"name":"fake","base_url":"http://127.0.0.1:8899/v1","model":"fake-8"}'
-curl -b cookies.txt -X POST :8801/api/workspaces/notes/notes \
+curl -b cookies.txt -X POST $APP/api/me/embedding-profiles \
+  -d "{\"name\":\"fake\",\"base_url\":\"http://127.0.0.1:$EMBED_PORT/v1\",\"model\":\"fake-8\"}"
+curl -b cookies.txt -X POST $APP/api/workspaces/notes/notes \
   -d '{"title":"T","content":"# T\n\nbody\n"}'
 ```
 
