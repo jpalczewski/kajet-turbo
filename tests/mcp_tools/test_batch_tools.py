@@ -6,7 +6,9 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+from kajet_turbo.log import setup_logging
 from kajet_turbo.repositories.git import GitRepository
+from tests.helpers import entries_named, read_log_entries
 from tests.mcp_tools.helpers import call_json, seed_note, workspace_head_sha
 
 
@@ -405,3 +407,77 @@ async def test_edit_notes_merges_extras_and_rejects_reserved_key(workspaces_dir,
         assert applied["applied"] is True
         note = await call_json(client, "get_note", {"note_id": first["note_id"]})
         assert note["extras"] == {"mood": "great", "keep": 1}
+
+
+# --- resolve_notes_in_one_workspace error chaining (#288) -------------------------------
+#
+# `raise ... from e` vs `from None` in resolve_notes_in_one_workspace is observable only
+# through ToolDispatchMiddleware, which logs one record per call and reads
+# ToolError.__cause__ to pick the exception type it records. Pin both halves at the
+# tool boundary so a "simplification" to an unconditional `from e` (or `from None`)
+# fails here instead of silently changing what the log says.
+
+
+def _delete_payload(*note_ids: str) -> dict:
+    return {"deletes": [{"note_id": note_id, "expected_sha": "irrelevant"} for note_id in note_ids]}
+
+
+async def test_batch_denial_is_audited_once_and_chained_to_the_batch_error(
+    workspaces_dir, mcp_server, capsys
+):
+    """A denied id is audited as permission_denied by the resolver adapter; the single
+    tool record then carries the chained BatchTargetResolutionError."""
+    setup_logging()
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        capsys.readouterr()
+        with pytest.raises(ToolError, match="Batch rejected before any write"):
+            await client.call_tool("delete_notes", _delete_payload("missing-id-1"))
+        entries = read_log_entries(capsys)
+
+    (denied,) = entries_named(entries, "permission_denied")
+    assert denied["action"] == "note.batch_write"
+    (record,) = entries_named(entries, "delete_notes")
+    assert record["error_type"] == "BatchTargetResolutionError"
+
+
+async def test_batch_duplicate_ids_are_not_audited_and_stay_unchained(
+    workspaces_dir, mcp_server, capsys
+):
+    """Pure validation failure: no audit event, and the tool record names the plain
+    ToolError rather than misreporting a client mistake as a resolver error."""
+    setup_logging()
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        note = await seed_note(client, workspace="test-ws", title="Dup", content="x\n")
+        capsys.readouterr()
+        with pytest.raises(ToolError, match=r"index 1: "):
+            await client.call_tool(
+                "delete_notes", _delete_payload(note["note_id"], note["note_id"])
+            )
+        entries = read_log_entries(capsys)
+
+    assert entries_named(entries, "permission_denied") == []
+    (record,) = entries_named(entries, "delete_notes")
+    assert record["error_type"] == "ToolError"
+
+
+async def test_batch_mixed_workspaces_are_not_audited_and_stay_unchained(
+    workspaces_dir, mcp_server, capsys
+):
+    setup_logging()
+    _second_workspace(workspaces_dir, mcp_server)
+    mcp, _ = mcp_server
+    async with Client(mcp) as client:
+        first = await seed_note(client, workspace="test-ws", title="First", content="one\n")
+        second = await seed_note(client, workspace="second-ws", title="Second", content="two\n")
+        capsys.readouterr()
+        with pytest.raises(ToolError, match="MIXED_WORKSPACES"):
+            await client.call_tool(
+                "delete_notes", _delete_payload(first["note_id"], second["note_id"])
+            )
+        entries = read_log_entries(capsys)
+
+    assert entries_named(entries, "permission_denied") == []
+    (record,) = entries_named(entries, "delete_notes")
+    assert record["error_type"] == "ToolError"
