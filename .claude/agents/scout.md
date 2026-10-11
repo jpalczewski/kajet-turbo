@@ -4,7 +4,7 @@ description: Read-only codebase lookup on a cheap model. Use for bounded questio
 disallowedTools: Edit, Write, NotebookEdit, Agent
 permissionMode: plan
 model: haiku
-effort: low
+effort: high
 maxTurns: 12
 ---
 
