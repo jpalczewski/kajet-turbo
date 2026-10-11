@@ -21,7 +21,7 @@
   const processed = $derived(processHeadings(note.content_html));
 
   async function handleMove() {
-    await invalidate(loadKeys.workspaceTree);
+    await invalidate(loadKeys.workspaceTree(slug));
     await invalidateAll();
   }
 

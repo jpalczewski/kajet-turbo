@@ -5,7 +5,7 @@ import { loadKeys } from '$lib/invalidation';
 
 export const load: LayoutLoad = async ({ params, depends }) => {
   // Definitions live in the workspace repo, so they refresh with the tree events.
-  depends(loadKeys.workspaceTree);
+  depends(loadKeys.workspaceTree(params.slug));
   depends(loadKeys.collections);
   const result = await loadApi(
     apiListCollectionsApiWorkspacesNameCollectionsGet(params.slug),

@@ -5,7 +5,7 @@
 export const loadKeys = {
   session: 'app:session',
   workspaces: 'app:workspaces',
-  workspaceTree: 'app:workspace-tree',
+  workspaceTree: (slug: string) => `app:workspace-tree:${slug}` as const,
   collections: 'app:collections',
   collection: (name: string) => `app:collection:${name}` as const,
   note: (noteId: string) => `app:note:${noteId}` as const,

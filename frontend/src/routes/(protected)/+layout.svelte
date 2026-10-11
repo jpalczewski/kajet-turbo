@@ -13,10 +13,10 @@
       switch (event.type) {
         case 'note_updated':
           invalidate(loadKeys.note(event.note_id));
-          invalidate(loadKeys.workspaceTree);
+          invalidate(loadKeys.workspaceTree(event.workspace));
           break;
         case 'workspace_changed':
-          invalidate(loadKeys.workspaceTree);
+          invalidate(loadKeys.workspaceTree(event.workspace));
           break;
       }
     });

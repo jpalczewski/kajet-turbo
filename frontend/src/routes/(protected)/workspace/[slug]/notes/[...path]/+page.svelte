@@ -34,7 +34,7 @@
     } catch (e) {
       throw new Error(apiErrorMessage(e, 'Nie udało się utworzyć folderu'), { cause: e });
     }
-    await invalidate(loadKeys.workspaceTree);
+    await invalidate(loadKeys.workspaceTree(slug));
     goto(notesPath(slug, path));
   }
 
@@ -50,13 +50,13 @@
     } catch (e) {
       throw new Error(apiErrorMessage(e, 'Nie udało się utworzyć notatki'), { cause: e });
     }
-    await invalidate(loadKeys.workspaceTree);
+    await invalidate(loadKeys.workspaceTree(slug));
     goto(noteEditPath(slug, noteId));
   }
 
   async function handleMoveNote(folder: string): Promise<void> {
     if (!data.noteId) return;
-    await invalidate(loadKeys.workspaceTree);
+    await invalidate(loadKeys.workspaceTree(slug));
     goto(noteInTreePath(slug, folder, data.noteId));
   }
 

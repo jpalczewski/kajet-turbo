@@ -35,7 +35,7 @@
         tags,
         expected_sha: note.sha,
       });
-      await invalidate(loadKeys.workspaceTree);
+      await invalidate(loadKeys.workspaceTree(slug));
       goto(notePath(slug, note.note_id));
     }, 'Nie udało się zapisać');
   }
@@ -48,7 +48,7 @@
         cause: e,
       });
     }
-    await invalidate(loadKeys.workspaceTree);
+    await invalidate(loadKeys.workspaceTree(slug));
     goto(notesPath(slug, note.folder ?? ''));
   }
 

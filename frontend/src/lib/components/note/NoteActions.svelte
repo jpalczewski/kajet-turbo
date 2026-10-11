@@ -37,7 +37,7 @@
         cause: e,
       });
     }
-    await invalidate(loadKeys.workspaceTree);
+    await invalidate(loadKeys.workspaceTree(slug));
     ondeleted();
   }
 </script>

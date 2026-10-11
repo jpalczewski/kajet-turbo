@@ -7,7 +7,7 @@ import { loadKeys } from '$lib/invalidation';
 const NOT_FOUND = 'Kolekcja nie istnieje.';
 
 export const load: PageLoad = async ({ params, parent, depends }) => {
-  depends(loadKeys.workspaceTree);
+  depends(loadKeys.workspaceTree(params.slug));
   depends(loadKeys.collection(params.collection));
   // Entries carry no grain or cardinality; those come from the definition the layout loaded.
   const [{ collections }, entries] = await Promise.all([

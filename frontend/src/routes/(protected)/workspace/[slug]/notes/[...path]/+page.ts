@@ -18,7 +18,7 @@ function statusOf(e: unknown): number | undefined {
 
 export const load: PageLoad = async ({ params, url, depends }) => {
   const slug = params.slug;
-  depends(loadKeys.workspaceTree);
+  depends(loadKeys.workspaceTree(slug));
 
   const view = url.searchParams.get('view');
   if (view === 'tags') {

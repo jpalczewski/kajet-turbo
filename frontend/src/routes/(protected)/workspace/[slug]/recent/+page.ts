@@ -9,7 +9,7 @@ const RECENT_LIMIT = 50;
 export const load: PageLoad = async ({ params, depends }) => {
   // note_updated events invalidate this key (see (protected)/+layout.svelte), so an edit
   // anywhere reorders the list without a refresh.
-  depends(loadKeys.workspaceTree);
+  depends(loadKeys.workspaceTree(params.slug));
   const result = await loadApi(
     apiListNotesApiWorkspacesNameNotesGet(params.slug, { sort: 'updated', limit: RECENT_LIMIT }),
     'Workspace nie istnieje.',

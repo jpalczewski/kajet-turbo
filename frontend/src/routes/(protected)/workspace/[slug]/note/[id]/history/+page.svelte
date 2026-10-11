@@ -46,7 +46,7 @@
         noteId,
         sha,
       );
-      await invalidate(loadKeys.workspaceTree);
+      await invalidate(loadKeys.workspaceTree(slug));
       goto(notePath(slug, noteId));
     }, 'Nie udało się przywrócić wersji');
   }
