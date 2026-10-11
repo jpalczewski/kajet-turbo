@@ -306,12 +306,14 @@ async def resolve_notes_in_one_workspace(
             for f in e.failures
         )
         error = ToolError(f"Batch rejected before any write -- {details}")
-        # Chain only when a denial was already audited above: ToolDispatchMiddleware
-        # reads __cause__ to tell a deliberate ToolError from one fastmcp wrapped around
-        # something else, and logs the cause's type when there is one. A pure validation
-        # failure (mixed workspaces, malformed/duplicate ids, empty/oversized batch) is
-        # never audited as a denial, so it must stay uncaused here — chaining it would
-        # misreport a client mistake as an internal TargetResolutionError.
+        # The chaining choice is observable, and pinned by the #288 tests in
+        # tests/mcp_tools/test_batch_tools.py. ToolDispatchMiddleware always emits one
+        # record per call and reads __cause__ only to pick the exception type it
+        # records; it does not use it to suppress a second audit (the denial audit above
+        # is a separate event). A denial chains to the BatchTargetResolutionError so the
+        # record says what happened; a pure validation failure (mixed workspaces,
+        # malformed/duplicate ids, empty/oversized batch) must stay uncaused, or a
+        # client mistake would be reported as an internal resolver error.
         if any_denied:
             raise error from e
         raise error from None
