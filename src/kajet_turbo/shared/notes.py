@@ -209,3 +209,56 @@ class RelatedNotesResponse(BaseModel):
         "note has no chunks to embed. Only `ready` can carry items"
     )
     items: list[RelatedNoteResponseItem] = Field(description="Related notes, best first")
+
+
+# --- Hybrid search (#445, #453) ---
+
+type MetadataMatch = Literal["title", "tag", "folder"]
+type SearchMode = Literal["hybrid", "keyword_only"]
+# Why semantic ranking was dropped for one search. "auth_failed": the backend rejected the
+# API key (401/403). "misconfigured": it rejected the request itself (400/404/422 — unknown
+# model, wrong base URL), so a retry cannot help either. "unavailable": anything else —
+# timeout, 5xx, 429, or the backend config could not be resolved — worth a retry.
+type DegradedReason = Literal["auth_failed", "misconfigured", "unavailable"]
+
+
+class SearchChunkResult(BaseModel):
+    """One ranked chunk of a note. Never a complete note — fetch that by `note_id`."""
+
+    note_id: str = Field(description="Id of the note this chunk belongs to")
+    title: str = Field(description="Note title")
+    folder: str = Field(description="Folder path; empty string means workspace root")
+    updated_at: str = Field(description="Note's last-modified timestamp, ISO 8601")
+    header_path: list[str] = Field(
+        description="Heading lines enclosing the chunk, outermost first, with their "
+        "'#' markers; empty before the first heading"
+    )
+    content: str = Field(description="Text of the matching chunk")
+    score: float = Field(description="Fused ranking score; results are sorted by it, descending")
+    matched_on: list[MetadataMatch] | None = Field(
+        default=None,
+        description=(
+            "Non-null when this hit was surfaced by an exact metadata match "
+            "(title/tag/folder), not only full-text/semantic ranking."
+        ),
+    )
+
+
+# Wire twin of the service's SearchOutcome: REST and MCP both convert it in one
+# model_validate(from_attributes=True), pinned by a field-set test in test_query_tools.py.
+class SearchNotesResponse(BaseModel):
+    """Ranked search hits plus how they were ranked."""
+
+    results: list[SearchChunkResult] = Field(description="Ranked chunks, best first")
+    search_mode: SearchMode = Field(
+        description="'hybrid' when semantic similarity contributed to the ranking, "
+        "'keyword_only' when only full-text and metadata matches did."
+    )
+    degraded_reason: DegradedReason | None = Field(
+        description="Why this search fell back to keyword_only. Null when semantic search "
+        "ran, and also when no embedding backend is configured at all."
+    )
+    has_more: bool = Field(
+        description="True when more matches ranked below limit. Raise limit to see them; "
+        "there is no paging."
+    )

@@ -3,7 +3,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
 from kajet_turbo.markdown import EditMode, EditSpec
-from kajet_turbo.services.notes.search import DegradedReason, SearchMode
 from kajet_turbo.services.notes.types import (
     BatchNoteError,
     BatchNoteSuccess,
@@ -158,41 +157,6 @@ class FolderInfo(BaseModel):
 
     path: str = Field(description="Folder path; empty string means workspace root")
     description: str = Field(description="What this folder is for; empty when not set")
-
-
-class SearchChunkResult(BaseModel):
-    note_id: str
-    title: str
-    folder: str
-    updated_at: str
-    header_path: list[str]
-    content: str
-    score: float
-    matched_on: list[Literal["title", "tag", "folder"]] | None = Field(
-        default=None,
-        description=(
-            "Non-null when this hit was surfaced by an exact metadata match "
-            "(title/tag/folder), not only full-text/semantic ranking."
-        ),
-    )
-
-
-class SearchNotesResult(BaseModel):
-    """Wire twin of the service's SearchOutcome; converts in one model_validate."""
-
-    results: list[SearchChunkResult]
-    search_mode: SearchMode = Field(
-        description="'hybrid' when semantic similarity contributed to the ranking, "
-        "'keyword_only' when only full-text and metadata matches did."
-    )
-    degraded_reason: DegradedReason | None = Field(
-        description="Why this search fell back to keyword_only. Null when semantic search "
-        "ran, and also when no embedding backend is configured at all."
-    )
-    has_more: bool = Field(
-        description="True when more matches ranked below limit. Raise limit to see them; "
-        "there is no paging."
-    )
 
 
 class NoteLinkItem(NoteLinkItemWithMeta):

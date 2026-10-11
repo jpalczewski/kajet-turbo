@@ -4,6 +4,7 @@ from .content import router as content_router
 from .crud import router as crud_router
 from .history import router as history_router
 from .related import router as related_router
+from .search import router as search_router
 from .share_links import router as share_links_router
 
 router = APIRouter()
@@ -11,4 +12,5 @@ router.include_router(crud_router)
 router.include_router(content_router)
 router.include_router(history_router)
 router.include_router(related_router)
+router.include_router(search_router)
 router.include_router(share_links_router)

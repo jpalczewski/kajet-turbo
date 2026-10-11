@@ -287,6 +287,11 @@
     },
     {
       "method": "GET",
+      "operationId": "api_search_notes_api_workspaces__name__search_get",
+      "path": "/api/workspaces/{name}/search"
+    },
+    {
+      "method": "GET",
       "operationId": "api_get_workspace_settings_api_workspaces__name__settings_get",
       "path": "/api/workspaces/{name}/settings"
     },
@@ -335,6 +340,7 @@
     "CreateWorkspaceRequest",
     "CreateWorkspaceResponse",
     "DanglingLinkItem",
+    "DegradedReason",
     "DeleteNoteResponse",
     "DeleteWorkspaceResponse",
     "EmbeddingProfileError",
@@ -359,6 +365,7 @@
     "Locale",
     "LoginRequest",
     "LoginResponse",
+    "MetadataMatch",
     "MoveNoteRequest",
     "MoveNoteResponse",
     "NoteError",
@@ -381,6 +388,9 @@
     "RelatedNotesStatus",
     "RequestError",
     "RestoreVersionResponse",
+    "SearchChunkResult",
+    "SearchMode",
+    "SearchNotesResponse",
     "SessionResponse",
     "SetWorkspaceRemoteRequest",
     "SettingDefinition",

@@ -6,10 +6,11 @@ from pydantic import Field
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.mcp.context import require_user_id, require_workspace_access
-from kajet_turbo.mcp.notes.types import SearchNotesResult
 from kajet_turbo.mcp.tooling import read_tool
 from kajet_turbo.services.notes import NoteSearchService
+from kajet_turbo.services.notes.search import MAX_LIMIT, MIN_LIMIT
 from kajet_turbo.services.workspaces import WorkspaceService
+from kajet_turbo.shared.notes import SearchNotesResponse
 
 
 def build_search(search_service: NoteSearchService, workspace_service: WorkspaceService) -> FastMCP:
@@ -19,7 +20,14 @@ def build_search(search_service: NoteSearchService, workspace_service: Workspace
     async def search_notes(
         query: str,
         workspace: str = "all",
-        limit: int = 10,
+        limit: Annotated[
+            int,
+            Field(
+                ge=MIN_LIMIT,
+                le=MAX_LIMIT,
+                description=f"Maximum chunks to return, from {MIN_LIMIT} through {MAX_LIMIT}.",
+            ),
+        ] = 10,
         folder: Annotated[
             str | None,
             Field(
@@ -34,7 +42,7 @@ def build_search(search_service: NoteSearchService, workspace_service: Workspace
                 "as in list_notes)."
             ),
         ] = None,
-    ) -> SearchNotesResult:
+    ) -> SearchNotesResponse:
         """Search notes using chunk-level hybrid ranking: FTS, semantic similarity, and
         exact title/tag/folder matches.
         workspace='all' (default) searches every accessible workspace that allows global
@@ -48,7 +56,7 @@ def build_search(search_service: NoteSearchService, workspace_service: Workspace
         content. When you already hold a note_id and want notes like it, use
         get_related_notes instead — it needs no query text and no new embedding.
         Cross-workspace note IDs can be linked with [[note:NOTE_ID]].
-        has_more=true means more matches ranked below limit; raise limit to see them.
+        has_more=true means more matches ranked below limit; raise limit (max 50) to see them.
         search_mode='keyword_only' with degraded_reason=null is normal: no embedding backend
         is configured, or no workspace was searched. A non-null degraded_reason means
         semantic ranking failed for this call and results are keyword-only:
@@ -73,7 +81,7 @@ def build_search(search_service: NoteSearchService, workspace_service: Workspace
             await require_workspace_access(ws_param, owner_id)
             workspaces = [ws_param]
         if not workspaces:
-            return SearchNotesResult(
+            return SearchNotesResponse(
                 results=[], search_mode="keyword_only", degraded_reason=None, has_more=False
             )
         # search_async borrows a run_sync slot only for the ms-scale DB phases; the
@@ -86,6 +94,6 @@ def build_search(search_service: NoteSearchService, workspace_service: Workspace
             folder=folder,
             tags=tags,
         )
-        return SearchNotesResult.model_validate(outcome, from_attributes=True)
+        return SearchNotesResponse.model_validate(outcome, from_attributes=True)
 
     return srv

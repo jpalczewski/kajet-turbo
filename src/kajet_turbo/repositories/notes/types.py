@@ -1,9 +1,6 @@
 from dataclasses import dataclass
-from typing import Literal
 
-from kajet_turbo.shared.notes import RelatedNotesStatus
-
-type MetadataMatch = Literal["title", "tag", "folder"]
+from kajet_turbo.shared.notes import MetadataMatch, RelatedNotesStatus
 
 
 @dataclass(frozen=True, slots=True)
