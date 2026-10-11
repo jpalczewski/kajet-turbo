@@ -519,3 +519,75 @@ async def test_search_async_rejected_request_logs_error(database, git_workspace_
     assert rejected["level"] == "error"
     assert rejected["status_code"] == 404
     assert entries_named(entries, "search_embed_failed") == []
+
+
+def _search_with_notices(database, embed_query, *, query_cache=None):
+    from dataclasses import replace
+
+    from kajet_turbo.services.notices import EmbeddingKeyNotices
+    from tests.conftest import seed_user
+    from tests.services.helpers import build_notice_service
+
+    seed_user(database, "u1")
+    notices = build_notice_service(database)
+    emb = _AsyncCountingEmbedder()
+    emb.embed_query = embed_query  # type: ignore[method-assign]
+    search_svc = build_note_search_service(
+        database,
+        query_resolver=lambda o: replace(_CFG, profile_id="p1"),
+        build_embedder=lambda c: emb,
+        query_cache=query_cache,
+        key_notices=EmbeddingKeyNotices(notices),
+    )
+    return search_svc, notices
+
+
+async def _rejected_key(text):
+    raise EmbeddingAuthError("b", 401)
+
+
+async def _accepted_key(text):
+    return [1.0, 0.0, 0.0]
+
+
+async def test_search_rejected_key_raises_notice_and_next_embed_clears_it(database):
+    failing, notices = _search_with_notices(database, _rejected_key)
+
+    await failing.search_async("alpha", ["ws"], owner_id="u1")
+    await failing.search_async("beta", ["ws"], owner_id="u1")
+
+    (notice,) = notices.list_active("u1")
+    assert notice.count == 2
+    assert notice.payload.model_dump() == {"profile_id": "p1"}
+
+    working, _ = _search_with_notices(database, _accepted_key)
+    await working.search_async("alpha", ["ws"], owner_id="u1")
+
+    assert notices.list_active("u1") == []
+
+
+async def test_search_cache_hit_does_not_clear_notice(database):
+    """A cached query vector predates the key failure; it proves nothing about the key."""
+    from kajet_turbo.embedding.cache import QueryEmbeddingCache
+
+    cache = QueryEmbeddingCache()
+    warm, notices = _search_with_notices(database, _accepted_key, query_cache=cache)
+    await warm.search_async("alpha", ["ws"], owner_id="u1")
+    failing, _ = _search_with_notices(database, _rejected_key, query_cache=cache)
+    await failing.search_async("beta", ["ws"], owner_id="u1")
+
+    await failing.search_async("alpha", ["ws"], owner_id="u1")  # served from cache
+
+    assert len(notices.list_active("u1")) == 1
+
+
+async def test_search_transient_failure_raises_no_notice(database):
+    async def down(text):
+        raise httpx2.ConnectError("endpoint down")
+
+    failing, notices = _search_with_notices(database, down)
+
+    outcome = await failing.search_async("alpha", ["ws"], owner_id="u1")
+
+    assert outcome.degraded_reason == "unavailable"
+    assert notices.list_active("u1") == []

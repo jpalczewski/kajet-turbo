@@ -434,3 +434,22 @@ def make_flaky_db_write(
         return real_fn(*args, **kwargs)
 
     return flaky
+
+
+def build_notice_service(database, clock=None):
+    """A NoticeService on ``database``, with an injectable clock for timestamp tests."""
+    from kajet_turbo.repositories.events import EventRepository
+    from kajet_turbo.repositories.notices import NoticeRepository
+    from kajet_turbo.services.notices import NoticeService
+
+    kwargs = {} if clock is None else {"clock": clock}
+    return NoticeService(
+        NoticeRepository(database.engine), EventRepository(database.engine), **kwargs
+    )
+
+
+def notices_changed_events(database, user_id: str) -> int:
+    """How many ``notices_changed`` outbox events ``user_id`` has."""
+    from kajet_turbo.repositories.events import EventRepository
+
+    return len(EventRepository(database.engine).read_since(user_id, ["notices_changed"], 0.0))

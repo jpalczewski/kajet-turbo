@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from nanoid import generate
 from sqlalchemy import CursorResult, text
-from sqlmodel import col, select
+from sqlmodel import Session, col, select
 
 from kajet_turbo.models import Event
 from kajet_turbo.repositories import DbRepository
@@ -30,23 +30,30 @@ class EventRepository(DbRepository):
     repository_name = "events"
 
     def publish(self, owner_id: str, kind: str, payload: dict) -> None:
-        # Held as a local: commit() expires the instance and the session closes with the
-        # block, so reading event.id afterwards would trigger a refresh on a detached
-        # object rather than hand back the id we just generated.
-        event_id = generate(size=12)
-        event = Event(
-            id=event_id,
-            owner_id=owner_id,
-            kind=kind,
-            payload=json.dumps(payload),
-            created_at=time.time(),
-        )
-        with self.operation(
-            "publish", owner_id=owner_id, kind=kind, event_id=event_id
-        ) as operation:
+        with self.operation("publish", owner_id=owner_id, kind=kind) as operation:
             session = operation.session
-            session.add(event)
+            # Returned as a value: commit() expires the instance and the session closes
+            # with the block, so reading event.id afterwards would trigger a refresh on a
+            # detached object rather than hand back the id we just generated.
+            event_id = self.publish_in_session(session, owner_id, kind, payload)
+            operation.add_fields(event_id=event_id)
             session.commit()
+
+    @staticmethod
+    def publish_in_session(session: Session, owner_id: str, kind: str, payload: dict) -> str:
+        """Stage an event in a caller-owned transaction, so it commits (or rolls back)
+        together with the state change it announces. Returns the new event id."""
+        event_id = generate(size=12)
+        session.add(
+            Event(
+                id=event_id,
+                owner_id=owner_id,
+                kind=kind,
+                payload=json.dumps(payload),
+                created_at=time.time(),
+            )
+        )
+        return event_id
 
     def read_since(
         self,

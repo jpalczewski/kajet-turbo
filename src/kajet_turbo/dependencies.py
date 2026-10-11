@@ -50,6 +50,7 @@ from kajet_turbo.repositories.notes import (
     NoteRepository,
     NoteTagRepository,
 )
+from kajet_turbo.repositories.notices import NoticeRepository
 from kajet_turbo.repositories.oauth import OAuthRepository
 from kajet_turbo.repositories.sessions import SessionRepository
 from kajet_turbo.repositories.ssh_keys import SshKeyRepository
@@ -80,6 +81,7 @@ from kajet_turbo.services.notes import (
     NoteVersionService,
 )
 from kajet_turbo.services.notes.persistence import NoteTeardown
+from kajet_turbo.services.notices import EmbeddingKeyNotices, NoticeService
 from kajet_turbo.services.push_enqueue import make_enqueue_push_on_commit
 from kajet_turbo.services.push_handler import PushHandler
 from kajet_turbo.services.reconcile_links_handler import ReconcileLinksHandler
@@ -204,6 +206,7 @@ class AppResources:
     push_handler: PushHandler
     post_commit_hooks: PostCommitHooks
     metrics: Metrics
+    notice_service: NoticeService
     _closed: bool = False
 
     async def aclose(self) -> None:
@@ -258,8 +261,11 @@ def build_resources(config: AppConfig) -> AppResources:
             return cipher_for("embedding", config.secret_key)
 
         profile_resolver = ProfileResolver(profile_repo, profile_cipher)
+        event_repo = EventRepository(db.engine)
+        notice_service = NoticeService(NoticeRepository(db.engine), event_repo)
+        key_notices = EmbeddingKeyNotices(notice_service)
         embedding_profile_service = EmbeddingProfileService(
-            profile_repo, profile_cipher, _probe_dim
+            profile_repo, profile_cipher, _probe_dim, key_notices=key_notices
         )
         job_repo = JobRepository(db.engine)
         indexer = NoteIndexer(
@@ -275,6 +281,7 @@ def build_resources(config: AppConfig) -> AppResources:
             EmbeddingCacheRepository(db.engine),
             profile_resolver.resolve_backend,
             pooled_embedder_factory(),
+            key_notices=key_notices,
         )
         reindex_handler = ReindexNoteHandler(
             note_repo,
@@ -327,6 +334,7 @@ def build_resources(config: AppConfig) -> AppResources:
             QueryEmbeddingCache(),
             note_repo,
             note_tag_repo,
+            key_notices=key_notices,
         )
         note_related_service = NoteRelatedService(
             note_chunk_repo, note_repo, profile_resolver.resolve_backend
@@ -436,7 +444,7 @@ def build_resources(config: AppConfig) -> AppResources:
                 workspace_remote_repo, ssh_key_repo, job_repo, config.workspaces_dir
             ),
             JobService(job_repo),
-            EventRepository(db.engine),
+            event_repo,
             shared_embed_client,
             embed_handler,
             reindex_handler,
@@ -444,6 +452,7 @@ def build_resources(config: AppConfig) -> AppResources:
             push_handler,
             post_commit_hooks,
             build_metrics(sample_shared=config.metrics_sample_shared is True),
+            notice_service,
         )
     except BaseException:
         db.close()

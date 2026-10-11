@@ -486,3 +486,29 @@ class SshKey(SQLModel, table=True):
         UniqueConstraint("user_id", "name", name="uq_ssh_keys_user_name"),
         Index("ix_ssh_keys_user", "user_id"),
     )
+
+
+class Notice(SQLModel, table=True):
+    """A standing condition of a user's setup (a rejected embedding key, ...), kept until
+    it is fixed. Keyed state, not an event: one row per ``(user_id, key)``, upserted on
+    every occurrence and resolved by the first success. Raising a resolved notice reopens
+    the same row as a new episode. ``kind`` is plain text rather than a SQL enum so a new
+    kind needs no table rebuild; ``services.notices`` owns the closed set and the payload
+    shape. Timestamps are epoch seconds — delivery throttling does time math on them."""
+
+    __tablename__ = "notices"
+
+    id: str = Field(primary_key=True)
+    user_id: str = Field(sa_column=Column(Text, ForeignKey("users.id"), nullable=False))
+    kind: str = Field(sa_column=Column(Text, nullable=False))
+    key: str = Field(sa_column=Column(Text, nullable=False))
+    # JSON of ids and codes only — never note titles or content (#403).
+    payload: str = Field(sa_column=Column(Text, nullable=False))
+    count: int = Field(default=1)
+    first_seen_at: float
+    last_seen_at: float
+    resolved_at: float | None = Field(default=None)
+    acknowledged_at: float | None = Field(default=None)
+    last_delivered_at: float | None = Field(default=None)
+
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_notices_user_key"),)
