@@ -6,6 +6,7 @@
   import WorkspaceGraphLink from './WorkspaceGraphLink.svelte';
   import WorkspacePicker from './WorkspacePicker.svelte';
   import UserMenu from './UserMenu.svelte';
+  import { loadKeys } from '$lib/invalidation';
 
   let center = $state<HTMLElement>();
 
@@ -31,7 +32,7 @@
 
   async function handleLogout() {
     await apiSessionDeleteApiSessionDelete({ credentials: 'include' });
-    await invalidate('app:session');
+    await invalidate(loadKeys.session);
     await goto(homePath());
   }
 </script>

@@ -1,4 +1,4 @@
-import type { ServerEvent } from './protocol';
+import { parseServerEvent, type ServerEvent } from './protocol';
 
 type Handler = (event: ServerEvent) => void;
 type Status = 'connecting' | 'open' | 'closed';
@@ -22,12 +22,8 @@ function connect(): void {
   };
 
   ws.onmessage = (e: MessageEvent) => {
-    try {
-      const event = JSON.parse(e.data as string) as ServerEvent;
-      for (const h of _handlers) h(event);
-    } catch {
-      // ignore malformed messages
-    }
+    const event = parseServerEvent(e.data as string);
+    if (event) dispatch(event);
   };
 
   ws.onclose = (e: CloseEvent) => {
@@ -39,6 +35,17 @@ function connect(): void {
   };
 
   ws.onerror = () => ws.close();
+}
+
+// Each handler is isolated: one that throws must not starve the others of the event.
+function dispatch(event: ServerEvent): void {
+  for (const h of [..._handlers]) {
+    try {
+      h(event);
+    } catch (err) {
+      console.error('WS event handler failed', event.type, err);
+    }
+  }
 }
 
 function onEvent(handler: Handler): () => void {
