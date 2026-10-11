@@ -43,9 +43,8 @@ Gotchas:
 - PATCH/DELETE on notes require `expected_sha`; get it from
   `GET /api/workspaces/{ws}/notes/{id}/history` → `entries[0].sha`.
 - Jobs API: `GET /api/me/jobs?kind=embed_note&status=pending`.
-- Search: `GET /api/workspaces/{ws}/search?q=...&folder=...&tags=a&tags=b&limit=...`
-  (single workspace, cookie auth). Cross-workspace `workspace="all"` search is MCP-only.
-  To see `degraded_reason`, make the fake embedder answer 401 → `auth_failed`.
+- There is NO REST search — search is MCP-only (`search_notes` tool), behind
+  OAuth. Verifying search at runtime needs an MCP client with the OAuth dance.
 - `sqlite3` CLI cannot read `note_chunks_vec_*` (vec0 virtual table); use
   `uv run python` with `sqlite_vec.load(conn)` to count vectors. Plain columns
   (`notes.index_state`, `note_chunks.dim`) read fine from sqlite3.
