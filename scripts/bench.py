@@ -233,6 +233,7 @@ def inproc_search_phase(tmp: Path) -> dict:
     os.environ["DB_PATH"] = str(tmp / "bench.db")
     os.environ["WORKSPACES_DIR"] = str(tmp / "workspaces")
     from kajet_turbo.db import Database
+    from kajet_turbo.embedding.base import EmbedderConfig, QueryEmbedder
     from kajet_turbo.repositories.jobs import JobRepository
     from kajet_turbo.repositories.note_share_link import NoteShareLinkRepository
     from kajet_turbo.repositories.notes import (
@@ -267,10 +268,14 @@ def inproc_search_phase(tmp: Path) -> dict:
         link_validation_enabled=None,
         jobs=job_repo,
     )
+
+    def _no_embedder(cfg: EmbedderConfig) -> QueryEmbedder:
+        raise AssertionError("bench search is FTS-only: no backend resolves")
+
     search_service = NoteSearchService(
         chunk_repo,
         query_resolver=None,
-        build_embedder=None,
+        build_embedder=_no_embedder,
         query_cache=None,
         crud_repo=note_repo,
         tag_repo=tag_repo,
@@ -287,7 +292,12 @@ def inproc_search_phase(tmp: Path) -> dict:
 
         def one(i: int, lat: list[float] = latencies) -> None:
             t0 = time.perf_counter()
-            search_service.search(QUERIES[i % len(QUERIES)], [WS], owner_id=owner_id, limit=10)
+            # One event loop per worker thread; DB phases still contend via run_sync.
+            asyncio.run(
+                search_service.search_async(
+                    QUERIES[i % len(QUERIES)], [WS], owner_id=owner_id, limit=10
+                )
+            )
             lat.append((time.perf_counter() - t0) * 1000)
 
         t0 = time.perf_counter()

@@ -1,16 +1,15 @@
-import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.embedding.base import (
-    Embedder,
     EmbedderConfig,
     EmbeddingAuthError,
     EmbeddingRequestRejected,
+    QueryEmbedder,
 )
-from kajet_turbo.embedding.cache import pack_vector
+from kajet_turbo.embedding.cache import QueryEmbeddingCache, pack_vector
 from kajet_turbo.embedding.identity import IndexIdentity
 from kajet_turbo.log import logger
 from kajet_turbo.repositories.notes import (
@@ -74,12 +73,11 @@ class NoteSearchService:
     def __init__(
         self,
         chunk_repo: NoteChunkRepository,
-        query_resolver,
-        build_embedder,
-        query_cache,
+        query_resolver: Callable[[str], EmbedderConfig | None] | None,
+        build_embedder: Callable[[EmbedderConfig], QueryEmbedder],
+        query_cache: QueryEmbeddingCache | None,
         crud_repo: NoteRepository,
         tag_repo: NoteTagRepository,
-        async_build_embedder: Callable[[EmbedderConfig], Embedder] | None = None,
     ):
         self._chunk_repo = chunk_repo
         self._query_resolver = query_resolver
@@ -87,31 +85,6 @@ class NoteSearchService:
         self._query_cache = query_cache
         self._crud_repo = crud_repo
         self._tag_repo = tag_repo
-        self._async_build_embedder = async_build_embedder
-
-    def search(
-        self,
-        query: str,
-        workspaces: list[str],
-        owner_id: str,
-        limit: int = 10,
-        folder: str | None = None,
-        tags: list[str] | None = None,
-    ) -> SearchOutcome:
-        """Sync search: runs entirely on the calling (worker) thread, driving the
-        embedder with ``asyncio.run``. The MCP boundary uses ``search_async`` instead
-        so the query-embedding HTTP roundtrip doesn't pin a run_sync slot."""
-        folder = folder_scope(folder)
-        prepared = self._prepare(owner_id)
-        match prepared:
-            case EmbedderConfig() as cfg:
-                try:
-                    vector = QueryVector.embedded(self._embed_query(cfg, query), cfg)
-                except Exception as e:
-                    vector = self._embed_failed(cfg, e)
-            case _:
-                vector = prepared
-        return self._execute(query, workspaces, owner_id, limit, folder, tags, vector)
 
     async def search_async(
         self,
@@ -122,20 +95,16 @@ class NoteSearchService:
         folder: str | None = None,
         tags: list[str] | None = None,
     ) -> SearchOutcome:
-        """Async search: DB phases (_prepare/_execute) borrow a run_sync slot only for
-        ms-scale work, while the query-embedding HTTP call is awaited natively on the
-        event loop through the shared client — a slow embedding endpoint no longer
-        occupies a limiter slot for its whole roundtrip."""
+        """Hybrid search. The DB phases (_prepare/_execute) borrow a run_sync slot only
+        for ms-scale work; the query-embedding HTTP call is awaited on the event loop
+        through the shared client, so a slow embedding endpoint never holds a limiter
+        slot for its whole roundtrip."""
         folder = folder_scope(folder)  # fail fast, before any embedding call
-        if self._async_build_embedder is None:
-            # No async embedder wired (test doubles / legacy wiring): run the whole
-            # sync search in one worker-thread slot, as before.
-            return await run_sync(self.search, query, workspaces, owner_id, limit, folder, tags)
         prepared = await run_sync(self._prepare, owner_id)
         match prepared:
             case EmbedderConfig() as cfg:
                 try:
-                    vector = QueryVector.embedded(await self._embed_query_async(cfg, query), cfg)
+                    vector = QueryVector.embedded(await self._embed_query(cfg, query), cfg)
                 except Exception as e:
                     vector = self._embed_failed(cfg, e)
             case _:
@@ -256,26 +225,12 @@ class NoteSearchService:
             has_more=has_more,
         )
 
-    def _embed_query(self, cfg, query: str) -> list[float]:
+    async def _embed_query(self, cfg: EmbedderConfig, query: str) -> list[float]:
         if self._query_cache is not None:
             cached = self._query_cache.get(query, cfg.backend_id, cfg.model)
             if cached is not None:
                 return cached
-        # Only reached when search() resolved a backend, which is wired together with
-        # build_embedder in the DI container; the None default is for cache-only test doubles.
         embedder = self._build_embedder(cfg)
-        vec = asyncio.run(embedder.embed_query(query))
-        if self._query_cache is not None:
-            self._query_cache.put(query, cfg.backend_id, cfg.model, vec)
-        return vec
-
-    async def _embed_query_async(self, cfg, query: str) -> list[float]:
-        if self._query_cache is not None:
-            cached = self._query_cache.get(query, cfg.backend_id, cfg.model)
-            if cached is not None:
-                return cached
-        assert self._async_build_embedder is not None  # guarded by search_async
-        embedder = self._async_build_embedder(cfg)
         vec = await embedder.embed_query(query)
         if self._query_cache is not None:
             self._query_cache.put(query, cfg.backend_id, cfg.model, vec)
