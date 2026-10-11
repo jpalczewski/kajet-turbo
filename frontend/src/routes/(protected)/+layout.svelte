@@ -2,24 +2,18 @@
   import { onMount } from 'svelte';
   import { invalidate } from '$app/navigation';
   import { wsConnection } from '$lib/ws/connection.svelte';
-  import type { ServerEvent } from '$lib/ws/protocol';
-  import { loadKeys } from '$lib/invalidation';
+  import { createInvalidationBatcher, eventKeys } from '$lib/ws/invalidationBatcher';
 
   let { children } = $props();
 
   onMount(() => {
     wsConnection.connect();
-    return wsConnection.onEvent((event: ServerEvent) => {
-      switch (event.type) {
-        case 'note_updated':
-          invalidate(loadKeys.note(event.note_id));
-          invalidate(loadKeys.workspaceTree(event.workspace));
-          break;
-        case 'workspace_changed':
-          invalidate(loadKeys.workspaceTree(event.workspace));
-          break;
-      }
-    });
+    const batcher = createInvalidationBatcher(invalidate);
+    const unsubscribe = wsConnection.onEvent((event) => batcher.push(eventKeys(event)));
+    return () => {
+      unsubscribe();
+      batcher.dispose();
+    };
   });
 </script>
 
