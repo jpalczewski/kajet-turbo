@@ -265,6 +265,15 @@ export interface DanglingLinkItem {
   target_title: string;
 }
 
+export type DegradedReason = typeof DegradedReason[keyof typeof DegradedReason];
+
+
+export const DegradedReason = {
+  auth_failed: 'auth_failed',
+  misconfigured: 'misconfigured',
+  unavailable: 'unavailable',
+} as const;
+
 export interface DeleteNoteResponse {
   ok: boolean;
 }
@@ -572,6 +581,15 @@ export interface LoginResponse {
   redirect_uri?: string | null;
 }
 
+export type MetadataMatch = typeof MetadataMatch[keyof typeof MetadataMatch];
+
+
+export const MetadataMatch = {
+  title: 'title',
+  tag: 'tag',
+  folder: 'folder',
+} as const;
+
 export interface MoveNoteRequest {
   folder: string;
 }
@@ -722,6 +740,50 @@ export interface RelatedNotesResponse {
 export interface RestoreVersionResponse {
   note_id: string;
   warnings?: WikilinkWarning[];
+}
+
+/**
+ * One ranked chunk of a note. Never a complete note — fetch that by `note_id`.
+ */
+export interface SearchChunkResult {
+  /** Id of the note this chunk belongs to */
+  note_id: string;
+  /** Note title */
+  title: string;
+  /** Folder path; empty string means workspace root */
+  folder: string;
+  /** Note's last-modified timestamp, ISO 8601 */
+  updated_at: string;
+  /** Heading lines enclosing the chunk, outermost first, with their '#' markers; empty before the first heading */
+  header_path: string[];
+  /** Text of the matching chunk */
+  content: string;
+  /** Fused ranking score; results are sorted by it, descending */
+  score: number;
+  /** Non-null when this hit was surfaced by an exact metadata match (title/tag/folder), not only full-text/semantic ranking. */
+  matched_on?: MetadataMatch[] | null;
+}
+
+export type SearchMode = typeof SearchMode[keyof typeof SearchMode];
+
+
+export const SearchMode = {
+  hybrid: 'hybrid',
+  keyword_only: 'keyword_only',
+} as const;
+
+/**
+ * Ranked search hits plus how they were ranked.
+ */
+export interface SearchNotesResponse {
+  /** Ranked chunks, best first */
+  results: SearchChunkResult[];
+  /** 'hybrid' when semantic similarity contributed to the ranking, 'keyword_only' when only full-text and metadata matches did. */
+  search_mode: SearchMode;
+  /** Why this search fell back to keyword_only. Null when semantic search ran, and also when no embedding backend is configured at all. */
+  degraded_reason: DegradedReason | null;
+  /** True when more matches ranked below limit. Raise limit to see them; there is no paging. */
+  has_more: boolean;
 }
 
 export interface UserPreferences {
@@ -1038,6 +1100,27 @@ export type ApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetParams = {
  * Restrict candidates to this folder and its descendants
  */
 folder?: string | null;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+};
+
+export type ApiSearchNotesApiWorkspacesNameSearchGetParams = {
+/**
+ * Search query
+ * @minLength 1
+ */
+q: string;
+/**
+ * Restrict search to this folder and its descendants
+ */
+folder?: string | null;
+/**
+ * Restrict search to notes with any of these tags (hierarchical)
+ */
+tags?: string[] | null;
 /**
  * @minimum 1
  * @maximum 50
@@ -3308,6 +3391,74 @@ export const apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGet = async (name:
     params?: ApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponseSuccess> => {
 
   return customFetch<apiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetResponseSuccess>(getApiNoteRelatedApiWorkspacesNameNotesNoteIdRelatedGetUrl(name,noteId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type apiSearchNotesApiWorkspacesNameSearchGetResponse200 = {
+  data: SearchNotesResponse
+  status: 200
+}
+
+export type apiSearchNotesApiWorkspacesNameSearchGetResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type apiSearchNotesApiWorkspacesNameSearchGetResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type apiSearchNotesApiWorkspacesNameSearchGetResponse422 = {
+  data: ErrorResponse
+  status: 422
+}
+
+export type apiSearchNotesApiWorkspacesNameSearchGetResponseSuccess = (apiSearchNotesApiWorkspacesNameSearchGetResponse200) & {
+  headers: Headers;
+};
+export type apiSearchNotesApiWorkspacesNameSearchGetResponseError = (apiSearchNotesApiWorkspacesNameSearchGetResponse401 | apiSearchNotesApiWorkspacesNameSearchGetResponse403 | apiSearchNotesApiWorkspacesNameSearchGetResponse422) & {
+  headers: Headers;
+};
+
+export const getApiSearchNotesApiWorkspacesNameSearchGetUrl = (name: string,
+    params: ApiSearchNotesApiWorkspacesNameSearchGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const explodeParameters = ["tags"];
+
+    if (Array.isArray(value) && explodeParameters.includes(key)) {
+      value.forEach((v) => {
+        normalizedParams.append(key, v === null ? 'null' : String(v));
+      });
+      return;
+    }
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/workspaces/${name}/search?${stringifiedParams}` : `/api/workspaces/${name}/search`
+}
+
+/**
+ * @summary Api Search Notes
+ */
+export const apiSearchNotesApiWorkspacesNameSearchGet = async (name: string,
+    params: ApiSearchNotesApiWorkspacesNameSearchGetParams, options?: Parameters<typeof customFetch>[1]): Promise<apiSearchNotesApiWorkspacesNameSearchGetResponseSuccess> => {
+
+  return customFetch<apiSearchNotesApiWorkspacesNameSearchGetResponseSuccess>(getApiSearchNotesApiWorkspacesNameSearchGetUrl(name,params),
   {
     ...options,
     method: 'GET'

@@ -25,6 +25,7 @@ from kajet_turbo.dependencies import (
     get_note_read_service,
     get_note_reconcile_service,
     get_note_related_service,
+    get_note_search_service,
     get_note_share_link_repo,
     get_note_share_link_service,
     get_note_tag_service,
@@ -125,6 +126,7 @@ def api_client_factory(
         from tests.conftest import seed_user
         from tests.services.conftest import (
             build_note_read_service,
+            build_note_search_service,
             build_note_wiring,
         )
 
@@ -203,6 +205,10 @@ def api_client_factory(
         app.dependency_overrides[get_note_read_service] = lambda: note_read_service
         app.dependency_overrides[get_note_related_service] = lambda: NoteRelatedService(
             note_chunk_repository, note_repository, lambda owner_id: None
+        )
+        # No query_resolver: keyword-only search, the same as the FTS-only indexer above.
+        app.dependency_overrides[get_note_search_service] = lambda: build_note_search_service(
+            database, chunk_repo=note_chunk_repository
         )
         app.dependency_overrides[get_workspace_service] = lambda: workspace_service
         app.dependency_overrides[get_note_share_link_repo] = lambda: share_link_repo

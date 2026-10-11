@@ -7,10 +7,10 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from kajet_turbo.mcp.notes.types import SearchChunkResult, SearchNotesResult
 from kajet_turbo.repositories.git import GitRepository
 from kajet_turbo.repositories.notes import ChunkHit
 from kajet_turbo.services.notes import NoteSearchService, SearchOutcome
+from kajet_turbo.shared.notes import SearchChunkResult, SearchNotesResponse
 from tests.mcp_tools.helpers import call_json
 
 
@@ -400,11 +400,12 @@ async def test_entries_in_rejects_folder_and_collection_together(workspaces_dir,
             )
 
 
-def test_search_notes_result_mirrors_search_outcome():
-    # One model_validate(from_attributes=True) converts the whole outcome; a field added on
-    # only one side would silently vanish from the wire or fail validation.
-    assert {f.name for f in fields(SearchOutcome)} == set(SearchNotesResult.model_fields)
-    assert set(SearchChunkResult.model_fields) <= {f.name for f in fields(ChunkHit)}
+def test_search_wire_models_mirror_search_outcome():
+    # REST and MCP both convert the outcome in one model_validate(from_attributes=True); a
+    # field added on only one side would silently vanish from the wire or fail validation.
+    # chunk_id is internal ranking identity, deliberately kept off the wire (see ChunkHit).
+    assert {f.name for f in fields(SearchOutcome)} == set(SearchNotesResponse.model_fields)
+    assert set(SearchChunkResult.model_fields) == {f.name for f in fields(ChunkHit)} - {"chunk_id"}
 
 
 async def test_search_notes_reports_degraded_semantic_search(

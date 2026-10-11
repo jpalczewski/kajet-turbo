@@ -1,6 +1,5 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
 
 from kajet_turbo.concurrency import run_sync
 from kajet_turbo.embedding.base import (
@@ -23,14 +22,13 @@ from kajet_turbo.services.notes.fusion import (
     NARROWED_CANDIDATE_LIMIT,
     fuse_hybrid,
 )
+from kajet_turbo.shared.notes import DegradedReason, SearchMode
 from kajet_turbo.workspace import folder_scope
 
-# Why semantic ranking was dropped for one search. "auth_failed": the backend rejected the
-# API key (401/403). "misconfigured": it rejected the request itself (400/404/422 — unknown
-# model, wrong base URL), so a retry cannot help either. "unavailable": anything else —
-# timeout, 5xx, 429, or the backend config could not be resolved — worth a retry.
-type DegradedReason = Literal["auth_failed", "misconfigured", "unavailable"]
-type SearchMode = Literal["hybrid", "keyword_only"]
+MIN_LIMIT = 1
+# Shared by REST and MCP. A multi-workspace search pulls limit*3+1 hits per workspace, so
+# the ceiling also bounds the cost of a workspace="all" fan-out.
+MAX_LIMIT = 50
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +97,8 @@ class NoteSearchService:
         for ms-scale work; the query-embedding HTTP call is awaited on the event loop
         through the shared client, so a slow embedding endpoint never holds a limiter
         slot for its whole roundtrip."""
+        if not MIN_LIMIT <= limit <= MAX_LIMIT:
+            raise ValueError(f"limit must be between {MIN_LIMIT} and {MAX_LIMIT}, got {limit}")
         folder = folder_scope(folder)  # fail fast, before any embedding call
         prepared = await run_sync(self._prepare, owner_id)
         match prepared:

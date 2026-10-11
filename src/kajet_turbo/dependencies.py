@@ -551,6 +551,10 @@ def get_note_related_service(conn: HTTPConnection) -> NoteRelatedService:
     return _resources(conn).note_related_service
 
 
+def get_note_search_service(conn: HTTPConnection) -> NoteSearchService:
+    return _resources(conn).note_search_service
+
+
 def get_note_version_service(conn: HTTPConnection) -> NoteVersionService:
     return _resources(conn).note_version_service
 

@@ -140,7 +140,7 @@ EXPECTED: dict[str, tuple[frozenset[str], bool, bool, bool, tuple[str, ...], str
         True,
         True,
         ("folder", "limit", "query", "tags", "workspace"),
-        "90ec692271f6ad2f0844f937e03827de5291afaf7bb767118c03721c4b69f749",
+        "cddd6679fb6b85bab90accfda5a0c0fe710620126cada086996380a2bb02b3a2",
     ),
     "grep_notes": (
         frozenset({"notes", "search"}),

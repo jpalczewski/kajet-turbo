@@ -358,6 +358,16 @@ async def test_search_async_embeds_query_on_event_loop(database, git_workspace_f
     assert emb.calls == 1
 
 
+@pytest.mark.parametrize("limit", [0, -1, 51])
+async def test_search_async_rejects_out_of_range_limit_before_embedding(database, limit):
+    _, search_svc, emb = _async_service(database)
+
+    with pytest.raises(ValueError, match=r"limit must be between 1 and 50"):
+        await search_svc.search_async("alpha", ["ws"], owner_id="u1", limit=limit)
+
+    assert emb.calls == 0
+
+
 async def test_search_async_query_cache_hit_skips_embedder(database, git_workspace_factory):
     from kajet_turbo.embedding.cache import QueryEmbeddingCache
 
