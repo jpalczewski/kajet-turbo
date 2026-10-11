@@ -36,6 +36,7 @@ from kajet_turbo.services.notes import (
     NoteVersionService,
 )
 from kajet_turbo.services.notes.persistence import NoteTeardown
+from kajet_turbo.services.notices import EmbeddingKeyNotices
 from kajet_turbo.services.targets import NoteTarget, WorkspaceTarget
 from kajet_turbo.services.workspaces import WorkspaceService
 from tests.conftest import seed_user
@@ -150,6 +151,7 @@ def build_note_search_service(
     build_embedder: Callable[[EmbedderConfig], QueryEmbedder] = _unused_embedder,
     query_cache: QueryEmbeddingCache | None = None,
     chunk_repo: NoteChunkRepository | None = None,
+    key_notices: EmbeddingKeyNotices | None = None,
 ) -> NoteSearchService:
     """Construct a NoteSearchService reading the same Database as build_note_wiring.
 
@@ -169,6 +171,7 @@ def build_note_search_service(
         query_cache,
         crud_repo,
         tag_repo,
+        key_notices=key_notices,
     )
 
 

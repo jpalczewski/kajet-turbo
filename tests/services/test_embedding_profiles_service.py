@@ -113,3 +113,68 @@ def test_keyless_profile_create(database):
     row = EmbeddingProfileRepository(database.engine).get("u1", out["id"])
     assert row is not None
     assert row.api_key_enc is None
+
+
+def _svc_with_notices(database):
+    from kajet_turbo.services.notices import EmbeddingKeyNotices
+    from tests.services.helpers import build_notice_service
+
+    seed_user(database, "u1")
+    notices = build_notice_service(database)
+    probe_error: list[Exception] = []
+
+    def probe(base_url, model, api_key):
+        if probe_error:
+            raise probe_error[0]
+        return 3
+
+    key_notices = EmbeddingKeyNotices(notices)
+    svc = EmbeddingProfileService(
+        EmbeddingProfileRepository(database.engine),
+        cipher_factory=lambda: cipher_for("embedding", secret="server-secret"),
+        probe_dim=probe,
+        key_notices=key_notices,
+    )
+    return svc, notices, key_notices, probe_error
+
+
+def test_update_with_working_key_clears_rejected_key_notice(database):
+    svc, notices, key_notices, _ = _svc_with_notices(database)
+    p = svc.create_profile("u1", "A", "http://a/v1", "m", "sk-old")
+    key_notices.rejected("u1", p["id"])
+
+    svc.update_profile("u1", p["id"], name="A", base_url="http://a/v1", model="m", api_key="sk-new")
+
+    assert notices.list_active("u1") == []
+
+
+def test_failed_probe_on_update_keeps_rejected_key_notice(database):
+    svc, notices, key_notices, probe_error = _svc_with_notices(database)
+    p = svc.create_profile("u1", "A", "http://a/v1", "m", "sk-old")
+    key_notices.rejected("u1", p["id"])
+    probe_error.append(EmbeddingAuthError("b", 401))
+
+    with pytest.raises(ProbeFailedError):
+        svc.update_profile("u1", p["id"], name="A", base_url="http://a/v1", model="m", api_key="x")
+
+    assert len(notices.list_active("u1")) == 1
+
+
+def test_delete_profile_clears_its_notice(database):
+    svc, notices, key_notices, _ = _svc_with_notices(database)
+    p = svc.create_profile("u1", "A", "http://a/v1", "m", "sk-old")
+    key_notices.rejected("u1", p["id"])
+
+    svc.delete_profile("u1", p["id"])
+
+    assert notices.list_active("u1") == []
+
+
+def test_update_without_new_key_keeps_rejected_key_notice(database):
+    svc, notices, key_notices, _ = _svc_with_notices(database)
+    p = svc.create_profile("u1", "A", "http://a/v1", "m", "sk-old")
+    key_notices.rejected("u1", p["id"])
+
+    svc.update_profile("u1", p["id"], name="B", base_url="http://a/v1", model="m", api_key=None)
+
+    assert len(notices.list_active("u1")) == 1

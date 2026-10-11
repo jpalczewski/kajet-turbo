@@ -195,3 +195,43 @@ def test_handler_transient_embedder_error_still_propagates_for_retry(database):
 
     with pytest.raises(RuntimeError, match="endpoint down"):
         handler(PAYLOAD)
+
+
+def _handler_with_notices(database, embedder):
+    from dataclasses import replace
+
+    from kajet_turbo.services.notices import EmbeddingKeyNotices
+    from tests.conftest import seed_user
+    from tests.services.helpers import build_notice_service
+
+    seed_user(database, "u1")
+    notices = build_notice_service(database)
+    handler = EmbedNoteHandler(
+        chunk_repo=NoteChunkRepository(database.engine),
+        index_meta_repo=IndexMetaRepository(database.engine),
+        cache=EmbeddingCacheRepository(database.engine),
+        resolve_backend=lambda owner_id: replace(_cfg(), profile_id="p1"),
+        build_embedder=lambda c: embedder,
+        key_notices=EmbeddingKeyNotices(notices),
+    )
+    return handler, notices
+
+
+def test_handler_rejected_key_raises_notice_and_next_embed_clears_it(database):
+    _stale_note(database)
+
+    class _Rejected(_FakeEmbedder):
+        async def embed_documents(self, texts):
+            raise EmbeddingAuthError("fake", 401)
+
+    handler, notices = _handler_with_notices(database, _Rejected())
+    with pytest.raises(PermanentJobError):
+        handler(PAYLOAD)
+    (notice,) = notices.list_active("u1")
+    assert notice.payload.model_dump() == {"profile_id": "p1"}
+
+    handler, _ = _handler_with_notices(database, _FakeEmbedder())
+    handler(PAYLOAD)
+
+    assert notices.list_active("u1") == []
+    assert _index_state(database) == "indexed"

@@ -27,4 +27,5 @@ class ProfileResolver:
             dim=p.dim,
             base_url=p.base_url,
             api_key=api_key,
+            profile_id=p.id,
         )

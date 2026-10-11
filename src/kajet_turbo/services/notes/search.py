@@ -22,6 +22,7 @@ from kajet_turbo.services.notes.fusion import (
     NARROWED_CANDIDATE_LIMIT,
     fuse_hybrid,
 )
+from kajet_turbo.services.notices import EmbeddingKeyNotices
 from kajet_turbo.shared.notes import DegradedReason, SearchMode
 from kajet_turbo.workspace import folder_scope
 
@@ -76,6 +77,8 @@ class NoteSearchService:
         query_cache: QueryEmbeddingCache | None,
         crud_repo: NoteRepository,
         tag_repo: NoteTagRepository,
+        *,
+        key_notices: EmbeddingKeyNotices | None = None,
     ):
         self._chunk_repo = chunk_repo
         self._query_resolver = query_resolver
@@ -83,6 +86,7 @@ class NoteSearchService:
         self._query_cache = query_cache
         self._crud_repo = crud_repo
         self._tag_repo = tag_repo
+        self._key_notices = key_notices
 
     async def search_async(
         self,
@@ -104,9 +108,12 @@ class NoteSearchService:
         match prepared:
             case EmbedderConfig() as cfg:
                 try:
-                    vector = QueryVector.embedded(await self._embed_query(cfg, query), cfg)
+                    embedding = await self._embed_query(cfg, query, owner_id)
+                    vector = QueryVector.embedded(embedding, cfg)
                 except Exception as e:
                     vector = self._embed_failed(cfg, e)
+                    if isinstance(e, EmbeddingAuthError) and self._key_notices is not None:
+                        await run_sync(self._key_notices.rejected, owner_id, cfg.profile_id)
             case _:
                 vector = prepared
         return await run_sync(
@@ -225,13 +232,17 @@ class NoteSearchService:
             has_more=has_more,
         )
 
-    async def _embed_query(self, cfg: EmbedderConfig, query: str) -> list[float]:
+    async def _embed_query(self, cfg: EmbedderConfig, query: str, owner_id: str) -> list[float]:
         if self._query_cache is not None:
             cached = self._query_cache.get(query, cfg.backend_id, cfg.model)
             if cached is not None:
                 return cached
         embedder = self._build_embedder(cfg)
         vec = await embedder.embed_query(query)
+        # Only a live round trip proves the key works; a cache hit above proves nothing,
+        # which is why this sits after the cache, not after _embed_query returns.
+        if self._key_notices is not None:
+            await run_sync(self._key_notices.clear, owner_id, cfg.profile_id)
         if self._query_cache is not None:
             self._query_cache.put(query, cfg.backend_id, cfg.model, vec)
         return vec

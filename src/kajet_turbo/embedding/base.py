@@ -46,6 +46,9 @@ class EmbedderConfig:
     # resolved per-user (or instance fallback); None → cannot embed.
     # repr=False so a plaintext key never leaks via logs or tracebacks.
     api_key: str | None = field(default=None, repr=False)
+    # The stored profile this config was resolved from, for keying user notices. Not part
+    # of the config's identity: two profiles on one endpoint share pooled embedders.
+    profile_id: str | None = field(default=None, compare=False)
 
 
 class QueryEmbedder(Protocol):

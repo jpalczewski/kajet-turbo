@@ -25,6 +25,7 @@ from kajet_turbo.markdown import Chunk, embedded_text
 from kajet_turbo.perf import incr
 from kajet_turbo.repositories.index_meta import IndexMetaRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
+from kajet_turbo.services.notices import EmbeddingKeyNotices
 
 
 class EmbedNoteHandler:
@@ -35,12 +36,15 @@ class EmbedNoteHandler:
         cache: EmbeddingCacheRepository,
         resolve_backend: Callable[[str], EmbedderConfig | None],
         build_embedder: Callable[[EmbedderConfig], object],
+        *,
+        key_notices: EmbeddingKeyNotices | None = None,
     ):
         self._repo = chunk_repo
         self._index_meta_repo = index_meta_repo
         self._cache = cache
         self._resolve_backend = resolve_backend
         self._build_embedder = build_embedder
+        self._key_notices = key_notices
 
     def __call__(self, payload: dict) -> None:
         note_id = payload["note_id"]
@@ -83,7 +87,11 @@ class EmbedNoteHandler:
             except EmbeddingAuthError as exc:
                 # A rejected key stays rejected: fail the job now instead of burning
                 # every backoff retry. The note stays stale until a manual reindex.
+                if self._key_notices is not None:
+                    self._key_notices.rejected(owner_id, cfg.profile_id)
                 raise PermanentJobError(str(exc)) from exc
+            if self._key_notices is not None:
+                self._key_notices.clear(owner_id, cfg.profile_id)
             new_entries = {hashes[i]: vec for i, vec in zip(miss_idx, miss_vectors, strict=True)}
             self._cache.put_many(new_entries, cfg.backend_id, cfg.model, cfg.dim)
             cached = {**cached, **new_entries}
