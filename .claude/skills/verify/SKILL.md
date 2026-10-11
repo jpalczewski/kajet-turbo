@@ -16,6 +16,7 @@ SCRATCH=$(mktemp -d)
 # Fake OpenAI-compatible embeddings endpoint next to this file: deterministic
 # vectors, ~150ms artificial delay, binds a free port and prints it first.
 python3 .claude/skills/verify/fake_embed.py > $SCRATCH/embed.port &
+EMBED_PID=$!
 until [ -s $SCRATCH/embed.port ]; do sleep 0.1; done
 EMBED_PORT=$(head -1 $SCRATCH/embed.port)
 
@@ -28,13 +29,13 @@ KAJET_ADMIN_EMAIL=admin@test.local KAJET_ADMIN_PASSWORD=verify-pass \
 MCP_BASE_URL=$APP MCP_PORT=$APP_PORT \
 KAJET_WORKER_POLL_INTERVAL=0.25 \
 uv run kajet-turbo > $SCRATCH/app.log 2>&1 &
+APP_PID=$!
 until curl -sf $APP/readyz > /dev/null; do sleep 0.2; done
 ```
 
-Shell state does not persist between Bash calls, so either run the whole
-session in one call or write `APP`, `APP_PORT` and `EMBED_PORT` to
-`$SCRATCH/env` and source it in each call. Kill both background processes
-when done.
+Shell variables, including the random `$SCRATCH` path, do not survive between
+Bash calls. Run launch, the requests below, and cleanup in a single Bash call,
+ending with `kill $APP_PID $EMBED_PID`.
 
 Role `all` runs an in-process worker thread (job queue drains without a
 separate worker process). `KAJET_WORKER_POLL_INTERVAL=0.25` makes deferred

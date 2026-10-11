@@ -2,6 +2,7 @@
 name: scout
 description: Read-only codebase lookup on a cheap model. Use for bounded questions like where something is defined, which callers or tests touch it, or which files a change will need — when only the answer matters, not the file contents.
 disallowedTools: Edit, Write, NotebookEdit, Agent
+permissionMode: plan
 model: haiku
 effort: low
 maxTurns: 12
