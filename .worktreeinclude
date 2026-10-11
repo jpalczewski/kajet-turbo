@@ -1,0 +1,5 @@
+# Gitignored files Claude Code copies into every worktree it creates
+# (--worktree, subagent isolation, parallel desktop sessions).
+# ops/ stays out on purpose: it holds downloaded production logs, which must
+# not be duplicated into short-lived worktrees.
+.env
