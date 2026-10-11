@@ -18,6 +18,7 @@
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import ConfirmDialog from '$lib/components/ui/ConfirmDialog.svelte';
   import { homePath } from '$lib/routes';
+  import { loadKeys } from '$lib/invalidation';
 
   let { data } = $props();
 
@@ -42,7 +43,7 @@
     }
     void timezoneAction.run(async () => {
       await apiUpdatePreferencesApiMePreferencesPatch({ timezone: tz });
-      await invalidate('app:session');
+      await invalidate(loadKeys.session);
     }, 'Nie udało się zapisać strefy czasowej.');
   });
 

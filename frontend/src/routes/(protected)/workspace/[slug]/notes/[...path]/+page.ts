@@ -10,6 +10,7 @@ import type { NoteItem, TagNode } from '$lib/api';
 import { loadApi, loadApiOrNull } from '$lib/api/load';
 import { loginPath, workspacesPath } from '$lib/routes';
 import type { PageLoad } from './$types';
+import { loadKeys } from '$lib/invalidation';
 
 function statusOf(e: unknown): number | undefined {
   return (e as { status?: number } | null)?.status;
@@ -17,7 +18,7 @@ function statusOf(e: unknown): number | undefined {
 
 export const load: PageLoad = async ({ params, url, depends }) => {
   const slug = params.slug;
-  depends('app:workspace-tree');
+  depends(loadKeys.workspaceTree);
 
   const view = url.searchParams.get('view');
   if (view === 'tags') {

@@ -3,6 +3,7 @@
   import { invalidate } from '$app/navigation';
   import { wsConnection } from '$lib/ws/connection.svelte';
   import type { ServerEvent } from '$lib/ws/protocol';
+  import { loadKeys } from '$lib/invalidation';
 
   let { children } = $props();
 
@@ -11,11 +12,11 @@
     return wsConnection.onEvent((event: ServerEvent) => {
       switch (event.type) {
         case 'note_updated':
-          invalidate(`app:note:${event.note_id}`);
-          invalidate('app:workspace-tree');
+          invalidate(loadKeys.note(event.note_id));
+          invalidate(loadKeys.workspaceTree);
           break;
         case 'workspace_changed':
-          invalidate('app:workspace-tree');
+          invalidate(loadKeys.workspaceTree);
           break;
       }
     });

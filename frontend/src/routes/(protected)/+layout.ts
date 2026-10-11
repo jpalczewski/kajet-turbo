@@ -4,9 +4,10 @@ import type { WorkspaceInfo } from '$lib/api';
 import { loadApiOrNull } from '$lib/api/load';
 import { loginPath } from '$lib/routes';
 import type { LayoutLoad } from './$types';
+import { loadKeys } from '$lib/invalidation';
 
 export const load: LayoutLoad = async ({ parent, depends }) => {
-  depends('app:workspaces');
+  depends(loadKeys.workspaces);
   const [{ session }, list] = await Promise.all([
     parent(),
     loadApiOrNull(apiListWorkspacesApiWorkspacesGet()),

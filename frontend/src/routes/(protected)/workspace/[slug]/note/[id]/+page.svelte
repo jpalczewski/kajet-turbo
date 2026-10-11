@@ -9,6 +9,7 @@
   import { processHeadings } from '$lib/outline';
   import { notesPath } from '$lib/routes';
   import { DEFAULT_DATE_PREFS, formatDate } from '$lib/utils/format';
+  import { loadKeys } from '$lib/invalidation';
 
   const slug = $derived(page.params.slug as string);
   const note = $derived(page.data.note);
@@ -20,7 +21,7 @@
   const processed = $derived(processHeadings(note.content_html));
 
   async function handleMove() {
-    await invalidate('app:workspace-tree');
+    await invalidate(loadKeys.workspaceTree);
     await invalidateAll();
   }
 

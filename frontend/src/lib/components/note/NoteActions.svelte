@@ -7,6 +7,7 @@
   import ShareDialog from '$lib/components/ShareDialog.svelte';
   import { noteChunksPath, noteEditPath, noteHistoryPath, notePath } from '$lib/routes';
   import type { DateFormatPrefs } from '$lib/utils/format';
+  import { loadKeys } from '$lib/invalidation';
 
   let {
     slug,
@@ -36,7 +37,7 @@
         cause: e,
       });
     }
-    await invalidate('app:workspace-tree');
+    await invalidate(loadKeys.workspaceTree);
     ondeleted();
   }
 </script>

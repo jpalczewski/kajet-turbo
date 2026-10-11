@@ -9,6 +9,7 @@
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import CreateWorkspaceForm from './CreateWorkspaceForm.svelte';
   import WorkspaceRemote from './WorkspaceRemote.svelte';
+  import { loadKeys } from '$lib/invalidation';
 
   const datePrefs = $derived(page.data.session?.preferences ?? DEFAULT_DATE_PREFS);
   let workspaces = $derived(page.data.workspaces ?? []);
@@ -49,7 +50,7 @@
         tags,
       });
       editing[name] = false;
-      await invalidate('app:workspaces');
+      await invalidate(loadKeys.workspaces);
     } catch (e) {
       editError[name] = apiErrorMessage(e, 'Save failed.');
     } finally {

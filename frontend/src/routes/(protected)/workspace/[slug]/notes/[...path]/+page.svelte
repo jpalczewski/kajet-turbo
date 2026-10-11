@@ -21,6 +21,7 @@
   import NotePreview from './NotePreview.svelte';
   import MobileFolderNav from './MobileFolderNav.svelte';
   import WorkspaceGraphLink from '$lib/components/WorkspaceGraphLink.svelte';
+  import { loadKeys } from '$lib/invalidation';
 
   let { data } = $props();
   let slug = $derived(data.slug);
@@ -33,7 +34,7 @@
     } catch (e) {
       throw new Error(apiErrorMessage(e, 'Nie udało się utworzyć folderu'), { cause: e });
     }
-    await invalidate('app:workspace-tree');
+    await invalidate(loadKeys.workspaceTree);
     goto(notesPath(slug, path));
   }
 
@@ -49,13 +50,13 @@
     } catch (e) {
       throw new Error(apiErrorMessage(e, 'Nie udało się utworzyć notatki'), { cause: e });
     }
-    await invalidate('app:workspace-tree');
+    await invalidate(loadKeys.workspaceTree);
     goto(noteEditPath(slug, noteId));
   }
 
   async function handleMoveNote(folder: string): Promise<void> {
     if (!data.noteId) return;
-    await invalidate('app:workspace-tree');
+    await invalidate(loadKeys.workspaceTree);
     goto(noteInTreePath(slug, folder, data.noteId));
   }
 

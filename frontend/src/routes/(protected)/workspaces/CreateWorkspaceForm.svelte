@@ -2,6 +2,7 @@
   import { invalidate } from '$app/navigation';
   import { apiCreateWorkspaceApiWorkspacesPost } from '$lib/api';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
+  import { loadKeys } from '$lib/invalidation';
 
   let name = $state('');
   let description = $state('');
@@ -18,7 +19,7 @@
       });
       name = '';
       description = '';
-      await invalidate('app:workspaces');
+      await invalidate(loadKeys.workspaces);
     }, 'Błąd sieci. Spróbuj ponownie.');
   }
 </script>

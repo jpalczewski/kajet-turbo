@@ -10,6 +10,7 @@
   import TagEditor from '$lib/components/TagEditor.svelte';
   import { notePath, notesPath } from '$lib/routes';
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
+  import { loadKeys } from '$lib/invalidation';
 
   let { data } = $props();
   let note = $derived(data.note);
@@ -34,7 +35,7 @@
         tags,
         expected_sha: note.sha,
       });
-      await invalidate('app:workspace-tree');
+      await invalidate(loadKeys.workspaceTree);
       goto(notePath(slug, note.note_id));
     }, 'Nie udało się zapisać');
   }
@@ -47,7 +48,7 @@
         cause: e,
       });
     }
-    await invalidate('app:workspace-tree');
+    await invalidate(loadKeys.workspaceTree);
     goto(notesPath(slug, note.folder ?? ''));
   }
 

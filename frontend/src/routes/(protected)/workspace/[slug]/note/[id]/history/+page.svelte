@@ -11,6 +11,7 @@
   import { useAsyncAction } from '$lib/utils/async-action.svelte';
   import { DEFAULT_DATE_PREFS } from '$lib/utils/format';
   import VersionList from './VersionList.svelte';
+  import { loadKeys } from '$lib/invalidation';
 
   const slug = $derived(page.params.slug as string);
   const noteId = $derived(page.params.id as string);
@@ -45,7 +46,7 @@
         noteId,
         sha,
       );
-      await invalidate('app:workspace-tree');
+      await invalidate(loadKeys.workspaceTree);
       goto(notePath(slug, noteId));
     }, 'Nie udało się przywrócić wersji');
   }
