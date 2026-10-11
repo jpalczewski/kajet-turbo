@@ -241,3 +241,31 @@ class TestEmbeddingKeyNotices:
         (failed,) = entries_named(read_log_entries(capsys), "notice_update_failed")
         assert failed["kind"] == "embedding_auth"
         assert _rows(database) == []
+
+
+def test_kind_without_registered_payload_is_skipped(database, monkeypatch):
+    from kajet_turbo.services import notices as notices_module
+
+    svc = build_notice_service(database)
+    svc.raise_("u1", P1)
+    monkeypatch.setattr(notices_module, "_PAYLOADS", {})
+
+    assert svc.list_active("u1") == []
+
+
+def test_clear_with_unkeyable_profile_id_is_silent(database, capsys):
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    notices = EmbeddingKeyNotices(build_notice_service(database))
+    capsys.readouterr()
+
+    notices.clear("u1", "not a real id")
+
+    assert entries_named(read_log_entries(capsys), "notice_update_failed") == []
+
+
+def test_disabled_producer_is_a_no_op(database):
+    EmbeddingKeyNotices.disabled().rejected("u1", "p1")
+
+    assert _rows(database) == []

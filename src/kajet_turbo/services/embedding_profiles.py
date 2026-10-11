@@ -39,7 +39,7 @@ class EmbeddingProfileService:
         self._repo = repo
         self._cipher_factory = cipher_factory  # lazy: SECRET_KEY only needed when sealing a key
         self._probe = probe_dim
-        self._key_notices = key_notices
+        self._key_notices = key_notices or EmbeddingKeyNotices.disabled()
 
     @staticmethod
     def _view(p) -> dict:
@@ -100,7 +100,7 @@ class EmbeddingProfileService:
         # Only a new key was actually probed: with api_key omitted the probe ran keyless,
         # which says nothing about the stored key a notice may be about.
         if api_key:
-            self._clear_key_notice(user_id, profile_id)
+            self._key_notices.clear(user_id, profile_id)
         return self._view(self._repo.get(user_id, profile_id))
 
     def activate_profile(self, user_id: str, profile_id: str) -> None:
@@ -109,11 +109,7 @@ class EmbeddingProfileService:
     def delete_profile(self, user_id: str, profile_id: str) -> None:
         self._repo.delete(user_id, profile_id)
         # Nothing can ever resolve a notice about a profile that no longer exists.
-        self._clear_key_notice(user_id, profile_id)
-
-    def _clear_key_notice(self, user_id: str, profile_id: str) -> None:
-        if self._key_notices is not None:
-            self._key_notices.clear(user_id, profile_id)
+        self._key_notices.clear(user_id, profile_id)
 
     def _probe_dim(self, base_url: str, model: str, api_key: str | None) -> int:
         try:

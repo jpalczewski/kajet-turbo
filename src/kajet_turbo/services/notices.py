@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
 from sqlmodel import Session
 
 from kajet_turbo.log import logger
@@ -165,7 +165,7 @@ class NoticeService:
         try:
             kind = NoticeKind(row.kind)
             payload = _PAYLOADS[kind].model_validate(json.loads(row.payload))
-        except ValueError as e:
+        except (ValueError, KeyError) as e:
             # A kind retired after its rows were written. Skip it rather than fail the
             # whole listing, which every transport sits on.
             logger.warning(
@@ -189,14 +189,22 @@ class EmbeddingKeyNotices:
     profile management. Best-effort by contract: recording a notice must never fail the
     search or embed it rides on, so errors are logged and swallowed here, once."""
 
-    def __init__(self, notices: NoticeService):
+    def __init__(self, notices: NoticeService | None):
         self._notices = notices
 
+    @classmethod
+    def disabled(cls) -> EmbeddingKeyNotices:
+        """A no-op producer, the default for collaborators built without notices (tests,
+        tools), so call sites never need a None check."""
+        return cls(None)
+
     def rejected(self, user_id: str, profile_id: str | None) -> None:
-        self._apply(self._notices.raise_, user_id, profile_id)
+        if self._notices is not None:
+            self._apply(self._notices.raise_, user_id, profile_id)
 
     def clear(self, user_id: str, profile_id: str | None) -> None:
-        self._apply(self._notices.resolve, user_id, profile_id)
+        if self._notices is not None:
+            self._apply(self._notices.resolve, user_id, profile_id)
 
     @staticmethod
     def _apply(
@@ -207,7 +215,13 @@ class EmbeddingKeyNotices:
         if profile_id is None:
             return
         try:
-            action(user_id, EmbeddingAuthNotice(profile_id=profile_id))
+            payload = EmbeddingAuthNotice(profile_id=profile_id)
+        except ValidationError:
+            # Stored profile ids are nanoids, so this is a caller-supplied id (e.g. a
+            # DELETE for a profile that never existed): no notice can be keyed on it.
+            return
+        try:
+            action(user_id, payload)
         except Exception as e:
             logger.opt(exception=e).warning(
                 "notice_update_failed", kind=NoticeKind.EMBEDDING_AUTH, user_id=user_id

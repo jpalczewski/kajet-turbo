@@ -86,7 +86,7 @@ class NoteSearchService:
         self._query_cache = query_cache
         self._crud_repo = crud_repo
         self._tag_repo = tag_repo
-        self._key_notices = key_notices
+        self._key_notices = key_notices or EmbeddingKeyNotices.disabled()
 
     async def search_async(
         self,
@@ -112,7 +112,7 @@ class NoteSearchService:
                     vector = QueryVector.embedded(embedding, cfg)
                 except Exception as e:
                     vector = self._embed_failed(cfg, e)
-                    if isinstance(e, EmbeddingAuthError) and self._key_notices is not None:
+                    if isinstance(e, EmbeddingAuthError):
                         await run_sync(self._key_notices.rejected, owner_id, cfg.profile_id)
             case _:
                 vector = prepared
@@ -241,8 +241,7 @@ class NoteSearchService:
         vec = await embedder.embed_query(query)
         # Only a live round trip proves the key works; a cache hit above proves nothing,
         # which is why this sits after the cache, not after _embed_query returns.
-        if self._key_notices is not None:
-            await run_sync(self._key_notices.clear, owner_id, cfg.profile_id)
+        await run_sync(self._key_notices.clear, owner_id, cfg.profile_id)
         if self._query_cache is not None:
             self._query_cache.put(query, cfg.backend_id, cfg.model, vec)
         return vec

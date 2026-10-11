@@ -44,7 +44,7 @@ class EmbedNoteHandler:
         self._cache = cache
         self._resolve_backend = resolve_backend
         self._build_embedder = build_embedder
-        self._key_notices = key_notices
+        self._key_notices = key_notices or EmbeddingKeyNotices.disabled()
 
     def __call__(self, payload: dict) -> None:
         note_id = payload["note_id"]
@@ -87,11 +87,9 @@ class EmbedNoteHandler:
             except EmbeddingAuthError as exc:
                 # A rejected key stays rejected: fail the job now instead of burning
                 # every backoff retry. The note stays stale until a manual reindex.
-                if self._key_notices is not None:
-                    self._key_notices.rejected(owner_id, cfg.profile_id)
+                self._key_notices.rejected(owner_id, cfg.profile_id)
                 raise PermanentJobError(str(exc)) from exc
-            if self._key_notices is not None:
-                self._key_notices.clear(owner_id, cfg.profile_id)
+            self._key_notices.clear(owner_id, cfg.profile_id)
             new_entries = {hashes[i]: vec for i, vec in zip(miss_idx, miss_vectors, strict=True)}
             self._cache.put_many(new_entries, cfg.backend_id, cfg.model, cfg.dim)
             cached = {**cached, **new_entries}
