@@ -4,6 +4,7 @@ import pytest
 from kajet_turbo.embedding.base import EmbedderConfig, EmbeddingAuthError, EmbeddingRequestRejected
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository
 from kajet_turbo.embedding.identity import IndexIdentity
+from kajet_turbo.embedding.retry import QueryEmbedPolicy, RetryingQueryEmbedder
 from kajet_turbo.repositories.jobs import JobRepository
 from kajet_turbo.repositories.notes import NoteChunkRepository
 from kajet_turbo.services.indexing import NoteIndexer
@@ -591,3 +592,47 @@ async def test_search_transient_failure_raises_no_notice(database):
 
     assert outcome.degraded_reason == "unavailable"
     assert notices.list_active("u1") == []
+
+
+async def test_search_degrades_to_fts_after_retried_timeouts_for_a_comma_query(
+    database, git_workspace_factory, capsys
+):
+    """Both bounded attempts time out: search still answers from FTS, including for the
+    comma-bearing prose queries that once broke the FTS leg (#35)."""
+    from kajet_turbo.log import setup_logging
+
+    setup_logging()
+    chunk_repo = NoteChunkRepository(database.engine)
+    svc, _, emb = _async_service(database, chunk_repo)
+
+    async def timing_out(text):
+        emb.calls += 1
+        raise httpx2.ReadTimeout("read timed out")
+
+    async def no_backoff(_):
+        pass
+
+    emb.embed_query = timing_out  # type: ignore[method-assign]
+    search_svc = build_note_search_service(
+        database,
+        query_resolver=lambda o: _CFG,
+        build_embedder=lambda c: RetryingQueryEmbedder(
+            emb, c.backend_id, QueryEmbedPolicy(deadline_s=0.05), sleep=no_backoff
+        ),
+        chunk_repo=chunk_repo,
+    )
+    ws = git_workspace_factory("ws")
+    saved = svc.save(
+        workspace_target("u1", "ws", ws), "Trip", "# Trip\n\napples, pears and plums\n", tags=[]
+    )
+    capsys.readouterr()
+
+    outcome = await search_svc.search_async("apples, pears", ["ws"], owner_id="u1")
+
+    assert emb.calls == 2
+    assert outcome.search_mode == "keyword_only"
+    assert outcome.degraded_reason == "unavailable"
+    assert [hit.note_id for hit in outcome.results] == [saved["note_id"]]
+    (failed,) = entries_named(read_log_entries(capsys), "search_embed_failed")
+    assert failed["attempts"] == 2
+    assert failed["error"] == "ReadTimeout"

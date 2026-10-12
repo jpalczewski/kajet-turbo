@@ -27,6 +27,7 @@ from kajet_turbo.embedding.base import EmbedderConfig
 from kajet_turbo.embedding.cache import EmbeddingCacheRepository, QueryEmbeddingCache
 from kajet_turbo.embedding.client import SharedEmbedderClient
 from kajet_turbo.embedding.resolver import ProfileResolver
+from kajet_turbo.embedding.retry import RetryingQueryEmbedder
 from kajet_turbo.errors import AuthError, NoteError, SecurityEvent, SecurityReason
 from kajet_turbo.log import client_ip_fields, log_permission_denied, log_security_event
 from kajet_turbo.metrics import Metrics, build_metrics
@@ -330,7 +331,9 @@ def build_resources(config: AppConfig) -> AppResources:
         note_search_service = NoteSearchService(
             note_chunk_repo,
             profile_resolver.resolve_backend,
-            lambda cfg: build_embedder(cfg, shared_embed_client.get()),
+            lambda cfg: RetryingQueryEmbedder(
+                build_embedder(cfg, shared_embed_client.get()), cfg.backend_id
+            ),
             QueryEmbeddingCache(),
             note_repo,
             note_tag_repo,
