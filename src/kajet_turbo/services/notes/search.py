@@ -10,6 +10,7 @@ from kajet_turbo.embedding.base import (
 )
 from kajet_turbo.embedding.cache import QueryEmbeddingCache, pack_vector
 from kajet_turbo.embedding.identity import IndexIdentity
+from kajet_turbo.embedding.retry import EmbeddingUnavailable
 from kajet_turbo.log import logger
 from kajet_turbo.repositories.notes import (
     ChunkHit,
@@ -141,9 +142,20 @@ class NoteSearchService:
                     status_code=exc.status_code,
                     degraded_to="fts",
                 )
+            case EmbeddingUnavailable():
+                logger.opt(exception=exc).warning(
+                    "search_embed_failed",
+                    backend=cfg.backend_id,
+                    degraded_reason=reason,
+                    attempts=exc.attempts,
+                    error=type(exc.__cause__).__name__,
+                )
             case _:
                 logger.opt(exception=exc).warning(
-                    "search_embed_failed", backend=cfg.backend_id, degraded_reason=reason
+                    "search_embed_failed",
+                    backend=cfg.backend_id,
+                    degraded_reason=reason,
+                    error=type(exc).__name__,
                 )
         return QueryVector(degraded_reason=reason)
 

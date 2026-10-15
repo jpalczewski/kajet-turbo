@@ -9,15 +9,21 @@ loop-affinity problem; creation is lock-guarded anyway for 3.14t free threading.
 The worker/indexing path keeps using ``_PooledEmbedder`` (fresh client per call):
 it runs in per-call ``asyncio.run`` loops where a shared client cannot live, and
 background latency doesn't matter there.
+
+Because this client serves only interactive search, its phase timeouts are tight
+backstops; the per-attempt wall-clock deadline lives in ``RetryingQueryEmbedder``.
 """
 
 import threading
 
 import httpx2
 
+# Backstops under the query deadline: no single phase may outlive it.
+QUERY_TIMEOUT = httpx2.Timeout(connect=1.0, read=2.0, write=1.0, pool=0.5)
+
 
 class SharedEmbedderClient:
-    def __init__(self, timeout: float = 30.0):
+    def __init__(self, timeout: httpx2.Timeout = QUERY_TIMEOUT):
         self._timeout = timeout
         self._client: httpx2.AsyncClient | None = None
         self._lock = threading.Lock()
