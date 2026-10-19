@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM oven/bun:1.4.0@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS frontend-deps
+FROM oven/bun:1.4.3@sha256:ec06c3b6cea04192ae6770c434f668ca41d343ad19fa6472216c7b48be39c598 AS frontend-deps
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/bun.lock ./
 RUN bun ci
@@ -12,7 +12,7 @@ RUN bun run build
 # Build stage: owns uv, the interpreter download and the venv. Nothing from it reaches
 # the runtime image except /python and /app/.venv, so the uv binary, its caches and the
 # build toolchain never ship.
-FROM ghcr.io/astral-sh/uv:0.12.7-trixie-slim@sha256:92d38da241c7962f8f863e288cc1c39795b79b6553245f623a82db6be95bdae0 AS app-build
+FROM ghcr.io/astral-sh/uv:0.13.1-trixie-slim@sha256:2a4b12b30aa1a0f1d1f420ad3f4ac27716d5c2962302ac8a7af67ac3287bf36c AS app-build
 
 WORKDIR /app
 
