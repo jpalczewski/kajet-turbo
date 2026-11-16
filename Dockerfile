@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM oven/bun:1.4.0@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS frontend-deps
+FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d AS frontend-deps
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/bun.lock ./
 RUN bun ci
@@ -12,7 +12,7 @@ RUN bun run build
 # Build stage: owns uv, the interpreter download and the venv. Nothing from it reaches
 # the runtime image except /python and /app/.venv, so the uv binary, its caches and the
 # build toolchain never ship.
-FROM ghcr.io/astral-sh/uv:0.12.7-trixie-slim@sha256:92d38da241c7962f8f863e288cc1c39795b79b6553245f623a82db6be95bdae0 AS app-build
+FROM ghcr.io/astral-sh/uv:0.13.8-trixie-slim@sha256:2e5596835973a75bed0d37a980625b5089e87ffbd1026f11012ca0fe254ccac5 AS app-build
 
 WORKDIR /app
 
@@ -93,7 +93,7 @@ EXPOSE 8000
 
 CMD ["/app/entrypoint.sh"]
 
-FROM caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f AS ingress
+FROM caddy:2.11.8-alpine@sha256:f6228111e5fafa1a5238258d0858e103f10599b8d1659a146e7726681a002bb9 AS ingress
 LABEL org.opencontainers.image.source="https://github.com/jpalczewski/kajet-turbo"
 # See OS_PKG_CACHE_BUST above (app-deps stage) — same cached-forever problem applies here.
 ARG OS_PKG_CACHE_BUST=0
